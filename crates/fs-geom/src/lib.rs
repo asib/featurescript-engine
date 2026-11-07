@@ -9,6 +9,7 @@ pub mod model;
 pub mod ops;
 pub mod query;
 pub mod sketch;
+pub mod unmodelled;
 pub mod values;
 
 use fs_interp::Engine;
@@ -31,6 +32,7 @@ pub fn install(interp: &mut Interp) {
     sketch::register(&mut builtins);
     ops::register(&mut builtins);
     evaluate::register(&mut builtins);
+    unmodelled::register(&mut builtins);
     interp.builtins.extend(builtins);
 }
 
