@@ -1,2 +1,5 @@
 # Onshape's standard library, copied unchanged; see std/NOTICE.md
 std/** linguist-vendored
+
+# Onshape-exported STEP fixtures: large generated text
+fixtures/**/*.step linguist-generated -diff
