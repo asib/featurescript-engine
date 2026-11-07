@@ -7,6 +7,7 @@ mod containers;
 mod context;
 mod math;
 mod matrix;
+mod regex;
 mod strings;
 
 use crate::eval::{Interp, R, error};
@@ -29,6 +30,7 @@ pub fn registry() -> HashMap<&'static str, BuiltinFn> {
     strings::register(&mut map);
     matrix::register(&mut map);
     context::register(&mut map);
+    regex::register(&mut map);
     map
 }
 
