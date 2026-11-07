@@ -1,0 +1,1068 @@
+{
+  "batch": "001",
+  "seed": 20261107,
+  "stdVersion": "3112.0",
+  "slotSpacingMeters": 0.4,
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "rect-blind",
+      "description": "rectangle on the yz plane, blind 44.5 mm",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "rect-blind",
+      "description": "rectangle on the yz plane, blind 19.49 mm",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "rect-blind",
+      "description": "rectangle on the yz plane, blind 19.5 mm",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "rect-blind",
+      "description": "rectangle on the xz plane, blind 23.29 mm",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "rect-blind",
+      "description": "rectangle on the tilted plane, blind 12.52 mm",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "rect-blind",
+      "description": "rectangle on the xy plane, blind 24.91 mm",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "rect-blind",
+      "description": "rectangle on the xy plane, blind 33.82 mm",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c008",
+      "kind": "rect-blind",
+      "description": "rectangle on the xz plane, blind 23.94 mm",
+      "slotMeters": [
+        2.8000000000000003,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c009",
+      "kind": "rect-blind",
+      "description": "rectangle on the xy plane, blind 52.9 mm",
+      "slotMeters": [
+        3.2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c010",
+      "kind": "rect-blind",
+      "description": "rectangle on the yz plane, blind 4.64 mm",
+      "slotMeters": [
+        3.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c011",
+      "kind": "rect-blind",
+      "description": "rectangle on the tilted plane, blind 46.12 mm",
+      "slotMeters": [
+        0,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c012",
+      "kind": "rect-blind",
+      "description": "rectangle on the xz plane, blind 37.13 mm",
+      "slotMeters": [
+        0.4,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c013",
+      "kind": "circle-blind",
+      "description": "circle r 23.16 on the xy plane, blind 28.49 mm",
+      "slotMeters": [
+        0.8,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c014",
+      "kind": "circle-blind",
+      "description": "circle r 17.94 on the xz plane, blind 12.59 mm",
+      "slotMeters": [
+        1.2000000000000002,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c015",
+      "kind": "circle-blind",
+      "description": "circle r 26.21 on the yz plane, blind 16.79 mm",
+      "slotMeters": [
+        1.6,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c016",
+      "kind": "circle-blind",
+      "description": "circle r 22.54 on the tilted plane, blind 1.44 mm",
+      "slotMeters": [
+        2,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c017",
+      "kind": "circle-blind",
+      "description": "circle r 13.55 on the tilted plane, blind 49.75 mm",
+      "slotMeters": [
+        2.4000000000000004,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c018",
+      "kind": "circle-blind",
+      "description": "circle r 39.02 on the yz plane, blind 12.62 mm",
+      "slotMeters": [
+        2.8000000000000003,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c019",
+      "kind": "circle-blind",
+      "description": "circle r 39.27 on the yz plane, blind 24.63 mm",
+      "slotMeters": [
+        3.2,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c020",
+      "kind": "circle-blind",
+      "description": "circle r 13.35 on the yz plane, blind 14.97 mm",
+      "slotMeters": [
+        3.6,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c021",
+      "kind": "circle-blind",
+      "description": "circle r 7.88 on the xy plane, blind 44.69 mm",
+      "slotMeters": [
+        0,
+        0.8,
+        0
+      ]
+    },
+    {
+      "name": "c022",
+      "kind": "circle-blind",
+      "description": "circle r 37.01 on the yz plane, blind 3.03 mm",
+      "slotMeters": [
+        0.4,
+        0.8,
+        0
+      ]
+    },
+    {
+      "name": "c023",
+      "kind": "polygon-blind",
+      "description": "7-sided star-shaped polygon, blind 28.05 mm",
+      "slotMeters": [
+        0.8,
+        0.8,
+        0
+      ]
+    },
+    {
+      "name": "c024",
+      "kind": "polygon-blind",
+      "description": "5-sided star-shaped polygon, blind 19.64 mm",
+      "slotMeters": [
+        1.2000000000000002,
+        0.8,
+        0
+      ]
+    },
+    {
+      "name": "c025",
+      "kind": "polygon-blind",
+      "description": "3-sided star-shaped polygon, blind 24.15 mm",
+      "slotMeters": [
+        1.6,
+        0.8,
+        0
+      ]
+    },
+    {
+      "name": "c026",
+      "kind": "polygon-blind",
+      "description": "4-sided star-shaped polygon, blind 22.96 mm",
+      "slotMeters": [
+        2,
+        0.8,
+        0
+      ]
+    },
+    {
+      "name": "c027",
+      "kind": "polygon-blind",
+      "description": "5-sided star-shaped polygon, blind 27.1 mm",
+      "slotMeters": [
+        2.4000000000000004,
+        0.8,
+        0
+      ]
+    },
+    {
+      "name": "c028",
+      "kind": "polygon-blind",
+      "description": "8-sided star-shaped polygon, blind 33.53 mm",
+      "slotMeters": [
+        2.8000000000000003,
+        0.8,
+        0
+      ]
+    },
+    {
+      "name": "c029",
+      "kind": "polygon-blind",
+      "description": "5-sided star-shaped polygon, blind 27.37 mm",
+      "slotMeters": [
+        3.2,
+        0.8,
+        0
+      ]
+    },
+    {
+      "name": "c030",
+      "kind": "polygon-blind",
+      "description": "5-sided star-shaped polygon, blind 23.84 mm",
+      "slotMeters": [
+        3.6,
+        0.8,
+        0
+      ]
+    },
+    {
+      "name": "c031",
+      "kind": "polygon-blind",
+      "description": "7-sided star-shaped polygon, blind 41.47 mm",
+      "slotMeters": [
+        0,
+        1.2000000000000002,
+        0
+      ]
+    },
+    {
+      "name": "c032",
+      "kind": "polygon-blind",
+      "description": "7-sided star-shaped polygon, blind 8.03 mm",
+      "slotMeters": [
+        0.4,
+        1.2000000000000002,
+        0
+      ]
+    },
+    {
+      "name": "c033",
+      "kind": "slot-blind",
+      "description": "slot 46.76 x 22.13 made of lines and arcs, blind 39.27 mm",
+      "slotMeters": [
+        0.8,
+        1.2000000000000002,
+        0
+      ]
+    },
+    {
+      "name": "c034",
+      "kind": "slot-blind",
+      "description": "slot 34.23 x 20.05 made of lines and arcs, blind 39.87 mm",
+      "slotMeters": [
+        1.2000000000000002,
+        1.2000000000000002,
+        0
+      ]
+    },
+    {
+      "name": "c035",
+      "kind": "slot-blind",
+      "description": "slot 17.88 x 15.78 made of lines and arcs, blind 18.52 mm",
+      "slotMeters": [
+        1.6,
+        1.2000000000000002,
+        0
+      ]
+    },
+    {
+      "name": "c036",
+      "kind": "slot-blind",
+      "description": "slot 32.89 x 26.04 made of lines and arcs, blind 14.54 mm",
+      "slotMeters": [
+        2,
+        1.2000000000000002,
+        0
+      ]
+    },
+    {
+      "name": "c037",
+      "kind": "slot-blind",
+      "description": "slot 12.61 x 15.17 made of lines and arcs, blind 8.25 mm",
+      "slotMeters": [
+        2.4000000000000004,
+        1.2000000000000002,
+        0
+      ]
+    },
+    {
+      "name": "c038",
+      "kind": "slot-blind",
+      "description": "slot 51.47 x 15.73 made of lines and arcs, blind 13.98 mm",
+      "slotMeters": [
+        2.8000000000000003,
+        1.2000000000000002,
+        0
+      ]
+    },
+    {
+      "name": "c039",
+      "kind": "slot-blind",
+      "description": "slot 55.05 x 7.91 made of lines and arcs, blind 33.95 mm",
+      "slotMeters": [
+        3.2,
+        1.2000000000000002,
+        0
+      ]
+    },
+    {
+      "name": "c040",
+      "kind": "slot-blind",
+      "description": "slot 40.83 x 4.88 made of lines and arcs, blind 38.36 mm",
+      "slotMeters": [
+        3.6,
+        1.2000000000000002,
+        0
+      ]
+    },
+    {
+      "name": "c041",
+      "kind": "plate-with-hole",
+      "description": "rectangle with a circular hole; only the outer region (filterInnerLoops) is extruded",
+      "slotMeters": [
+        0,
+        1.6,
+        0
+      ]
+    },
+    {
+      "name": "c042",
+      "kind": "plate-with-hole",
+      "description": "rectangle with a circular hole; only the outer region (filterInnerLoops) is extruded",
+      "slotMeters": [
+        0.4,
+        1.6,
+        0
+      ]
+    },
+    {
+      "name": "c043",
+      "kind": "plate-with-hole",
+      "description": "rectangle with a circular hole; only the outer region (filterInnerLoops) is extruded",
+      "slotMeters": [
+        0.8,
+        1.6,
+        0
+      ]
+    },
+    {
+      "name": "c044",
+      "kind": "plate-with-hole",
+      "description": "rectangle with a circular hole; only the outer region (filterInnerLoops) is extruded",
+      "slotMeters": [
+        1.2000000000000002,
+        1.6,
+        0
+      ]
+    },
+    {
+      "name": "c045",
+      "kind": "plate-with-hole",
+      "description": "rectangle with a circular hole; only the outer region (filterInnerLoops) is extruded",
+      "slotMeters": [
+        1.6,
+        1.6,
+        0
+      ]
+    },
+    {
+      "name": "c046",
+      "kind": "plate-with-hole",
+      "description": "rectangle with a circular hole; only the outer region (filterInnerLoops) is extruded",
+      "slotMeters": [
+        2,
+        1.6,
+        0
+      ]
+    },
+    {
+      "name": "c047",
+      "kind": "plate-with-hole",
+      "description": "rectangle with a circular hole; only the outer region (filterInnerLoops) is extruded",
+      "slotMeters": [
+        2.4000000000000004,
+        1.6,
+        0
+      ]
+    },
+    {
+      "name": "c048",
+      "kind": "plate-with-hole",
+      "description": "rectangle with a circular hole; only the outer region (filterInnerLoops) is extruded",
+      "slotMeters": [
+        2.8000000000000003,
+        1.6,
+        0
+      ]
+    },
+    {
+      "name": "c049",
+      "kind": "overlapping-regions",
+      "description": "two overlapping circles (three regions); every region is extruded",
+      "slotMeters": [
+        3.2,
+        1.6,
+        0
+      ]
+    },
+    {
+      "name": "c050",
+      "kind": "overlapping-regions",
+      "description": "two overlapping circles (three regions); every region is extruded",
+      "slotMeters": [
+        3.6,
+        1.6,
+        0
+      ]
+    },
+    {
+      "name": "c051",
+      "kind": "overlapping-regions",
+      "description": "two overlapping circles (three regions); every region is extruded",
+      "slotMeters": [
+        0,
+        2,
+        0
+      ]
+    },
+    {
+      "name": "c052",
+      "kind": "overlapping-regions",
+      "description": "two overlapping circles (three regions); every region is extruded",
+      "slotMeters": [
+        0.4,
+        2,
+        0
+      ]
+    },
+    {
+      "name": "c053",
+      "kind": "overlapping-regions",
+      "description": "two overlapping circles (three regions); every region is extruded",
+      "slotMeters": [
+        0.8,
+        2,
+        0
+      ]
+    },
+    {
+      "name": "c054",
+      "kind": "symmetric",
+      "description": "circle extruded symmetrically, total 42.16 mm",
+      "slotMeters": [
+        1.2000000000000002,
+        2,
+        0
+      ]
+    },
+    {
+      "name": "c055",
+      "kind": "symmetric",
+      "description": "circle extruded symmetrically, total 5.08 mm",
+      "slotMeters": [
+        1.6,
+        2,
+        0
+      ]
+    },
+    {
+      "name": "c056",
+      "kind": "symmetric",
+      "description": "rectangle extruded symmetrically, total 51.45 mm",
+      "slotMeters": [
+        2,
+        2,
+        0
+      ]
+    },
+    {
+      "name": "c057",
+      "kind": "symmetric",
+      "description": "rectangle extruded symmetrically, total 24.77 mm",
+      "slotMeters": [
+        2.4000000000000004,
+        2,
+        0
+      ]
+    },
+    {
+      "name": "c058",
+      "kind": "symmetric",
+      "description": "circle extruded symmetrically, total 32.95 mm",
+      "slotMeters": [
+        2.8000000000000003,
+        2,
+        0
+      ]
+    },
+    {
+      "name": "c059",
+      "kind": "symmetric",
+      "description": "rectangle extruded symmetrically, total 25.53 mm",
+      "slotMeters": [
+        3.2,
+        2,
+        0
+      ]
+    },
+    {
+      "name": "c060",
+      "kind": "symmetric",
+      "description": "circle extruded symmetrically, total 39.61 mm",
+      "slotMeters": [
+        3.6,
+        2,
+        0
+      ]
+    },
+    {
+      "name": "c061",
+      "kind": "symmetric",
+      "description": "rectangle extruded symmetrically, total 34.23 mm",
+      "slotMeters": [
+        0,
+        2.4000000000000004,
+        0
+      ]
+    },
+    {
+      "name": "c062",
+      "kind": "second-direction",
+      "description": "rectangle, 4.75 mm one way and 18.27 mm the other",
+      "slotMeters": [
+        0.4,
+        2.4000000000000004,
+        0
+      ]
+    },
+    {
+      "name": "c063",
+      "kind": "second-direction",
+      "description": "rectangle, 12.85 mm one way and 8.66 mm the other",
+      "slotMeters": [
+        0.8,
+        2.4000000000000004,
+        0
+      ]
+    },
+    {
+      "name": "c064",
+      "kind": "second-direction",
+      "description": "rectangle, 7.6 mm one way and 13.54 mm the other",
+      "slotMeters": [
+        1.2000000000000002,
+        2.4000000000000004,
+        0
+      ]
+    },
+    {
+      "name": "c065",
+      "kind": "second-direction",
+      "description": "rectangle, 15.09 mm one way and 30.7 mm the other, first direction flipped",
+      "slotMeters": [
+        1.6,
+        2.4000000000000004,
+        0
+      ]
+    },
+    {
+      "name": "c066",
+      "kind": "second-direction",
+      "description": "rectangle, 19.02 mm one way and 6.59 mm the other",
+      "slotMeters": [
+        2,
+        2.4000000000000004,
+        0
+      ]
+    },
+    {
+      "name": "c067",
+      "kind": "second-direction",
+      "description": "rectangle, 18.46 mm one way and 7.48 mm the other",
+      "slotMeters": [
+        2.4000000000000004,
+        2.4000000000000004,
+        0
+      ]
+    },
+    {
+      "name": "c068",
+      "kind": "second-direction",
+      "description": "rectangle, 9.92 mm one way and 21.03 mm the other",
+      "slotMeters": [
+        2.8000000000000003,
+        2.4000000000000004,
+        0
+      ]
+    },
+    {
+      "name": "c069",
+      "kind": "second-direction",
+      "description": "rectangle, 7.15 mm one way and 34.88 mm the other, first direction flipped",
+      "slotMeters": [
+        3.2,
+        2.4000000000000004,
+        0
+      ]
+    },
+    {
+      "name": "c070",
+      "kind": "opposite-direction",
+      "description": "circle extruded 19 mm in the opposite direction",
+      "slotMeters": [
+        3.6,
+        2.4000000000000004,
+        0
+      ]
+    },
+    {
+      "name": "c071",
+      "kind": "opposite-direction",
+      "description": "circle extruded 30.97 mm in the opposite direction",
+      "slotMeters": [
+        0,
+        2.8000000000000003,
+        0
+      ]
+    },
+    {
+      "name": "c072",
+      "kind": "opposite-direction",
+      "description": "circle extruded 3.18 mm in the opposite direction",
+      "slotMeters": [
+        0.4,
+        2.8000000000000003,
+        0
+      ]
+    },
+    {
+      "name": "c073",
+      "kind": "opposite-direction",
+      "description": "circle extruded 3.99 mm in the opposite direction",
+      "slotMeters": [
+        0.8,
+        2.8000000000000003,
+        0
+      ]
+    },
+    {
+      "name": "c074",
+      "kind": "negative-depth",
+      "description": "rectangle with a negative blind depth (-9.18 mm)",
+      "slotMeters": [
+        1.2000000000000002,
+        2.8000000000000003,
+        0
+      ]
+    },
+    {
+      "name": "c075",
+      "kind": "negative-depth",
+      "description": "rectangle with a negative blind depth (-17.6 mm)",
+      "slotMeters": [
+        1.6,
+        2.8000000000000003,
+        0
+      ]
+    },
+    {
+      "name": "c076",
+      "kind": "boolean-add",
+      "description": "block plus a cylindrical boss r 7.88, h 36.77",
+      "slotMeters": [
+        2,
+        2.8000000000000003,
+        0
+      ]
+    },
+    {
+      "name": "c077",
+      "kind": "boolean-add",
+      "description": "block plus a cylindrical boss r 3.5, h 6.1",
+      "slotMeters": [
+        2.4000000000000004,
+        2.8000000000000003,
+        0
+      ]
+    },
+    {
+      "name": "c078",
+      "kind": "boolean-add",
+      "description": "block plus a cylindrical boss r 5.26, h 38.93",
+      "slotMeters": [
+        2.8000000000000003,
+        2.8000000000000003,
+        0
+      ]
+    },
+    {
+      "name": "c079",
+      "kind": "boolean-add",
+      "description": "block plus a cylindrical boss r 5.68, h 33.81, overhanging the edge",
+      "slotMeters": [
+        3.2,
+        2.8000000000000003,
+        0
+      ]
+    },
+    {
+      "name": "c080",
+      "kind": "boolean-add",
+      "description": "block plus a cylindrical boss r 13.29, h 12.75",
+      "slotMeters": [
+        3.6,
+        2.8000000000000003,
+        0
+      ]
+    },
+    {
+      "name": "c081",
+      "kind": "boolean-add",
+      "description": "block plus a cylindrical boss r 33.64, h 12.93",
+      "slotMeters": [
+        0,
+        3.2,
+        0
+      ]
+    },
+    {
+      "name": "c082",
+      "kind": "boolean-add",
+      "description": "block plus a cylindrical boss r 5.26, h 6.46",
+      "slotMeters": [
+        0.4,
+        3.2,
+        0
+      ]
+    },
+    {
+      "name": "c083",
+      "kind": "boolean-add",
+      "description": "block plus a cylindrical boss r 11.92, h 9.16, overhanging the edge",
+      "slotMeters": [
+        0.8,
+        3.2,
+        0
+      ]
+    },
+    {
+      "name": "c084",
+      "kind": "boolean-remove",
+      "description": "block with a rectangular pocket 9.49 mm deep",
+      "slotMeters": [
+        1.2000000000000002,
+        3.2,
+        0
+      ]
+    },
+    {
+      "name": "c085",
+      "kind": "boolean-remove",
+      "description": "block with a rectangular through cut",
+      "slotMeters": [
+        1.6,
+        3.2,
+        0
+      ]
+    },
+    {
+      "name": "c086",
+      "kind": "boolean-remove",
+      "description": "block with a rectangular pocket 2.98 mm deep",
+      "slotMeters": [
+        2,
+        3.2,
+        0
+      ]
+    },
+    {
+      "name": "c087",
+      "kind": "boolean-remove",
+      "description": "block with a rectangular through cut",
+      "slotMeters": [
+        2.4000000000000004,
+        3.2,
+        0
+      ]
+    },
+    {
+      "name": "c088",
+      "kind": "boolean-remove",
+      "description": "block with a rectangular pocket 14.23 mm deep",
+      "slotMeters": [
+        2.8000000000000003,
+        3.2,
+        0
+      ]
+    },
+    {
+      "name": "c089",
+      "kind": "boolean-remove",
+      "description": "block with a rectangular through cut",
+      "slotMeters": [
+        3.2,
+        3.2,
+        0
+      ]
+    },
+    {
+      "name": "c090",
+      "kind": "boolean-remove",
+      "description": "block with a rectangular pocket 12.49 mm deep",
+      "slotMeters": [
+        3.6,
+        3.2,
+        0
+      ]
+    },
+    {
+      "name": "c091",
+      "kind": "boolean-remove",
+      "description": "block with a rectangular through cut",
+      "slotMeters": [
+        0,
+        3.6,
+        0
+      ]
+    },
+    {
+      "name": "c092",
+      "kind": "boolean-intersect",
+      "description": "block intersected with a cylinder r 44.55 through it",
+      "slotMeters": [
+        0.4,
+        3.6,
+        0
+      ]
+    },
+    {
+      "name": "c093",
+      "kind": "boolean-intersect",
+      "description": "block intersected with a cylinder r 25.57 through it",
+      "slotMeters": [
+        0.8,
+        3.6,
+        0
+      ]
+    },
+    {
+      "name": "c094",
+      "kind": "boolean-intersect",
+      "description": "block intersected with a cylinder r 41.38 through it",
+      "slotMeters": [
+        1.2000000000000002,
+        3.6,
+        0
+      ]
+    },
+    {
+      "name": "c095",
+      "kind": "boolean-intersect",
+      "description": "block intersected with a cylinder r 25.15 through it",
+      "slotMeters": [
+        1.6,
+        3.6,
+        0
+      ]
+    },
+    {
+      "name": "c096",
+      "kind": "language-probe",
+      "description": "depth (mm) = -2^2 + 5; unary minus vs ^: 1 if ^ binds tighter, 9 if minus does",
+      "slotMeters": [
+        2,
+        3.6,
+        0
+      ]
+    },
+    {
+      "name": "c097",
+      "kind": "language-probe",
+      "description": "depth (mm) = (\"a\" ~ 1 + 2 == \"a3\") ? 2 : 1; ~ vs +: 2 if + binds tighter; throws or 1 otherwise",
+      "slotMeters": [
+        2.4000000000000004,
+        3.6,
+        0
+      ]
+    },
+    {
+      "name": "c098",
+      "kind": "language-probe",
+      "description": "depth (mm) = (true ?? false && false) ? 2 : 1; ?? vs &&: 2 if ?? binds looser, 1 if tighter",
+      "slotMeters": [
+        2.8000000000000003,
+        3.6,
+        0
+      ]
+    },
+    {
+      "name": "c099",
+      "kind": "language-probe",
+      "description": "depth (mm) = (\"x\" is string == true) ? 2 : 1; is vs ==: 2 if is binds tighter",
+      "slotMeters": [
+        3.2,
+        3.6,
+        0
+      ]
+    },
+    {
+      "name": "c100",
+      "kind": "language-probe",
+      "description": "depth (mm) = 2 * 3 % 4; * and % at the same level, left to right: 2; 6 if % binds tighter",
+      "slotMeters": [
+        3.6,
+        3.6,
+        0
+      ]
+    },
+    {
+      "name": "c101",
+      "kind": "language-probe",
+      "description": "depth (mm) = 2^3^2 / 64; ^ associativity: 8 if right-associative, 1 if left",
+      "slotMeters": [
+        0,
+        4,
+        0
+      ]
+    },
+    {
+      "name": "c102",
+      "kind": "language-probe",
+      "description": "depth (mm) = true ? 1 : false ? 2 : 3; ternary associativity: 1 if right-associative; throws if left",
+      "slotMeters": [
+        0.4,
+        4,
+        0
+      ]
+    },
+    {
+      "name": "c103",
+      "kind": "language-probe",
+      "description": "depth (mm) = (1 < 2 == true) ? 2 : 1; < vs ==: 2 if < binds tighter; throws otherwise",
+      "slotMeters": [
+        0.8,
+        4,
+        0
+      ]
+    },
+    {
+      "name": "c104",
+      "kind": "language-probe",
+      "description": "depth (mm) = -7 % 3 + 4; % sign: 6 if the result takes the divisor's sign, 3 if the dividend's",
+      "slotMeters": [
+        1.2000000000000002,
+        4,
+        0
+      ]
+    },
+    {
+      "name": "c105",
+      "kind": "expected-failure",
+      "description": "zero blind depth",
+      "slotMeters": [
+        1.6,
+        4,
+        0
+      ]
+    },
+    {
+      "name": "c106",
+      "kind": "expected-failure",
+      "description": "nothing selected to extrude",
+      "slotMeters": [
+        2,
+        4,
+        0
+      ]
+    }
+  ]
+}
