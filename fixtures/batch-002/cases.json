@@ -1,0 +1,837 @@
+{
+  "batch": "002",
+  "title": "revolve, primitives, boolean, transform, mirror, patterns, split, delete, planes, points, variables",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "revolve",
+      "description": "rectangle away from the axis, full revolve: a ring",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "revolve",
+      "description": "rectangle touching the axis, full revolve: a cylinder",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "revolve",
+      "description": "ring profile, blind 90 degrees",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "revolve",
+      "description": "ring profile, blind 120 degrees opposite",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "revolve",
+      "description": "ring profile, symmetric 90 degrees",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "revolve",
+      "description": "ring profile, two directions 60 and 45 degrees",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "revolve",
+      "description": "circle away from the axis, full revolve: a torus",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c008",
+      "kind": "revolve",
+      "description": "circle away from the axis, 180 degrees",
+      "slotMeters": [
+        2.8000000000000003,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c009",
+      "kind": "revolve",
+      "description": "right triangle on the axis, full revolve: a cone",
+      "slotMeters": [
+        3.2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c010",
+      "kind": "revolve",
+      "description": "trapezoid on the axis, full revolve: a frustum",
+      "slotMeters": [
+        3.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c011",
+      "kind": "revolve",
+      "description": "semicircle on the axis, full revolve: a sphere",
+      "slotMeters": [
+        0,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c012",
+      "kind": "revolve",
+      "description": "slanted quadrilateral, 270 degrees",
+      "slotMeters": [
+        0.4,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c013",
+      "kind": "revolve",
+      "description": "ring profile cut from a box",
+      "slotMeters": [
+        0.8,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c014",
+      "kind": "revolve",
+      "description": "ring profile added to a cylinder",
+      "slotMeters": [
+        1.2000000000000002,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c015",
+      "kind": "revolve",
+      "description": "ring profile intersected with a box",
+      "slotMeters": [
+        1.6,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c016",
+      "kind": "primitive",
+      "description": "cube, 25 mm",
+      "slotMeters": [
+        2,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c017",
+      "kind": "primitive",
+      "description": "cuboid between two corners",
+      "slotMeters": [
+        2.4000000000000004,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c018",
+      "kind": "primitive",
+      "description": "cylinder along z",
+      "slotMeters": [
+        2.8000000000000003,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c019",
+      "kind": "primitive",
+      "description": "cylinder along a slanted axis",
+      "slotMeters": [
+        3.2,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c020",
+      "kind": "primitive",
+      "description": "cone frustum",
+      "slotMeters": [
+        3.6,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c021",
+      "kind": "primitive",
+      "description": "cone to a point, slanted",
+      "slotMeters": [
+        0,
+        0.8,
+        0
+      ]
+    },
+    {
+      "name": "c022",
+      "kind": "primitive",
+      "description": "sphere at the origin",
+      "slotMeters": [
+        0.4,
+        0.8,
+        0
+      ]
+    },
+    {
+      "name": "c023",
+      "kind": "primitive",
+      "description": "sphere centred on a vertex",
+      "slotMeters": [
+        0.8,
+        0.8,
+        0
+      ]
+    },
+    {
+      "name": "c024",
+      "kind": "primitive",
+      "description": "ellipsoid",
+      "slotMeters": [
+        1.2000000000000002,
+        0.8,
+        0
+      ]
+    },
+    {
+      "name": "c025",
+      "kind": "boolean",
+      "description": "union of two overlapping boxes",
+      "slotMeters": [
+        1.6,
+        0.8,
+        0
+      ]
+    },
+    {
+      "name": "c026",
+      "kind": "boolean",
+      "description": "union of two boxes that do not touch: both stay",
+      "slotMeters": [
+        2,
+        0.8,
+        0
+      ]
+    },
+    {
+      "name": "c027",
+      "kind": "boolean",
+      "description": "union of three bodies",
+      "slotMeters": [
+        2.4000000000000004,
+        0.8,
+        0
+      ]
+    },
+    {
+      "name": "c028",
+      "kind": "boolean",
+      "description": "subtract a cylinder from a box",
+      "slotMeters": [
+        2.8000000000000003,
+        0.8,
+        0
+      ]
+    },
+    {
+      "name": "c029",
+      "kind": "boolean",
+      "description": "subtract keeping the tool",
+      "slotMeters": [
+        3.2,
+        0.8,
+        0
+      ]
+    },
+    {
+      "name": "c030",
+      "kind": "boolean",
+      "description": "subtract one tool from two targets",
+      "slotMeters": [
+        3.6,
+        0.8,
+        0
+      ]
+    },
+    {
+      "name": "c031",
+      "kind": "boolean",
+      "description": "subtract that splits the target in two",
+      "slotMeters": [
+        0,
+        1.2000000000000002,
+        0
+      ]
+    },
+    {
+      "name": "c032",
+      "kind": "boolean",
+      "description": "intersect a box and a cylinder",
+      "slotMeters": [
+        0.4,
+        1.2000000000000002,
+        0
+      ]
+    },
+    {
+      "name": "c033",
+      "kind": "transform",
+      "description": "translate by xyz",
+      "slotMeters": [
+        0.8,
+        1.2000000000000002,
+        0
+      ]
+    },
+    {
+      "name": "c034",
+      "kind": "transform",
+      "description": "translate by xyz, keeping a copy",
+      "slotMeters": [
+        1.2000000000000002,
+        1.2000000000000002,
+        0
+      ]
+    },
+    {
+      "name": "c035",
+      "kind": "transform",
+      "description": "translate by distance along an edge",
+      "slotMeters": [
+        1.6,
+        1.2000000000000002,
+        0
+      ]
+    },
+    {
+      "name": "c036",
+      "kind": "transform",
+      "description": "translate by distance, opposite",
+      "slotMeters": [
+        2,
+        1.2000000000000002,
+        0
+      ]
+    },
+    {
+      "name": "c037",
+      "kind": "transform",
+      "description": "translate by a line",
+      "slotMeters": [
+        2.4000000000000004,
+        1.2000000000000002,
+        0
+      ]
+    },
+    {
+      "name": "c038",
+      "kind": "transform",
+      "description": "rotate 30 degrees about z",
+      "slotMeters": [
+        2.8000000000000003,
+        1.2000000000000002,
+        0
+      ]
+    },
+    {
+      "name": "c039",
+      "kind": "transform",
+      "description": "rotate 135 degrees about a slanted axis, keeping a copy",
+      "slotMeters": [
+        3.2,
+        1.2000000000000002,
+        0
+      ]
+    },
+    {
+      "name": "c040",
+      "kind": "transform",
+      "description": "rotate opposite",
+      "slotMeters": [
+        3.6,
+        1.2000000000000002,
+        0
+      ]
+    },
+    {
+      "name": "c041",
+      "kind": "transform",
+      "description": "copy in place",
+      "slotMeters": [
+        0,
+        1.6,
+        0
+      ]
+    },
+    {
+      "name": "c042",
+      "kind": "transform",
+      "description": "scale by 2 about a vertex",
+      "slotMeters": [
+        0.4,
+        1.6,
+        0
+      ]
+    },
+    {
+      "name": "c043",
+      "kind": "transform",
+      "description": "scale by 0.5 about a vertex",
+      "slotMeters": [
+        0.8,
+        1.6,
+        0
+      ]
+    },
+    {
+      "name": "c044",
+      "kind": "transform",
+      "description": "copy part",
+      "slotMeters": [
+        1.2000000000000002,
+        1.6,
+        0
+      ]
+    },
+    {
+      "name": "c045",
+      "kind": "mirror",
+      "description": "mirror a block across a plane",
+      "slotMeters": [
+        1.6,
+        1.6,
+        0
+      ]
+    },
+    {
+      "name": "c046",
+      "kind": "mirror",
+      "description": "mirror a cylinder across a slanted plane",
+      "slotMeters": [
+        2,
+        1.6,
+        0
+      ]
+    },
+    {
+      "name": "c047",
+      "kind": "mirror",
+      "description": "mirror across a face of the part and add: one body",
+      "slotMeters": [
+        2.4000000000000004,
+        1.6,
+        0
+      ]
+    },
+    {
+      "name": "c048",
+      "kind": "mirror",
+      "description": "mirror two bodies",
+      "slotMeters": [
+        2.8000000000000003,
+        1.6,
+        0
+      ]
+    },
+    {
+      "name": "c049",
+      "kind": "linear-pattern",
+      "description": "3 instances 30 mm apart",
+      "slotMeters": [
+        3.2,
+        1.6,
+        0
+      ]
+    },
+    {
+      "name": "c050",
+      "kind": "linear-pattern",
+      "description": "4 instances opposite",
+      "slotMeters": [
+        3.6,
+        1.6,
+        0
+      ]
+    },
+    {
+      "name": "c051",
+      "kind": "linear-pattern",
+      "description": "5 instances centred",
+      "slotMeters": [
+        0,
+        2,
+        0
+      ]
+    },
+    {
+      "name": "c052",
+      "kind": "linear-pattern",
+      "description": "3 by 2 grid",
+      "slotMeters": [
+        0.4,
+        2,
+        0
+      ]
+    },
+    {
+      "name": "c053",
+      "kind": "linear-pattern",
+      "description": "overlapping instances added together",
+      "slotMeters": [
+        0.8,
+        2,
+        0
+      ]
+    },
+    {
+      "name": "c054",
+      "kind": "linear-pattern",
+      "description": "4 instances skipping the third",
+      "slotMeters": [
+        1.2000000000000002,
+        2,
+        0
+      ]
+    },
+    {
+      "name": "c055",
+      "kind": "linear-pattern",
+      "description": "along a slanted edge",
+      "slotMeters": [
+        1.6,
+        2,
+        0
+      ]
+    },
+    {
+      "name": "c056",
+      "kind": "circular-pattern",
+      "description": "6 instances equally spaced over 360 degrees",
+      "slotMeters": [
+        2,
+        2,
+        0
+      ]
+    },
+    {
+      "name": "c057",
+      "kind": "circular-pattern",
+      "description": "3 instances 40 degrees apart",
+      "slotMeters": [
+        2.4000000000000004,
+        2,
+        0
+      ]
+    },
+    {
+      "name": "c058",
+      "kind": "circular-pattern",
+      "description": "4 instances over 180 degrees, equally spaced",
+      "slotMeters": [
+        2.8000000000000003,
+        2,
+        0
+      ]
+    },
+    {
+      "name": "c059",
+      "kind": "circular-pattern",
+      "description": "5 instances centred, 30 degrees apart",
+      "slotMeters": [
+        3.2,
+        2,
+        0
+      ]
+    },
+    {
+      "name": "c060",
+      "kind": "circular-pattern",
+      "description": "3 instances opposite, 50 degrees apart",
+      "slotMeters": [
+        3.6,
+        2,
+        0
+      ]
+    },
+    {
+      "name": "c061",
+      "kind": "circular-pattern",
+      "description": "overlapping block instances added together",
+      "slotMeters": [
+        0,
+        2.4000000000000004,
+        0
+      ]
+    },
+    {
+      "name": "c062",
+      "kind": "split",
+      "description": "split a block by a plane, keeping both sides",
+      "slotMeters": [
+        0.4,
+        2.4000000000000004,
+        0
+      ]
+    },
+    {
+      "name": "c063",
+      "kind": "split",
+      "description": "split keeping the front",
+      "slotMeters": [
+        0.8,
+        2.4000000000000004,
+        0
+      ]
+    },
+    {
+      "name": "c064",
+      "kind": "split",
+      "description": "split keeping the back",
+      "slotMeters": [
+        1.2000000000000002,
+        2.4000000000000004,
+        0
+      ]
+    },
+    {
+      "name": "c065",
+      "kind": "split",
+      "description": "split a cylinder by a slanted plane",
+      "slotMeters": [
+        1.6,
+        2.4000000000000004,
+        0
+      ]
+    },
+    {
+      "name": "c066",
+      "kind": "split",
+      "description": "split by a part face, keeping the tool",
+      "slotMeters": [
+        2,
+        2.4000000000000004,
+        0
+      ]
+    },
+    {
+      "name": "c067",
+      "kind": "delete",
+      "description": "delete one of two bodies",
+      "slotMeters": [
+        2.4000000000000004,
+        2.4000000000000004,
+        0
+      ]
+    },
+    {
+      "name": "c068",
+      "kind": "delete",
+      "description": "delete every body a case made",
+      "slotMeters": [
+        2.8000000000000003,
+        2.4000000000000004,
+        0
+      ]
+    },
+    {
+      "name": "c069",
+      "kind": "cplane",
+      "description": "offset from a face",
+      "slotMeters": [
+        3.2,
+        2.4000000000000004,
+        0
+      ]
+    },
+    {
+      "name": "c070",
+      "kind": "cplane",
+      "description": "offset from a side face, opposite",
+      "slotMeters": [
+        3.6,
+        2.4000000000000004,
+        0
+      ]
+    },
+    {
+      "name": "c071",
+      "kind": "cplane",
+      "description": "through a vertex parallel to a face",
+      "slotMeters": [
+        0,
+        2.8000000000000003,
+        0
+      ]
+    },
+    {
+      "name": "c072",
+      "kind": "cplane",
+      "description": "through an edge at 30 degrees to a face",
+      "slotMeters": [
+        0.4,
+        2.8000000000000003,
+        0
+      ]
+    },
+    {
+      "name": "c073",
+      "kind": "cplane",
+      "description": "through a line and a point",
+      "slotMeters": [
+        0.8,
+        2.8000000000000003,
+        0
+      ]
+    },
+    {
+      "name": "c074",
+      "kind": "cplane",
+      "description": "through three vertices",
+      "slotMeters": [
+        1.2000000000000002,
+        2.8000000000000003,
+        0
+      ]
+    },
+    {
+      "name": "c075",
+      "kind": "cplane",
+      "description": "midway between two faces",
+      "slotMeters": [
+        1.6,
+        2.8000000000000003,
+        0
+      ]
+    },
+    {
+      "name": "c076",
+      "kind": "cplane",
+      "description": "normal to an edge at its end",
+      "slotMeters": [
+        2,
+        2.8000000000000003,
+        0
+      ]
+    },
+    {
+      "name": "c077",
+      "kind": "cpoint",
+      "description": "point at the middle of an edge",
+      "slotMeters": [
+        2.4000000000000004,
+        2.8000000000000003,
+        0
+      ]
+    },
+    {
+      "name": "c078",
+      "kind": "cpoint",
+      "description": "point a quarter of the way along a slanted edge",
+      "slotMeters": [
+        2.8000000000000003,
+        2.8000000000000003,
+        0
+      ]
+    },
+    {
+      "name": "c079",
+      "kind": "variable",
+      "description": "assign a length and read it back",
+      "slotMeters": [
+        3.2,
+        2.8000000000000003,
+        0
+      ]
+    },
+    {
+      "name": "c080",
+      "kind": "variable",
+      "description": "assign a number and an angle",
+      "slotMeters": [
+        3.6,
+        2.8000000000000003,
+        0
+      ]
+    },
+    {
+      "name": "c081",
+      "kind": "variable",
+      "description": "measure the distance between two vertices",
+      "slotMeters": [
+        0,
+        3.2,
+        0
+      ]
+    },
+    {
+      "name": "c082",
+      "kind": "variable",
+      "description": "measure the length of an edge",
+      "slotMeters": [
+        0.4,
+        3.2,
+        0
+      ]
+    },
+    {
+      "name": "c083",
+      "kind": "variable",
+      "description": "a variable drives a box",
+      "slotMeters": [
+        0.8,
+        3.2,
+        0
+      ]
+    }
+  ]
+}

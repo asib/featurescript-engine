@@ -11,10 +11,10 @@
 // insert the feature after it: it then rebuilds on every later paste.)
 //
 // Steps: paste cases.fs + generator.fs into the Feature Studio and commit; wait for the Part Studio to rebuild and
-// report its part count and failed cases; export the Part Studio as STEP (AP242, no preprocessing, one file); move
+// report its part count and failed cases, and save the probe lines to <batch-dir>/onshape-probes.txt; export the Part Studio as STEP (AP242, no preprocessing, one file); move
 // the download to <batch-dir>/onshape.step.
 
-import { existsSync, readdirSync, readFileSync, renameSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { connectToPage, sleep } from './cdp.mjs';
@@ -73,17 +73,34 @@ for (let stable = 0, last = null; stable < 3; ) {
   last = parts;
 }
 console.log(`  ${parts}`);
-const failed = await page.evaluate(
-  `(document.querySelector('.notices-content')?.innerText.match(/batch-\\d+ failed cases: \\[([^\\]]*)\\]/g) ?? []).pop() ?? 'not shown (open FeatureScript notices to see it)'`,
-);
-console.log(`  ${failed}`);
+// The generator prints one "probe <case> ..." line per case and a "batch-NNN failed cases: [...]" line at the end;
+// they show in the FeatureScript notices panel, among the stack traces of the cases that threw.
+if (!(await page.evaluate(`!!document.querySelector('.notices-content')`))) {
+  await page.clickElement(`document.querySelector('.notice-pane-toggle-button .notices-toggle-content')`);
+  await page.waitFor(`!!document.querySelector('.notices-content')`);
+  await sleep(2000);
+}
+const notices = await page.evaluate(`document.querySelector('.notices-content').innerText`);
+const probes = new Map();
+let failed = 'not shown';
+for (const line of notices.split('\n').map((l) => l.trim())) {
+  const probe = line.match(/^probe (c\d+) /);
+  if (probe) probes.set(probe[1], line);
+  if (/^batch-\d+ failed cases: /.test(line)) failed = line;
+}
+console.log(`  ${failed}; ${probes.size} probe lines`);
+const probeFile = join(batchDir, 'onshape-probes.txt');
+writeFileSync(probeFile, [...[...probes.keys()].sort().map((k) => probes.get(k)), failed].join('\n') + '\n');
+console.log(`  saved ${probeFile}`);
 
 console.log('exporting STEP');
 const box = await page.evaluate(`(() => { const r = ${tab(PART_STUDIO)}.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; })()`);
 await page.clickAt(box.x, box.y, { button: 'right' });
 await sleep(1000);
 await page.clickElement(`[...document.querySelectorAll('li, [role=menuitem], .dropdown-item, a')].find((e) => e.offsetParent !== null && e.textContent.trim() === 'Export…')`);
-await page.waitFor(`!!document.querySelector('#export-format-dropdown')`);
+await page.waitFor(
+  `[...(document.querySelector('#export-format-dropdown')?.options ?? [])].some((o) => o.label.trim() === 'STEP')`,
+);
 const chooseOption = (selector, label) =>
   page.evaluate(`(() => {
     const s = document.querySelector(${JSON.stringify(selector)});

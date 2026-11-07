@@ -1,0 +1,398 @@
+
+// ----- Builds every case of batch 002: in Onshape for the fixture, and on our engine to compare. -----
+
+annotation { "Feature Type Name" : "Build fixture batch 002" }
+export const buildFixtureBatch002 = defineFeature(function(context is Context, id is Id, definition is map)
+    precondition
+    {
+    }
+    {
+        var failed = [];
+        if (!runFixtureCase(context, id, "c001", vector(0, 0, 0) * meter,
+                function(context is Context, id is Id) { return c001(context, id); }))
+            failed = append(failed, "c001");
+        if (!runFixtureCase(context, id, "c002", vector(0.4, 0, 0) * meter,
+                function(context is Context, id is Id) { return c002(context, id); }))
+            failed = append(failed, "c002");
+        if (!runFixtureCase(context, id, "c003", vector(0.8, 0, 0) * meter,
+                function(context is Context, id is Id) { return c003(context, id); }))
+            failed = append(failed, "c003");
+        if (!runFixtureCase(context, id, "c004", vector(1.2, 0, 0) * meter,
+                function(context is Context, id is Id) { return c004(context, id); }))
+            failed = append(failed, "c004");
+        if (!runFixtureCase(context, id, "c005", vector(1.6, 0, 0) * meter,
+                function(context is Context, id is Id) { return c005(context, id); }))
+            failed = append(failed, "c005");
+        if (!runFixtureCase(context, id, "c006", vector(2, 0, 0) * meter,
+                function(context is Context, id is Id) { return c006(context, id); }))
+            failed = append(failed, "c006");
+        if (!runFixtureCase(context, id, "c007", vector(2.4, 0, 0) * meter,
+                function(context is Context, id is Id) { return c007(context, id); }))
+            failed = append(failed, "c007");
+        if (!runFixtureCase(context, id, "c008", vector(2.8, 0, 0) * meter,
+                function(context is Context, id is Id) { return c008(context, id); }))
+            failed = append(failed, "c008");
+        if (!runFixtureCase(context, id, "c009", vector(3.2, 0, 0) * meter,
+                function(context is Context, id is Id) { return c009(context, id); }))
+            failed = append(failed, "c009");
+        if (!runFixtureCase(context, id, "c010", vector(3.6, 0, 0) * meter,
+                function(context is Context, id is Id) { return c010(context, id); }))
+            failed = append(failed, "c010");
+        if (!runFixtureCase(context, id, "c011", vector(0, 0.4, 0) * meter,
+                function(context is Context, id is Id) { return c011(context, id); }))
+            failed = append(failed, "c011");
+        if (!runFixtureCase(context, id, "c012", vector(0.4, 0.4, 0) * meter,
+                function(context is Context, id is Id) { return c012(context, id); }))
+            failed = append(failed, "c012");
+        if (!runFixtureCase(context, id, "c013", vector(0.8, 0.4, 0) * meter,
+                function(context is Context, id is Id) { return c013(context, id); }))
+            failed = append(failed, "c013");
+        if (!runFixtureCase(context, id, "c014", vector(1.2, 0.4, 0) * meter,
+                function(context is Context, id is Id) { return c014(context, id); }))
+            failed = append(failed, "c014");
+        if (!runFixtureCase(context, id, "c015", vector(1.6, 0.4, 0) * meter,
+                function(context is Context, id is Id) { return c015(context, id); }))
+            failed = append(failed, "c015");
+        if (!runFixtureCase(context, id, "c016", vector(2, 0.4, 0) * meter,
+                function(context is Context, id is Id) { return c016(context, id); }))
+            failed = append(failed, "c016");
+        if (!runFixtureCase(context, id, "c017", vector(2.4, 0.4, 0) * meter,
+                function(context is Context, id is Id) { return c017(context, id); }))
+            failed = append(failed, "c017");
+        if (!runFixtureCase(context, id, "c018", vector(2.8, 0.4, 0) * meter,
+                function(context is Context, id is Id) { return c018(context, id); }))
+            failed = append(failed, "c018");
+        if (!runFixtureCase(context, id, "c019", vector(3.2, 0.4, 0) * meter,
+                function(context is Context, id is Id) { return c019(context, id); }))
+            failed = append(failed, "c019");
+        if (!runFixtureCase(context, id, "c020", vector(3.6, 0.4, 0) * meter,
+                function(context is Context, id is Id) { return c020(context, id); }))
+            failed = append(failed, "c020");
+        if (!runFixtureCase(context, id, "c021", vector(0, 0.8, 0) * meter,
+                function(context is Context, id is Id) { return c021(context, id); }))
+            failed = append(failed, "c021");
+        if (!runFixtureCase(context, id, "c022", vector(0.4, 0.8, 0) * meter,
+                function(context is Context, id is Id) { return c022(context, id); }))
+            failed = append(failed, "c022");
+        if (!runFixtureCase(context, id, "c023", vector(0.8, 0.8, 0) * meter,
+                function(context is Context, id is Id) { return c023(context, id); }))
+            failed = append(failed, "c023");
+        if (!runFixtureCase(context, id, "c024", vector(1.2, 0.8, 0) * meter,
+                function(context is Context, id is Id) { return c024(context, id); }))
+            failed = append(failed, "c024");
+        if (!runFixtureCase(context, id, "c025", vector(1.6, 0.8, 0) * meter,
+                function(context is Context, id is Id) { return c025(context, id); }))
+            failed = append(failed, "c025");
+        if (!runFixtureCase(context, id, "c026", vector(2, 0.8, 0) * meter,
+                function(context is Context, id is Id) { return c026(context, id); }))
+            failed = append(failed, "c026");
+        if (!runFixtureCase(context, id, "c027", vector(2.4, 0.8, 0) * meter,
+                function(context is Context, id is Id) { return c027(context, id); }))
+            failed = append(failed, "c027");
+        if (!runFixtureCase(context, id, "c028", vector(2.8, 0.8, 0) * meter,
+                function(context is Context, id is Id) { return c028(context, id); }))
+            failed = append(failed, "c028");
+        if (!runFixtureCase(context, id, "c029", vector(3.2, 0.8, 0) * meter,
+                function(context is Context, id is Id) { return c029(context, id); }))
+            failed = append(failed, "c029");
+        if (!runFixtureCase(context, id, "c030", vector(3.6, 0.8, 0) * meter,
+                function(context is Context, id is Id) { return c030(context, id); }))
+            failed = append(failed, "c030");
+        if (!runFixtureCase(context, id, "c031", vector(0, 1.2, 0) * meter,
+                function(context is Context, id is Id) { return c031(context, id); }))
+            failed = append(failed, "c031");
+        if (!runFixtureCase(context, id, "c032", vector(0.4, 1.2, 0) * meter,
+                function(context is Context, id is Id) { return c032(context, id); }))
+            failed = append(failed, "c032");
+        if (!runFixtureCase(context, id, "c033", vector(0.8, 1.2, 0) * meter,
+                function(context is Context, id is Id) { return c033(context, id); }))
+            failed = append(failed, "c033");
+        if (!runFixtureCase(context, id, "c034", vector(1.2, 1.2, 0) * meter,
+                function(context is Context, id is Id) { return c034(context, id); }))
+            failed = append(failed, "c034");
+        if (!runFixtureCase(context, id, "c035", vector(1.6, 1.2, 0) * meter,
+                function(context is Context, id is Id) { return c035(context, id); }))
+            failed = append(failed, "c035");
+        if (!runFixtureCase(context, id, "c036", vector(2, 1.2, 0) * meter,
+                function(context is Context, id is Id) { return c036(context, id); }))
+            failed = append(failed, "c036");
+        if (!runFixtureCase(context, id, "c037", vector(2.4, 1.2, 0) * meter,
+                function(context is Context, id is Id) { return c037(context, id); }))
+            failed = append(failed, "c037");
+        if (!runFixtureCase(context, id, "c038", vector(2.8, 1.2, 0) * meter,
+                function(context is Context, id is Id) { return c038(context, id); }))
+            failed = append(failed, "c038");
+        if (!runFixtureCase(context, id, "c039", vector(3.2, 1.2, 0) * meter,
+                function(context is Context, id is Id) { return c039(context, id); }))
+            failed = append(failed, "c039");
+        if (!runFixtureCase(context, id, "c040", vector(3.6, 1.2, 0) * meter,
+                function(context is Context, id is Id) { return c040(context, id); }))
+            failed = append(failed, "c040");
+        if (!runFixtureCase(context, id, "c041", vector(0, 1.6, 0) * meter,
+                function(context is Context, id is Id) { return c041(context, id); }))
+            failed = append(failed, "c041");
+        if (!runFixtureCase(context, id, "c042", vector(0.4, 1.6, 0) * meter,
+                function(context is Context, id is Id) { return c042(context, id); }))
+            failed = append(failed, "c042");
+        if (!runFixtureCase(context, id, "c043", vector(0.8, 1.6, 0) * meter,
+                function(context is Context, id is Id) { return c043(context, id); }))
+            failed = append(failed, "c043");
+        if (!runFixtureCase(context, id, "c044", vector(1.2, 1.6, 0) * meter,
+                function(context is Context, id is Id) { return c044(context, id); }))
+            failed = append(failed, "c044");
+        if (!runFixtureCase(context, id, "c045", vector(1.6, 1.6, 0) * meter,
+                function(context is Context, id is Id) { return c045(context, id); }))
+            failed = append(failed, "c045");
+        if (!runFixtureCase(context, id, "c046", vector(2, 1.6, 0) * meter,
+                function(context is Context, id is Id) { return c046(context, id); }))
+            failed = append(failed, "c046");
+        if (!runFixtureCase(context, id, "c047", vector(2.4, 1.6, 0) * meter,
+                function(context is Context, id is Id) { return c047(context, id); }))
+            failed = append(failed, "c047");
+        if (!runFixtureCase(context, id, "c048", vector(2.8, 1.6, 0) * meter,
+                function(context is Context, id is Id) { return c048(context, id); }))
+            failed = append(failed, "c048");
+        if (!runFixtureCase(context, id, "c049", vector(3.2, 1.6, 0) * meter,
+                function(context is Context, id is Id) { return c049(context, id); }))
+            failed = append(failed, "c049");
+        if (!runFixtureCase(context, id, "c050", vector(3.6, 1.6, 0) * meter,
+                function(context is Context, id is Id) { return c050(context, id); }))
+            failed = append(failed, "c050");
+        if (!runFixtureCase(context, id, "c051", vector(0, 2, 0) * meter,
+                function(context is Context, id is Id) { return c051(context, id); }))
+            failed = append(failed, "c051");
+        if (!runFixtureCase(context, id, "c052", vector(0.4, 2, 0) * meter,
+                function(context is Context, id is Id) { return c052(context, id); }))
+            failed = append(failed, "c052");
+        if (!runFixtureCase(context, id, "c053", vector(0.8, 2, 0) * meter,
+                function(context is Context, id is Id) { return c053(context, id); }))
+            failed = append(failed, "c053");
+        if (!runFixtureCase(context, id, "c054", vector(1.2, 2, 0) * meter,
+                function(context is Context, id is Id) { return c054(context, id); }))
+            failed = append(failed, "c054");
+        if (!runFixtureCase(context, id, "c055", vector(1.6, 2, 0) * meter,
+                function(context is Context, id is Id) { return c055(context, id); }))
+            failed = append(failed, "c055");
+        if (!runFixtureCase(context, id, "c056", vector(2, 2, 0) * meter,
+                function(context is Context, id is Id) { return c056(context, id); }))
+            failed = append(failed, "c056");
+        if (!runFixtureCase(context, id, "c057", vector(2.4, 2, 0) * meter,
+                function(context is Context, id is Id) { return c057(context, id); }))
+            failed = append(failed, "c057");
+        if (!runFixtureCase(context, id, "c058", vector(2.8, 2, 0) * meter,
+                function(context is Context, id is Id) { return c058(context, id); }))
+            failed = append(failed, "c058");
+        if (!runFixtureCase(context, id, "c059", vector(3.2, 2, 0) * meter,
+                function(context is Context, id is Id) { return c059(context, id); }))
+            failed = append(failed, "c059");
+        if (!runFixtureCase(context, id, "c060", vector(3.6, 2, 0) * meter,
+                function(context is Context, id is Id) { return c060(context, id); }))
+            failed = append(failed, "c060");
+        if (!runFixtureCase(context, id, "c061", vector(0, 2.4, 0) * meter,
+                function(context is Context, id is Id) { return c061(context, id); }))
+            failed = append(failed, "c061");
+        if (!runFixtureCase(context, id, "c062", vector(0.4, 2.4, 0) * meter,
+                function(context is Context, id is Id) { return c062(context, id); }))
+            failed = append(failed, "c062");
+        if (!runFixtureCase(context, id, "c063", vector(0.8, 2.4, 0) * meter,
+                function(context is Context, id is Id) { return c063(context, id); }))
+            failed = append(failed, "c063");
+        if (!runFixtureCase(context, id, "c064", vector(1.2, 2.4, 0) * meter,
+                function(context is Context, id is Id) { return c064(context, id); }))
+            failed = append(failed, "c064");
+        if (!runFixtureCase(context, id, "c065", vector(1.6, 2.4, 0) * meter,
+                function(context is Context, id is Id) { return c065(context, id); }))
+            failed = append(failed, "c065");
+        if (!runFixtureCase(context, id, "c066", vector(2, 2.4, 0) * meter,
+                function(context is Context, id is Id) { return c066(context, id); }))
+            failed = append(failed, "c066");
+        if (!runFixtureCase(context, id, "c067", vector(2.4, 2.4, 0) * meter,
+                function(context is Context, id is Id) { return c067(context, id); }))
+            failed = append(failed, "c067");
+        if (!runFixtureCase(context, id, "c068", vector(2.8, 2.4, 0) * meter,
+                function(context is Context, id is Id) { return c068(context, id); }))
+            failed = append(failed, "c068");
+        if (!runFixtureCase(context, id, "c069", vector(3.2, 2.4, 0) * meter,
+                function(context is Context, id is Id) { return c069(context, id); }))
+            failed = append(failed, "c069");
+        if (!runFixtureCase(context, id, "c070", vector(3.6, 2.4, 0) * meter,
+                function(context is Context, id is Id) { return c070(context, id); }))
+            failed = append(failed, "c070");
+        if (!runFixtureCase(context, id, "c071", vector(0, 2.8, 0) * meter,
+                function(context is Context, id is Id) { return c071(context, id); }))
+            failed = append(failed, "c071");
+        if (!runFixtureCase(context, id, "c072", vector(0.4, 2.8, 0) * meter,
+                function(context is Context, id is Id) { return c072(context, id); }))
+            failed = append(failed, "c072");
+        if (!runFixtureCase(context, id, "c073", vector(0.8, 2.8, 0) * meter,
+                function(context is Context, id is Id) { return c073(context, id); }))
+            failed = append(failed, "c073");
+        if (!runFixtureCase(context, id, "c074", vector(1.2, 2.8, 0) * meter,
+                function(context is Context, id is Id) { return c074(context, id); }))
+            failed = append(failed, "c074");
+        if (!runFixtureCase(context, id, "c075", vector(1.6, 2.8, 0) * meter,
+                function(context is Context, id is Id) { return c075(context, id); }))
+            failed = append(failed, "c075");
+        if (!runFixtureCase(context, id, "c076", vector(2, 2.8, 0) * meter,
+                function(context is Context, id is Id) { return c076(context, id); }))
+            failed = append(failed, "c076");
+        if (!runFixtureCase(context, id, "c077", vector(2.4, 2.8, 0) * meter,
+                function(context is Context, id is Id) { return c077(context, id); }))
+            failed = append(failed, "c077");
+        if (!runFixtureCase(context, id, "c078", vector(2.8, 2.8, 0) * meter,
+                function(context is Context, id is Id) { return c078(context, id); }))
+            failed = append(failed, "c078");
+        if (!runFixtureCase(context, id, "c079", vector(3.2, 2.8, 0) * meter,
+                function(context is Context, id is Id) { return c079(context, id); }))
+            failed = append(failed, "c079");
+        if (!runFixtureCase(context, id, "c080", vector(3.6, 2.8, 0) * meter,
+                function(context is Context, id is Id) { return c080(context, id); }))
+            failed = append(failed, "c080");
+        if (!runFixtureCase(context, id, "c081", vector(0, 3.2, 0) * meter,
+                function(context is Context, id is Id) { return c081(context, id); }))
+            failed = append(failed, "c081");
+        if (!runFixtureCase(context, id, "c082", vector(0.4, 3.2, 0) * meter,
+                function(context is Context, id is Id) { return c082(context, id); }))
+            failed = append(failed, "c082");
+        if (!runFixtureCase(context, id, "c083", vector(0.8, 3.2, 0) * meter,
+                function(context is Context, id is Id) { return c083(context, id); }))
+            failed = append(failed, "c083");
+        println("batch-002 failed cases: " ~ toString(failed));
+    });
+
+// The fixture document's Part Studio holds one instance of the feature batch 001 defined, so every batch also
+// exports its generator under that name: pasting a new batch then rebuilds the same feature instance.
+annotation { "Feature Type Name" : "Build fixture batch 002 (as 001)" }
+export const buildFixtureBatch001 = buildFixtureBatch002;
+
+const FIXTURE_BODY_TYPES = [BodyType.SOLID, BodyType.SHEET, BodyType.WIRE, BodyType.POINT, BodyType.MATE_CONNECTOR];
+
+// Builds one case, moves everything it made to the case's slot, names its bodies "<case>.<n>" and prints its probe
+// line. Returns false if the case threw, or made no body and returned nothing.
+function runFixtureCase(context is Context, id is Id, name is string, slot is Vector, build is function) returns boolean
+{
+    const caseId = id + name;
+    var values;
+    try
+    {
+        values = build(context, caseId);
+    }
+    catch (error)
+    {
+        clearFeatureStatus(context, id, { "withDisplayData" : true });
+        try silent(opDeleteBodies(context, id + (name ~ "cleanup"), { "entities" : qCreatedBy(caseId, EntityType.BODY) }));
+        println("probe " ~ name ~ " failed " ~ fixtureErrorText(error));
+        return false;
+    }
+    const everything = qCreatedBy(caseId, EntityType.BODY);
+    if (!isQueryEmpty(context, everything))
+        opTransform(context, caseId + "move", { "bodies" : everything, "transform" : transform(slot) });
+    const notSketch = qSketchFilter(everything, SketchObject.NO);
+    const bodies = fixtureSortedBodies(context, qConstructionFilter(notSketch, ConstructionObject.NO));
+    var probes = [];
+    for (var i, body in bodies)
+    {
+        const bodyName = name ~ "." ~ (i + 1);
+        try silent(setProperty(context, { "entities" : body, "propertyType" : PropertyType.NAME, "value" : bodyName }));
+        probes = append(probes, fixtureProbe(context, body, bodyName));
+    }
+    var construction = [];
+    for (var body in fixtureSortedBodies(context, qConstructionFilter(notSketch, ConstructionObject.YES)))
+        construction = append(construction, fixtureProbe(context, body, "construction"));
+    println("probe " ~ name ~ " " ~ toString({ "bodies" : probes, "construction" : construction, "values" : values }));
+    return size(bodies) > 0 || values != undefined;
+}
+
+function fixtureErrorText(error) returns string
+{
+    if (error is map && error.message != undefined)
+        return toString(error.message);
+    return "error";
+}
+
+function fixtureBodyType(context is Context, body is Query)
+{
+    for (var bodyType in FIXTURE_BODY_TYPES)
+    {
+        if (!isQueryEmpty(context, qBodyType(body, bodyType)))
+            return bodyType;
+    }
+    return undefined;
+}
+
+function fixtureNumbers(v is Vector, unit) returns array
+{
+    var out = [];
+    for (var x in v)
+        out = append(out, x / unit);
+    return out;
+}
+
+function fixtureBox(context is Context, body is Query) returns array
+{
+    const bounds = evBox3d(context, { "topology" : body, "tight" : true });
+    return concatenateArrays([fixtureNumbers(bounds.minCorner, millimeter), fixtureNumbers(bounds.maxCorner, millimeter)]);
+}
+
+// Sorts bodies by type, then by the corners of their bounding boxes rounded to 10 µm.
+function fixtureSortedBodies(context is Context, query is Query) returns array
+{
+    var keyed = [];
+    for (var body in evaluateQuery(context, query))
+    {
+        var key = [indexOf(FIXTURE_BODY_TYPES, fixtureBodyType(context, body))];
+        const bounds = try silent(fixtureBox(context, body));
+        if (bounds != undefined)
+        {
+            for (var x in bounds)
+                key = append(key, round(x * 100));
+        }
+        keyed = append(keyed, { "body" : body, "key" : key });
+    }
+    keyed = sort(keyed, function(a, b) { return fixtureCompareKeys(a.key, b.key); });
+    var out = [];
+    for (var k in keyed)
+        out = append(out, k.body);
+    return out;
+}
+
+function fixtureCompareKeys(a is array, b is array) returns number
+{
+    for (var i = 0; i < min(size(a), size(b)); i += 1)
+    {
+        if (a[i] != b[i])
+            return a[i] - b[i];
+    }
+    return size(a) - size(b);
+}
+
+function fixtureProbe(context is Context, body is Query, name is string) returns map
+{
+    const bodyType = fixtureBodyType(context, body);
+    var probe = {
+        "name" : name,
+        "type" : bodyType,
+        "faces" : evaluateQueryCount(context, qOwnedByBody(body, EntityType.FACE)),
+        "edges" : evaluateQueryCount(context, qOwnedByBody(body, EntityType.EDGE)),
+        "vertices" : evaluateQueryCount(context, qOwnedByBody(body, EntityType.VERTEX))
+    };
+    probe.bounds = try silent(fixtureBox(context, body));
+    if (bodyType == BodyType.SOLID)
+        probe.volume = evVolume(context, { "entities" : body }) / millimeter ^ 3;
+    if (bodyType == BodyType.SOLID || bodyType == BodyType.SHEET)
+        probe.area = evArea(context, { "entities" : qOwnedByBody(body, EntityType.FACE) }) / millimeter ^ 2;
+    if (bodyType == BodyType.WIRE)
+        probe.length = evLength(context, { "entities" : qOwnedByBody(body, EntityType.EDGE) }) / millimeter;
+    if (bodyType == BodyType.SHEET && probe.faces == 1)
+    {
+        const plane = try silent(evPlane(context, { "face" : qOwnedByBody(body, EntityType.FACE) }));
+        if (plane != undefined)
+            probe.plane = [fixtureNumbers(plane.origin, millimeter), fixtureNumbers(plane.normal, 1), fixtureNumbers(plane.x, 1)];
+    }
+    if (bodyType == BodyType.MATE_CONNECTOR)
+    {
+        const cs = evMateConnector(context, { "mateConnector" : body });
+        probe.frame = [fixtureNumbers(cs.origin, millimeter), fixtureNumbers(cs.xAxis, 1), fixtureNumbers(cs.zAxis, 1)];
+    }
+    return probe;
+}
