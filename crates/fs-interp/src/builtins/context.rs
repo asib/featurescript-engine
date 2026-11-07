@@ -9,22 +9,39 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-/// The modelling context: everything a Part Studio holds. Geometry state is added with the native layer.
+/// The modelling context: everything a Part Studio holds.
 pub struct Context {
     serial: u64,
     /// The `FeatureScriptVersionNumber` the context runs at, as the enum value's name.
     pub version: RefCell<Rc<str>>,
     /// Feature bookkeeping: open features and reported statuses.
     pub features: RefCell<Features>,
+    /// State another crate keeps in the context, such as its geometry. Aborting a feature restores it.
+    pub state: RefCell<Option<Box<dyn ContextState>>>,
+}
+
+/// State kept in a [`Context`] that features roll back: `@startFeature` takes a snapshot, and `@abortFeature`
+/// restores it.
+pub trait ContextState: Any {
+    fn snapshot(&self) -> Box<dyn Any>;
+    fn restore(&mut self, snapshot: Box<dyn Any>);
+    fn as_any(&self) -> &dyn Any;
+    fn as_any_mut(&mut self) -> &mut dyn Any;
 }
 
 #[derive(Default)]
 pub struct Features {
     next_token: u64,
-    /// Tokens of features started and not yet ended or aborted, innermost last.
-    pub open: Vec<(Value, u64)>,
+    /// Features started and not yet ended or aborted, innermost last.
+    pub open: Vec<OpenFeature>,
     /// Status reported for each feature id, as std's builtin status map.
     pub statuses: ValueMap,
+}
+
+pub struct OpenFeature {
+    pub id: Value,
+    pub token: u64,
+    snapshot: Option<Box<dyn Any>>,
 }
 
 fn ok_status() -> Value {
@@ -40,6 +57,18 @@ impl Native for Context {
     }
     fn as_any(&self) -> &dyn Any {
         self
+    }
+}
+
+impl Context {
+    /// Records a feature's status, as `@functionReportFeatureStatus` does. `status_enum` names an
+    /// `ErrorStringEnum` value.
+    pub fn report_status(&self, id: &Value, status_type: &str, status_enum: &str) {
+        let status = super::map_value(vec![
+            ("statusType", Value::string(status_type)),
+            ("statusEnum", Value::string(status_enum)),
+        ]);
+        self.features.borrow_mut().statuses.insert(id.clone().with_tag(None), status);
     }
 }
 
@@ -59,13 +88,14 @@ fn version_index(v: &Value) -> R<usize> {
 }
 
 pub fn register(m: &mut HashMap<&'static str, BuiltinFn>) {
-    m.insert("newContext", |_, args| {
+    m.insert("newContext", |interp, args| {
         let version = arg(&args, 0, "newContext")?;
         let name: Rc<str> = version.as_str().ok_or_else(|| error("@newContext: expected a version"))?.into();
         Ok(Value::builtin(Rc::new(Context {
             serial: next_serial(),
             version: RefCell::new(name),
             features: RefCell::new(Features::default()),
+            state: RefCell::new(interp.state.new_context_state.map(|new| new())),
         })))
     });
     m.insert("isContext", |_, args| {
@@ -84,37 +114,41 @@ pub fn register(m: &mut HashMap<&'static str, BuiltinFn>) {
             .ok_or_else(|| error("@isAtVersionOrLater: the context's version is unknown"))?;
         Ok(Value::bool(version_index(introduced)? <= current))
     });
-    // ----- Feature bookkeeping (geometry rollback on abort comes with the native layer) -----
+    // ----- Feature bookkeeping -----
     m.insert("startFeature", |_, args| {
         let context = context_arg(&args, 0, "startFeature")?;
         let id = arg(&args, 1, "startFeature")?.clone();
+        let snapshot = context.state.borrow().as_ref().map(|state| state.snapshot());
         let mut features = context.features.borrow_mut();
         features.next_token += 1;
         let token = features.next_token;
-        features.open.push((id, token));
+        features.open.push(OpenFeature { id, token, snapshot });
         // std keeps the token in `var token is map`.
         Ok(super::map_value(vec![("token", Value::number(token as f64))]))
     });
-    // The token is the map @startFeature returned, or `{}` meaning the open feature with this id.
-    fn finish(args: &[Value], name: &str) -> R<Value> {
+    // The token is the map @startFeature returned, or `{}` meaning the open feature with this id. Ending or
+    // aborting a feature also closes the features opened inside it.
+    fn finish(args: &[Value], name: &str, abort: bool) -> R<Value> {
         let context = context_arg(args, 0, name)?;
         let id = arg(args, 1, name)?;
         let token = arg(args, 2, name)?.get("token").and_then(Value::as_number).map(|t| t as u64);
         let mut features = context.features.borrow_mut();
         let position = match token {
-            Some(token) => features.open.iter().rposition(|(_, t)| *t == token),
-            None => features.open.iter().rposition(|(open_id, _)| open_id == id),
+            Some(token) => features.open.iter().rposition(|f| f.token == token),
+            None => features.open.iter().rposition(|f| &f.id == id),
         };
-        match position {
-            Some(i) => {
-                features.open.truncate(i);
-                Ok(Value::UNDEFINED)
-            }
-            None => Err(error(format!("@{name}: no open feature for {id:?}"))),
+        let Some(i) = position else {
+            return Err(error(format!("@{name}: no open feature for {id:?}")));
+        };
+        let snapshot = features.open.drain(i..).next().and_then(|f| f.snapshot);
+        drop(features);
+        if abort && let (Some(state), Some(snapshot)) = (context.state.borrow_mut().as_mut(), snapshot) {
+            state.restore(snapshot);
         }
+        Ok(Value::UNDEFINED)
     }
-    m.insert("endFeature", |_, args| finish(&args, "endFeature"));
-    m.insert("abortFeature", |_, args| finish(&args, "abortFeature"));
+    m.insert("endFeature", |_, args| finish(&args, "endFeature", false));
+    m.insert("abortFeature", |_, args| finish(&args, "abortFeature", true));
     m.insert("functionGetFeatureStatus", |_, args| {
         let context = context_arg(&args, 0, "functionGetFeatureStatus")?;
         let id = arg(&args, 1, "functionGetFeatureStatus")?.clone().with_tag(None);

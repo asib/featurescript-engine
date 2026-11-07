@@ -51,6 +51,11 @@ pub fn name(id: TypeId) -> Rc<str> {
     TYPES.with(|t| t.borrow().get(id as usize).map_or_else(|| "?".into(), |info| info.name.clone()))
 }
 
+/// The first type registered with this name. std's types are registered before any module that imports std.
+pub fn find(name: &str) -> Option<TypeId> {
+    TYPES.with(|t| t.borrow().iter().position(|info| &*info.name == name).map(|i| i as TypeId))
+}
+
 pub fn is_enum(id: TypeId) -> bool {
     TYPES.with(|t| matches!(t.borrow().get(id as usize).map(|i| &i.kind), Some(TypeKind::Enum { .. })))
 }
