@@ -417,8 +417,8 @@ impl<'s> Parser<'s> {
     }
 
     fn type_name(&mut self) -> PResult<TypeName> {
-        // `undefined` and `function` are keywords that also name types.
-        if matches!(self.peek(), T::Undefined | T::Function) {
+        // `undefined`, `function` and `box` are keywords that also name types.
+        if matches!(self.peek(), T::Undefined | T::Function | T::BoxKw) {
             let token = self.bump();
             let name = Ident { name: self.text(token).to_string(), span: token.span };
             return Ok(TypeName { path: Path { namespace: None, name, span: token.span } });
@@ -798,7 +798,7 @@ impl<'s> Parser<'s> {
             }
             T::New => {
                 self.bump();
-                if !self.peek_is_word("box") {
+                if self.peek() != T::BoxKw {
                     return Err(self.error_here("expected 'box' after new"));
                 }
                 self.bump();

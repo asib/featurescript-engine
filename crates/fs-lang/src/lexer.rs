@@ -44,6 +44,7 @@ pub enum TokenKind {
     Type,
     Typecheck,
     Typeconvert,
+    BoxKw,
     Undefined,
     Var,
     While,
@@ -117,6 +118,7 @@ pub fn keyword(word: &str) -> Option<TokenKind> {
     Some(match word {
         "annotation" => Annotation,
         "as" => As,
+        "box" => BoxKw,
         "break" => Break,
         "catch" => Catch,
         "const" => Const,
