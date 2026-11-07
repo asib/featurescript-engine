@@ -45,6 +45,11 @@ case are measured and written down.
 2. **Parse all of std.** Write a lexer and parser for the full FeatureScript grammar that produce a syntax tree
    with source positions. *Check:* a test parses all 277 files with no errors, and a pretty-print round trip gives
    back the same tree. Record how long a full parse takes; if it is slow, plan to cache parsed code.
+   *Done* (crate `fs-lang`): all 277 files parse and survive the round trip. In a release build, lexing and
+   parsing all of std (150k lines, 827k tokens) takes about 67 ms
+   (`cargo run --release -p fs-lang --example parse_std`), so no cache of parsed code is needed yet. Onshape
+   publishes no operator precedence table, so the table at the top of `parser.rs` is an assumption. It is based
+   on C conventions and on how std writes its expressions, and step 3 should check it.
 3. **Build the oracle harness and batch 001.**
    - A generator with a fixed seed writes about 100 cases as FeatureScript. Each case builds a sketch and runs one
      or two `extrude` calls.
@@ -57,6 +62,9 @@ case are measured and written down.
      - result counts for the queries extrude depends on (`qCapEntity`, `qNonCapEntity`, `qCreatedBy`).
 
      It deletes each case's bodies before the next case starts.
+   - The same feature evaluates a few pure-FeatureScript expressions whose result depends on operator precedence.
+     Examples: `-2^2`, `"a" ~ 1 + 2`, `undefined ?? false || true`, `"x" is string == true` and `(1 + 2) as number`.
+     These check the precedence table the parser assumes.
    - Small Node scripts drive the logged-in Chrome over its debugging port. Once, they create the test document;
      after that they paste the Feature Studio text, add the feature, and read the results back.
    - First try reading the results from the page itself, such as the FeatureScript console, which costs no API
