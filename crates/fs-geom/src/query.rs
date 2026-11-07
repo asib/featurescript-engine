@@ -29,6 +29,9 @@ pub fn register(m: &mut GeomBuiltins) {
     m.insert("transientIdToString", |_, args| Ok(arg(&args, 0, "transientIdToString")?.clone().with_tag(None)));
 }
 
+/// How close (metres) an entity must come to a point to contain it.
+const CONTAINS_TOLERANCE: f64 = 1e-8;
+
 pub fn tid_string(tid: Tid) -> String {
     format!("T{tid}")
 }
@@ -159,16 +162,56 @@ fn resolve(model: &Model, query: &Value) -> R<Vec<EntityRef>> {
                 .collect()
         }
         // Sheet metal isn't modelled, so nothing is flattened, formed or active sheet metal.
+        // No sheet metal, so nothing is attached to any.
+        "PARTS_ATTACHED_TO" => Vec::new(),
         "SM_FLAT_FILTER" => keep_if(sub(model, query, "subquery")?, !yes_no(query, "flatFilter")?),
         "SM_FORM_FILTER" => keep_if(sub(model, query, "subquery")?, !yes_no(query, "formFilter")?),
         "ACTIVE_SM_FILTER" => keep_if(sub(model, query, "subquery")?, !yes_no(query, "activeSheetMetal")?),
         // Meshes aren't modelled, so nothing is mesh geometry.
         "MESH_GEOMETRY_FILTER" => keep_if(sub(model, query, "subquery")?, !yes_no(query, "meshGeometryFilter")?),
+        "CONTAINS_POINT" => {
+            let point = values::vec3(field(query, "point"), "qContainsPoint point")?;
+            let vertex = occt::vertex(point).map_err(crate::occt_error)?;
+            sub(model, query, "subquery")?
+                .into_iter()
+                .filter(|r| model.shape(*r).distance(&vertex).is_ok_and(|d| d.distance <= CONTAINS_TOLERANCE))
+                .collect()
+        }
+        // A sketch entity's edges, vertices or bodies. The operation id is the sketch's id, perhaps with "wireOp"
+        // (its edges) appended.
+        "SKETCH_ENTITY" => {
+            let mut feature = values::feature_id(field(query, "operationId"), "sketch entity query")?.to_vec();
+            if feature.last().is_some_and(|last| matches!(&**last, "wireOp" | "imprint")) {
+                feature.pop();
+            }
+            let wanted = field(query, "sketchEntityId").as_str().unwrap_or_default();
+            model
+                .everything(entity_type(field(query, "entityType"))?)
+                .into_iter()
+                .filter(|r| {
+                    let info = model.info(*r);
+                    info.is_created_by(&feature) && info.sketch_entity.as_deref() == Some(wanted)
+                })
+                .collect()
+        }
+        // A sketch's imprint: the region faces its sketch made. The query's operation id is the sketch's id plus
+        // "imprint".
+        "IMPRINT" => {
+            let mut feature = values::feature_id(field(query, "operationId"), "imprint query")?.to_vec();
+            if feature.last().is_some_and(|last| &**last == "imprint") {
+                feature.pop();
+            }
+            filter_type(sketch_regions(model, &feature, false), entity_type(field(query, "entityType"))?)
+        }
+        // Composite parts aren't modelled yet, so no body is in one.
+        "CONTAINED_IN_COMPOSITE" | "COMPOSITE_CONTAINING" => Vec::new(),
         // Nothing is locked in a context the engine builds itself.
         "MODIFIABLE_ENTITY_FILTER" => sub(model, query, "subquery")?,
         "OWNED_BY_PART" => {
             let kind = entity_type(field(query, "entityType"))?;
-            let bodies: BTreeSet<usize> = sub(model, query, "part")?.into_iter().map(|r| r.body).collect();
+            // Only bodies own anything: faces, edges and vertices in `part` are ignored.
+            let bodies: BTreeSet<usize> =
+                sub(model, query, "part")?.into_iter().filter(|r| r.kind == EntityType::Body).map(|r| r.body).collect();
             let owned: Vec<EntityRef> = bodies.into_iter().flat_map(|b| model.owned_by(b, kind)).collect();
             if field(query, "subquery").is_undefined() {
                 owned

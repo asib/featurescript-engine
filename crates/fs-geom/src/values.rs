@@ -24,6 +24,8 @@ pub struct Tags {
     pub query_type: TypeId,
     pub entity_type: TypeId,
     pub body_type: TypeId,
+    pub matrix: TypeId,
+    pub transform: TypeId,
 }
 
 impl Tags {
@@ -41,7 +43,15 @@ impl Tags {
             query_type: find("QueryType")?,
             entity_type: find("EntityType")?,
             body_type: find("BodyType")?,
+            matrix: find("Matrix")?,
+            transform: find("Transform")?,
         })
+    }
+
+    /// Tags a value with a std type looked up by name, such as `DistanceResult`.
+    pub fn tagged(&self, value: Value, type_name: &str) -> R<Value> {
+        let tag = types::find(type_name).ok_or_else(|| error(format!("std type {type_name} isn't loaded")))?;
+        Ok(value.with_tag(Some(tag)))
     }
 
     pub fn length(&self, metres: f64) -> Value {
@@ -70,9 +80,36 @@ impl Tags {
         .with_tag(Some(self.plane))
     }
 
+    /// A `CoordSystem` from a frame (x axis `frame.x`, z axis `frame.normal`).
+    pub fn coord_system(&self, frame: Frame) -> R<Value> {
+        self.tagged(
+            map(vec![
+                ("origin", self.length_vector(frame.origin)),
+                ("xAxis", self.unit_vector(frame.x)),
+                ("zAxis", self.unit_vector(frame.normal)),
+            ]),
+            "CoordSystem",
+        )
+    }
+
+    /// A 2D unitless `Vector`.
+    pub fn vector2(&self, x: f64, y: f64) -> Value {
+        Value::array(vec![Value::number(x), Value::number(y)]).with_tag(Some(self.vector))
+    }
+
     pub fn line(&self, origin: Vec3, direction: Vec3) -> Value {
         map(vec![("origin", self.length_vector(origin)), ("direction", self.unit_vector(direction))])
             .with_tag(Some(self.line))
+    }
+
+    /// A `Transform`: `p ↦ linear p + translation`, with `translation` in metres.
+    pub fn transform(&self, linear: [[f64; 3]; 3], translation: Vec3) -> Value {
+        let rows = linear.iter().map(|row| Value::array(row.iter().map(|x| Value::number(*x)).collect())).collect();
+        map(vec![
+            ("linear", Value::array(rows).with_tag(Some(self.matrix))),
+            ("translation", self.length_vector(translation)),
+        ])
+        .with_tag(Some(self.transform))
     }
 
     pub fn enum_value(&self, tag: TypeId, name: &str) -> Value {
@@ -158,6 +195,20 @@ pub fn plane(v: &Value, what: &str) -> R<Frame> {
     Ok(Frame { origin, normal, x })
 }
 
+/// A `Line` map: its origin and unit direction.
+pub fn line(v: &Value, what: &str) -> R<occt::Axis> {
+    let origin = vec3(field(v, "origin"), what)?;
+    let direction =
+        normalize(vec3(field(v, "direction"), what)?).ok_or_else(|| error(format!("{what}: zero direction")))?;
+    Ok(occt::Axis { origin, direction })
+}
+
+/// An array of numbers.
+pub fn numbers(v: &Value, what: &str) -> R<Vec<f64>> {
+    let items = v.as_array().ok_or_else(|| error(format!("{what} must be an array")))?;
+    items.iter().map(|x| x.as_number().ok_or_else(|| error(format!("{what} must hold numbers")))).collect()
+}
+
 /// An `Id` (array of strings) as its parts.
 pub fn feature_id(v: &Value, what: &str) -> R<Rc<[Rc<str>]>> {
     let items = v.as_array().ok_or_else(|| error(format!("{what} must be an Id")))?;
@@ -197,6 +248,24 @@ pub fn norm(a: Vec3) -> f64 {
 pub fn normalize(a: Vec3) -> Option<Vec3> {
     let n = norm(a);
     (n > 1e-300).then(|| scale(a, 1.0 / n))
+}
+
+/// The x direction Onshape gives a plane with this normal, whatever x direction it was made with (`@opPlane` and
+/// `@evPlane` both use it). For a mostly horizontal plane (|normal · z| > 1/√2), x is the world x axis projected
+/// onto the plane; otherwise the plane's y is the world z axis projected onto it and x is y × normal. Worked out
+/// from batch 002's construction planes.
+pub fn canonical_x(normal: Vec3) -> Vec3 {
+    let (x_axis, z_axis) = (Vec3::new(1.0, 0.0, 0.0), Vec3::new(0.0, 0.0, 1.0));
+    let project = |v: Vec3| normalize(sub(v, scale(normal, dot(normal, v))));
+    if dot(normal, z_axis).abs() > std::f64::consts::FRAC_1_SQRT_2 + 1e-12
+        && let Some(x) = project(x_axis)
+    {
+        return x;
+    }
+    match project(z_axis) {
+        Some(y) => normalize(cross(y, normal)).unwrap_or(x_axis),
+        None => x_axis,
+    }
 }
 
 /// The point at plane coordinates (u, v) of a frame.

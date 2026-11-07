@@ -4,14 +4,19 @@
 //! [`install`] adds the builtins to an interpreter and gives every new context a [`model::GeomState`]; [`engine`]
 //! is an [`Engine`] over the vendored std with geometry installed.
 
+// Values are keys of FeatureScript maps; their interior mutability is only in builtin objects, never hashed.
+#![allow(clippy::mutable_key_type)]
+
 pub mod evaluate;
 pub mod model;
 pub mod ops;
+pub mod patterns;
 pub mod properties;
 pub mod query;
 pub mod sketch;
 pub mod unmodelled;
 pub mod values;
+pub mod variables;
 
 use fs_interp::Engine;
 use fs_interp::Value;
@@ -35,6 +40,8 @@ pub fn install(interp: &mut Interp) {
     properties::register(&mut builtins);
     evaluate::register(&mut builtins);
     unmodelled::register(&mut builtins);
+    variables::register(&mut builtins);
+    patterns::register(&mut builtins);
     interp.builtins.extend(builtins);
 }
 
@@ -60,13 +67,22 @@ pub(crate) fn tags(interp: &mut Interp) -> R<Rc<Tags>> {
     Ok(tags)
 }
 
-fn with_context_model<T>(context: &fs_interp::builtins::Context, f: impl FnOnce(&mut Model) -> R<T>) -> R<T> {
+fn with_context_state<T>(context: &fs_interp::builtins::Context, f: impl FnOnce(&mut GeomState) -> R<T>) -> R<T> {
     let mut state = context.state.borrow_mut();
     let geometry = state
         .as_mut()
         .and_then(|s| s.as_any_mut().downcast_mut::<GeomState>())
         .ok_or_else(|| error("this context has no geometry"))?;
-    f(&mut geometry.model)
+    f(geometry)
+}
+
+fn with_context_model<T>(context: &fs_interp::builtins::Context, f: impl FnOnce(&mut Model) -> R<T>) -> R<T> {
+    with_context_state(context, |state| f(&mut state.model))
+}
+
+/// Runs `f` on the state (model and variables) of the context in argument 1.
+pub(crate) fn state_mut<T>(args: &[Value], name: &str, f: impl FnOnce(&mut GeomState) -> R<T>) -> R<T> {
+    with_context_state(context_arg(args, 0, name)?, f)
 }
 
 /// Runs `f` on the model of the context in argument 1.

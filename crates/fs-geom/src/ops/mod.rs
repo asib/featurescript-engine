@@ -1,5 +1,11 @@
 //! Operations (`@op*`): the builtins that change a context's geometry.
 
+mod pattern;
+mod revolve;
+mod split;
+
+pub use revolve::rotation;
+
 use crate::model::{BodyType, Cap, EntityType, FeatureId, Info, Model, NewBody, Origins};
 use crate::values::{self, field, scale};
 use crate::{GeomBuiltins, model_mut, occt_error, query, regen_error};
@@ -13,16 +19,17 @@ use std::rc::Rc;
 pub fn register(m: &mut GeomBuiltins) {
     m.insert("opPoint", |_, args| {
         run_op(&args, "opPoint", |model, id, definition| {
+            // Always a construction point; `origin` only marks the default origin.
             let point = values::vec3(field(definition, "point"), "opPoint point")?;
-            let construction = values::opt_bool(definition, "origin")?.unwrap_or(false);
             let shape = occt::vertex(point).map_err(occt_error)?;
-            add_simple(model, shape, BodyType::Point, &Info::new(id), construction);
+            add_simple(model, shape, BodyType::Point, &Info::new(id), true);
             Ok(Value::UNDEFINED)
         })
     });
     m.insert("opPlane", |_, args| {
         run_op(&args, "opPlane", |model, id, definition| {
             let plane = values::plane(field(definition, "plane"), "opPlane plane")?;
+            let plane = occt::Frame { x: values::canonical_x(plane.normal), ..plane };
             let size = |key: &str| -> R<f64> {
                 match field(definition, key) {
                     v if v.is_undefined() => Ok(0.15),
@@ -46,6 +53,18 @@ pub fn register(m: &mut GeomBuiltins) {
         })
     });
     m.insert("opTransform", |_, args| run_op(&args, "opTransform", transform_bodies));
+    m.insert("opRevolve", |_, args| run_op(&args, "opRevolve", revolve::revolve));
+    m.insert("opSphere", |_, args| {
+        run_op(&args, "opSphere", |model, id, definition| {
+            let center = values::vec3(field(definition, "center"), "opSphere center")?;
+            let radius = values::length(field(definition, "radius"), "opSphere radius")?;
+            let shape = occt::sphere(center, radius).map_err(occt_error)?;
+            add_simple(model, shape, BodyType::Solid, &Info::new(id), false);
+            Ok(Value::UNDEFINED)
+        })
+    });
+    m.insert("opPattern", |_, args| run_op(&args, "opPattern", pattern::pattern));
+    m.insert("opSplitPart", |_, args| run_op(&args, "opSplitPart", split::split_part));
 }
 
 /// Runs an operation on the model. Like Onshape's, a failing operation records its error as the status of the id
@@ -78,18 +97,24 @@ fn transform_bodies(model: &mut Model, id: FeatureId, definition: &Value) -> R<V
     Ok(Value::UNDEFINED)
 }
 
-fn id_and_definition(args: &[Value], name: &str) -> R<(FeatureId, Value)> {
+pub(crate) fn id_and_definition(args: &[Value], name: &str) -> R<(FeatureId, Value)> {
     let id = values::feature_id(arg(args, 1, name)?, &format!("@{name} id"))?;
     Ok((id, arg(args, 2, name)?.clone()))
 }
 
-fn add_simple(model: &mut Model, shape: Shape, body_type: BodyType, info: &Rc<Info>, construction: bool) -> usize {
+pub(crate) fn add_simple(
+    model: &mut Model,
+    shape: Shape,
+    body_type: BodyType,
+    info: &Rc<Info>,
+    construction: bool,
+) -> usize {
     let new = NewBody { construction, ..NewBody::new(shape, body_type, info.clone()) };
     model.add_body(new, &Origins::default(), info, &|_| None)
 }
 
 /// The distinct bodies that own what a query finds, in model order.
-fn owner_bodies(model: &Model, query: &Value) -> R<Vec<usize>> {
+pub(crate) fn owner_bodies(model: &Model, query: &Value) -> R<Vec<usize>> {
     let mut bodies: Vec<usize> = query::evaluate(model, query)?.into_iter().map(|r| r.body).collect();
     bodies.sort_unstable();
     bodies.dedup();
@@ -97,7 +122,7 @@ fn owner_bodies(model: &Model, query: &Value) -> R<Vec<usize>> {
 }
 
 /// A `Transform` map: `linear` (a 3×3 matrix as an array of rows) and `translation` (a length vector).
-fn transform(v: &Value) -> R<Transform> {
+pub(crate) fn transform(v: &Value) -> R<Transform> {
     let linear = field(v, "linear");
     let rows = linear
         .as_array()
@@ -117,16 +142,16 @@ fn transform(v: &Value) -> R<Transform> {
     Ok(Transform { m })
 }
 
-fn translation(v: Vec3) -> Transform {
+pub(crate) fn translation(v: Vec3) -> Transform {
     Transform { m: [1.0, 0.0, 0.0, v.x, 0.0, 1.0, 0.0, v.y, 0.0, 0.0, 1.0, v.z] }
 }
 
 /// Shapes looked up by [`Shape::is_same`].
 #[derive(Default)]
-struct ShapeSet(HashMap<u64, Vec<Shape>>);
+pub(crate) struct ShapeSet(HashMap<u64, Vec<Shape>>);
 
 impl ShapeSet {
-    fn insert(&mut self, s: &Shape) {
+    pub(crate) fn insert(&mut self, s: &Shape) {
         let entries = self.0.entry(s.hash()).or_default();
         if !entries.iter().any(|e| e.is_same(s)) {
             entries.push(s.clone());
@@ -134,7 +159,7 @@ impl ShapeSet {
     }
 
     /// Adds a shape and its faces, edges and vertices.
-    fn insert_all(&mut self, s: &Shape) {
+    pub(crate) fn insert_all(&mut self, s: &Shape) {
         self.insert(s);
         for kind in [ShapeKind::Face, ShapeKind::Edge, ShapeKind::Vertex] {
             for part in s.sub_shapes(kind) {
@@ -143,7 +168,7 @@ impl ShapeSet {
         }
     }
 
-    fn contains(&self, s: &Shape) -> bool {
+    pub(crate) fn contains(&self, s: &Shape) -> bool {
         self.0.get(&s.hash()).is_some_and(|entries| entries.iter().any(|e| e.is_same(s)))
     }
 }

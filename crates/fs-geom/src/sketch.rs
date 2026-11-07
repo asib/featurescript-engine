@@ -184,6 +184,8 @@ fn solve(model: &mut Model, sketch: &Sketch) -> R<()> {
                 points.push((entity.id.clone(), world(p), entity.construction));
                 continue;
             }
+            // A zero-length line, such as the tip of std's fCone with no top radius, adds nothing.
+            Geometry::Line(a, b) if (a.0 - b.0).hypot(a.1 - b.1) < 1e-12 => continue,
             Geometry::Line(a, b) => occt::line_edge(world(a), world(b)).map_err(occt_error)?,
             Geometry::Circle { center, radius } => {
                 points.push((format!("{}.center", entity.id).into(), world(center), entity.construction));

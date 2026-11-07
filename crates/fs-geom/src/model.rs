@@ -230,9 +230,10 @@ impl Model {
         default: &Rc<Info>,
         special: &dyn Fn(&Shape) -> Option<Rc<Info>>,
     ) -> usize {
+        // Only the topology Onshape would have: no seam or degenerate edges, no vertices on closed edges.
         let mut entities = |kind: ShapeKind| -> Vec<Entity> {
             new.shape
-                .sub_shapes(kind)
+                .visible_sub_shapes(kind)
                 .into_iter()
                 .map(|shape| {
                     let (tid, info) = match special(&shape) {
@@ -399,22 +400,32 @@ impl Origins {
     }
 }
 
-/// The geometry state kept in each context.
+/// A variable set with `@setVariable` or `@setQueryVariable`.
+#[derive(Clone, Debug)]
+pub struct Variable {
+    pub value: Value,
+    pub description: Value,
+    /// Set with `@setQueryVariable`: only `@getQueryVariable` reads it.
+    pub query: bool,
+}
+
+/// The state kept in each context: its geometry and its variables.
 #[derive(Clone, Default)]
 pub struct GeomState {
     pub model: Model,
+    pub variables: Rc<BTreeMap<Rc<str>, Variable>>,
 }
 
 impl ContextState for GeomState {
     fn snapshot(&self) -> Box<dyn Any> {
-        Box::new(self.model.clone())
+        Box::new(self.clone())
     }
 
     fn restore(&mut self, snapshot: Box<dyn Any>) {
-        if let Ok(model) = snapshot.downcast::<Model>() {
+        if let Ok(state) = snapshot.downcast::<GeomState>() {
             // Transient ids handed out by the rolled-back feature are never reused.
             let next_tid = self.model.next_tid;
-            self.model = *model;
+            *self = *state;
             self.model.next_tid = next_tid;
         }
     }
