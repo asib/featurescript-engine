@@ -24,10 +24,14 @@
 #include <GProp_GProps.hxx>
 #include <Geom_TrimmedCurve.hxx>
 #include <IFSelect_ReturnStatus.hxx>
+#include <Message.hxx>
+#include <Message_Messenger.hxx>
+#include <Message_PrinterOStream.hxx>
 #include <Interface_InterfaceModel.hxx>
 #include <Interface_Static.hxx>
 #include <STEPCAFControl_Writer.hxx>
 #include <STEPControl_Reader.hxx>
+#include <StepData_StepModel.hxx>
 #include <ShapeUpgrade_UnifySameDomain.hxx>
 #include <StepShape_ManifoldSolidBrep.hxx>
 #include <TCollection_ExtendedString.hxx>
@@ -61,6 +65,15 @@
 
 namespace occt {
 namespace {
+
+// OCCT prints transfer statistics to stdout; a library shouldn't.
+void quiet() {
+  static const bool done = [] {
+    Message::DefaultMessenger()->RemovePrinters(STANDARD_TYPE(Message_PrinterOStream));
+    return true;
+  }();
+  (void)done;
+}
 
 gp_Pnt pnt(const Vec3 &v) { return gp_Pnt(v.x, v.y, v.z); }
 gp_Dir dir(const Vec3 &v) { return gp_Dir(v.x, v.y, v.z); }
@@ -388,11 +401,15 @@ int32_t curve_type(const Shape &edge) {
 
 bool shape_valid(const Shape &s) { return BRepCheck_Analyzer(s.shape).IsValid(); }
 
-// Writes AP242 in metres, naming each shape's product.
+// Writes AP242 in metres, naming each shape's product and, as Onshape does, its MANIFOLD_SOLID_BREP. The solids
+// are named in the order they were transferred, so each shape must be a single solid for its name to land on it.
 void write_step(const ShapeList &shapes, const rust::Vec<rust::String> &names, rust::Str path) {
   if (shapes.shapes.size() != names.size()) throw std::invalid_argument("one name per shape");
+  quiet();
   Handle(TDocStd_Document) document;
   XCAFApp_Application::GetApplication()->NewDocument("MDTV-XCAF", document);
+  // Our shapes are in metres; without this the writer takes them as millimetres and scales them down.
+  XCAFDoc_DocumentTool::SetLengthUnit(document, 1.0);
   Handle(XCAFDoc_ShapeTool) tool = XCAFDoc_DocumentTool::ShapeTool(document->Main());
   for (size_t i = 0; i < shapes.shapes.size(); ++i) {
     TDF_Label label = tool->AddShape(shapes.shapes[i], Standard_False);
@@ -403,12 +420,21 @@ void write_step(const ShapeList &shapes, const rust::Vec<rust::String> &names, r
   Interface_Static::SetCVal("write.step.unit", "M");
   writer.SetNameMode(Standard_True);
   if (!writer.Transfer(document, STEPControl_AsIs)) throw std::runtime_error("STEP transfer failed");
+  Handle(StepData_StepModel) model = writer.ChangeWriter().Model();
+  std::vector<Handle(StepShape_ManifoldSolidBrep)> solids;
+  for (int i = 1; i <= model->NbEntities(); ++i) {
+    Handle(StepShape_ManifoldSolidBrep) brep = Handle(StepShape_ManifoldSolidBrep)::DownCast(model->Value(i));
+    if (!brep.IsNull()) solids.push_back(brep);
+  }
+  if (solids.size() == names.size())
+    for (size_t i = 0; i < solids.size(); ++i) solids[i]->SetName(new TCollection_HAsciiString(std::string(names[i]).c_str()));
   if (writer.Write(std::string(path).c_str()) != IFSelect_RetDone) throw std::runtime_error("STEP write failed");
   XCAFApp_Application::GetApplication()->Close(document);
 }
 
 // Reads every MANIFOLD_SOLID_BREP of a STEP file, in metres, with the name written on it.
 std::unique_ptr<ShapeList> read_step(rust::Str path, rust::Vec<rust::String> &names) {
+  quiet();
   STEPControl_Reader reader;
   if (reader.ReadFile(std::string(path).c_str()) != IFSelect_RetDone) throw std::runtime_error("STEP read failed");
   // The system unit is in millimetres, and setting it only takes effect once a file is loaded.
