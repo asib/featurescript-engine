@@ -222,8 +222,31 @@ pub struct PartResult {
     pub problems: Vec<String>,
 }
 
+/// How strictly [`compare_with`] checks a part.
+#[derive(Clone, Copy, Debug)]
+pub struct Strictness {
+    /// Volume and area must match to this relative error.
+    pub relative: f64,
+    /// Compare edge and vertex counts. Onshape's STEP export splits some closed edges, so a batch with probe lines
+    /// takes its counts from them instead.
+    pub topology: bool,
+}
+
+/// For batches without probe lines: everything from the STEP file, as tightly as it allows.
+pub const STEP_ONLY: Strictness = Strictness { relative: RELATIVE_TOLERANCE, topology: true };
+
+/// For batches with probe lines, which carry Onshape's own volumes, areas and entity counts to 1e-6: the STEP file
+/// still checks the shapes (bounding box, face types, and the volume where they differ to 1e-6), but volumes and
+/// areas OCCT measures on Onshape's STEP surfaces can be off by 1e-6 (trimmed cylinders) to 2e-5 (a B-spline
+/// ellipsoid), so they only catch gross errors here.
+pub const WITH_PROBES: Strictness = Strictness { relative: 1e-4, topology: false };
+
 /// Compares the engine's part with Onshape's.
 pub fn compare(name: &str, ours: &Shape, theirs: &Shape) -> PartResult {
+    compare_with(name, ours, theirs, STEP_ONLY)
+}
+
+pub fn compare_with(name: &str, ours: &Shape, theirs: &Shape, strictness: Strictness) -> PartResult {
     let mut result = PartResult {
         name: name.to_string(),
         volume: 0.0,
@@ -248,10 +271,10 @@ pub fn compare(name: &str, ours: &Shape, theirs: &Shape) -> PartResult {
     if !ours_m.valid {
         problems.push("the engine's shape is invalid".into());
     }
-    if result.volume_error > RELATIVE_TOLERANCE {
+    if result.volume_error > strictness.relative {
         problems.push(format!("volume {:.9e} m³, Onshape {:.9e}", ours_m.volume, theirs_m.volume));
     }
-    if result.area_error > RELATIVE_TOLERANCE {
+    if result.area_error > strictness.relative {
         problems.push(format!("area {:.9e} m², Onshape {:.9e}", ours_m.area, theirs_m.area));
     }
     if result.box_error > BOX_TOLERANCE {
@@ -260,13 +283,13 @@ pub fn compare(name: &str, ours: &Shape, theirs: &Shape) -> PartResult {
     if ours_m.faces != theirs_m.faces {
         problems.push(format!("faces {:?}, Onshape {:?}", ours_m.faces, theirs_m.faces));
     }
-    if ours_m.edges != theirs_m.edges {
+    if strictness.topology && ours_m.edges != theirs_m.edges {
         problems.push(format!("edges {:?}, Onshape {:?}", ours_m.edges, theirs_m.edges));
     }
-    if ours_m.seams != theirs_m.seams {
+    if strictness.topology && ours_m.seams != theirs_m.seams {
         problems.push(format!("{} seam edges, Onshape {}", ours_m.seams, theirs_m.seams));
     }
-    if ours_m.vertices != theirs_m.vertices {
+    if strictness.topology && ours_m.vertices != theirs_m.vertices {
         problems.push(format!("{} vertices, Onshape {}", ours_m.vertices, theirs_m.vertices));
     }
     match difference_volume(ours, theirs) {
@@ -291,6 +314,10 @@ pub struct Report {
     pub duplicated: Vec<String>,
     /// Problems reading back the engine's STEP file, if one was written.
     pub step_problems: Vec<String>,
+    /// Probe lines that don't match Onshape's, as "<case>: <what differs>".
+    pub probe_problems: Vec<String>,
+    /// How many of Onshape's probe lines the engine's matched, and how many there were.
+    pub probes_matched: (usize, usize),
     /// What the generator printed.
     pub output: String,
     pub build_seconds: f64,
@@ -304,6 +331,7 @@ impl Report {
         out.extend(self.extra.iter().map(|name| format!("{name}: not in Onshape's model")));
         out.extend(self.duplicated.iter().map(|name| format!("{name}: name used more than once")));
         out.extend(self.step_problems.iter().map(|p| format!("engine STEP: {p}")));
+        out.extend(self.probe_problems.iter().cloned());
         for part in &self.parts {
             out.extend(part.problems.iter().map(|p| format!("{}: {p}", part.name)));
         }
@@ -315,6 +343,9 @@ impl fmt::Display for Report {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let matched = self.parts.iter().filter(|p| p.problems.is_empty()).count();
         writeln!(f, "{matched} of {} parts match Onshape's", self.parts.len())?;
+        if self.probes_matched.1 > 0 {
+            writeln!(f, "{} of {} probe lines match Onshape's", self.probes_matched.0, self.probes_matched.1)?;
+        }
         let worst = |key: fn(&PartResult) -> f64| self.parts.iter().map(key).fold(0.0, f64::max);
         writeln!(
             f,
@@ -360,6 +391,52 @@ fn write_and_reread(parts: &[Part], path: &Path) -> Result<Vec<String>, String> 
     Ok(problems)
 }
 
+/// A probe number must match Onshape's to this absolute error (mm, mm², mm³) plus [`RELATIVE_TOLERANCE`] of its
+/// size. Boxes of curved parts can differ by a fraction of a micrometre.
+pub const PROBE_ABSOLUTE_TOLERANCE: f64 = 1e-3;
+
+/// Probe lines by case (`"c001"`), and the failed-cases line under `"failed"`.
+pub fn probe_lines(text: &str) -> BTreeMap<String, String> {
+    let mut out = BTreeMap::new();
+    for line in text.lines().map(str::trim) {
+        if let Some(rest) = line.strip_prefix("probe ") {
+            let case = rest.split_whitespace().next().unwrap_or_default();
+            out.insert(case.to_string(), line.to_string());
+        } else if line.starts_with("batch-") && line.contains(" failed cases: ") {
+            out.insert("failed".to_string(), line.to_string());
+        }
+    }
+    out
+}
+
+/// Compares two probe lines token by token: numbers to [`PROBE_ABSOLUTE_TOLERANCE`] plus [`RELATIVE_TOLERANCE`]
+/// of their size, everything else exactly. Returns the first difference, naming the body it's in.
+pub fn compare_probe(ours: &str, theirs: &str) -> Option<String> {
+    let (a, b): (Vec<&str>, Vec<&str>) = (ours.split_whitespace().collect(), theirs.split_whitespace().collect());
+    let mut body = "";
+    let mut key = "";
+    for i in 0..a.len().max(b.len()) {
+        let (x, y) = (a.get(i).copied().unwrap_or("<end>"), b.get(i).copied().unwrap_or("<end>"));
+        if i >= 2 && b.get(i - 2) == Some(&"name") {
+            body = y;
+        }
+        if b.get(i + 1) == Some(&":") {
+            key = y;
+        }
+        let same = match (x.parse::<f64>(), y.parse::<f64>()) {
+            (Ok(p), Ok(q)) => (p - q).abs() <= PROBE_ABSOLUTE_TOLERANCE + RELATIVE_TOLERANCE * p.abs().max(q.abs()),
+            _ => x == y,
+        };
+        if !same {
+            let context =
+                |tokens: &[&str]| tokens[i.saturating_sub(3).min(tokens.len())..(i + 4).min(tokens.len())].join(" ");
+            let place = if body.is_empty() { String::new() } else { format!("{body} ") };
+            return Some(format!("{place}{key}: engine `{}`, Onshape `{}`", context(&a), context(&b)));
+        }
+    }
+    None
+}
+
 /// Parts by name; a name can be used more than once.
 fn index(parts: &[Part]) -> BTreeMap<String, Vec<&Shape>> {
     let mut by_name: BTreeMap<String, Vec<&Shape>> = BTreeMap::new();
@@ -380,22 +457,40 @@ pub fn check_batch(batch: &Path, step: Option<&Path>) -> Result<Report, String> 
     };
 
     let (ours, theirs) = (index(&built.parts), index(&fixture));
+    let probe_file = batch.join("onshape-probes.txt");
     let mut report = Report {
         parts: Vec::new(),
         missing: theirs.keys().filter(|n| !ours.contains_key(*n)).cloned().collect(),
         extra: ours.keys().filter(|n| !theirs.contains_key(*n)).cloned().collect(),
         duplicated: Vec::new(),
         step_problems,
+        probe_problems: Vec::new(),
+        probes_matched: (0, 0),
         output: built.output,
         build_seconds: built.seconds,
     };
+    if probe_file.exists() {
+        let theirs = probe_lines(&read(&probe_file)?);
+        let ours = probe_lines(&report.output);
+        report.probes_matched.1 = theirs.len();
+        for (key, line) in &theirs {
+            match ours.get(key) {
+                None => report.probe_problems.push(format!("{key}: no probe line from the engine")),
+                Some(our_line) => match compare_probe(our_line, line) {
+                    None => report.probes_matched.0 += 1,
+                    Some(problem) => report.probe_problems.push(format!("{key} probe: {problem}")),
+                },
+            }
+        }
+    }
+    let strictness = if probe_file.exists() { WITH_PROBES } else { STEP_ONLY };
     for (name, shapes) in &theirs {
         let Some(our_shapes) = ours.get(name) else { continue };
         if shapes.len() != 1 || our_shapes.len() != 1 {
             report.duplicated.push(name.clone());
             continue;
         }
-        report.parts.push(compare(name, our_shapes[0], shapes[0]));
+        report.parts.push(compare_with(name, our_shapes[0], shapes[0], strictness));
     }
     Ok(report)
 }
