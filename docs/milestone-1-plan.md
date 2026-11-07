@@ -16,6 +16,10 @@ case are measured and written down.
   each tab's editor. That is ordinary browsing and makes no API calls. The community mirror stopped at version 2960
   in May 2026, so it is only used to check the copy. The oracle's test Feature Studio imports the same std version
   we copied, and the batch records `getCurrentVersion(context)` to show which version Onshape's built-ins run at.
+  *Done:* std 3112.0 (2026-10-30) is in `std/`, with 277 files and 150,805 lines. Since 2985, each file carries the
+  version it last changed in, not the release version. Every import points at the copied file, so the interpreter
+  can resolve `onshape/std/<file>` to `std/<file>` and ignore the version, as long as `tools/check-std.mjs`
+  passes.
 - **Onshape access rules.** We never create API keys and never call Onshape's REST API directly. The only API use
   allowed is the API Explorer page, in the logged-in browser, and as rarely as possible.
 - **Sketches give explicit coordinates and have no constraints or dimensions.** With nothing to solve, `skSolve`
@@ -34,11 +38,12 @@ case are measured and written down.
 ## Steps
 
 1. **Vendor std and set up the workspace.** Copy the latest released std into `std/` with
-   `tools/browser/fetch-std.mjs`, with its licence and a `NOTICE` naming the document version it came from. Create a Cargo workspace with a first crate `fs-lang` for the
-   lexer, parser and syntax tree; add further crates when a step needs them. *Check:* `cargo build` passes and std
-   is committed unchanged.
+   `tools/browser/fetch-std.mjs`, with its licence and a `NOTICE` naming the document version it came from (done:
+   3112.0). Create a Cargo workspace with a first crate `fs-lang` for the lexer, parser and syntax tree; add
+   further crates when a step needs them. *Check:* `cargo build` passes and `node tools/check-std.mjs std` reports
+   no problems.
 2. **Parse all of std.** Write a lexer and parser for the full FeatureScript grammar that produce a syntax tree
-   with source positions. *Check:* a test parses all 265 files with no errors, and a pretty-print round trip gives
+   with source positions. *Check:* a test parses all 277 files with no errors, and a pretty-print round trip gives
    back the same tree. Record how long a full parse takes; if it is slow, plan to cache parsed code.
 3. **Build the oracle harness and batch 001.**
    - A generator with a fixed seed writes about 100 cases as FeatureScript. Each case builds a sketch and runs one

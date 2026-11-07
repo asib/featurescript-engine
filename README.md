@@ -5,7 +5,8 @@ interpreter, with the `@` built-ins it calls (modelling operations, queries, mea
 implemented on OpenCascade. Part Studio code could then be rebuilt locally in a fraction of the time an Onshape
 regeneration takes. Onshape itself is the test oracle.
 
-Status: just started; there is no code yet. The background and reasoning are in
+Status: std 3112.0 is vendored in [std/](std/NOTICE.md); there is no engine code yet. The background and
+reasoning are in
 [docs/discussion-log.md](docs/discussion-log.md); the current plan is
 [docs/milestone-1-plan.md](docs/milestone-1-plan.md).
 
