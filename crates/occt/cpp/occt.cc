@@ -32,6 +32,7 @@
 #include <STEPCAFControl_Writer.hxx>
 #include <STEPControl_Reader.hxx>
 #include <StepData_StepModel.hxx>
+#include <ShapeUpgrade_ShapeDivideClosed.hxx>
 #include <ShapeUpgrade_UnifySameDomain.hxx>
 #include <StepShape_ManifoldSolidBrep.hxx>
 #include <TCollection_ExtendedString.hxx>
@@ -39,6 +40,9 @@
 #include <TDataStd_Name.hxx>
 #include <TDocStd_Document.hxx>
 #include <TopExp.hxx>
+#include <TopExp_Explorer.hxx>
+#include <BRepExtrema_DistShapeShape.hxx>
+#include <TopLoc_Location.hxx>
 #include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
 #include <TopTools_MapOfShape.hxx>
@@ -62,49 +66,9 @@
 #include <stdexcept>
 
 #include "occt/src/lib.rs.h"
+#include "occt/cpp/internal.h"
 
 namespace occt {
-namespace {
-
-// OCCT prints transfer statistics to stdout; a library shouldn't.
-void quiet() {
-  static const bool done = [] {
-    Message::DefaultMessenger()->RemovePrinters(STANDARD_TYPE(Message_PrinterOStream));
-    return true;
-  }();
-  (void)done;
-}
-
-gp_Pnt pnt(const Vec3 &v) { return gp_Pnt(v.x, v.y, v.z); }
-gp_Dir dir(const Vec3 &v) { return gp_Dir(v.x, v.y, v.z); }
-Vec3 vec3(const gp_XYZ &p) { return Vec3{p.X(), p.Y(), p.Z()}; }
-gp_Ax3 ax3(const Frame &f) { return gp_Ax3(pnt(f.origin), dir(f.normal), dir(f.x)); }
-gp_Ax2 ax2(const Frame &f) { return gp_Ax2(pnt(f.origin), dir(f.normal), dir(f.x)); }
-
-std::unique_ptr<Shape> wrap(const TopoDS_Shape &s) { return std::make_unique<Shape>(s); }
-
-std::unique_ptr<ShapeList> wrap_list(const TopTools_ListOfShape &l) {
-  auto out = std::make_unique<ShapeList>();
-  for (const TopoDS_Shape &s : l) out->shapes.push_back(s);
-  return out;
-}
-
-TopTools_ListOfShape to_list(const ShapeList &l) {
-  TopTools_ListOfShape out;
-  for (const TopoDS_Shape &s : l.shapes) out.Append(s);
-  return out;
-}
-
-TopAbs_ShapeEnum shape_enum(int32_t kind) {
-  if (kind < TopAbs_COMPOUND || kind > TopAbs_SHAPE) throw std::invalid_argument("bad shape kind");
-  return static_cast<TopAbs_ShapeEnum>(kind);
-}
-
-void check_done(const BRepBuilderAPI_MakeShape &maker, const char *what) {
-  if (!maker.IsDone()) throw std::runtime_error(std::string(what) + " failed");
-}
-
-}  // namespace
 
 std::unique_ptr<Shape> shape_clone(const Shape &s) { return wrap(s.shape); }
 bool shape_is_null(const Shape &s) { return s.shape.IsNull(); }
@@ -302,19 +266,6 @@ std::unique_ptr<Operation> boolean_op(int32_t kind, const ShapeList &objects, co
   return op;
 }
 
-std::unique_ptr<Operation> transform_op(const Shape &s, const Transform &t) {
-  gp_Trsf trsf;
-  trsf.SetValues(t.m[0], t.m[1], t.m[2], t.m[3], t.m[4], t.m[5], t.m[6], t.m[7], t.m[8], t.m[9], t.m[10], t.m[11]);
-  BRepBuilderAPI_Transform maker(s.shape, trsf, Standard_True);
-  check_done(maker, "transform");
-  auto op = std::make_unique<Operation>();
-  TopTools_ListOfShape arguments;
-  arguments.Append(s.shape);
-  op->history = new BRepTools_History(arguments, maker);
-  op->result = maker.Shape();
-  return op;
-}
-
 std::unique_ptr<Shape> operation_shape(const Operation &op) { return wrap(op.result); }
 
 std::unique_ptr<ShapeList> operation_modified(const Operation &op, const Shape &s) {
@@ -339,27 +290,88 @@ std::unique_ptr<ShapeList> operation_last(const Operation &op) {
   return out;
 }
 
+// The box around a shape. `precise` is tight to the geometry; otherwise the box may be looser, as for curved
+// faces. Neither includes the shapes' tolerances.
+namespace {
+
+bool has_free_form_faces(const TopoDS_Shape &shape) {
+  for (TopExp_Explorer it(shape, TopAbs_FACE); it.More(); it.Next()) {
+    switch (BRepAdaptor_Surface(TopoDS::Face(it.Current()), Standard_False).GetType()) {
+      case GeomAbs_Plane:
+      case GeomAbs_Cylinder:
+      case GeomAbs_Cone:
+      case GeomAbs_Sphere:
+      case GeomAbs_Torus:
+        break;
+      default:
+        return true;
+    }
+  }
+  return false;
+}
+
+}  // namespace
+
 Box3 bounding_box(const Shape &s, bool precise) {
   Bnd_Box box;
-  if (precise)
-    BRepBndLib::AddOptimal(s.shape, box, Standard_False, Standard_False);
-  else
-    BRepBndLib::Add(s.shape, box);
+  BRepBndLib::AddOptimal(s.shape, box, precise ? Standard_False : Standard_True, Standard_False);
   if (box.IsVoid()) return Box3{Vec3{0, 0, 0}, Vec3{0, 0, 0}, true};
-  double x0, y0, z0, x1, y1, z1;
-  box.Get(x0, y0, z0, x1, y1, z1);
-  return Box3{Vec3{x0, y0, z0}, Vec3{x1, y1, z1}, false};
+  double lo[3], hi[3];
+  box.Get(lo[0], lo[1], lo[2], hi[0], hi[1], hi[2]);
+  if (has_free_form_faces(s.shape)) {
+    // OCCT's boxes of B-spline faces can miss part of the face (a scaled sphere moved away from the origin loses
+    // a sliver), even loose ones, so measure each side exactly: the distance from a plane just outside the box to
+    // the shape.
+    double size = std::max({hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2], 1e-6});
+    double margin = size;
+    for (int axis = 0; axis < 3; ++axis) {
+      for (int side = 0; side < 2; ++side) {
+        gp_Dir normal(axis == 0, axis == 1, axis == 2);
+        double at = side == 0 ? lo[axis] - margin : hi[axis] + margin;
+        gp_Pnt origin((lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2);
+        origin.SetCoord(axis + 1, at);
+        double reach = 4 * size;
+        TopoDS_Face plane = BRepBuilderAPI_MakeFace(gp_Pln(origin, normal), -reach, reach, -reach, reach).Face();
+        BRepExtrema_DistShapeShape extrema(plane, s.shape);
+        if (!extrema.IsDone() || extrema.NbSolution() == 0) continue;
+        if (side == 0)
+          lo[axis] = at + extrema.Value();
+        else
+          hi[axis] = at - extrema.Value();
+      }
+    }
+  }
+  return Box3{Vec3{lo[0], lo[1], lo[2]}, Vec3{hi[0], hi[1], hi[2]}, false};
 }
+
+// The box around a shape in the coordinates of `frame` (origin, z = normal, x).
+Box3 bounding_box_in(const Shape &s, Frame frame, bool precise) {
+  gp_Trsf to_local;
+  to_local.SetTransformation(ax3(frame));
+  return bounding_box(Shape(s.shape.Moved(TopLoc_Location(to_local))), precise);
+}
+
+// Volumes and areas use adaptive integration: the default Gauss rule is off by 1e-4 on rational B-spline surfaces,
+// such as a scaled sphere.
+constexpr double GPROP_EPS = 1e-12;
 
 double shape_volume(const Shape &s) {
   GProp_GProps props;
-  BRepGProp::VolumeProperties(s.shape, props);
+  BRepGProp::VolumeProperties(s.shape, props, GPROP_EPS, Standard_True);
   return props.Mass();
 }
 
 double shape_area(const Shape &s) {
+  // Closed free-form faces (a scaled sphere) integrate badly in one piece: OCCT's adaptive rule wanders by 1e-5
+  // around the poles. Splitting closed faces into open patches first makes it accurate to about 1e-9.
+  TopoDS_Shape shape = s.shape;
+  if (has_free_form_faces(shape)) {
+    ShapeUpgrade_ShapeDivideClosed divider(shape);
+    divider.SetNbSplitPoints(3);
+    if (divider.Perform()) shape = divider.Result();
+  }
   GProp_GProps props;
-  BRepGProp::SurfaceProperties(s.shape, props);
+  BRepGProp::SurfaceProperties(shape, props, GPROP_EPS, Standard_True);
   return props.Mass();
 }
 
@@ -395,7 +407,10 @@ Frame face_plane(const Shape &face) {
   const gp_Ax3 position = surface.Plane().Position();
   gp_Dir normal = position.Direction();
   if (face.shape.Orientation() == TopAbs_REVERSED) normal.Reverse();
-  return Frame{vec3(position.Location().XYZ()), vec3(normal.XYZ()), vec3(position.XDirection().XYZ())};
+  // As in Onshape, the origin is at the face's centroid, which lies on its plane.
+  GProp_GProps props;
+  BRepGProp::SurfaceProperties(face.shape, props);
+  return Frame{vec3(props.CentreOfMass().XYZ()), vec3(normal.XYZ()), vec3(position.XDirection().XYZ())};
 }
 
 int32_t curve_type(const Shape &edge) {
@@ -411,6 +426,52 @@ bool edge_is_seam(const Shape &root, const Shape &edge) {
   for (const TopoDS_Shape &face : *faces)
     if (BRep_Tool::IsClosed(TopoDS::Edge(edge.shape), TopoDS::Face(face))) return true;
   return false;
+}
+
+// The edges (kind 6) or vertices (kind 7) Parasolid, and so Onshape, would give the shape. OCCT gives a closed face
+// a seam edge, a pole a degenerate edge, and a closed edge a vertex; Parasolid has none of these, apart from a vertex
+// at a pole that isn't a sphere's, such as a cone's apex.
+std::unique_ptr<ShapeList> visible_sub_shapes(const Shape &s, int32_t kind) {
+  TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
+  TopExp::MapShapesAndUniqueAncestors(s.shape, TopAbs_EDGE, TopAbs_FACE, edge_faces);
+  auto visible_edge = [&](const TopoDS_Edge &edge) {
+    if (BRep_Tool::Degenerated(edge)) return false;
+    if (const TopTools_ListOfShape *faces = edge_faces.Seek(edge))
+      for (const TopoDS_Shape &face : *faces)
+        if (BRep_Tool::IsClosed(edge, TopoDS::Face(face))) return false;
+    return true;
+  };
+  auto out = std::make_unique<ShapeList>();
+  if (kind == TopAbs_EDGE) {
+    TopTools_IndexedMapOfShape edges;
+    TopExp::MapShapes(s.shape, TopAbs_EDGE, edges);
+    // Each edge in its own direction, as a Parasolid edge has one, not in the direction a face first used it.
+    for (int i = 1; i <= edges.Extent(); ++i)
+      if (visible_edge(TopoDS::Edge(edges(i)))) out->shapes.push_back(edges(i).Oriented(TopAbs_FORWARD));
+    return out;
+  }
+  if (kind != TopAbs_VERTEX) throw std::invalid_argument("visible_sub_shapes: edges or vertices only");
+  TopTools_IndexedDataMapOfShapeListOfShape vertex_edges;
+  TopExp::MapShapesAndUniqueAncestors(s.shape, TopAbs_VERTEX, TopAbs_EDGE, vertex_edges);
+  for (int i = 1; i <= vertex_edges.Extent(); ++i) {
+    const TopTools_ListOfShape &edges = vertex_edges(i);
+    bool keep = edges.IsEmpty();  // a point
+    for (const TopoDS_Shape &e : edges) {
+      const TopoDS_Edge &edge = TopoDS::Edge(e);
+      if (BRep_Tool::Degenerated(edge)) {
+        if (const TopTools_ListOfShape *faces = edge_faces.Seek(edge))
+          for (const TopoDS_Shape &face : *faces)
+            if (BRepAdaptor_Surface(TopoDS::Face(face)).GetType() != GeomAbs_Sphere) keep = true;
+      } else if (visible_edge(edge)) {
+        TopoDS_Vertex first, last;
+        TopExp::Vertices(edge, first, last);
+        if (!first.IsSame(last)) keep = true;
+      }
+      if (keep) break;
+    }
+    if (keep) out->shapes.push_back(vertex_edges.FindKey(i));
+  }
+  return out;
 }
 
 bool shape_valid(const Shape &s) { return BRepCheck_Analyzer(s.shape).IsValid(); }

@@ -88,3 +88,32 @@ fn boolean_history() {
     assert!(close(cut.volume().unwrap(), 2.0));
     assert!(cut.sub_shapes(ShapeKind::Face).iter().all(|f| f.surface_type().unwrap() == SurfaceType::Plane));
 }
+
+/// fEllipsoid revolves a half disc into a sphere and scales it non-uniformly, which turns it into a B-spline. OCCT's
+/// own boxes and area integration go wrong on that surface once it's moved away from the origin; ours mustn't.
+#[test]
+fn a_scaled_moved_sphere_measures_exactly() {
+    use occt::{Axis, Frame, Transform, Vec3};
+    let v = Vec3::new;
+    let line = occt::line_edge(v(0.0, 1.0, 0.0), v(0.0, -1.0, 0.0)).unwrap();
+    let arc = occt::arc_through(v(0.0, 1.0, 0.0), v(1.0, 0.0, 0.0), v(0.0, -1.0, 0.0)).unwrap();
+    let frame = Frame { origin: v(0.0, 0.0, 0.0), normal: v(0.0, 0.0, 1.0), x: v(1.0, 0.0, 0.0) };
+    let regions = occt::sketch_regions(&[line, arc], frame).unwrap();
+    let axis = Axis { origin: v(0.0, 1.0, 0.0), direction: v(0.0, -1.0, 0.0) };
+    let sphere = occt::revolve(&regions[0], axis, std::f64::consts::TAU).unwrap().shape();
+    let scale = Transform { m: [0.02, 0.0, 0.0, 0.0, 0.0, 0.012, 0.0, 0.0, 0.0, 0.0, 0.008, 0.0] };
+    let ellipsoid = occt::transform(&sphere, &scale).unwrap().shape();
+    let shift = Transform { m: [1.0, 0.0, 0.0, 1.2, 0.0, 1.0, 0.0, 0.8, 0.0, 0.0, 1.0, 0.0] };
+    let moved = occt::transform(&ellipsoid, &shift).unwrap().shape();
+
+    let b = moved.bounding_box(true).unwrap();
+    for (got, want) in [(b.min.x, 1.18), (b.max.x, 1.22), (b.min.y, 0.788), (b.max.y, 0.812), (b.min.z, -0.008)] {
+        assert!((got - want).abs() < 1e-9, "box {b:?}");
+    }
+    // The exact area, by numerical integration of the ellipsoid's parameterization, is 2156.40314 mm².
+    let area = moved.area().unwrap() * 1e6;
+    assert!((area - 2156.40314).abs() / 2156.40314 < 1e-6, "area {area}");
+    let volume = moved.volume().unwrap() * 1e9;
+    let exact = 4.0 / 3.0 * std::f64::consts::PI * 20.0 * 12.0 * 8.0;
+    assert!((volume - exact).abs() / exact < 1e-6, "volume {volume}");
+}

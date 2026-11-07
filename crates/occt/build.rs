@@ -17,6 +17,9 @@ const LIBRARIES: &[&str] = &[
     "TKPrim",
     "TKBO",
     "TKBool",
+    "TKFillet",
+    "TKOffset",
+    "TKFeat",
     "TKShHealing",
     "TKXSBase",
     "TKDE",
@@ -38,6 +41,8 @@ fn main() {
 
     cxx_build::bridge("src/lib.rs")
         .file("cpp/occt.cc")
+        .file("cpp/modeling.cc")
+        .file("cpp/measure.cc")
         .std("c++17")
         // OCCT's headers aren't warning-clean; -isystem keeps their warnings out of ours.
         .flag(format!("-isystem{}", include.display()))
@@ -48,8 +53,7 @@ fn main() {
     for name in LIBRARIES {
         println!("cargo:rustc-link-lib=dylib={name}");
     }
-    println!("cargo:rerun-if-changed=cpp/occt.cc");
-    println!("cargo:rerun-if-changed=cpp/occt.h");
+    println!("cargo:rerun-if-changed=cpp");
     println!("cargo:rerun-if-env-changed=OCCT_INCLUDE_DIR");
     println!("cargo:rerun-if-env-changed=OCCT_LIB_DIR");
 }

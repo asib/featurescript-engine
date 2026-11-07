@@ -44,6 +44,9 @@ struct Vec3;
 struct Frame;
 struct Box3;
 struct Transform;
+struct Axis;
+struct Distance;
+struct Conic;
 
 // A TopoDS_Shape. Copying one is cheap: the copy shares the underlying topology.
 class Shape {
@@ -95,6 +98,9 @@ std::unique_ptr<Operation> prism(const Shape &profile, Vec3 v);
 std::unique_ptr<Operation> boolean_op(int32_t kind, const ShapeList &objects, const ShapeList &tools, bool unify,
                                       double fuzzy);
 std::unique_ptr<Operation> transform_op(const Shape &s, const Transform &t);
+std::unique_ptr<Operation> revolve(const Shape &profile, Axis axis, double angle);
+std::unique_ptr<Shape> make_sphere(Vec3 center, double radius);
+std::unique_ptr<Operation> split_op(const ShapeList &objects, const ShapeList &tools);
 
 std::unique_ptr<Shape> operation_shape(const Operation &op);
 std::unique_ptr<ShapeList> operation_modified(const Operation &op, const Shape &s);
@@ -104,6 +110,7 @@ std::unique_ptr<ShapeList> operation_first(const Operation &op);
 std::unique_ptr<ShapeList> operation_last(const Operation &op);
 
 Box3 bounding_box(const Shape &s, bool precise);
+Box3 bounding_box_in(const Shape &s, Frame frame, bool precise);
 double shape_volume(const Shape &s);
 double shape_area(const Shape &s);
 double shape_length(const Shape &s);
@@ -114,6 +121,17 @@ Frame face_plane(const Shape &face);
 int32_t curve_type(const Shape &edge);
 bool edge_is_seam(const Shape &root, const Shape &edge);
 bool shape_valid(const Shape &s);
+std::unique_ptr<ShapeList> visible_sub_shapes(const Shape &s, int32_t kind);
+Axis shape_axis(const Shape &s);
+Axis edge_tangent(const Shape &s, double t, bool arc_length);
+double edge_fraction(const Shape &s, Vec3 p, bool arc_length);
+double edge_fraction_extended(const Shape &s, Vec3 p);
+Distance shape_distance(const Shape &a, const Shape &b);
+Conic curve_definition(const Shape &s);
+Frame face_tangent_plane(const Shape &s, double fu, double fv);
+Vec3 face_fraction(const Shape &s, Vec3 p);
+Box3 face_uv_bounds(const Shape &s);
+std::unique_ptr<Shape> extended_shape(const Shape &s, double reach);
 
 void write_step(const ShapeList &shapes, const rust::Vec<rust::String> &names, rust::Str path);
 std::unique_ptr<ShapeList> read_step(rust::Str path, rust::Vec<rust::String> &names);

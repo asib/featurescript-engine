@@ -9,7 +9,7 @@
 use cxx::UniquePtr;
 use std::fmt;
 
-pub use ffi::{Box3, Frame, Transform, Vec3};
+pub use ffi::{Axis, Box3, Conic, Distance, Frame, Transform, Vec3};
 
 #[cxx::bridge(namespace = "occt")]
 mod ffi {
@@ -18,6 +18,32 @@ mod ffi {
         x: f64,
         y: f64,
         z: f64,
+    }
+
+    /// A point and a unit direction: an axis, or a point on a curve and the tangent there.
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    struct Axis {
+        origin: Vec3,
+        direction: Vec3,
+    }
+
+    /// The minimum distance between two shapes and the closest point on each.
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    struct Distance {
+        distance: f64,
+        a: Vec3,
+        b: Vec3,
+    }
+
+    /// The curve an edge lies on: `kind` 0 a line (origin at the edge's start, `frame.normal` its direction),
+    /// 1 a circle (`radius1`), 2 an ellipse (`radius1` major, `radius2` minor, `frame.x` along the major axis),
+    /// 3 anything else.
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    struct Conic {
+        kind: i32,
+        frame: Frame,
+        radius1: f64,
+        radius2: f64,
     }
 
     /// A coordinate system: `normal` is z, `x` is x and y is `normal × x`.
@@ -82,6 +108,9 @@ mod ffi {
             fuzzy: f64,
         ) -> Result<UniquePtr<Operation>>;
         fn transform_op(s: &Shape, t: &Transform) -> Result<UniquePtr<Operation>>;
+        fn revolve(profile: &Shape, axis: Axis, angle: f64) -> Result<UniquePtr<Operation>>;
+        fn make_sphere(center: Vec3, radius: f64) -> Result<UniquePtr<Shape>>;
+        fn split_op(objects: &ShapeList, tools: &ShapeList) -> Result<UniquePtr<Operation>>;
 
         fn operation_shape(op: &Operation) -> UniquePtr<Shape>;
         fn operation_modified(op: &Operation, s: &Shape) -> Result<UniquePtr<ShapeList>>;
@@ -91,6 +120,7 @@ mod ffi {
         fn operation_last(op: &Operation) -> UniquePtr<ShapeList>;
 
         fn bounding_box(s: &Shape, precise: bool) -> Result<Box3>;
+        fn bounding_box_in(s: &Shape, frame: Frame, precise: bool) -> Result<Box3>;
         fn shape_volume(s: &Shape) -> Result<f64>;
         fn shape_area(s: &Shape) -> Result<f64>;
         fn shape_length(s: &Shape) -> Result<f64>;
@@ -101,6 +131,17 @@ mod ffi {
         fn curve_type(edge: &Shape) -> Result<i32>;
         fn edge_is_seam(root: &Shape, edge: &Shape) -> Result<bool>;
         fn shape_valid(s: &Shape) -> Result<bool>;
+        fn visible_sub_shapes(s: &Shape, kind: i32) -> Result<UniquePtr<ShapeList>>;
+        fn shape_axis(s: &Shape) -> Result<Axis>;
+        fn edge_tangent(s: &Shape, t: f64, arc_length: bool) -> Result<Axis>;
+        fn edge_fraction(s: &Shape, p: Vec3, arc_length: bool) -> Result<f64>;
+        fn edge_fraction_extended(s: &Shape, p: Vec3) -> Result<f64>;
+        fn shape_distance(a: &Shape, b: &Shape) -> Result<Distance>;
+        fn curve_definition(s: &Shape) -> Result<Conic>;
+        fn face_tangent_plane(s: &Shape, fu: f64, fv: f64) -> Result<Frame>;
+        fn face_fraction(s: &Shape, p: Vec3) -> Result<Vec3>;
+        fn face_uv_bounds(s: &Shape) -> Result<Box3>;
+        fn extended_shape(s: &Shape, reach: f64) -> Result<UniquePtr<Shape>>;
 
         fn write_step(shapes: &ShapeList, names: &Vec<String>, path: &str) -> Result<()>;
         fn read_step(path: &str, names: &mut Vec<String>) -> Result<UniquePtr<ShapeList>>;
@@ -235,6 +276,18 @@ impl Shape {
         from_list(&ffi::sub_shapes(&self.0, kind as i32).expect("valid shape kind"))
     }
 
+    /// The edges or vertices Parasolid, and so Onshape, would give the shape: no seam or degenerate edges, and
+    /// vertices only where an open edge ends or at a pole that isn't a sphere's (a cone's apex). Other kinds are
+    /// the same as [`Shape::sub_shapes`].
+    pub fn visible_sub_shapes(&self, kind: ShapeKind) -> Vec<Shape> {
+        match kind {
+            ShapeKind::Edge | ShapeKind::Vertex => {
+                from_list(&ffi::visible_sub_shapes(&self.0, kind as i32).expect("edges or vertices"))
+            }
+            _ => self.sub_shapes(kind),
+        }
+    }
+
     /// The shapes of `kind` inside `self` that contain `part`, such as the faces next to an edge.
     pub fn ancestors(&self, part: &Shape, kind: ShapeKind) -> Vec<Shape> {
         from_list(&ffi::ancestors(&self.0, &part.0, kind as i32).expect("valid shape kind"))
@@ -242,6 +295,11 @@ impl Shape {
 
     pub fn bounding_box(&self, precise: bool) -> Result<Box3> {
         Ok(ffi::bounding_box(&self.0, precise)?)
+    }
+
+    /// The box in the coordinates of `frame`.
+    pub fn bounding_box_in(&self, frame: Frame, precise: bool) -> Result<Box3> {
+        Ok(ffi::bounding_box_in(&self.0, frame, precise)?)
     }
 
     pub fn volume(&self) -> Result<f64> {
@@ -287,6 +345,61 @@ impl Shape {
     /// meets itself.
     pub fn is_seam(&self, edge: &Shape) -> bool {
         ffi::edge_is_seam(&self.0, &edge.0).unwrap_or(false)
+    }
+
+    /// The axis of a line, circle or arc edge, or of a cylinder, cone, sphere, torus or revolved face. A line's
+    /// axis starts at its first point.
+    pub fn axis(&self) -> Result<Axis> {
+        Ok(ffi::shape_axis(&self.0)?)
+    }
+
+    /// The point at fraction `t` (0 to 1) along an edge, by arc length or curve parameter, and the unit tangent
+    /// there in the edge's direction.
+    pub fn edge_tangent(&self, t: f64, arc_length: bool) -> Result<Axis> {
+        Ok(ffi::edge_tangent(&self.0, t, arc_length)?)
+    }
+
+    /// The fraction (0 to 1) along an edge of the point on it closest to `p`.
+    pub fn edge_fraction(&self, p: Vec3, arc_length: bool) -> Result<f64> {
+        Ok(ffi::edge_fraction(&self.0, p, arc_length)?)
+    }
+
+    /// Like [`Shape::edge_fraction`], but along the edge's whole underlying curve, so the fraction can be below 0
+    /// or above 1.
+    pub fn edge_fraction_extended(&self, p: Vec3) -> Result<f64> {
+        Ok(ffi::edge_fraction_extended(&self.0, p)?)
+    }
+
+    /// The minimum distance to another shape, and the closest points.
+    pub fn distance(&self, other: &Shape) -> Result<Distance> {
+        Ok(ffi::shape_distance(&self.0, &other.0)?)
+    }
+
+    /// The line, circle or ellipse an edge lies on.
+    pub fn curve_definition(&self) -> Result<Conic> {
+        Ok(ffi::curve_definition(&self.0)?)
+    }
+
+    /// The plane tangent to a face at fractions of its parameter-space bounding box.
+    pub fn face_tangent_plane(&self, fu: f64, fv: f64) -> Result<Frame> {
+        Ok(ffi::face_tangent_plane(&self.0, fu, fv)?)
+    }
+
+    /// Where on a face (as fractions of its parameter-space bounding box) the point closest to `p` is.
+    pub fn face_fraction(&self, p: Vec3) -> Result<(f64, f64)> {
+        let f = ffi::face_fraction(&self.0, p)?;
+        Ok((f.x, f.y))
+    }
+
+    /// A face's parameter-space bounding box, as ((u0, v0), (u1, v1)).
+    pub fn face_uv_bounds(&self) -> Result<((f64, f64), (f64, f64))> {
+        let b = ffi::face_uv_bounds(&self.0)?;
+        Ok(((b.min.x, b.min.y), (b.max.x, b.max.y)))
+    }
+
+    /// An edge or face extended to its underlying line, plane or closed curve.
+    pub fn extended(&self, reach: f64) -> Result<Shape> {
+        Ok(Shape::new(ffi::extended_shape(&self.0, reach)?))
     }
 
     /// Whether OCCT's checker finds the shape valid.
@@ -412,6 +525,21 @@ pub fn boolean_fuzzy(
 
 pub fn transform(shape: &Shape, t: &Transform) -> Result<Operation> {
     Ok(Operation(ffi::transform_op(&shape.0, t)?))
+}
+
+/// Revolves a profile `angle` radians, right-handed, about an axis. Below a full turn, [`Operation::first`] and
+/// [`Operation::last`] are the faces at the start and end of the sweep.
+pub fn revolve(profile: &Shape, axis: Axis, angle: f64) -> Result<Operation> {
+    Ok(Operation(ffi::revolve(&profile.0, axis, angle)?))
+}
+
+pub fn sphere(center: Vec3, radius: f64) -> Result<Shape> {
+    Ok(Shape::new(ffi::make_sphere(center, radius)?))
+}
+
+/// Splits `objects` with `tools` (faces, sheets or solids); the result holds every piece.
+pub fn split(objects: &[Shape], tools: &[Shape]) -> Result<Operation> {
+    Ok(Operation(ffi::split_op(&to_list(objects), &to_list(tools))?))
 }
 
 /// Writes shapes to an AP242 STEP file in metres, naming each one's product.
