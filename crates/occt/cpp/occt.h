@@ -101,6 +101,19 @@ std::unique_ptr<Operation> transform_op(const Shape &s, const Transform &t);
 std::unique_ptr<Operation> revolve(const Shape &profile, Axis axis, double angle);
 std::unique_ptr<Shape> make_sphere(Vec3 center, double radius);
 std::unique_ptr<Operation> split_op(const ShapeList &objects, const ShapeList &tools);
+std::unique_ptr<Operation> fillet_op(const Shape &solid, const ShapeList &edges, double radius);
+std::unique_ptr<Operation> chamfer_op(const Shape &solid, const ShapeList &edges, const ShapeList &faces,
+                                      int32_t kind, double d1, double d2);
+std::unique_ptr<Operation> shell_op(const Shape &solid, const ShapeList &faces, double thickness);
+std::unique_ptr<Shape> offset_shape(const Shape &s, double distance);
+std::unique_ptr<Operation> draft_op(const Shape &solid, const ShapeList &faces, Vec3 pull, double angle,
+                                    Frame neutral);
+std::unique_ptr<Operation> thicken_op(const Shape &sheet, double t1, double t2);
+std::unique_ptr<Operation> offset_faces_op(const Shape &solid, const ShapeList &faces, double distance);
+std::unique_ptr<Operation> delete_faces_op(const Shape &solid, const ShapeList &faces);
+std::unique_ptr<Shape> remove_faces_open(const Shape &solid, const ShapeList &faces);
+std::unique_ptr<Shape> solid_from(const Shape &s);
+std::unique_ptr<Operation> replace_planar_face_op(const Shape &solid, const Shape &face, Frame target);
 
 std::unique_ptr<Shape> operation_shape(const Operation &op);
 std::unique_ptr<ShapeList> operation_modified(const Operation &op, const Shape &s);
@@ -131,6 +144,9 @@ Conic curve_definition(const Shape &s);
 Frame face_tangent_plane(const Shape &s, double fu, double fv);
 Vec3 face_fraction(const Shape &s, Vec3 p);
 Box3 face_uv_bounds(const Shape &s);
+std::unique_ptr<ShapeList> edge_end_vertices(const Shape &s);
+bool edges_tangent_at(const Shape &a, const Shape &b, const Shape &vertex, double angle_tolerance);
+bool faces_tangent_along(const Shape &edge, const Shape &a, const Shape &b, double angle_tolerance);
 std::unique_ptr<Shape> extended_shape(const Shape &s, double reach);
 
 void write_step(const ShapeList &shapes, const rust::Vec<rust::String> &names, rust::Str path);

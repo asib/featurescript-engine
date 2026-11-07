@@ -17,6 +17,7 @@
 #include <Extrema_ExtPC.hxx>
 #include <GCPnts_AbscissaPoint.hxx>
 #include <GeomAPI_ProjectPointOnCurve.hxx>
+#include <TopExp.hxx>
 #include <TopoDS.hxx>
 #include <gp_Circ.hxx>
 #include <gp_Cone.hxx>
@@ -259,6 +260,72 @@ Box3 face_uv_bounds(const Shape &s) {
   double u0, u1, v0, v1;
   BRepTools::UVBounds(TopoDS::Face(s.shape), u0, u1, v0, v1);
   return Box3{Vec3{u0, v0, 0}, Vec3{u1, v1, 0}, false};
+}
+
+// An edge's first and last vertices, in its own direction. A closed edge has the same vertex twice.
+std::unique_ptr<ShapeList> edge_end_vertices(const Shape &s) {
+  if (s.shape.ShapeType() != TopAbs_EDGE) throw std::runtime_error("not an edge");
+  TopoDS_Vertex first, last;
+  TopExp::Vertices(TopoDS::Edge(s.shape.Oriented(TopAbs_FORWARD)), first, last);
+  auto out = std::make_unique<ShapeList>();
+  if (!first.IsNull()) out->shapes.push_back(first);
+  if (!last.IsNull()) out->shapes.push_back(last);
+  return out;
+}
+
+namespace {
+
+// The unit tangent of an edge at one of its vertices, pointing away from the vertex.
+gp_Vec tangent_leaving(const TopoDS_Edge &edge, const TopoDS_Vertex &vertex) {
+  BRepAdaptor_Curve curve(edge);
+  TopoDS_Vertex first, last;
+  TopExp::Vertices(edge, first, last);
+  bool at_start = first.IsSame(vertex);
+  double u = at_start ? curve.FirstParameter() : curve.LastParameter();
+  gp_Pnt p;
+  gp_Vec d;
+  curve.D1(u, p, d);
+  if (d.Magnitude() < 1e-300) return gp_Vec();
+  d.Normalize();
+  return at_start ? d : -d;
+}
+
+}  // namespace
+
+// Whether two edges meeting at `vertex` continue smoothly through it (their tangents are opposite within
+// `angle_tolerance` radians).
+bool edges_tangent_at(const Shape &a, const Shape &b, const Shape &vertex, double angle_tolerance) {
+  const TopoDS_Vertex &v = TopoDS::Vertex(vertex.shape);
+  gp_Vec ta = tangent_leaving(TopoDS::Edge(a.shape), v), tb = tangent_leaving(TopoDS::Edge(b.shape), v);
+  if (ta.Magnitude() < 0.5 || tb.Magnitude() < 0.5) return false;
+  return ta.Angle(-tb) <= angle_tolerance;
+}
+
+// Whether two faces meet smoothly along an edge: their normals agree within `angle_tolerance` radians at points
+// along it.
+bool faces_tangent_along(const Shape &edge, const Shape &a, const Shape &b, double angle_tolerance) {
+  const TopoDS_Edge &e = TopoDS::Edge(edge.shape);
+  BRepAdaptor_Curve curve(e);
+  for (int i = 0; i <= 4; ++i) {
+    double u = curve.FirstParameter() + (curve.LastParameter() - curve.FirstParameter()) * (0.1 + 0.2 * i);
+    gp_Pnt p = curve.Value(u);
+    gp_Dir normals[2];
+    const Shape *faces[2] = {&a, &b};
+    for (int k = 0; k < 2; ++k) {
+      const TopoDS_Face &face = TopoDS::Face(faces[k]->shape);
+      GeomAPI_ProjectPointOnSurf projector(p, BRep_Tool::Surface(face));
+      if (projector.NbPoints() == 0) return false;
+      double fu, fv;
+      projector.LowerDistanceParameters(fu, fv);
+      BRepAdaptor_Surface surface(face);
+      BRepLProp_SLProps props(surface, fu, fv, 1, 1e-9);
+      if (!props.IsNormalDefined()) return false;
+      normals[k] = props.Normal();
+      if (face.Orientation() == TopAbs_REVERSED) normals[k].Reverse();
+    }
+    if (normals[0].Angle(normals[1]) > angle_tolerance) return false;
+  }
+  return true;
 }
 
 }  // namespace occt

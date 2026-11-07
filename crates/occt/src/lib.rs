@@ -111,6 +111,30 @@ mod ffi {
         fn revolve(profile: &Shape, axis: Axis, angle: f64) -> Result<UniquePtr<Operation>>;
         fn make_sphere(center: Vec3, radius: f64) -> Result<UniquePtr<Shape>>;
         fn split_op(objects: &ShapeList, tools: &ShapeList) -> Result<UniquePtr<Operation>>;
+        fn fillet_op(solid: &Shape, edges: &ShapeList, radius: f64) -> Result<UniquePtr<Operation>>;
+        fn chamfer_op(
+            solid: &Shape,
+            edges: &ShapeList,
+            faces: &ShapeList,
+            kind: i32,
+            d1: f64,
+            d2: f64,
+        ) -> Result<UniquePtr<Operation>>;
+        fn shell_op(solid: &Shape, faces: &ShapeList, thickness: f64) -> Result<UniquePtr<Operation>>;
+        fn offset_shape(s: &Shape, distance: f64) -> Result<UniquePtr<Shape>>;
+        fn draft_op(
+            solid: &Shape,
+            faces: &ShapeList,
+            pull: Vec3,
+            angle: f64,
+            neutral: Frame,
+        ) -> Result<UniquePtr<Operation>>;
+        fn thicken_op(sheet: &Shape, t1: f64, t2: f64) -> Result<UniquePtr<Operation>>;
+        fn offset_faces_op(solid: &Shape, faces: &ShapeList, distance: f64) -> Result<UniquePtr<Operation>>;
+        fn delete_faces_op(solid: &Shape, faces: &ShapeList) -> Result<UniquePtr<Operation>>;
+        fn remove_faces_open(solid: &Shape, faces: &ShapeList) -> Result<UniquePtr<Shape>>;
+        fn solid_from(s: &Shape) -> Result<UniquePtr<Shape>>;
+        fn replace_planar_face_op(solid: &Shape, face: &Shape, target: Frame) -> Result<UniquePtr<Operation>>;
 
         fn operation_shape(op: &Operation) -> UniquePtr<Shape>;
         fn operation_modified(op: &Operation, s: &Shape) -> Result<UniquePtr<ShapeList>>;
@@ -141,6 +165,9 @@ mod ffi {
         fn face_tangent_plane(s: &Shape, fu: f64, fv: f64) -> Result<Frame>;
         fn face_fraction(s: &Shape, p: Vec3) -> Result<Vec3>;
         fn face_uv_bounds(s: &Shape) -> Result<Box3>;
+        fn edge_end_vertices(s: &Shape) -> Result<UniquePtr<ShapeList>>;
+        fn edges_tangent_at(a: &Shape, b: &Shape, vertex: &Shape, angle_tolerance: f64) -> Result<bool>;
+        fn faces_tangent_along(edge: &Shape, a: &Shape, b: &Shape, angle_tolerance: f64) -> Result<bool>;
         fn extended_shape(s: &Shape, reach: f64) -> Result<UniquePtr<Shape>>;
 
         fn write_step(shapes: &ShapeList, names: &Vec<String>, path: &str) -> Result<()>;
@@ -252,6 +279,11 @@ impl Shape {
     }
 
     /// The shape's kind, or `None` for a null shape.
+    /// TopAbs orientation: 0 forward, 1 reversed, 2 internal, 3 external.
+    pub fn orientation(&self) -> i32 {
+        ffi::shape_orientation(&self.0)
+    }
+
     pub fn kind(&self) -> Option<ShapeKind> {
         ShapeKind::from_i32(ffi::shape_kind(&self.0))
     }
@@ -397,6 +429,22 @@ impl Shape {
         Ok(((b.min.x, b.min.y), (b.max.x, b.max.y)))
     }
 
+    /// An edge's first and last vertices, in its own direction (the same vertex twice for a closed edge).
+    pub fn edge_end_vertices(&self) -> Result<Vec<Shape>> {
+        let list = ffi::edge_end_vertices(&self.0)?;
+        Ok(from_list(&list))
+    }
+
+    /// Whether this edge and `other`, meeting at `vertex`, continue smoothly through it.
+    pub fn tangent_at(&self, other: &Shape, vertex: &Shape, angle_tolerance: f64) -> bool {
+        ffi::edges_tangent_at(&self.0, &other.0, &vertex.0, angle_tolerance).unwrap_or(false)
+    }
+
+    /// Whether faces `a` and `b` meet smoothly along this edge.
+    pub fn faces_tangent_along(&self, a: &Shape, b: &Shape, angle_tolerance: f64) -> bool {
+        ffi::faces_tangent_along(&self.0, &a.0, &b.0, angle_tolerance).unwrap_or(false)
+    }
+
     /// An edge or face extended to its underlying line, plane or closed curve.
     pub fn extended(&self, reach: f64) -> Result<Shape> {
         Ok(Shape::new(ffi::extended_shape(&self.0, reach)?))
@@ -540,6 +588,78 @@ pub fn sphere(center: Vec3, radius: f64) -> Result<Shape> {
 /// Splits `objects` with `tools` (faces, sheets or solids); the result holds every piece.
 pub fn split(objects: &[Shape], tools: &[Shape]) -> Result<Operation> {
     Ok(Operation(ffi::split_op(&to_list(objects), &to_list(tools))?))
+}
+
+/// Rounds edges of a solid with a constant radius.
+pub fn fillet(solid: &Shape, edges: &[Shape], radius: f64) -> Result<Operation> {
+    Ok(Operation(ffi::fillet_op(&solid.0, &to_list(edges), radius)?))
+}
+
+/// How a chamfer is sized.
+#[derive(Clone, Copy, Debug)]
+pub enum Chamfer {
+    /// Both new edges this far from the original edge.
+    Equal(f64),
+    /// The first distance on the edge's reference face, the second on the other face.
+    TwoDistances(f64, f64),
+    /// A distance on the reference face and an angle (radians) from it.
+    DistanceAngle(f64, f64),
+}
+
+/// Chamfers edges of a solid; `faces` holds a reference face next to each edge for the uneven kinds.
+pub fn chamfer(solid: &Shape, edges: &[Shape], faces: &[Shape], kind: Chamfer) -> Result<Operation> {
+    let (k, d1, d2) = match kind {
+        Chamfer::Equal(d) => (0, d, 0.0),
+        Chamfer::TwoDistances(a, b) => (1, a, b),
+        Chamfer::DistanceAngle(d, a) => (2, d, a),
+    };
+    Ok(Operation(ffi::chamfer_op(&solid.0, &to_list(edges), &to_list(faces), k, d1, d2)?))
+}
+
+/// Shells a solid, removing `faces`: `thickness` positive outward, negative inward.
+pub fn shell(solid: &Shape, faces: &[Shape], thickness: f64) -> Result<Operation> {
+    Ok(Operation(ffi::shell_op(&solid.0, &to_list(faces), thickness)?))
+}
+
+/// The whole shape offset by `distance` (positive outward), with sharp corners.
+pub fn offset(shape: &Shape, distance: f64) -> Result<Shape> {
+    Ok(Shape::new(ffi::offset_shape(&shape.0, distance)?))
+}
+
+/// Drafts faces of a solid by `angle` about where they meet a neutral plane.
+pub fn draft(solid: &Shape, faces: &[Shape], pull: Vec3, angle: f64, neutral: Frame) -> Result<Operation> {
+    Ok(Operation(ffi::draft_op(&solid.0, &to_list(faces), pull, angle, neutral)?))
+}
+
+/// Thickens a face or sheet `t1` along its normal and `t2` against it.
+pub fn thicken(sheet: &Shape, t1: f64, t2: f64) -> Result<Operation> {
+    Ok(Operation(ffi::thicken_op(&sheet.0, t1, t2)?))
+}
+
+/// Offsets faces of a solid along their normals, adjusting the faces around them.
+pub fn offset_faces(solid: &Shape, faces: &[Shape], distance: f64) -> Result<Operation> {
+    Ok(Operation(ffi::offset_faces_op(&solid.0, &to_list(faces), distance)?))
+}
+
+/// Removes faces of a solid and extends the faces around them to close it.
+pub fn delete_faces(solid: &Shape, faces: &[Shape]) -> Result<Operation> {
+    Ok(Operation(ffi::delete_faces_op(&solid.0, &to_list(faces))?))
+}
+
+/// Replaces a planar face of a solid with a plane, extending or trimming the faces next to it, which must be
+/// perpendicular to it.
+pub fn replace_planar_face(solid: &Shape, face: &Shape, target: Frame) -> Result<Operation> {
+    Ok(Operation(ffi::replace_planar_face_op(&solid.0, &face.0, target)?))
+}
+
+/// A solid from a shape: its first solid, or one made from its closed shells.
+pub fn solid_from(shape: &Shape) -> Result<Shape> {
+    Ok(Shape::new(ffi::solid_from(&shape.0)?))
+}
+
+/// The faces of a solid other than `faces`, as an open sheet.
+pub fn remove_faces_open(solid: &Shape, faces: &[Shape]) -> Result<Shape> {
+    Ok(Shape::new(ffi::remove_faces_open(&solid.0, &to_list(faces))?))
 }
 
 /// Writes shapes to an AP242 STEP file in metres, naming each one's product.
