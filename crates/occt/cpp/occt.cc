@@ -410,8 +410,9 @@ void write_step(const ShapeList &shapes, const rust::Vec<rust::String> &names, r
 // Reads every MANIFOLD_SOLID_BREP of a STEP file, in metres, with the name written on it.
 std::unique_ptr<ShapeList> read_step(rust::Str path, rust::Vec<rust::String> &names) {
   STEPControl_Reader reader;
-  reader.SetSystemLengthUnit(1000.0);
   if (reader.ReadFile(std::string(path).c_str()) != IFSelect_RetDone) throw std::runtime_error("STEP read failed");
+  // The system unit is in millimetres, and setting it only takes effect once a file is loaded.
+  reader.SetSystemLengthUnit(1000.0);
   reader.TransferRoots();
   Handle(Transfer_TransientProcess) process = reader.WS()->TransferReader()->TransientProcess();
   Handle(Interface_InterfaceModel) model = reader.Model();
