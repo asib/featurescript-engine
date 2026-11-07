@@ -101,6 +101,12 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
 - **Returned values must be tagged.** A builtin's result checked with `returns DistanceResult` must carry the
   `DistanceResult` type tag; typecheck predicates only run on `as` casts. (Batch 002, `evDistance`.)
 - **`box` is a reserved word.** Onshape rejects it as an identifier. (Batch 002's first generator.)
+- **Capping a face Onshape can't cap leaves it.** `deleteFace` with `DeleteFaceType.CAP` on the face of a hole
+  through a block changes nothing: no planar face spans its two circles. (Batch 003, c039.)
+- **Thicken keeps the original.** Thickening a face of a solid makes a new solid and leaves the original body.
+  (Batch 003, c054.)
+- **Some feature parameters have no defaults:** `replaceFace`'s `offset` and `thicken`'s `thickness2` must be
+  passed. (Batch 003's first build.)
 - **Assumptions not yet checked against Onshape:** transient ids are strings (ours look like `"T12"`); the
   results of `@evaluateQuery` come in body order, then faces, edges and vertices; a solved sketch makes one sheet
   body for its regions, one wire body for its edges (and one for construction edges), and a point body for each
@@ -126,7 +132,8 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   probes, not the STEP. (Batch 002, c014.)
 - **Voids** are written as `BREP_WITH_VOIDS`, a kind of `MANIFOLD_SOLID_BREP`, with the name on it. (Batch 002,
   c013.)
-- **Only solids are exported** in batch 002's file; construction planes and points aren't. (Batch 002.)
+- **Only solids and sheets are exported**; construction planes and points aren't. A sheet is a named
+  `SHELL_BASED_SURFACE_MODEL`. (Batches 002 and 003.)
 - **The engine's own STEP** is AP242 in metres, with each part's name on its product and, like Onshape's, on its
   `MANIFOLD_SOLID_BREP`. OpenCascade writes shapes as millimetres unless the document's length unit is set to
   metres.

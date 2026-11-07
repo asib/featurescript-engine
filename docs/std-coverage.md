@@ -22,7 +22,15 @@ Onshape.
 | `cPlane` (cplane.fs) | matches: offset, plane and point, line and angle, line and point, three points, mid plane, curve point. Not yet: tangent plane | 002 |
 | `cPoint` (cpoint.fs) | matches: point on an edge | 002 |
 | `assignVariable` (variable.fs) | matches: assigned lengths, numbers and angles; measured distance and length. Not yet: table and diameter modes | 002 |
-| `fillet`, `chamfer`, `shell`, `draft`, `deleteFace`, `moveFace`, `replaceFace`, `thicken`, `hole`, `rib`, `modifyFillet`, `faceBlend`, `bodyDraft` | not started | 003 (planned) |
+| `fillet` (fillet.fs) | matches: circular fillets of edges, edge sets, every edge (vertex blends), concave edges, cylinders, holes, tangent chains. Known gaps: conic cross sections (c013), asymmetric fillets (c014), fillets too big for the faces they round, which Onshape lets consume a face (c015). Not yet: variable, partial, curvature | 003 |
+| `chamfer` (chamfer.fs) | matches: equal offsets, two offsets (both ways), offset and angle, every edge, cylinders, concave edges, tangent chains | 003 |
+| `shell` (shell.fs) | matches: removing faces inwards and outwards, hollow, cylinders, an L | 003 |
+| `draft` (draft.fs) | matches: neutral plane drafts, both pull directions, cylinders. Not yet: parting line drafts | 003 |
+| `deleteFace` (deleteFace.fs) | matches: heal, cap, leave open | 003 |
+| `moveFace` (moveFace.fs) | matches: offsets; translating a face along its normal, a hole sideways; rotating a planar face whose neighbours are perpendicular to it. Not yet: other translations and rotations, up to an entity, creating new faces | 003 |
+| `replaceFace` (replaceFace.fs) | matches: a planar face replaced by a plane, with an offset, when its neighbours are perpendicular to it. Not yet: other faces | 003 |
+| `thicken` (thicken.fs) | matches: faces of solids, planar and curved, one and two sides, midplane, added to a part. Not yet: sheet bodies (no surfaces can be made yet) | 003 |
+| `hole`, `rib`, `modifyFillet`, `faceBlend`, `bodyDraft` | not started | later |
 | `sweep`, `loft`, `helix`, `fitSpline`, sketch curves (ellipses, splines, conics, text), `curvePattern`, `compositeCurve`, `projectCurves`, `intersectionCurve`, `isoparametricCurve`, `bridgingCurve`, `offsetCurveOnFace`, `trimCurve`, `editCurve`, `routingCurve` | not started | 004 (planned) |
 | `fill`, `boundarySurface`, `ruledSurface`, `offsetSurface`, `extendSurface`, `enclose`, `mutualTrim`, `constrainedSurface`, `isocline`, `wrap`, `decal` | not started | 005 (planned) |
 | `mateConnector`, `frame`, `frameTrim`, `gusset`, `endcap`, `cutlist`, `compositePart`, the `sectionPart` family, `importDerived`, `derivedMirror`, `importForeign`, `nameEntity`, `tag`, `queryVariable` | not started | 006 (planned) |
@@ -41,7 +49,8 @@ engine doesn't have. After batch 002, std calls 269 builtins; these are implemen
 - sketches: `newSketch`, `skPoint`, `skLineSegment`, `skCircle`, `skArc`, `skSolve`; `skConstraint` is accepted and
   ignored.
 - operations: `opPoint`, `opPlane`, `opExtrude`, `opRevolve`, `opSphere`, `opBoolean`, `opTransform`, `opPattern`
-  (bodies), `opSplitPart`, `opDeleteBodies`.
+  (bodies), `opSplitPart`, `opDeleteBodies`, `opFillet` (circular), `opChamfer`, `opShell`, `opDraft` (reference
+  surface), `opThicken`, `opOffsetFace`, `opDeleteFace`, `opMoveFace` and `opReplaceFace` (the cases above).
 - evaluation: `evaluateQuery` (and counts), `evPlane`, `evOwnerSketchPlane`, `evVertexPoint`, `evArea`, `evLength`,
   `evVolume`, `evBox` (with `cSys`), `evAxis`, `evLine`, `evCurveDefinition` (lines, circles, ellipses),
   `evEdgeTangentLines`, `evFaceTangentPlanes`, `evDistance` (minimum; extended sides).
@@ -53,5 +62,19 @@ engine doesn't have. After batch 002, std calls 269 builtins; these are implemen
 
 Handled: `NOTHING`, `EVERYTHING`, `TRANSIENT`, `CREATED_BY`, `SKETCH_REGION`, `SKETCH_ENTITY`, `IMPRINT`, `UNION`,
 `INTERSECTION`, `SUBTRACTION`, `ENTITY_FILTER`, `NTH_ELEMENT`, `BODY_TYPE`, `CONSTRUCTION_FILTER`,
-`SKETCH_OBJECT_FILTER`, `OWNED_BY_PART`, `OWNER_PART`, `CAP_ENTITY`, `GEOMETRY`, `CONTAINS_POINT`, and the sheet
-metal, mesh, composite and modifiable filters (as if there were none).
+`SKETCH_OBJECT_FILTER`, `OWNED_BY_PART`, `OWNER_PART`, `CAP_ENTITY`, `GEOMETRY`, `CONTAINS_POINT`, `VERTEX_ADJACENT`,
+`EDGE_ADJACENT`, `EDGE_VERTEX`, `TANGENT_CONNECTED_EDGES`, `TANGENT_CONNECTED_FACES`, `CLOSEST_TO`, `FARTHEST_ALONG`,
+`LARGEST`, `SMALLEST`, and the sheet metal, mesh, composite and modifiable filters (as if there were none).
+
+## Known gaps
+
+What fixtures show Onshape doing that the engine can't yet:
+
+- **Conic fillets** (batch 003, c013). Onshape's result matches a rational quadratic cross section with the
+  circular fillet's tangent points and weight `rho / (1 - rho)` to 5e-4 of the cross-section area, which is
+  within the probes' tolerance; OCCT has no conic fillets, so this needs building by hand.
+- **Asymmetric fillets** (c014). The cross section removes 2.14379 mm² for setbacks of 2 and 5 mm, close to but
+  not a quarter ellipse (2.14602 mm²); the exact curve isn't known yet.
+- **Fillets too big for their faces** (c015). A 15 mm fillet on the four vertical edges of a 30 × 20 mm block:
+  Onshape lets the two fillets on each 20 mm side consume it, leaving the lens where the cylinders meet (4 faces,
+  6 edges, 4 vertices); OCCT fails.
