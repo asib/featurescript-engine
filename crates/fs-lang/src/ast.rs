@@ -79,7 +79,7 @@ pub enum ItemKind {
     },
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum OverloadableOp {
     Add,
     Sub,
