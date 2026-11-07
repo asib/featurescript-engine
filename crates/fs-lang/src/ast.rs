@@ -1,6 +1,7 @@
 //! The FeatureScript syntax tree.
 
 use crate::span::Span;
+use std::rc::Rc;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Ident {
@@ -55,18 +56,17 @@ pub enum ItemKind {
     },
     Function {
         name: Ident,
-        function: Function,
+        function: Rc<Function>,
     },
+    /// A function whose body runs in predicate mode: each expression statement must be true.
     Predicate {
         name: Ident,
-        params: Vec<Param>,
-        precondition: Option<Box<Stmt>>,
-        body: Block,
+        function: Rc<Function>,
     },
     /// `operator+(a is T, b is U) { ... }`.
     Operator {
         op: OverloadableOp,
-        function: Function,
+        function: Rc<Function>,
     },
     /// `type T typecheck canBeT;`
     Type {
@@ -274,7 +274,7 @@ pub enum ExprKind {
     BoxValue(Box<Expr>),
     /// `new box(value)`.
     NewBox(Box<Expr>),
-    Lambda(Box<Function>),
+    Lambda(Rc<Function>),
     /// `switch (value) { key : result, ... }`.
     Switch {
         value: Box<Expr>,

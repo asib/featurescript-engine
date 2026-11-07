@@ -30,6 +30,7 @@
 use crate::ast::*;
 use crate::lexer::{self, Token, TokenKind, TokenKind as T};
 use crate::span::{Span, line_col};
+use std::rc::Rc;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ParseError {
@@ -287,17 +288,19 @@ impl<'s> Parser<'s> {
             T::Function => {
                 let fn_start = self.bump().span.start;
                 let name = self.ident()?;
-                let function = self.function_rest(fn_start)?;
+                let function = Rc::new(self.function_rest(fn_start)?);
                 ItemKind::Function { name, function }
             }
             T::Predicate => {
-                self.bump();
+                let predicate_start = self.bump().span.start;
                 let name = self.ident()?;
                 let params = self.params()?;
                 let precondition =
                     if self.eat(T::Precondition).is_some() { Some(Box::new(self.stmt()?)) } else { None };
-                let body = self.block()?;
-                ItemKind::Predicate { name, params, precondition, body }
+                let body = FunctionBody::Block(self.block()?);
+                let span = self.span_from(predicate_start);
+                let function = Rc::new(Function { params, returns: None, precondition, body, span });
+                ItemKind::Predicate { name, function }
             }
             T::Operator => {
                 let op_start = self.bump().span.start;
@@ -314,7 +317,7 @@ impl<'s> Parser<'s> {
                         return Err(self.error_here("expected an overloadable operator (+ - * / % ^ <)"));
                     }
                 };
-                let function = self.function_rest(op_start)?;
+                let function = Rc::new(self.function_rest(op_start)?);
                 ItemKind::Operator { op, function }
             }
             T::Type => {
@@ -791,7 +794,7 @@ impl<'s> Parser<'s> {
             T::Function => {
                 self.bump();
                 let function = self.function_rest(start)?;
-                ExprKind::Lambda(Box::new(function))
+                ExprKind::Lambda(Rc::new(function))
             }
             T::New => {
                 self.bump();
@@ -855,7 +858,7 @@ impl<'s> Parser<'s> {
             FunctionBody::Expr(Box::new(self.expr()?))
         };
         let function = Function { params, returns, precondition: None, body, span: self.span_from(start) };
-        Ok(Expr { kind: ExprKind::Lambda(Box::new(function)), span: self.span_from(start) })
+        Ok(Expr { kind: ExprKind::Lambda(Rc::new(function)), span: self.span_from(start) })
     }
 
     /// After `=>`, decides whether `{` opens a map literal or a block. It is a map if a `:` comes before any `;`,

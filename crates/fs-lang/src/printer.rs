@@ -130,16 +130,9 @@ impl Printer {
                 let _ = write!(self.out, "function {}", name.name);
                 self.function(function);
             }
-            ItemKind::Predicate { name, params, precondition, body } => {
+            ItemKind::Predicate { name, function } => {
                 let _ = write!(self.out, "predicate {}", name.name);
-                self.params(params);
-                if let Some(precondition) = precondition {
-                    self.line();
-                    self.out.push_str("precondition");
-                    self.indented_stmt(precondition);
-                }
-                self.line();
-                self.block(body);
+                self.function(function);
             }
             ItemKind::Operator { op, function } => {
                 let symbol = match op {
