@@ -3,5 +3,12 @@
 version = 4
 
 [[package]]
+name = "fs-interp"
+version = "0.1.0"
+dependencies = [
+ "fs-lang",
+]
+
+[[package]]
 name = "fs-lang"
 version = "0.1.0"

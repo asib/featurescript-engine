@@ -1,0 +1,10 @@
+[package]
+name = "fs-interp"
+version = "0.1.0"
+description = "FeatureScript interpreter that runs Onshape's std"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+fs-lang = { path = "../fs-lang" }
