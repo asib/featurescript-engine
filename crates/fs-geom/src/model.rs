@@ -7,10 +7,11 @@
 //!
 //! A model is a list of reference-counted bodies, so cloning it for a feature's rollback snapshot is cheap.
 
+use fs_interp::Value;
 use fs_interp::builtins::ContextState;
 use occt::{Frame, Shape, ShapeKind};
 use std::any::Any;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::rc::Rc;
 
 pub type FeatureId = Rc<[Rc<str>]>;
@@ -115,7 +116,10 @@ pub struct Entity {
     pub info: Rc<Info>,
 }
 
-#[derive(Debug)]
+/// A body's properties (`@setProperty`), by property type, or `CUSTOM:<id>` for custom properties.
+pub type Properties = BTreeMap<Rc<str>, Value>;
+
+#[derive(Clone, Debug)]
 pub struct Body {
     pub tid: Tid,
     pub shape: Shape,
@@ -125,12 +129,18 @@ pub struct Body {
     pub construction: bool,
     /// For bodies a sketch made, the sketch's plane.
     pub sketch_plane: Option<Frame>,
+    pub properties: Rc<Properties>,
     pub faces: Vec<Entity>,
     pub edges: Vec<Entity>,
     pub vertices: Vec<Entity>,
 }
 
 impl Body {
+    /// The name set with `@setProperty`, if any.
+    pub fn name(&self) -> Option<&str> {
+        self.properties.get("NAME").and_then(Value::as_str)
+    }
+
     pub fn entities(&self, kind: EntityType) -> &[Entity] {
         match kind {
             EntityType::Body => &[],
@@ -174,6 +184,35 @@ pub struct NewBody {
     pub tid: Option<Tid>,
     pub construction: bool,
     pub sketch_plane: Option<Frame>,
+    pub properties: Rc<Properties>,
+}
+
+impl NewBody {
+    /// A brand-new body: a fresh transient id, not construction, not from a sketch, no properties.
+    pub fn new(shape: Shape, body_type: BodyType, info: Rc<Info>) -> NewBody {
+        NewBody {
+            shape,
+            body_type,
+            info,
+            tid: None,
+            construction: false,
+            sketch_plane: None,
+            properties: Rc::default(),
+        }
+    }
+
+    /// A body that replaces `old` after an operation: same id, kind, info and properties.
+    pub fn replacing(old: &Body, shape: Shape) -> NewBody {
+        NewBody {
+            shape,
+            body_type: old.body_type,
+            info: old.info.clone(),
+            tid: Some(old.tid),
+            construction: old.construction,
+            sketch_plane: old.sketch_plane,
+            properties: old.properties.clone(),
+        }
+    }
 }
 
 impl Model {
@@ -216,11 +255,17 @@ impl Model {
             info: new.info,
             construction: new.construction,
             sketch_plane: new.sketch_plane,
+            properties: new.properties,
             faces,
             edges,
             vertices,
         }));
         self.bodies.len() - 1
+    }
+
+    /// Changes a body in place (copying it first if a snapshot shares it).
+    pub fn update_body(&mut self, index: usize, f: impl FnOnce(&mut Body)) {
+        f(Rc::make_mut(&mut self.bodies[index]));
     }
 
     pub fn remove_bodies(&mut self, indices: &[usize]) {

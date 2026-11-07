@@ -7,6 +7,7 @@
 pub mod evaluate;
 pub mod model;
 pub mod ops;
+pub mod properties;
 pub mod query;
 pub mod sketch;
 pub mod unmodelled;
@@ -31,6 +32,7 @@ pub fn install(interp: &mut Interp) {
     query::register(&mut builtins);
     sketch::register(&mut builtins);
     ops::register(&mut builtins);
+    properties::register(&mut builtins);
     evaluate::register(&mut builtins);
     unmodelled::register(&mut builtins);
     interp.builtins.extend(builtins);

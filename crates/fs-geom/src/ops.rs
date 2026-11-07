@@ -73,15 +73,7 @@ fn transform_bodies(model: &mut Model, id: FeatureId, definition: &Value) -> R<V
     model.remove_bodies(&bodies);
     let default = Info::new(id);
     for (shape, body, origins) in replacements {
-        let new = NewBody {
-            shape,
-            body_type: body.body_type,
-            info: body.info.clone(),
-            tid: Some(body.tid),
-            construction: body.construction,
-            sketch_plane: body.sketch_plane,
-        };
-        model.add_body(new, &origins, &default, &|_| None);
+        model.add_body(NewBody::replacing(&body, shape), &origins, &default, &|_| None);
     }
     Ok(Value::UNDEFINED)
 }
@@ -92,7 +84,7 @@ fn id_and_definition(args: &[Value], name: &str) -> R<(FeatureId, Value)> {
 }
 
 fn add_simple(model: &mut Model, shape: Shape, body_type: BodyType, info: &Rc<Info>, construction: bool) -> usize {
-    let new = NewBody { shape, body_type, info: info.clone(), tid: None, construction, sketch_plane: None };
+    let new = NewBody { construction, ..NewBody::new(shape, body_type, info.clone()) };
     model.add_body(new, &Origins::default(), info, &|_| None)
 }
 
@@ -214,15 +206,7 @@ fn extrude(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
         }
     };
     for solid in op.shape().sub_shapes(ShapeKind::Solid) {
-        let new = NewBody {
-            shape: solid,
-            body_type: BodyType::Solid,
-            info: created.clone(),
-            tid: None,
-            construction: false,
-            sketch_plane: None,
-        };
-        model.add_body(new, &Origins::default(), &created, &special);
+        model.add_body(NewBody::new(solid, BodyType::Solid, created.clone()), &Origins::default(), &created, &special);
     }
     Ok(Value::UNDEFINED)
 }
@@ -299,14 +283,7 @@ fn boolean(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
     }
     model.remove_bodies(&consumed);
     for (solid, body, tid, origins) in results {
-        let new = NewBody {
-            shape: solid,
-            body_type: BodyType::Solid,
-            info: body.info.clone(),
-            tid,
-            construction: body.construction,
-            sketch_plane: None,
-        };
+        let new = NewBody { body_type: BodyType::Solid, tid, ..NewBody::replacing(&body, solid) };
         model.add_body(new, &origins, &default, &|_| None);
     }
     Ok(Value::UNDEFINED)

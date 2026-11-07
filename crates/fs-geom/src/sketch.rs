@@ -206,14 +206,7 @@ fn solve(model: &mut Model, sketch: &Sketch) -> R<()> {
     let regions = occt::sketch_regions(&shapes, plane).map_err(occt_error)?;
     if !regions.is_empty() {
         let shape = if regions.len() == 1 { regions[0].clone() } else { occt::compound(&regions) };
-        let new = NewBody {
-            shape,
-            body_type: BodyType::Sheet,
-            info: created.clone(),
-            tid: None,
-            construction: false,
-            sketch_plane: Some(plane),
-        };
+        let new = NewBody { sketch_plane: Some(plane), ..NewBody::new(shape, BodyType::Sheet, created.clone()) };
         model.add_body(new, &none, &created, &|_| None);
     }
     for (list, construction) in [(&edges, false), (&construction_edges, true)] {
@@ -226,26 +219,15 @@ fn solve(model: &mut Model, sketch: &Sketch) -> R<()> {
             let (id, _) = list.iter().find(|(_, e)| e.is_same(s))?;
             Some(Rc::new(Info { created_by: sketch.id.clone(), sketch_entity: Some(id.clone()), cap: None }))
         };
-        let new = NewBody {
-            shape,
-            body_type: BodyType::Wire,
-            info: created.clone(),
-            tid: None,
-            construction,
-            sketch_plane: Some(plane),
-        };
+        let new =
+            NewBody { construction, sketch_plane: Some(plane), ..NewBody::new(shape, BodyType::Wire, created.clone()) };
         model.add_body(new, &none, &created, &sketch_entity);
     }
     for (id, p, construction) in points {
         let info = Rc::new(Info { created_by: sketch.id.clone(), sketch_entity: Some(id), cap: None });
-        let new = NewBody {
-            shape: occt::vertex(p).map_err(occt_error)?,
-            body_type: BodyType::Point,
-            info: info.clone(),
-            tid: None,
-            construction,
-            sketch_plane: Some(plane),
-        };
+        let shape = occt::vertex(p).map_err(occt_error)?;
+        let new =
+            NewBody { construction, sketch_plane: Some(plane), ..NewBody::new(shape, BodyType::Point, info.clone()) };
         model.add_body(new, &none, &info, &|_| None);
     }
     Ok(())
