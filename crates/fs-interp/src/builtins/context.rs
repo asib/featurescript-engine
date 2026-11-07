@@ -36,6 +36,9 @@ pub struct Features {
     pub open: Vec<OpenFeature>,
     /// Status reported for each feature id, as std's builtin status map.
     pub statuses: ValueMap,
+    /// Computed parameters (`@setFeatureComputedParameter`): feature id to a map of name to value. Like
+    /// statuses, they survive a feature being aborted.
+    pub computed: ValueMap,
 }
 
 pub struct OpenFeature {
@@ -165,6 +168,23 @@ pub fn register(m: &mut HashMap<&'static str, BuiltinFn>) {
         let context = context_arg(&args, 0, "clearFeatureStatus")?;
         let id = arg(&args, 1, "clearFeatureStatus")?.clone().with_tag(None);
         context.features.borrow_mut().statuses.remove(&id);
+        Ok(Value::UNDEFINED)
+    });
+    m.insert("setFeatureComputedParameter", |_, args| {
+        let context = context_arg(&args, 0, "setFeatureComputedParameter")?;
+        let id = arg(&args, 1, "setFeatureComputedParameter")?.clone().with_tag(None);
+        let definition = arg(&args, 2, "setFeatureComputedParameter")?;
+        let name = definition.get("name").cloned().unwrap_or(Value::UNDEFINED);
+        let value = definition.get("value").cloned().unwrap_or(Value::UNDEFINED);
+        let mut features = context.features.borrow_mut();
+        let mut parameters =
+            features.computed.get(&id).and_then(Value::as_map).map(|m| (**m).clone()).unwrap_or_default();
+        if value.is_undefined() {
+            parameters.remove(&name);
+        } else {
+            parameters.insert(name, value);
+        }
+        features.computed.insert(id, Value::map(parameters));
         Ok(Value::UNDEFINED)
     });
     // Only used to highlight entities in Onshape's UI.
