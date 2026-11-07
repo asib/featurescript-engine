@@ -24,6 +24,24 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
 - **std versions per file.** Since std 2985, each file's `FeatureScript` header and import versions change only
   when the file or something it imports changes, so one std release mixes versions from 2985 upwards. (Copying std
   3112.0; `std/NOTICE.md`.)
+- **Error messages match.** Running the batch 001 probes c097 and c102 on our interpreter throws exactly the
+  messages Onshape gave ("First operand of logical or conditional operator must be boolean, value is string" or
+  "... number").
+- **Lambdas capture by value.** FsDoc's relational page defines lambda equality by "bound values captured from an
+  enclosing block scope", so the interpreter copies the visible variables when it creates a lambda. Not yet
+  checked against Onshape directly.
+- **Top-level constants must be evaluated lazily.** std's `defineTolerance` calls its lambda with no arguments,
+  although the lambda takes one. So `lengthTolerance`, `diameterTolerance` and `angleTolerance` can't be
+  evaluated, and std still loads. Our interpreter evaluates each constant on first use.
+- **`~` turns anything into text.** std's `toString(value)` is just `"" ~ value`, and `"a" ~ false` is
+  `"afalse"` (probe c097). How Onshape writes non-integer numbers this way hasn't been checked; we use the shortest
+  form that reads back exactly.
+- **Regex replacement strings.** In `@replace`, `$n` inserts a capture group and backslashes are literal. That is
+  an assumption: std builds `REGEX_UNITS` with the replacement `")\\b)"` and clearly means a word boundary.
+  Every `id + "name"` goes through `@replace(addend, "^\\.", "_")`, so regexes are on the hot path.
+- **Feature tokens.** `@startFeature` returns a token that std keeps in `var token is map`. `@endFeature` and
+  `@abortFeature` take that token, or `{}` meaning the open feature with that id (std's two-argument
+  `endFeature(context, id)`).
 - **New Feature Studios** start with `FeatureScript 3112;` and `import(path : "onshape/std/common.fs", version :
   "3112.0");` (as of 2026-11-07, creating the fixture document).
 

@@ -92,6 +92,18 @@ case are measured and written down.
    is logged. Write the non-geometric built-ins (maths, strings, maps, matrices) as std calls them. *Check:*
    `common.fs` loads, and units, vector and transform arithmetic give the expected values. Running the batch-001
    case functions prints the exact list of geometric built-ins still missing. Record the load time.
+   *Done* (crate `fs-interp`):
+   - **Performance:** in a release build, loading std through `geometry.fs` (264 modules) takes about 120 ms, and
+     evaluating every top-level constant takes about 40 ms. Only std's three `defineTolerance` constants fail, as
+     they must.
+   - **Checks:** 51 checks of units, vectors, matrices, transforms, ids, contexts and the language rules pass.
+   - **Built-ins written:** maths, containers, strings, regex (our own small engine), matrices, contexts and
+     versions, and feature bookkeeping.
+   - **Batch 001:** every case stops at `@opPoint` (the default origin).
+   - **Lenient mode:** run with `--lenient`, `examples/run_cases` lets unwritten built-ins return `undefined`. The
+     cases then reach `opPoint`, `opPlane`, `newSketch`, `skLineSegment`, `skArc`, `skCircle`, `skConstraint`,
+     `skSolve`, `setFeatureComputedParameter` and `isQueryEmpty` before stopping. The two precedence probes
+     already fail with Onshape's exact errors.
 5. **Write the OpenCascade layer and the geometric built-ins.**
    - A crate `occt-sys` holds `cxx` wrappers that link the system OCCT 7.9.2. It covers:
      - points, curves and surfaces, plus the builders for edges, wires and faces;

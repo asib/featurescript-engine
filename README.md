@@ -7,7 +7,8 @@ regeneration takes. Onshape's own engine supplies the expected results, as model
 
 Status: std 3112.0 is vendored in [std/](std/NOTICE.md), and the `fs-lang` crate parses all of it. Fixture batch
 001 (106 sketch-and-extrude cases with Onshape's STEP) is in [fixtures/batch-001](fixtures/batch-001/README.md).
-There is no interpreter yet. What we've learned about Onshape is in [docs/FINDINGS.md](docs/FINDINGS.md). `cargo test` runs the tests. The background and reasoning are in
+The `fs-interp` crate interprets std: all of it loads in about 120 ms, and its arithmetic works. The geometry
+built-ins (OpenCascade) come next. What we've learned about Onshape is in [docs/FINDINGS.md](docs/FINDINGS.md). `cargo test` runs the tests. The background and reasoning are in
 [docs/discussion-log.md](docs/discussion-log.md); the current plan is
 [docs/milestone-1-plan.md](docs/milestone-1-plan.md).
 
