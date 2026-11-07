@@ -6,6 +6,7 @@
 
 pub mod model;
 pub mod query;
+pub mod sketch;
 pub mod values;
 
 use fs_interp::Engine;
@@ -25,6 +26,7 @@ pub fn install(interp: &mut Interp) {
     interp.state.new_context_state = Some(|| Box::new(GeomState::default()));
     let mut builtins = GeomBuiltins::new();
     query::register(&mut builtins);
+    sketch::register(&mut builtins);
     interp.builtins.extend(builtins);
 }
 
