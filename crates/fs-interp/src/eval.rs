@@ -69,6 +69,8 @@ pub struct Interp {
     /// Diagnostic only: let unwritten builtins return `undefined` instead of throwing, to see what else a run
     /// would reach. Results are meaningless in this mode.
     pub lenient_builtins: bool,
+    /// Diagnostic only: print every exception a `try` statement catches to stderr.
+    pub trace_catches: bool,
     locals: Vec<Local>,
     frame_base: usize,
     module: ModuleId,
@@ -92,6 +94,7 @@ impl Interp {
             missing_builtins: BTreeSet::new(),
             output: String::new(),
             lenient_builtins: false,
+            trace_catches: false,
             locals: Vec::new(),
             frame_base: 0,
             module: 0,
@@ -625,7 +628,12 @@ impl Interp {
             }
             ExprKind::Try { expr, .. } => match self.eval(expr) {
                 Ok(v) => v,
-                Err(Flow::Throw(_)) => Value::UNDEFINED,
+                Err(Flow::Throw(exception)) => {
+                    if self.trace_catches {
+                        eprintln!("caught by try(): {exception:?}");
+                    }
+                    Value::UNDEFINED
+                }
                 Err(other) => return Err(other),
             },
         })
@@ -797,6 +805,9 @@ impl Interp {
             StmtKind::Throw(value) => return Err(Flow::Throw(self.eval(value)?)),
             StmtKind::Try { body, catch, .. } => match self.exec_block(body) {
                 Err(Flow::Throw(exception)) => {
+                    if self.trace_catches {
+                        eprintln!("caught: {exception:?}");
+                    }
                     if let Some(catch) = catch {
                         self.in_scope(|this| {
                             if let Some(name) = &catch.name {

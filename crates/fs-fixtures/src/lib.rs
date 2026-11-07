@@ -54,8 +54,14 @@ fn exception(e: fs_interp::Exception) -> String {
 /// Runs a batch's generator feature on the engine, on a new context with the default planes.
 pub fn build(batch: &Path) -> Result<Build, String> {
     // Onshape's Feature Studio held cases.fs followed by generator.fs.
-    let source = format!("{}\n{}", read(&batch.join("cases.fs"))?, read(&batch.join("generator.fs"))?);
+    let mut generator = read(&batch.join("generator.fs"))?;
+    // Diagnostic only: FS_ONLY=c001,c002 builds just those cases.
+    if let Ok(only) = std::env::var("FS_ONLY") {
+        generator = only_cases(&generator, &only.split(',').collect::<Vec<_>>());
+    }
+    let source = format!("{}\n{}", read(&batch.join("cases.fs"))?, generator);
     let mut engine = fs_geom::engine();
+    engine.interp.trace_catches = std::env::var_os("FS_TRACE_CATCHES").is_some();
     let module = engine.load_source(&batch.join("feature-studio.fs").to_string_lossy(), &source)?;
     let generator = engine.interp.modules.list[module]
         .ast
@@ -78,7 +84,10 @@ pub fn build(batch: &Path) -> Result<Build, String> {
     // A top-level feature reports its errors as its status instead of throwing.
     let status = engine.call(module, "getFeatureStatus", vec![context.clone(), id]).map_err(exception)?;
     if status.get("statusType").and_then(Value::as_str) != Some("OK") {
-        return Err(format!("the generator failed: {status:?}"));
+        return Err(format!(
+            "the generator failed: {status:?}\nmissing builtins: {:?}\n{}",
+            engine.interp.missing_builtins, engine.interp.output
+        ));
     }
     let parts = fs_geom::with_model(&context, |model| {
         model
@@ -90,6 +99,28 @@ pub fn build(batch: &Path) -> Result<Build, String> {
     })
     .ok_or("the context has no geometry")?;
     Ok(Build { parts, output: std::mem::take(&mut engine.interp.output), seconds })
+}
+
+/// The generator with the calls of every case not in `only` taken out. Each call is three lines, starting with
+/// `if (!runFixtureCase(context, id, "<case>"`.
+fn only_cases(generator: &str, only: &[&str]) -> String {
+    let mut out = String::new();
+    let mut skip = 0;
+    for line in generator.lines() {
+        if let Some(rest) = line.trim_start().strip_prefix("if (!runFixtureCase(context, id, \"") {
+            let name = rest.split('"').next().unwrap_or_default();
+            if !only.contains(&name) {
+                skip = 3;
+            }
+        }
+        if skip > 0 {
+            skip -= 1;
+            continue;
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    out
 }
 
 /// Onshape's parts, from the batch's STEP file.
