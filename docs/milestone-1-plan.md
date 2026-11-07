@@ -76,6 +76,11 @@ case are measured and written down.
 
    *Check:* the STEP file holds one named part for each case that Onshape built. A note next to it records the std
    version, Onshape's build, the date and any cases that failed in Onshape. No API calls are made.
+   *Done:* `fixtures/batch-001/` holds 106 cases and Onshape's STEP. 100 cases built one named solid each, and six
+   failed for reasons that are understood (see its README). `tools/browser/build-fixture-batch.mjs` rebuilds and
+   re-exports it through the UI, and the export is repeatable. The probes confirmed five rows of the parser's
+   precedence table. They also corrected three: `~` binds looser than `==`, the ternary is left-associative, and
+   `-2` is a negative constant. The parser now follows them (`docs/FINDINGS.md`).
 4. **Interpret std.** Write a tree-walking interpreter for the full language:
    - versioned imports;
    - types with check predicates;
@@ -133,8 +138,6 @@ to `main`, then reviewed before the next one starts.
   STEP export may add its own seams. Both sides of the comparison are read through OpenCascade, so counts should
   line up, but the first fixture will show whether they do. Expect more kernel differences like this one; each
   gets a note in `FINDINGS.md`.
-- **Part names in the STEP export.** The comparison relies on Onshape writing each part's name into the STEP file.
-  Check this on the first export; if names are lost, fall back to locating cases by their grid slot.
 - **Onshape's time limit for regenerating a feature.** If one feature can't build 100 cases in time, split the
   batch across several features or Part Studios, each with its own export.
 - **Interpreter speed.** About 94k lines of std load on every run. Step 2 measures parsing and step 4 measures
