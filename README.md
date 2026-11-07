@@ -3,7 +3,7 @@
 A local FeatureScript engine. The aim is to run Onshape's own standard library (`std`) unchanged on a local
 interpreter, with the `@` built-ins it calls (modelling operations, queries, measurements, sketch solving)
 implemented on OpenCascade. Part Studio code could then be rebuilt locally in a fraction of the time an Onshape
-regeneration takes. Onshape itself is the test oracle.
+regeneration takes. Onshape's own engine supplies the expected results, as model files.
 
 Status: std 3112.0 is vendored in [std/](std/NOTICE.md), and the `fs-lang` crate parses all of it. There is no
 interpreter yet. `cargo test` runs the tests. The background and reasoning are in
@@ -18,21 +18,21 @@ interpreter yet. `cargo test` runs the tests. The background and reasoning are i
   to write them.
 - **std:** MIT licence, copyright PTC. Keep the notice with any copy in this repo. The local copy must be the same
   version as the Onshape it is tested against, because std branches on its version in hundreds of places.
-- **Oracle:** Onshape, used from a Chrome on the dev machine that the user has logged in to.
+- **Fixtures:** Onshape builds each test case once, and we export the model as STEP from its UI. The export is
+  done through a Chrome on the dev machine that the user has logged in to. Tests compare our engine's models
+  against these fixtures and never touch Onshape.
 
-## Rules for using Onshape as the oracle
+## Rules for using Onshape
 
+- Onshape is only used to generate fixtures and to copy std. Tests never run in Onshape or call it.
 - Never create Onshape API keys and never call Onshape's REST API directly. The only API use allowed is the API
-  Explorer page in the logged-in browser.
-- Keep API Explorer calls to a minimum; we do not want to load Onshape's API. Prefer the plain UI wherever it
-  works; std itself is copied by reading each Feature Studio tab in the UI.
-- Put every test case of a run into one test feature in a Feature Studio. Each case gets its own id namespace,
-  catches its own errors and records its measurements. All results come back in one read: from the page if
-  possible, otherwise from a single `evalFeatureScript` call in the API Explorer.
-- Editing Feature Studios and Part Studios in the browser is not an API call; prefer it where it does the job.
-- Cache every oracle result in the repo, so a case is never asked twice.
+  Explorer page in the logged-in browser, and so far nothing has needed it.
+- Prefer the plain UI: std is copied by reading each Feature Studio tab, and fixtures are exported from the export
+  menu.
+- Build each batch of cases in one go: one generator feature builds every case, and one export saves them all.
+- Commit every fixture, so a case is never built in Onshape twice.
 
 ## Milestone 1
 
 Run std's own `extrude.fs` unmodified on the local interpreter, writing only the `@` built-ins the extrude path
-needs, and check about 100 sketch-and-extrude cases against one Onshape batch.
+needs. Check that about 100 sketch-and-extrude cases build the same models as Onshape's STEP fixtures.
