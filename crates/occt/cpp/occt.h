@@ -92,7 +92,8 @@ std::unique_ptr<Shape> make_plane_face(Frame f, double umin, double umax, double
 std::unique_ptr<ShapeList> sketch_regions(const ShapeList &edges, Frame f);
 std::unique_ptr<Operation> merge_faces(const ShapeList &faces);
 std::unique_ptr<Operation> prism(const Shape &profile, Vec3 v);
-std::unique_ptr<Operation> boolean_op(int32_t kind, const ShapeList &objects, const ShapeList &tools, bool unify);
+std::unique_ptr<Operation> boolean_op(int32_t kind, const ShapeList &objects, const ShapeList &tools, bool unify,
+                                      double fuzzy);
 std::unique_ptr<Operation> transform_op(const Shape &s, const Transform &t);
 
 std::unique_ptr<Shape> operation_shape(const Operation &op);
@@ -111,6 +112,7 @@ Vec3 vertex_point(const Shape &s);
 int32_t surface_type(const Shape &face);
 Frame face_plane(const Shape &face);
 int32_t curve_type(const Shape &edge);
+bool edge_is_seam(const Shape &root, const Shape &edge);
 bool shape_valid(const Shape &s);
 
 void write_step(const ShapeList &shapes, const rust::Vec<rust::String> &names, rust::Str path);

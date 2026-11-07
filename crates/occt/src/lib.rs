@@ -74,7 +74,13 @@ mod ffi {
         fn sketch_regions(edges: &ShapeList, f: Frame) -> Result<UniquePtr<ShapeList>>;
         fn merge_faces(faces: &ShapeList) -> Result<UniquePtr<Operation>>;
         fn prism(profile: &Shape, v: Vec3) -> Result<UniquePtr<Operation>>;
-        fn boolean_op(kind: i32, objects: &ShapeList, tools: &ShapeList, unify: bool) -> Result<UniquePtr<Operation>>;
+        fn boolean_op(
+            kind: i32,
+            objects: &ShapeList,
+            tools: &ShapeList,
+            unify: bool,
+            fuzzy: f64,
+        ) -> Result<UniquePtr<Operation>>;
         fn transform_op(s: &Shape, t: &Transform) -> Result<UniquePtr<Operation>>;
 
         fn operation_shape(op: &Operation) -> UniquePtr<Shape>;
@@ -93,6 +99,7 @@ mod ffi {
         fn surface_type(face: &Shape) -> Result<i32>;
         fn face_plane(face: &Shape) -> Result<Frame>;
         fn curve_type(edge: &Shape) -> Result<i32>;
+        fn edge_is_seam(root: &Shape, edge: &Shape) -> Result<bool>;
         fn shape_valid(s: &Shape) -> Result<bool>;
 
         fn write_step(shapes: &ShapeList, names: &Vec<String>, path: &str) -> Result<()>;
@@ -276,6 +283,12 @@ impl Shape {
         Ok(TYPES.get(ffi::curve_type(&self.0)? as usize).copied().unwrap_or(Other))
     }
 
+    /// Whether `edge` is the seam of one of this shape's closed faces, where a periodic face such as a cylinder's
+    /// meets itself.
+    pub fn is_seam(&self, edge: &Shape) -> bool {
+        ffi::edge_is_seam(&self.0, &edge.0).unwrap_or(false)
+    }
+
     /// Whether OCCT's checker finds the shape valid.
     pub fn is_valid(&self) -> bool {
         ffi::shape_valid(&self.0).unwrap_or(false)
@@ -382,7 +395,19 @@ pub enum BooleanKind {
 
 /// A boolean of `objects` with `tools`. With `unify`, faces and edges left on one surface or curve are merged.
 pub fn boolean(kind: BooleanKind, objects: &[Shape], tools: &[Shape], unify: bool) -> Result<Operation> {
-    Ok(Operation(ffi::boolean_op(kind as i32, &to_list(objects), &to_list(tools), unify)?))
+    boolean_fuzzy(kind, objects, tools, unify, 0.0)
+}
+
+/// A boolean that treats geometry closer than `fuzzy` as coincident, for shapes that should match but come from
+/// different modellers.
+pub fn boolean_fuzzy(
+    kind: BooleanKind,
+    objects: &[Shape],
+    tools: &[Shape],
+    unify: bool,
+    fuzzy: f64,
+) -> Result<Operation> {
+    Ok(Operation(ffi::boolean_op(kind as i32, &to_list(objects), &to_list(tools), unify, fuzzy)?))
 }
 
 pub fn transform(shape: &Shape, t: &Transform) -> Result<Operation> {

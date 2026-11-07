@@ -266,7 +266,9 @@ std::unique_ptr<Operation> prism(const Shape &profile, Vec3 v) {
 }
 
 // kind: 0 union, 1 subtraction, 2 intersection. `unify` merges faces and edges left on the same surface or curve.
-std::unique_ptr<Operation> boolean_op(int32_t kind, const ShapeList &objects, const ShapeList &tools, bool unify) {
+// `fuzzy`, if positive, treats geometry closer than that as coincident.
+std::unique_ptr<Operation> boolean_op(int32_t kind, const ShapeList &objects, const ShapeList &tools, bool unify,
+                                      double fuzzy) {
   std::unique_ptr<BRepAlgoAPI_BooleanOperation> algo;
   switch (kind) {
     case 0: algo = std::make_unique<BRepAlgoAPI_Fuse>(); break;
@@ -279,6 +281,7 @@ std::unique_ptr<Operation> boolean_op(int32_t kind, const ShapeList &objects, co
   algo->SetTools(tool_list);
   algo->SetNonDestructive(Standard_True);
   algo->SetRunParallel(Standard_False);
+  if (fuzzy > 0) algo->SetFuzzyValue(fuzzy);
   algo->Build();
   if (algo->HasErrors()) {
     std::ostringstream message;
@@ -397,6 +400,17 @@ Frame face_plane(const Shape &face) {
 
 int32_t curve_type(const Shape &edge) {
   return static_cast<int32_t>(BRepAdaptor_Curve(TopoDS::Edge(edge.shape)).GetType());
+}
+
+// Whether the edge is the seam of a closed face of `root`, such as the line where a cylinder's face meets itself.
+bool edge_is_seam(const Shape &root, const Shape &edge) {
+  TopTools_IndexedDataMapOfShapeListOfShape map;
+  TopExp::MapShapesAndUniqueAncestors(root.shape, TopAbs_EDGE, TopAbs_FACE, map);
+  const TopTools_ListOfShape *faces = map.Seek(edge.shape);
+  if (faces == nullptr) return false;
+  for (const TopoDS_Shape &face : *faces)
+    if (BRep_Tool::IsClosed(TopoDS::Edge(edge.shape), TopoDS::Face(face))) return true;
+  return false;
 }
 
 bool shape_valid(const Shape &s) { return BRepCheck_Analyzer(s.shape).IsValid(); }
