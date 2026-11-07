@@ -6,7 +6,8 @@ implemented on OpenCascade. Part Studio code could then be rebuilt locally in a 
 regeneration takes. Onshape itself is the test oracle.
 
 Status: just started; there is no code yet. The background and reasoning are in
-[docs/discussion-log.md](docs/discussion-log.md).
+[docs/discussion-log.md](docs/discussion-log.md); the current plan is
+[docs/milestone-1-plan.md](docs/milestone-1-plan.md).
 
 ## Decisions so far
 
