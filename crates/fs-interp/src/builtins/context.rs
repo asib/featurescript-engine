@@ -150,6 +150,12 @@ pub fn register(m: &mut HashMap<&'static str, BuiltinFn>) {
         }
         Ok(Value::UNDEFINED)
     }
+    // The id of the innermost feature running, which std uses to make ids for debug geometry.
+    m.insert("getLastActiveId", |_, args| {
+        let context = context_arg(&args, 0, "getLastActiveId")?;
+        let features = context.features.borrow();
+        Ok(features.open.last().map(|f| f.id.clone()).unwrap_or_else(|| Value::array(Vec::new())))
+    });
     m.insert("endFeature", |_, args| finish(&args, "endFeature", false));
     m.insert("abortFeature", |_, args| finish(&args, "abortFeature", true));
     m.insert("functionGetFeatureStatus", |_, args| {

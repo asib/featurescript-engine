@@ -38,12 +38,30 @@ pub fn register(map: &mut HashMap<&'static str, BuiltinFn>) {
         "ceil" => f64::ceil,
     );
     map.insert("atan2", |_, args| checked("atan2", number(&args, 0, "atan2")?.atan2(number(&args, 1, "atan2")?)));
-    // A unit-length copy of a vector of numbers.
+    // A unit-length copy of a vector. Its components may all have the same units (a vector of lengths, say),
+    // which cancel: the result is always numbers.
     map.insert("normalize", |_, args| {
         let v = array(&args, 0, "normalize")?;
         let mut xs = Vec::with_capacity(v.len());
+        let mut units: Option<&Value> = None;
         for x in v.iter() {
-            xs.push(x.as_number().ok_or_else(|| error("@normalize: expected numbers"))?);
+            let n = match x.as_number() {
+                Some(n) => n,
+                None => {
+                    let (value, unit) = (x.get("value").and_then(Value::as_number), x.get("unit"));
+                    match (value, unit) {
+                        (Some(value), Some(unit)) if units.is_none_or(|u| u == unit) => {
+                            units = Some(unit);
+                            value
+                        }
+                        _ => return Err(error("@normalize: expected numbers or values with the same units")),
+                    }
+                }
+            };
+            xs.push(n);
+        }
+        if units.is_some() && xs.len() != v.len() {
+            return Err(error("@normalize: mixed units"));
         }
         let norm = xs.iter().map(|x| x * x).sum::<f64>().sqrt();
         if norm == 0.0 {
