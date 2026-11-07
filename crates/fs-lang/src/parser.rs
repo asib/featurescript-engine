@@ -1,30 +1,31 @@
 //! Parses FeatureScript tokens into a syntax tree.
 //!
 //! Statements and top-level items use recursive descent; expressions use precedence climbing. Onshape doesn't
-//! publish a precedence table, so the one below follows C-like conventions plus what std's own code implies. The
-//! oracle should confirm it before the interpreter relies on the less common cases.
+//! publish a precedence table. The one below combines C-like conventions, how std writes its expressions, and the
+//! language probes in fixture batch 001 (see `docs/FINDINGS.md`). Rows marked * were checked against Onshape.
 //!
 //! Precedence, from loosest to tightest:
 //!
 //! | operators                              | associativity |
 //! |----------------------------------------|---------------|
 //! | `x => ...` lambdas                     | (prefix)      |
-//! | `?:`                                   | right         |
+//! | `?:`                                   | left *        |
 //! | `??`                                   | left          |
 //! | `\|\|`                                 | left          |
 //! | `&&`                                   | left          |
+//! | `~`                                    | left          |
 //! | `==` `!=`                              | left          |
 //! | `<` `>` `<=` `>=`                      | left          |
 //! | `is T` `as T`                          | (postfix)     |
-//! | `~`                                    | left          |
 //! | `+` `-`                                | left          |
-//! | `*` `/` `%`                            | left          |
+//! | `*` `/` `%`                            | left *        |
 //! | unary `-` `!`                          | (prefix)      |
-//! | `^`                                    | right         |
+//! | `^`                                    | right *       |
 //! | `()` `[]` `[i]` `.` `?.` `->`          | (postfix)     |
 //!
-//! `is` binds tighter than `==` because std writes `x is string == true`. `^` binds tighter than unary minus, so
-//! `-x^2` is `-(x^2)`.
+//! Checked against Onshape: `??` is looser than `&&`; `~` is looser than `==`; `==` is looser than `<` and `is`;
+//! `*` and `%` share a level. Where `~` sits relative to `&&` is a guess. `-2` is a negative constant, as Onshape's
+//! guide says, so `-2^2` is 4; for any other operand `^` binds tighter, so `-x^2` is `-(x^2)` (not yet checked).
 
 use crate::ast::*;
 use crate::lexer::{self, Token, TokenKind, TokenKind as T};
@@ -66,7 +67,7 @@ pub fn parse_stmt(source: &str) -> PResult<Stmt> {
 
 // Binding powers.
 const BP_TERNARY: u8 = 2;
-const BP_TYPE_TEST: u8 = 13;
+const BP_TYPE_TEST: u8 = 15;
 const BP_UNARY: u8 = 21;
 const BP_POSTFIX: u8 = 30;
 /// Map keys and switch cases are parsed above the ternary so their `:` isn't taken as part of one.
@@ -78,13 +79,13 @@ fn binary_op(kind: TokenKind) -> Option<(BinaryOp, u8, u8)> {
         T::QuestionQuestion => (Coalesce, 3, 4),
         T::OrOr => (Or, 5, 6),
         T::AndAnd => (And, 7, 8),
-        T::EqualEqual => (Equal, 9, 10),
-        T::BangEqual => (NotEqual, 9, 10),
-        T::Less => (Less, 11, 12),
-        T::Greater => (Greater, 11, 12),
-        T::LessEqual => (LessEqual, 11, 12),
-        T::GreaterEqual => (GreaterEqual, 11, 12),
-        T::Tilde => (Concat, 15, 16),
+        T::Tilde => (Concat, 9, 10),
+        T::EqualEqual => (Equal, 11, 12),
+        T::BangEqual => (NotEqual, 11, 12),
+        T::Less => (Less, 13, 14),
+        T::Greater => (Greater, 13, 14),
+        T::LessEqual => (LessEqual, 13, 14),
+        T::GreaterEqual => (GreaterEqual, 13, 14),
         T::Plus => (Add, 17, 18),
         T::Minus => (Sub, 17, 18),
         T::Star => (Mul, 19, 20),
@@ -102,9 +103,9 @@ pub(crate) fn binary_binding_power(op: BinaryOp) -> (u8, u8) {
         Coalesce => (3, 4),
         Or => (5, 6),
         And => (7, 8),
-        Equal | NotEqual => (9, 10),
-        Less | Greater | LessEqual | GreaterEqual => (11, 12),
-        Concat => (15, 16),
+        Concat => (9, 10),
+        Equal | NotEqual => (11, 12),
+        Less | Greater | LessEqual | GreaterEqual => (13, 14),
         Add | Sub => (17, 18),
         Mul | Div | Rem => (19, 20),
         Pow => (24, 24),
@@ -634,7 +635,8 @@ impl<'s> Parser<'s> {
                     self.bump();
                     let then = self.expr_bp(0)?;
                     self.expect(T::Colon)?;
-                    let otherwise = self.expr_bp(BP_TERNARY)?;
+                    // Left-associative: `a ? b : c ? d : e` is `(a ? b : c) ? d : e`, as in Onshape.
+                    let otherwise = self.expr_bp(BP_TERNARY + 1)?;
                     let span = lhs.span.to(otherwise.span);
                     lhs = Expr {
                         kind: ExprKind::Ternary {
@@ -770,6 +772,16 @@ impl<'s> Parser<'s> {
                 ExprKind::Array(items)
             }
             T::LBrace => return self.map_literal(),
+            // "Negated constants are converted to negative constants" (FsDoc tokens.html): `-2^2` is `(-2)^2`.
+            T::Minus if self.peek_at(1) == T::Number => {
+                self.bump();
+                let number = self.bump();
+                let text = self.text(number);
+                let value = text
+                    .parse::<f64>()
+                    .map_err(|_| ParseError { message: format!("bad number {text:?}"), span: number.span })?;
+                ExprKind::Number(-value)
+            }
             T::Minus | T::Bang => {
                 self.bump();
                 let operand = self.expr_bp(BP_UNARY)?;
@@ -987,9 +999,13 @@ mod tests {
         check("1 - 2 - 3", "(Sub (Sub 1 2) 3)");
         check("2 ^ 3 ^ 2", "(Pow 2 (Pow 3 2))");
         check("-x ^ 2", "(Neg (Pow x 2))");
-        check("2 ^ -1", "(Pow 2 (Neg 1))");
+        check("2 ^ -1", "(Pow 2 -1)");
+        check("-2 ^ 2 + 5", "(Add (Pow -2 2) 5)");
+        check("-7 % 3", "(Rem -7 3)");
+        check("a - -2", "(Sub a -2)");
         check("-a.b", "(Neg (. a b))");
         check("\"a\" ~ 1 + 2", "(Concat \"a\" (Add 1 2))");
+        check("\"a\" ~ 1 + 2 == \"a3\"", "(Concat \"a\" (Equal (Add 1 2) \"a3\"))");
     }
 
     #[test]
@@ -1001,7 +1017,8 @@ mod tests {
         check("v is undefined", "(is v undefined)");
         check("{ 'minCorner' : a } as Box3d", "(as {(\"minCorner\"):a} Box3d)");
         check("a ?? b || c", "(Coalesce a (Or b c))");
-        check("c ? a : d ? e : f", "(? c a (? d e f))");
+        check("c ? a : d ? e : f", "(? (? c a d) e f)");
+        check("c ? a ? b : d : e", "(? c (? a b d) e)");
         check("c ?.5 : 1", "(? c 0.5 1)");
     }
 

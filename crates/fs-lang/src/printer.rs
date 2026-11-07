@@ -42,6 +42,31 @@ fn precedence(expr: &Expr) -> u8 {
 
 const MAP_KEY_BINDING_POWER: u8 = TERNARY_BINDING_POWER + 1;
 
+/// Whether the printed form of `expr` begins with a number literal.
+fn starts_with_number(expr: &Expr) -> bool {
+    match &expr.kind {
+        ExprKind::Number(_) => true,
+        ExprKind::Binary { lhs, .. } => precedence(lhs) >= binary_binding_power_of(expr) && starts_with_number(lhs),
+        ExprKind::Ternary { cond, .. } => precedence(cond) >= TERNARY_BINDING_POWER && starts_with_number(cond),
+        ExprKind::Is { operand, .. } | ExprKind::As { operand, .. } => {
+            precedence(operand) >= TYPE_TEST_BINDING_POWER && starts_with_number(operand)
+        }
+        ExprKind::Call { callee: target, .. }
+        | ExprKind::Pipe { receiver: target, .. }
+        | ExprKind::Index { target, .. }
+        | ExprKind::Member { target, .. }
+        | ExprKind::BoxValue(target) => precedence(target) >= POSTFIX_BINDING_POWER && starts_with_number(target),
+        _ => false,
+    }
+}
+
+fn binary_binding_power_of(expr: &Expr) -> u8 {
+    match &expr.kind {
+        ExprKind::Binary { op, .. } => binary_binding_power(*op).0,
+        _ => 0,
+    }
+}
+
 #[derive(Default)]
 struct Printer {
     out: String,
@@ -458,7 +483,15 @@ impl Printer {
                 if matches!(operand.kind, ExprKind::Unary { .. }) {
                     self.out.push(' ');
                 }
-                self.expr(operand, UNARY_BINDING_POWER);
+                // `-2^2` would read back as `(-2)^2`, because a minus sign right before a number makes a negative
+                // constant; parenthesise operands that start with a number.
+                if *op == UnaryOp::Neg && starts_with_number(operand) {
+                    self.out.push('(');
+                    self.expr(operand, 0);
+                    self.out.push(')');
+                } else {
+                    self.expr(operand, UNARY_BINDING_POWER);
+                }
             }
             ExprKind::Binary { op, lhs, rhs } => {
                 let (left_bp, right_bp) = binary_binding_power(*op);
@@ -485,11 +518,12 @@ impl Printer {
                 self.expr(rhs, right_bp);
             }
             ExprKind::Ternary { cond, then, otherwise } => {
-                self.expr(cond, TERNARY_BINDING_POWER + 1);
+                // Ternaries are left-associative.
+                self.expr(cond, TERNARY_BINDING_POWER);
                 self.out.push_str(" ? ");
                 self.expr(then, 0);
                 self.out.push_str(" : ");
-                self.expr(otherwise, TERNARY_BINDING_POWER);
+                self.expr(otherwise, TERNARY_BINDING_POWER + 1);
             }
             ExprKind::Is { operand, ty } | ExprKind::As { operand, ty } => {
                 self.expr(operand, TYPE_TEST_BINDING_POWER);
@@ -572,6 +606,31 @@ impl Printer {
                 self.expr(expr, 0);
                 self.out.push(')');
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{parse_expr, print_expr};
+
+    #[test]
+    fn prints_what_parses_back() {
+        for (source, printed) in [
+            ("-(2 ^ 2)", "-(2^2)"),
+            ("(-2) ^ 2", "-2^2"),
+            ("-(2 * x)", "-(2 * x)"),
+            ("-(x * 2)", "-(x * 2)"),
+            ("(-x) * 2", "-x * 2"),
+            ("a ? b : (c ? d : e)", "a ? b : (c ? d : e)"),
+            ("(a ? b : c) ? d : e", "a ? b : c ? d : e"),
+            ("(\"a\" ~ b) == c", "(\"a\" ~ b) == c"),
+            ("x => { \"k\" : x }", "(x) => ({ \"k\" : x })"),
+            ("{ (meter) : 1, a : 2 }", "{ (meter) : 1, a : 2 }"),
+        ] {
+            let printed_now = print_expr(&parse_expr(source).unwrap());
+            assert_eq!(printed_now, printed, "{source}");
+            assert_eq!(print_expr(&parse_expr(&printed_now).unwrap()), printed_now, "{source} doesn't print stably");
         }
     }
 }
