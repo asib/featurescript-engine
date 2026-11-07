@@ -89,4 +89,12 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
 - **Repeatable:** exporting the same Part Studio twice gives identical data apart from the timestamp.
 - **No seam edge on full cylinders:** an extruded circle is 3 faces, 2 circular edges and 2 vertices. Parasolid's
   periodic faces come through without the seam edge that OpenCascade's own modelling would add. (Batch 001,
-  `tools/fixtures/step-summary.mjs`.)
+  `tools/fixtures/step-summary.mjs`.) When OpenCascade reads the file it adds the seam, as a B-spline, while the
+  engine's extruded cylinders have a straight seam. So `fs-fixtures` counts seam edges apart from the curve
+  types. (Slice 5.)
+- **Curved parts read back a little bigger.** Read through OpenCascade, the tight bounding box of an Onshape part
+  with curved faces is 1e-7 m bigger on every side than the same part built by the engine; planar parts agree
+  exactly. 1e-7 m is the parts' tolerance. The comparison allows 1 µm. (Slice 5.)
+- **The engine's own STEP** is AP242 in metres, with each part's name on its product and, like Onshape's, on its
+  `MANIFOLD_SOLID_BREP`. OpenCascade writes shapes as millimetres unless the document's length unit is set to
+  metres.

@@ -149,6 +149,23 @@ case are measured and written down.
    - Write each convention we discover in `docs/FINDINGS.md`, with how it was found.
 
    *Check:* the "done" condition above is met.
+   *Done* (crate `fs-fixtures`):
+   - **Method:** rather than moving cases back to the origin, the engine runs the batch's own `generator.fs`,
+     the feature Onshape ran. It builds every case in one context, moves each to its slot and names its parts, so
+     each part is compared with Onshape's part of the same name.
+   - **Result:** all 100 parts match, and no case needs to be listed as a kernel difference. The worst relative
+     errors are 1.6e-12 in volume and 2.3e-13 in area; bounding boxes agree to 1e-7 m; faces and edges by type
+     match exactly; and the volume where the shapes differ is zero for every part. The generator reports the same
+     six failed cases as in Onshape.
+   - **Sensitivity:** tests show the comparison catches a block 0.5 µm too long, a block moved 5 µm, and a
+     cylinder in place of a block of the same volume.
+   - **Kernel differences handled in the comparison:** seam edges are counted apart from the curve types (see
+     `docs/FINDINGS.md`), and bounding boxes allow 1 µm because Onshape's curved parts read back 1e-7 m bigger.
+   - **Timing:** in a release build, the generator builds all 106 cases in about 0.27 s, about 2.5 ms a case,
+     after about 0.12 s loading std. The whole check, with the comparison booleans and writing and re-reading the
+     engine's STEP, takes about 2.6 s. `cargo test -p fs-fixtures` runs it.
+   - **Inspecting:** `compare_batch` writes the engine's model to `target/fixtures/batch-001/engine.step`, with
+     each part named as in `onshape.step`.
 
 Steps 1–2 are slice 1. Step 3 is slice 2: it is independent of the interpreter, and it tests the fixture workflow
 early, while the browser session is fresh. Steps 4, 5 and 6 are one slice each. Each slice is committed and pushed
@@ -162,9 +179,9 @@ to `main`, then reviewed before the next one starts.
   a STEP file. Bugs in them show up only when they change the geometry, for example a fillet on the wrong edges.
   Each case should be designed so that the behaviour it tests changes the shape.
 - **Seam edges and face splits.** OpenCascade puts a seam edge on every cylindrical face, and Parasolid doesn't.
-  STEP export may add its own seams. Both sides of the comparison are read through OpenCascade, so counts should
-  line up, but the first fixture will show whether they do. Expect more kernel differences like this one; each
-  gets a note in `FINDINGS.md`.
+  Onshape's STEP has no seams, and OpenCascade adds them, as B-splines, when it reads the file. So the comparison
+  counts seams separately from the curve types; with that, batch 001 lines up exactly. Expect more kernel
+  differences like this one; each gets a note in `FINDINGS.md`.
 - **Onshape's time limit for regenerating a feature.** If one feature can't build 100 cases in time, split the
   batch across several features or Part Studios, each with its own export.
 - **Interpreter speed.** About 94k lines of std load on every run. Step 2 measures parsing and step 4 measures

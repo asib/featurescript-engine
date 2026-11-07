@@ -9,8 +9,9 @@ Status: std 3112.0 is vendored in [std/](std/NOTICE.md), and the `fs-lang` crate
 001 (106 sketch-and-extrude cases with Onshape's STEP) is in [fixtures/batch-001](fixtures/batch-001/README.md).
 The `fs-interp` crate interprets std: all of it loads in about 120 ms. The `occt` crate binds the system's
 OpenCascade, and `fs-geom` implements the geometry built-ins on it: std's own `extrude` runs all of batch 001 in
-about 0.35 s, building the 100 parts Onshape built and failing the other six as Onshape did. Comparing the parts
-in detail with Onshape's STEP comes next. What we've learned about Onshape is in
+about 0.3 s. Every one of the 100 parts matches Onshape's STEP (volume, area, bounding box, faces and edges by
+type, and the volume where the shapes differ, which is zero), and the other six cases fail as they did in
+Onshape. `cargo run --release -p fs-fixtures --bin compare_batch` shows the comparison. What we've learned about Onshape is in
 [docs/FINDINGS.md](docs/FINDINGS.md). `cargo test` runs the tests (OCCT 7.9's `libocct-*-dev` packages must be
 installed). The background and reasoning are in
 [docs/discussion-log.md](docs/discussion-log.md); the current plan is
