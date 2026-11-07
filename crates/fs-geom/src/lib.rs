@@ -4,6 +4,7 @@
 //! [`install`] adds the builtins to an interpreter and gives every new context a [`model::GeomState`]; [`engine`]
 //! is an [`Engine`] over the vendored std with geometry installed.
 
+pub mod evaluate;
 pub mod model;
 pub mod ops;
 pub mod query;
@@ -29,6 +30,7 @@ pub fn install(interp: &mut Interp) {
     query::register(&mut builtins);
     sketch::register(&mut builtins);
     ops::register(&mut builtins);
+    evaluate::register(&mut builtins);
     interp.builtins.extend(builtins);
 }
 
