@@ -56,6 +56,31 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   `try`/`catch`, call `clearFeatureStatus` on itself, and still succeed. Batch 001's generator does this, and the
   six failing cases didn't stop the other 100.
 
+- **Where an extrude starts.** std passes `@opExtrude` an `endDepth` and a `startDepth`, and the flag
+  `isStartBoundOpposite` says which way the start is measured. With `true` (the default) the start is
+  `startDepth` behind the profile; with `false` it is `startDepth` along the extrude direction. A symmetric
+  extrude passes half the depth both ways, as a negative `startDepth` with the flag `false`. The second-direction
+  cases c065 and c069 pass a positive `startDepth` with the flag `false`, which puts the start beyond the end, and
+  that is why Onshape fails them with `EXTRUDE_FAILED`. (Batch 001, from the definitions std builds.)
+- **Extrude's intersect is a "subtract complement".** For `NewBodyOperationType.INTERSECT`, std calls
+  `opBoolean` with `BooleanOperationType.SUBTRACT_COMPLEMENT`: each target keeps only the part inside the new
+  body. (Batch 001, c092–c095.)
+- **Failed operations record their own status.** std sometimes calls an operation inside `try`, such as
+  `try(opBoolean(context, id, definition))` in `boolean.fs`, and then reads the status of `id` with
+  `processSubfeatureStatus`. So an `@op…` builtin that fails must report its error as the status of the id it was
+  given, as well as throwing. Without that, a failed boolean inside an extrude looked like success.
+- **Overlapping regions merge.** Extruding every region of two overlapping circles builds one solid in Onshape,
+  not three. (Batch 001, c049–c053.)
+- **Builtins return std's types.** std's `evPlane` returns `@evPlane`'s result as a `Plane` without converting it,
+  so the builtin must return a map tagged `Plane` whose origin is a vector of lengths. Other builtins return plain
+  numbers in metres that std wraps itself (`@evBox`'s corners go through `box3d`; transforms through
+  `transformFromBuiltin`). Queries are passed wrapped, as `@evaluateQuery(context, { "query" : query })`.
+- **Assumptions not yet checked against Onshape:** transient ids are strings (ours look like `"T12"`); the
+  results of `@evaluateQuery` come in body order, then faces, edges and vertices; a solved sketch makes one sheet
+  body for its regions, one wire body for its edges (and one for construction edges), and a point body for each
+  `skPoint` and each circle or arc centre. std's sketch documentation describes those kinds of body but not how
+  many.
+
 ## STEP export
 
 - **Part names** are written on each `MANIFOLD_SOLID_BREP` (`MANIFOLD_SOLID_BREP('c030.1', ...)`), as well as on

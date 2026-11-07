@@ -105,7 +105,7 @@ case are measured and written down.
      `skSolve`, `setFeatureComputedParameter` and `isQueryEmpty` before stopping. The two precedence probes
      already fail with Onshape's exact errors.
 5. **Write the OpenCascade layer and the geometric built-ins.**
-   - A crate `occt-sys` holds `cxx` wrappers that link the system OCCT 7.9.2. It covers:
+   - A crate `occt` holds `cxx` wrappers that link the system OCCT 7.9.2. It covers:
      - points, curves and surfaces, plus the builders for edges, wires and faces;
      - prisms;
      - booleans with their history (`Generated`, `Modified`, `IsDeleted`);
@@ -119,6 +119,21 @@ case are measured and written down.
    - Add entity identity and "created by" tracking, carried through each operation's history.
 
    *Check:* every batch-001 case runs to the end locally, or fails where Onshape's did.
+   *Done* (crates `occt` and `fs-geom`):
+   - **Batch 001:** the 100 cases Onshape built each build one valid solid, and the six it couldn't build fail
+     with the same errors. A first look at Onshape's STEP agrees: every part's volume matches to 0.001 mm³, and
+     its face, edge and vertex counts match exactly. `cargo test -p fs-geom` checks the outcomes.
+   - **Performance:** in a release build, the 106 cases take about 0.35 s together, each on a new context with
+     the default planes.
+   - **Built-ins written:** `newSketch`, `skPoint`, `skLineSegment`, `skCircle`, `skArc` and `skSolve` (regions
+     with holes and overlaps; constraints are recorded but not solved); `opPoint`, `opPlane`, `opExtrude`
+     (blind ends), `opBoolean`, `opDeleteBodies` and `opTransform`; `evaluateQuery` for the 20 or so query types
+     the extrude path uses; and `evPlane`, `evOwnerSketchPlane`, `evVertexPoint`, `evArea`, `evLength`,
+     `evVolume` and `evBox`.
+   - **Identity:** every body and entity has a transient id and records the feature that created it. Operations
+     carry both through OCCT's history, and aborting a feature rolls the geometry back.
+   - **Not modelled yet:** attributes, sheet metal, feature patterns and manipulators. Their built-ins answer as
+     a context without them would.
 6. **Compare against the fixtures and close the gaps.**
    - A comparison tool reads the fixture STEP with OpenCascade, splits it into cases by part name and moves each
      case back to the origin. It then compares each case with the model our engine built:
