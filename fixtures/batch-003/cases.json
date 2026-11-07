@@ -1,0 +1,557 @@
+{
+  "batch": "003",
+  "title": "fillet, chamfer, shell, draft, delete face, move face, replace face, thicken",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "fillet",
+      "description": "one edge, 3 mm",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "fillet",
+      "description": "four vertical edges, 4 mm",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "fillet",
+      "description": "every edge, 2 mm",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "fillet",
+      "description": "three edges meeting at a corner, 3 mm",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "fillet",
+      "description": "a top edge and a vertical edge that meet, 2.5 mm",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "fillet",
+      "description": "top edges, different from the bottom, 5 mm",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "fillet",
+      "description": "a cylinder top edge, 3 mm",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c008",
+      "kind": "fillet",
+      "description": "both cylinder edges, 2 mm",
+      "slotMeters": [
+        2.8000000000000003,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c009",
+      "kind": "fillet",
+      "description": "a concave edge of an L, 4 mm",
+      "slotMeters": [
+        3.2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c010",
+      "kind": "fillet",
+      "description": "every edge of an L, 1.5 mm",
+      "slotMeters": [
+        3.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c011",
+      "kind": "fillet",
+      "description": "the edge of a hole, 1.5 mm",
+      "slotMeters": [
+        0,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c012",
+      "kind": "fillet",
+      "description": "a slot edge with tangent propagation, 2 mm",
+      "slotMeters": [
+        0.4,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c013",
+      "kind": "fillet",
+      "description": "conic cross section, rho 0.7",
+      "slotMeters": [
+        0.8,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c014",
+      "kind": "fillet",
+      "description": "asymmetric, 2 and 5 mm",
+      "slotMeters": [
+        1.2000000000000002,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c015",
+      "kind": "fillet",
+      "description": "a radius too big for the block: fails",
+      "slotMeters": [
+        1.6,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c016",
+      "kind": "chamfer",
+      "description": "one edge, equal offsets 3 mm",
+      "slotMeters": [
+        2,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c017",
+      "kind": "chamfer",
+      "description": "one edge, two offsets 2 and 5 mm",
+      "slotMeters": [
+        2.4000000000000004,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c018",
+      "kind": "chamfer",
+      "description": "two offsets, opposite",
+      "slotMeters": [
+        2.8000000000000003,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c019",
+      "kind": "chamfer",
+      "description": "offset and angle, 3 mm at 30 degrees",
+      "slotMeters": [
+        3.2,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c020",
+      "kind": "chamfer",
+      "description": "every edge, 1.5 mm",
+      "slotMeters": [
+        3.6,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c021",
+      "kind": "chamfer",
+      "description": "a cylinder top edge, 2 mm",
+      "slotMeters": [
+        0,
+        0.8,
+        0
+      ]
+    },
+    {
+      "name": "c022",
+      "kind": "chamfer",
+      "description": "a concave edge of an L, 3 mm",
+      "slotMeters": [
+        0.4,
+        0.8,
+        0
+      ]
+    },
+    {
+      "name": "c023",
+      "kind": "chamfer",
+      "description": "a slot edge with tangent propagation, 1 mm",
+      "slotMeters": [
+        0.8,
+        0.8,
+        0
+      ]
+    },
+    {
+      "name": "c024",
+      "kind": "shell",
+      "description": "remove the top face, 2 mm inwards",
+      "slotMeters": [
+        1.2000000000000002,
+        0.8,
+        0
+      ]
+    },
+    {
+      "name": "c025",
+      "kind": "shell",
+      "description": "remove the top face, 2 mm outwards",
+      "slotMeters": [
+        1.6,
+        0.8,
+        0
+      ]
+    },
+    {
+      "name": "c026",
+      "kind": "shell",
+      "description": "remove two faces, 1.5 mm",
+      "slotMeters": [
+        2,
+        0.8,
+        0
+      ]
+    },
+    {
+      "name": "c027",
+      "kind": "shell",
+      "description": "hollow, 2 mm",
+      "slotMeters": [
+        2.4000000000000004,
+        0.8,
+        0
+      ]
+    },
+    {
+      "name": "c028",
+      "kind": "shell",
+      "description": "a cylinder open at the top, 1 mm",
+      "slotMeters": [
+        2.8000000000000003,
+        0.8,
+        0
+      ]
+    },
+    {
+      "name": "c029",
+      "kind": "shell",
+      "description": "an L open at the top, 2 mm",
+      "slotMeters": [
+        3.2,
+        0.8,
+        0
+      ]
+    },
+    {
+      "name": "c030",
+      "kind": "draft",
+      "description": "four sides 5 degrees from the bottom",
+      "slotMeters": [
+        3.6,
+        0.8,
+        0
+      ]
+    },
+    {
+      "name": "c031",
+      "kind": "draft",
+      "description": "one side 10 degrees",
+      "slotMeters": [
+        0,
+        1.2000000000000002,
+        0
+      ]
+    },
+    {
+      "name": "c032",
+      "kind": "draft",
+      "description": "one side 10 degrees, pulled the other way",
+      "slotMeters": [
+        0.4,
+        1.2000000000000002,
+        0
+      ]
+    },
+    {
+      "name": "c033",
+      "kind": "draft",
+      "description": "from the top face",
+      "slotMeters": [
+        0.8,
+        1.2000000000000002,
+        0
+      ]
+    },
+    {
+      "name": "c034",
+      "kind": "draft",
+      "description": "a cylinder 3 degrees",
+      "slotMeters": [
+        1.2000000000000002,
+        1.2000000000000002,
+        0
+      ]
+    },
+    {
+      "name": "c035",
+      "kind": "delete-face",
+      "description": "heal a hole",
+      "slotMeters": [
+        1.6,
+        1.2000000000000002,
+        0
+      ]
+    },
+    {
+      "name": "c036",
+      "kind": "delete-face",
+      "description": "heal a fillet",
+      "slotMeters": [
+        2,
+        1.2000000000000002,
+        0
+      ]
+    },
+    {
+      "name": "c037",
+      "kind": "delete-face",
+      "description": "heal a chamfer",
+      "slotMeters": [
+        2.4000000000000004,
+        1.2000000000000002,
+        0
+      ]
+    },
+    {
+      "name": "c038",
+      "kind": "delete-face",
+      "description": "leave the top open: a sheet",
+      "slotMeters": [
+        2.8000000000000003,
+        1.2000000000000002,
+        0
+      ]
+    },
+    {
+      "name": "c039",
+      "kind": "delete-face",
+      "description": "cap a hole face",
+      "slotMeters": [
+        3.2,
+        1.2000000000000002,
+        0
+      ]
+    },
+    {
+      "name": "c040",
+      "kind": "move-face",
+      "description": "offset the top 4 mm",
+      "slotMeters": [
+        3.6,
+        1.2000000000000002,
+        0
+      ]
+    },
+    {
+      "name": "c041",
+      "kind": "move-face",
+      "description": "offset the top 3 mm inwards",
+      "slotMeters": [
+        0,
+        1.6,
+        0
+      ]
+    },
+    {
+      "name": "c042",
+      "kind": "move-face",
+      "description": "offset a hole 2 mm",
+      "slotMeters": [
+        0.4,
+        1.6,
+        0
+      ]
+    },
+    {
+      "name": "c043",
+      "kind": "move-face",
+      "description": "offset two sides 1.5 mm",
+      "slotMeters": [
+        0.8,
+        1.6,
+        0
+      ]
+    },
+    {
+      "name": "c044",
+      "kind": "move-face",
+      "description": "translate a side 6 mm along x",
+      "slotMeters": [
+        1.2000000000000002,
+        1.6,
+        0
+      ]
+    },
+    {
+      "name": "c045",
+      "kind": "move-face",
+      "description": "translate a hole 4 mm along y",
+      "slotMeters": [
+        1.6,
+        1.6,
+        0
+      ]
+    },
+    {
+      "name": "c046",
+      "kind": "move-face",
+      "description": "rotate the top 10 degrees about an edge",
+      "slotMeters": [
+        2,
+        1.6,
+        0
+      ]
+    },
+    {
+      "name": "c047",
+      "kind": "replace-face",
+      "description": "replace the top with a higher plane",
+      "slotMeters": [
+        2.4000000000000004,
+        1.6,
+        0
+      ]
+    },
+    {
+      "name": "c048",
+      "kind": "replace-face",
+      "description": "replace the top with a slanted plane",
+      "slotMeters": [
+        2.8000000000000003,
+        1.6,
+        0
+      ]
+    },
+    {
+      "name": "c049",
+      "kind": "replace-face",
+      "description": "replace the top with a plane, offset 2 mm",
+      "slotMeters": [
+        3.2,
+        1.6,
+        0
+      ]
+    },
+    {
+      "name": "c050",
+      "kind": "thicken",
+      "description": "the top face of a block, 3 mm",
+      "slotMeters": [
+        3.6,
+        1.6,
+        0
+      ]
+    },
+    {
+      "name": "c051",
+      "kind": "thicken",
+      "description": "the top face, opposite",
+      "slotMeters": [
+        0,
+        2,
+        0
+      ]
+    },
+    {
+      "name": "c052",
+      "kind": "thicken",
+      "description": "the top face, both ways 2 and 1 mm",
+      "slotMeters": [
+        0.4,
+        2,
+        0
+      ]
+    },
+    {
+      "name": "c053",
+      "kind": "thicken",
+      "description": "the top face, midplane 4 mm",
+      "slotMeters": [
+        0.8,
+        2,
+        0
+      ]
+    },
+    {
+      "name": "c054",
+      "kind": "thicken",
+      "description": "a cylinder side, 2 mm",
+      "slotMeters": [
+        1.2000000000000002,
+        2,
+        0
+      ]
+    },
+    {
+      "name": "c055",
+      "kind": "thicken",
+      "description": "the top face, added to the block",
+      "slotMeters": [
+        1.6,
+        2,
+        0
+      ]
+    }
+  ]
+}
