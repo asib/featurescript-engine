@@ -16,6 +16,14 @@ export async function connectToPage({ endpoint = DEFAULT_ENDPOINT, urlIncludes }
   return Page.connect(target.webSocketDebuggerUrl);
 }
 
+// Makes Chrome save downloads into `dir` without asking, and report their progress.
+export async function setDownloadDir(dir, { endpoint = DEFAULT_ENDPOINT } = {}) {
+  const { webSocketDebuggerUrl } = await (await fetch(`${endpoint}/json/version`)).json();
+  const browser = await Page.connect(webSocketDebuggerUrl);
+  await browser.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: dir, eventsEnabled: true });
+  browser.close();
+}
+
 export class Page {
   static async connect(wsUrl) {
     const ws = new WebSocket(wsUrl);
@@ -87,6 +95,32 @@ export class Page {
       if (value) return value;
       if (Date.now() > deadline) throw new Error(`timed out waiting for: ${expression}`);
       await sleep(intervalMs);
+    }
+  }
+
+  // Clicks at page coordinates with real (trusted) mouse events, for controls that ignore synthetic ones.
+  async clickAt(x, y, { button = 'left', clickCount = 1 } = {}) {
+    await this.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
+    await this.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button, clickCount });
+    await this.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button, clickCount });
+  }
+
+  // Clicks the centre of the first visible element an in-page expression returns.
+  async clickElement(expression, options) {
+    const box = await this.evaluate(`(() => {
+      const el = (${expression});
+      if (!el) return null;
+      el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      const r = el.getBoundingClientRect();
+      return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+    })()`);
+    if (!box) throw new Error(`nothing to click for: ${expression}`);
+    await this.clickAt(box.x, box.y, options);
+  }
+
+  async pressKey(key, code = key, keyCode = 0) {
+    for (const type of ['keyDown', 'keyUp']) {
+      await this.send('Input.dispatchKeyEvent', { type, key, code, windowsVirtualKeyCode: keyCode });
     }
   }
 
