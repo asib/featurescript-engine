@@ -21,10 +21,13 @@ Status: just started; there is no code yet. The background and reasoning are in
 
 ## Rules for using Onshape as the oracle
 
-- Keep API Explorer calls to a minimum; we do not want to load Onshape's API.
+- Never create Onshape API keys and never call Onshape's REST API directly. The only API use allowed is the API
+  Explorer page in the logged-in browser.
+- Keep API Explorer calls to a minimum; we do not want to load Onshape's API. Prefer the plain UI wherever it
+  works; std itself is copied by reading each Feature Studio tab in the UI.
 - Put every test case of a run into one test feature in a Feature Studio. Each case gets its own id namespace,
-  catches its own errors and records its measurements; all results come back from a single `evalFeatureScript`
-  call.
+  catches its own errors and records its measurements. All results come back in one read: from the page if
+  possible, otherwise from a single `evalFeatureScript` call in the API Explorer.
 - Editing Feature Studios and Part Studios in the browser is not an API call; prefer it where it does the job.
 - Cache every oracle result in the repo, so a case is never asked twice.
 
