@@ -1,0 +1,12 @@
+[package]
+name = "fs-geom"
+version = "0.1.0"
+description = "Geometry builtins for the FeatureScript interpreter, on OpenCascade"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+fs-interp = { path = "../fs-interp" }
+fs-lang = { path = "../fs-lang" }
+occt = { path = "../occt" }
