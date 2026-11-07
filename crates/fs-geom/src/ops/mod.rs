@@ -1,5 +1,7 @@
 //! Operations (`@op*`): the builtins that change a context's geometry.
 
+mod blend;
+mod direct;
 mod pattern;
 mod revolve;
 mod split;
@@ -65,6 +67,53 @@ pub fn register(m: &mut GeomBuiltins) {
     });
     m.insert("opPattern", |_, args| run_op(&args, "opPattern", pattern::pattern));
     m.insert("opSplitPart", |_, args| run_op(&args, "opSplitPart", split::split_part));
+    m.insert("opFillet", |_, args| run_op(&args, "opFillet", blend::fillet));
+    m.insert("opChamfer", |_, args| run_op(&args, "opChamfer", blend::chamfer));
+    m.insert("opShell", |_, args| run_op(&args, "opShell", direct::shell));
+    m.insert("opDraft", |_, args| run_op(&args, "opDraft", direct::draft));
+    m.insert("opThicken", |_, args| run_op(&args, "opThicken", direct::thicken));
+    m.insert("opOffsetFace", |_, args| run_op(&args, "opOffsetFace", direct::offset_face));
+    m.insert("opDeleteFace", |_, args| run_op(&args, "opDeleteFace", direct::delete_face));
+    m.insert("opReplaceFace", |_, args| run_op(&args, "opReplaceFace", direct::replace_face));
+    m.insert("opMoveFace", |_, args| run_op(&args, "opMoveFace", direct::move_face));
+}
+
+/// The shapes of the entities a query finds, grouped by the body that owns them, in model order.
+pub(crate) fn by_body(model: &Model, query: &Value, kind: EntityType) -> R<Vec<(usize, Vec<Shape>)>> {
+    let mut groups: Vec<(usize, Vec<Shape>)> = Vec::new();
+    for r in query::evaluate(model, query)?.into_iter().filter(|r| r.kind == kind) {
+        let shape = model.shape(r).clone();
+        match groups.iter_mut().find(|(b, _)| *b == r.body) {
+            Some((_, shapes)) => shapes.push(shape),
+            None => groups.push((r.body, vec![shape])),
+        }
+    }
+    groups.sort_by_key(|(b, _)| *b);
+    Ok(groups)
+}
+
+/// Replaces bodies with the results of operations on them: each body's pieces keep its identity (the first piece
+/// its transient id), and entities follow the operation's history; new ones are created by `id`.
+pub(crate) fn replace_bodies(model: &mut Model, id: &FeatureId, results: Vec<(usize, occt::Operation)>) {
+    let default = Info::new(id.clone());
+    let mut added = Vec::new();
+    for (b, op) in &results {
+        let old = model.bodies[*b].clone();
+        let origins = Rc::new(Origins::of_operation(op, &[&old]));
+        let shape = op.shape();
+        let solids = shape.sub_shapes(ShapeKind::Solid);
+        let pieces = if solids.is_empty() { vec![shape] } else { solids };
+        for (i, piece) in pieces.into_iter().enumerate() {
+            let body_type = BodyType::of(&piece);
+            let tid = (i == 0).then_some(old.tid);
+            added.push((NewBody { tid, body_type, ..NewBody::replacing(&old, piece) }, origins.clone()));
+        }
+    }
+    let removed: Vec<usize> = results.iter().map(|(b, _)| *b).collect();
+    model.remove_bodies(&removed);
+    for (new, origins) in added {
+        model.add_body(new, &origins, &default, &|_| None);
+    }
 }
 
 /// Runs an operation on the model. Like Onshape's, a failing operation records its error as the status of the id

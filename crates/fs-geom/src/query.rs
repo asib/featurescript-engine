@@ -2,7 +2,7 @@
 
 use crate::model::{EntityRef, EntityType, Model, Tid};
 use crate::values::{self, field};
-use crate::{GeomBuiltins, model_mut, tags};
+use crate::{GeomBuiltins, model_mut, tags, topology};
 use fs_interp::Value;
 use fs_interp::builtins::arg;
 use fs_interp::eval::{R, error};
@@ -203,6 +203,29 @@ fn resolve(model: &Model, query: &Value) -> R<Vec<EntityRef>> {
             }
             filter_type(sketch_regions(model, &feature, false), entity_type(field(query, "entityType"))?)
         }
+        "VERTEX_ADJACENT" | "EDGE_ADJACENT" => {
+            let via = if kind == "VERTEX_ADJACENT" { EntityType::Vertex } else { EntityType::Edge };
+            let seeds = sub(model, query, "query")?;
+            topology::adjacent(model, &seeds, via, entity_type(field(query, "entityType"))?)
+        }
+        "EDGE_VERTEX" => {
+            let at_start = field(query, "atStart").as_bool().unwrap_or(true);
+            topology::edge_vertices(model, &sub(model, query, "query")?, at_start)
+        }
+        "TANGENT_CONNECTED_EDGES" => topology::tangent_connected_edges(model, &sub(model, query, "subquery")?),
+        "TANGENT_CONNECTED_FACES" => {
+            let tolerance = field(query, "angleTolerance").as_number().unwrap_or(topology::TANGENT_TOLERANCE);
+            topology::tangent_connected_faces(model, &sub(model, query, "subquery")?, tolerance)
+        }
+        "CLOSEST_TO" => {
+            let point = values::vec3(field(query, "point"), "qClosestTo point")?;
+            topology::closest_to(model, &sub(model, query, "subquery")?, point)
+        }
+        "FARTHEST_ALONG" => {
+            let direction = values::vec3(field(query, "direction"), "qFarthestAlong direction")?;
+            topology::farthest_along(model, &sub(model, query, "subquery")?, direction)
+        }
+        "LARGEST" | "SMALLEST" => topology::by_size(model, &sub(model, query, "subquery")?, kind == "LARGEST"),
         // Composite parts aren't modelled yet, so no body is in one.
         "CONTAINED_IN_COMPOSITE" | "COMPOSITE_CONTAINING" => Vec::new(),
         // Nothing is locked in a context the engine builds itself.
