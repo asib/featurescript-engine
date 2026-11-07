@@ -1,0 +1,6 @@
+target/
+*.swp
+.DS_Store
+# Local oracle browser profile and secrets never belong here
+.chrome-profile/
+.env
