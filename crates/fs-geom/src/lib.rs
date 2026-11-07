@@ -5,6 +5,7 @@
 //! is an [`Engine`] over the vendored std with geometry installed.
 
 pub mod model;
+pub mod ops;
 pub mod query;
 pub mod sketch;
 pub mod values;
@@ -12,7 +13,7 @@ pub mod values;
 use fs_interp::Engine;
 use fs_interp::Value;
 use fs_interp::builtins::{BuiltinFn, context_arg};
-use fs_interp::eval::{Interp, R, error};
+use fs_interp::eval::{Flow, Interp, R, error};
 use fs_interp::value::Kind;
 use model::{GeomState, Model};
 use std::collections::HashMap;
@@ -27,6 +28,7 @@ pub fn install(interp: &mut Interp) {
     let mut builtins = GeomBuiltins::new();
     query::register(&mut builtins);
     sketch::register(&mut builtins);
+    ops::register(&mut builtins);
     interp.builtins.extend(builtins);
 }
 
@@ -80,4 +82,14 @@ pub(crate) fn model_of<T>(context: &Value, name: &str, f: impl FnOnce(&mut Model
 pub fn with_model<T>(context: &Value, f: impl FnOnce(&Model) -> T) -> Option<T> {
     let mut f = Some(f);
     model_of(context, "with_model", |model| Ok(f.take().map(|f| f(model)))).ok().flatten()
+}
+
+/// A library error, as std's `regenError` makes: a map whose `message` is an `ErrorStringEnum` value.
+pub(crate) fn regen_error(message: &str) -> Flow {
+    let enum_tag = fs_interp::types::find("ErrorStringEnum");
+    Flow::Throw(values::map(vec![("message", Value::string(message).with_tag(enum_tag))]))
+}
+
+pub(crate) fn occt_error(e: occt::Error) -> Flow {
+    error(format!("geometry kernel: {e}"))
 }
