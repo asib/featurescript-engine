@@ -1,0 +1,1393 @@
+{
+  "document": "12312312345abcabcabcdeff",
+  "versionId": "c31f2dcea3a7abd54f9bf94c",
+  "versionName": "3112.0",
+  "files": {
+    "annotationattachmentlocation.gen.fs": {
+      "elementId": "dabd25d0f1a6079cd329d84c",
+      "sha256": "9eaa768c89c6de50b792dc45f58243f1c2298f7d82912b9172ae83c752aeaa9e",
+      "lines": 18
+    },
+    "annotationdimensiondirection.gen.fs": {
+      "elementId": "14cd44cff0d2a2cb8a86d1c1",
+      "sha256": "af37797117326c59fe3c020ed229bc4d36fe8861fd96ed057f4cdf370bcb02c1",
+      "lines": 19
+    },
+    "approximationUtils.fs": {
+      "elementId": "866b111842256978398f3f88",
+      "sha256": "41825a6685884e9edb637f983a27803b73821a578c1afef828f90df1219936f3",
+      "lines": 214
+    },
+    "assignReleaseTypeTags.fs": {
+      "elementId": "258b0b0212720a0c89ecdd13",
+      "sha256": "ced6ba238d664812c4fd7c0bee8810ba8251e1cf3a8366704c861b91c9683bd6",
+      "lines": 151
+    },
+    "attributes.fs": {
+      "elementId": "04aff5b9a2244f448a633205",
+      "sha256": "ce6ced48425a120c0b4fb51bcb6b007f928114ae9b5039192bcddb58102ec98f",
+      "lines": 200
+    },
+    "blendcontroltype.gen.fs": {
+      "elementId": "4b5adc449948fd96ab7b2e1b",
+      "sha256": "2e361bf46d8046ae9ba055cf7d757b6eb1bc34413ed64bfb001eee83c3f78c86",
+      "lines": 19
+    },
+    "bodyDraft.fs": {
+      "elementId": "cebb5b9425eb0c894549cfdf",
+      "sha256": "33668aad764c2fa0315e567ba62d2d668f4dac2cfc3fcca7b5994045e45cfbdf",
+      "lines": 287
+    },
+    "bodyPurposeAttributeUtils.fs": {
+      "elementId": "d6041b1f7c5ffce19bab64e5",
+      "sha256": "5546dabd2638d034f808cc0843301969648b3ca41103c4eeafb425611a354ba4",
+      "lines": 60
+    },
+    "bodydraftconcaverepairtype.gen.fs": {
+      "elementId": "6f3781e74e241c330b4480d7",
+      "sha256": "e9ecf590d93c1b07748ecd36b8551dba701cf27c7387fe45e5d3ee800d798f6c",
+      "lines": 21
+    },
+    "bodydraftcornertype.gen.fs": {
+      "elementId": "10ee30cef89d3f3f4908e3e7",
+      "sha256": "4dbfda19ba04a21d2ab235ce699469ede9f803122de63399115720f5fada52fb",
+      "lines": 19
+    },
+    "bodydraftmatchfacetype.gen.fs": {
+      "elementId": "c351c3facfa5c6938b7a8f63",
+      "sha256": "97c9f990831718cf8acf1be1b17a0aa58081f7e7f0456f852b9193b99f208d89",
+      "lines": 19
+    },
+    "bodydraftselectiontype.gen.fs": {
+      "elementId": "f919d50f8fe7d662de09fbbb",
+      "sha256": "7b4165e74957257ea230fd211c56342f306376f61bbaa41a86aa181ab6e03c93",
+      "lines": 21
+    },
+    "boolean.fs": {
+      "elementId": "4eea9f271b60454e84089e38",
+      "sha256": "d1c8e01964d6c8aaab9f924eba9cea28fd5b4f57da5b5d6ad944c4b22d085a31",
+      "lines": 1915
+    },
+    "booleanHeuristics.fs": {
+      "elementId": "59a21e80a2f05753eb21c70e",
+      "sha256": "5eb7e425fe7592c97fc314c9d071a667c4779317e65f0e903d50f673c944ef6b",
+      "lines": 270
+    },
+    "booleanaccuracy.gen.fs": {
+      "elementId": "4070cc366938c64499892e78",
+      "sha256": "546e88e7ccadfeb7caf15776deaaefbe6de50ff0d087866bab45c62e8ea3e60d",
+      "lines": 15
+    },
+    "booleanoperationtype.gen.fs": {
+      "elementId": "458197f69d22454caef8f701",
+      "sha256": "63d8c43dcb1a67d1b1a0a72d03c5af05f2b450091aa4095088bc323ba75b685f",
+      "lines": 21
+    },
+    "boundingtype.gen.fs": {
+      "elementId": "0ef5bec0909d4235a5ca1ebb",
+      "sha256": "3bb8853659385744c90f3c94ff94608641a488dcf488a31982b4eed3adcac6de",
+      "lines": 39
+    },
+    "box.fs": {
+      "elementId": "dbae58dc711e4c148a8f4353",
+      "sha256": "2ffe7c58e9d5e16fdab55d1266c4ed03638278b446ecae8445ae07c0a724617a",
+      "lines": 194
+    },
+    "bridgingCurve.fs": {
+      "elementId": "03857d67401e3f3d767eaa44",
+      "sha256": "f0f70902ef57579600c372f578374e5ed22a95531195bce4d435a6bbb7cbc080",
+      "lines": 2030
+    },
+    "bsurf.fs": {
+      "elementId": "7955b08eb2ab7d8c4c409c0b",
+      "sha256": "c8c7c330ab70d8d071ab73f0d584ac529d792991e75d098fb8fe16fb5f099776",
+      "lines": 348
+    },
+    "chamfer.fs": {
+      "elementId": "8d291ab8b5d84af88a07a6cd",
+      "sha256": "984b6347aff2d562c544cd08cc7de1be004f67dfd9fe0b8e85acc2f2fe337f72",
+      "lines": 225
+    },
+    "chamfermethod.gen.fs": {
+      "elementId": "b57d9d612a5ba5b490ff98df",
+      "sha256": "c5206e863d596014a885b029a737c9d43bb7e22996c59cc99b5d3a994498baf0",
+      "lines": 17
+    },
+    "chamfertype.gen.fs": {
+      "elementId": "6dbd5a85782144a68bcdd4db",
+      "sha256": "ff25eb78a0cc1325f0b9cbb190cb7b4ee55e9316a60636acc6d869d5440de419",
+      "lines": 21
+    },
+    "circularPattern.fs": {
+      "elementId": "5e639eb1b1834188ae46203a",
+      "sha256": "84f49a02746e8128379536d57064eae318b99d7fb465e12d44f57a116b5d4c3e",
+      "lines": 287
+    },
+    "clashtype.gen.fs": {
+      "elementId": "62e408d723ce415b958f3270",
+      "sha256": "a2e83f19e95fc15cf63aad9b123af73d0926c9cb8a34e87bb6dec2e90ae92711",
+      "lines": 33
+    },
+    "common.fs": {
+      "elementId": "5d4b86cd6796d30dca2fb617",
+      "sha256": "d59cb4a845e75669a030bf608749617bb0bb2d7f1a620cb30b79e912f0fc1cbb",
+      "lines": 65
+    },
+    "compositeCurve.fs": {
+      "elementId": "04fc7c26c5fbe950ba242b24",
+      "sha256": "decf03190aaf061ee86241f37486f43e45eba97cd6a0247f7b348f22fc483a14",
+      "lines": 38
+    },
+    "compositePart.fs": {
+      "elementId": "ba252ebdab84a97088b88bd9",
+      "sha256": "65d180254e6110e0afeca59678a218ceb4d51f2280c4e0cb5ffbcb69ba2115e4",
+      "lines": 35
+    },
+    "computedPartProperty.fs": {
+      "elementId": "6e1e18c111c51ba0fb767516",
+      "sha256": "6c605f22c987eb93e6ca3e40eff09f85b3b08b48d1f33b5a846367aebd339209",
+      "lines": 58
+    },
+    "configurationInfo.fs": {
+      "elementId": "d6d326ce663f5e0e1b0cdfc7",
+      "sha256": "e1b7acb5cd383624b8eedba6fe28246dad59c73cedd1807bb82814e890a4ddc8",
+      "lines": 160
+    },
+    "constrainedSurface.fs": {
+      "elementId": "0e71899789a4f9231b17a016",
+      "sha256": "6a6c63dde81c3bde0f4dbb7b624d2b7029dcf37d4422e796a073a59029ba2f25",
+      "lines": 220
+    },
+    "constrainttype.gen.fs": {
+      "elementId": "b4277d7ee5ca49a493856c34",
+      "sha256": "8bc6efcf42787bd182885c5b441d8e021a0b26a25c85e40e0ae7cecfc06ce4d3",
+      "lines": 51
+    },
+    "containers.fs": {
+      "elementId": "68f58bc3409644b79ccc306c",
+      "sha256": "20114fa8429b6e89e40bc9f81874622f5ca81a4712c7903e373d4802667e7e6b",
+      "lines": 832
+    },
+    "context.fs": {
+      "elementId": "1ccf6e5321844da29ab72f2b",
+      "sha256": "8d66f0d5f9a49857951ef3fbea238c92dfe6ea9fcd73169c7dcde2cccf733931",
+      "lines": 359
+    },
+    "coordSystem.fs": {
+      "elementId": "7cc6550b0f384f49bb43e8b1",
+      "sha256": "f988eb46a31d2b1f00277474f17aec6cf3a24da54ab84e428ef42c8ed688d7eb",
+      "lines": 190
+    },
+    "coordinatesysteminferenceselectionfilter.gen.fs": {
+      "elementId": "2d55424659249567edeb7591",
+      "sha256": "181352ca495c30e0dd9350380a2036c4354644cc154a820706eea8c3b2d43848",
+      "lines": 17
+    },
+    "cosmeticThreadUtils.fs": {
+      "elementId": "c50a2de7090e9ec488a22124",
+      "sha256": "6b52ce8795ea6742b21f629d33c8410abf5c303cf30880f346fc080aa1d5522f",
+      "lines": 84
+    },
+    "cplane.fs": {
+      "elementId": "577e2aaf45a542f98d9343c7",
+      "sha256": "4ab72143fd4cff5e476fb574396cee16f133ed42a045a039e835fb71d8213118",
+      "lines": 903
+    },
+    "cpoint.fs": {
+      "elementId": "40fb33d37822745ebb0fc59a",
+      "sha256": "daf584ec000fe1efa3344e77175906fad256ff125eba96dee806cbb008d20cf0",
+      "lines": 76
+    },
+    "curveGeometry.fs": {
+      "elementId": "c5ff8113357f488da64dfc2a",
+      "sha256": "fdd83148a2ac5658183e7bc1ab24fa4fea06f1205f4e4af8a53f2bfc9d174e35",
+      "lines": 694
+    },
+    "curvePattern.fs": {
+      "elementId": "d33f2b9b87e40fff6596b80f",
+      "sha256": "c624e03c32197fc041b7e30274c5763cca430fc5baab43d695adac77a3a242cf",
+      "lines": 565
+    },
+    "curveextensionendcondition.gen.fs": {
+      "elementId": "c5cc20b1e416ba6ab71038f4",
+      "sha256": "f88832f0d14fb6c011b85a28ecc3f022ea6ae6ef2e8a19024f4f31a6a7bd924a",
+      "lines": 19
+    },
+    "curveextensionshape.gen.fs": {
+      "elementId": "0df23d40124f2566acd6f09d",
+      "sha256": "297da61a9db14bd5481eb0505383a7573f77acbdda702c114b4526f565991185",
+      "lines": 19
+    },
+    "curvepatternorientationtype.gen.fs": {
+      "elementId": "c265ab474c24de479b469e02",
+      "sha256": "13b88f77c5ec241516f0661760d59b53be3b91e3aeee25aa69c04a9c1fba131b",
+      "lines": 25
+    },
+    "curvetype.gen.fs": {
+      "elementId": "9019dcd8c8524b0d898d2a74",
+      "sha256": "7fc2494d49b602edcd70e287cc8f9712951dfeb9bf0c3dfc4fe27a3eb3e79fa8",
+      "lines": 20
+    },
+    "customStandardContentLibraryValidation.fs": {
+      "elementId": "5217fb6b59304e2a2a523fef",
+      "sha256": "739d0de7b1e175842d362aacb7463d10cb0a6a3d38030f39e30c124924bd2789",
+      "lines": 43
+    },
+    "cutlist.fs": {
+      "elementId": "f732ce3a84eca6a45ebfd598",
+      "sha256": "a92407dab4a718672428f2b253ba02a9330795bc758cb65912fa54a935eb128b",
+      "lines": 676
+    },
+    "cutlistMath.fs": {
+      "elementId": "95b1f2bf24198aafa38b6808",
+      "sha256": "497aebf4c32315713f1b4f964f1f1560bfb0bae017a65a006ef20544e131fcb0",
+      "lines": 537
+    },
+    "cylinderCast.fs": {
+      "elementId": "a519511812bf1a44bb19b326",
+      "sha256": "a5350472573a8c4eeca26744c7f0c734fa44e4d7c7cca3752db4bf475da91c00",
+      "lines": 532
+    },
+    "debug.fs": {
+      "elementId": "46edea06688f450f801961e1",
+      "sha256": "5d5591472a27091cae1816fc08b080cf3d8ae765a987fe2ef5211d6adcbb9d6d",
+      "lines": 578
+    },
+    "debugcolor.gen.fs": {
+      "elementId": "553f26e6997e9c4d2dbfc01a",
+      "sha256": "29efce17ccc17182c98f928fc4c79aa86dc9524d73019ca257c5a83155d23813",
+      "lines": 23
+    },
+    "decal.fs": {
+      "elementId": "41e56a448fe368d294e6cfe3",
+      "sha256": "c8dfc4e98edf7db8d72b11ed6471d15cc3d684565b0fdcaf0a850625f42810e8",
+      "lines": 807
+    },
+    "decalUtils.fs": {
+      "elementId": "d287770bb73c895b3b615958",
+      "sha256": "701804feeace8087274e47fd60beb559b634e37b4a675269c6fe22f87f06355c",
+      "lines": 281
+    },
+    "defaultFeatures.fs": {
+      "elementId": "02ce59846cd14e99b4ce227f",
+      "sha256": "929e348ec33e9f5ecf3b36acc29e65bdb065e118e83f56bc3b0f04d56ef621ce",
+      "lines": 144
+    },
+    "deleteBodies.fs": {
+      "elementId": "8ea6664e4ccf48efa0ec6ce2",
+      "sha256": "e83eaefca96d8453591024177edf254bca7ee778e61ee71188a78dfdc003520a",
+      "lines": 85
+    },
+    "deleteFace.fs": {
+      "elementId": "4fcf9f158a8e4eaebda661f4",
+      "sha256": "4549020db61d84fdcb03b0908275615516d5024106d1fb9f24b8ed733bd5d164",
+      "lines": 76
+    },
+    "derive.fs": {
+      "elementId": "5538e2f5fb92312cfea27f97",
+      "sha256": "35ac5a0621f7f47a1d25e54e78d364079968d5701bf90c425a0f4627c4ceb14a",
+      "lines": 229
+    },
+    "derivedMirror.fs": {
+      "elementId": "41bb1f0e9c96bc56c4f1e215",
+      "sha256": "023538ccd9779dc80195ff90de718fd8b30368f5c50104fe781aaf5ac9b1ce85",
+      "lines": 171
+    },
+    "dimensionalignment.gen.fs": {
+      "elementId": "56b23d28eb3a49ceb2b6b290",
+      "sha256": "36f60382ab6ffdf706aff229c9b9b0df5e5506b9f887986fac7fe39aebdd7ee9",
+      "lines": 19
+    },
+    "dimensionhalfspace.gen.fs": {
+      "elementId": "7a7990302d2c450e863d4164",
+      "sha256": "900a43224f0c47dcc7447165c76fcc6081e47712b10ebdcfb1b61dab0438a111",
+      "lines": 16
+    },
+    "dimensionmeasurementreferencetype.gen.fs": {
+      "elementId": "f37807c962e07ad1174b7a57",
+      "sha256": "1955b8cad36f5f381557aa4a95e2fa2bdb4976bbb8bc1de0cc755497ce43d2e3",
+      "lines": 22
+    },
+    "draft.fs": {
+      "elementId": "69e25c53fc3840eca5893b85",
+      "sha256": "fcc5f1012f91f90ac5c61b9b0d8c9c95616e85330b27b6dabe8e9080f7e78f09",
+      "lines": 1064
+    },
+    "drafttype.gen.fs": {
+      "elementId": "ee7a59aedbfdfb0ed5e87949",
+      "sha256": "8ae621fccff473f90724358c0ca8b7823f80a6a3e24097061c1212cdd170f4c7",
+      "lines": 22
+    },
+    "edgeBlendCommon.fs": {
+      "elementId": "ecf7740dba703fd61ba84038",
+      "sha256": "bc0355e367b0797d05064e8a7f35d160b3e4f20682623b521501330c1dee23d6",
+      "lines": 214
+    },
+    "edgeconvexitytype.gen.fs": {
+      "elementId": "ed47acca7fc140c796595b77",
+      "sha256": "fe4e9e0121183e0d862ba3668fc46c8a8dbd22749c970b1c498b8d13bd7c9cdd",
+      "lines": 28
+    },
+    "edgetopology.gen.fs": {
+      "elementId": "af1d60c24362507aae5a09af",
+      "sha256": "0092bbd69f480c79f26d7f46e64e2cc6d64e0d58aaa4b58a8950294b8dec66cc",
+      "lines": 29
+    },
+    "editCurve.fs": {
+      "elementId": "9e177b6999d0e4da576abc02",
+      "sha256": "4bb0ae9b27725e0853d9f554200c8c7364dfda646834384a39afc33b9c177a75",
+      "lines": 1387
+    },
+    "enclose.fs": {
+      "elementId": "2428edff99ccc9ebb781f4fa",
+      "sha256": "7a0504e78b973e408defbf6b500dfac3e289d4d2e9a7dd569e7a03d2a5699e01",
+      "lines": 74
+    },
+    "endcap.fs": {
+      "elementId": "22b6c23a9268d979e22f8344",
+      "sha256": "9d66d3543e8987f2c9a36394d4e7318d348ae308e36312d1cc6de6f82b7e3be8",
+      "lines": 648
+    },
+    "entityinferencetype.gen.fs": {
+      "elementId": "61326602c16b4de1a2f15114",
+      "sha256": "bf0aa626badc87bbb57de5b6b71317d80b7db98a4910ae46f1a7591c694ffa60",
+      "lines": 58
+    },
+    "error.fs": {
+      "elementId": "6d8fa7fc7bf040cb8c5e725c",
+      "sha256": "7c11ab837cb8e944620568b06c0e47d0c390193573168d664b5bdc40780a7eb8",
+      "lines": 602
+    },
+    "errorstringenum.gen.fs": {
+      "elementId": "ec3745f97ea14e0d875f0a48",
+      "sha256": "d66a3025f49f5359381ac71f08f227d524d44dc8965e56141671a07eb146aba7",
+      "lines": 3638
+    },
+    "evaluate.fs": {
+      "elementId": "4864e7b2fe044ae09e6406cf",
+      "sha256": "7f4e22213dd23f87f5bb620f4f48316611d2d63e18982928da0471fd46795aed",
+      "lines": 1532
+    },
+    "expressionvalidationresult.gen.fs": {
+      "elementId": "c3900fd0a95f4cb0aa7dd6f0",
+      "sha256": "ad42877c9a2a6c02ac1fc9b347d5e0aa06f7e6311c8f84146d3bc9702508663a",
+      "lines": 16
+    },
+    "extend.fs": {
+      "elementId": "cffdc47ca3931d4c4d41ee51",
+      "sha256": "414cd74588b5992c3ce553101c0ae5e849996640a6747635dec19cca01addc08",
+      "lines": 609
+    },
+    "extendendtype.gen.fs": {
+      "elementId": "8ad5cf2c67a019114002f15c",
+      "sha256": "1871938fb98d715e0ef94c58da8dd6b6476fc4a788caa150ebdfd8e54a2e7885",
+      "lines": 17
+    },
+    "extendsheetboundingtype.gen.fs": {
+      "elementId": "0c85e37b662a77ca46ad940f",
+      "sha256": "e2a64b785c32e5a9d734fc612c786e308a9bc4dacc7f3741900a202c4949147e",
+      "lines": 15
+    },
+    "extendsheetshapetype.gen.fs": {
+      "elementId": "d76ca8714bce6d2c72fb8131",
+      "sha256": "c8299526215e90e0a412f830410e4283b71528bf7d8d471176ef445bfd1f217b",
+      "lines": 17
+    },
+    "externalThread.fs": {
+      "elementId": "8f7e7d79e6648ba1cd48b5fd",
+      "sha256": "49b39dc426d3c0decaa4daa4b972ccd6eb57fd6bd34e67dd4c42ccd1640bf229",
+      "lines": 1024
+    },
+    "extractsurfaceredundancytype.gen.fs": {
+      "elementId": "981b1edf748327b62be0f486",
+      "sha256": "54e182a5ebc675741e5195acc18c1a198d2c76c3f4547a4d83621c1e8bdb07dc",
+      "lines": 16
+    },
+    "extrude.fs": {
+      "elementId": "aff9bec3150a48098a8184ac",
+      "sha256": "4bac7fe54622d72d496ce2bf012c49f31ff047fde1128a5706403fda7d464a54",
+      "lines": 1335
+    },
+    "extrudeCommon.fs": {
+      "elementId": "779e4e2168dfbdd421cdf6ed",
+      "sha256": "09aad7c582a199e69442738039c677e25ea6686ac42809fc271980290daad298",
+      "lines": 743
+    },
+    "faceBlend.fs": {
+      "elementId": "9f2dfffe1ba4d5a357d83099",
+      "sha256": "8eda0f44512d5bed39984108b2d0c2fca33b8c6cccbb642b5a83e7f0e8c1dfd7",
+      "lines": 561
+    },
+    "faceIntersection.fs": {
+      "elementId": "dc2d374abbf6776a636c848b",
+      "sha256": "1d502365601bf66463476faa706dba15647b19df188e78cac69c1d5a4c1df673",
+      "lines": 64
+    },
+    "faceblendcrosssection.gen.fs": {
+      "elementId": "531ae7279a60c99e46c5fb03",
+      "sha256": "d1b8d7711615da3cf3acdd5365cf1e94abdfcfca55a77acaad5b637d9aa63d8f",
+      "lines": 19
+    },
+    "faceblendcrosssectionshape.gen.fs": {
+      "elementId": "7548755d6263fc37f1993d7f",
+      "sha256": "b02c32dda1a24ceb47fd3a5f0c8e6ac41e37ddc75503ec6cbbbf23cd6289dcec",
+      "lines": 23
+    },
+    "faceblendpropagation.gen.fs": {
+      "elementId": "326b6b23c00fd2d6b77b1b5d",
+      "sha256": "2687cd0a9803871bcd3af4187b80f9a50641b82fdcf6469244d1fa0f2f4b81b2",
+      "lines": 21
+    },
+    "faceblendtrimtype.gen.fs": {
+      "elementId": "154110871053d4250547ffb6",
+      "sha256": "f0dfdf0779a85cc4f4acee5462f595a511d87d7bfaf32be785356d2479602cfc",
+      "lines": 23
+    },
+    "facecurvecreationtype.gen.fs": {
+      "elementId": "f30ef368b5fcbfed8cd593ff",
+      "sha256": "c44f6f5a43ea1f5e190f1335dc6b06d5e0b6e76afb60cf374cbb5984c5cab3ba",
+      "lines": 25
+    },
+    "faulttype.gen.fs": {
+      "elementId": "3a22cca2851e702aef942896",
+      "sha256": "4e973d2885c616f992da566f8138beda1731a8712e59eef51db62567f289d9c0",
+      "lines": 128
+    },
+    "feature.fs": {
+      "elementId": "c2e68972a0b14c709954d6ca",
+      "sha256": "a007056b96f0dc6c9d2f1fa5a2f82fb6aa9d21ad330852397308a8312bdf42b4",
+      "lines": 1236
+    },
+    "featureList.fs": {
+      "elementId": "532a337c28a6fe5a6eacd744",
+      "sha256": "74a6b33ac14801c99f6e815d4d0ee6e5525359630e60444fefb2cd8939f8524f",
+      "lines": 54
+    },
+    "featuredimensiontype.gen.fs": {
+      "elementId": "0340b1e467fab93c6747cac2",
+      "sha256": "7494b6592e311ccc8c6eedb95aed6075f3b3e389e13717e2299a00ea812f3c43",
+      "lines": 26
+    },
+    "featurescriptversionnumber.gen.fs": {
+      "elementId": "5a4cf616e5b14bcbb03154b9",
+      "sha256": "6a4ea688605282975b18e3458056b5e4ab5fef2dd2c7477406b7548ee214fbd1",
+      "lines": 2098
+    },
+    "fieldweldflag.gen.fs": {
+      "elementId": "72643a56d320ff3bddb57e51",
+      "sha256": "83aa9ffc4812e9c5c638aa4e92108f4ce719a277b954907f24175764cde274ea",
+      "lines": 18
+    },
+    "fillSurface.fs": {
+      "elementId": "1609b2014b90745ff149a187",
+      "sha256": "20c0bd5de3c7da1fcba2d828b9d6a7bd286c03c0a1ca781624683ea11e99f47b",
+      "lines": 242
+    },
+    "fillet.fs": {
+      "elementId": "841b26d2621a46bf98eda1d5",
+      "sha256": "34547659b1477b8d8b780d990ff6aa64aff9a34e4f108b64ff4629205df212a8",
+      "lines": 1225
+    },
+    "filletcrosssection.gen.fs": {
+      "elementId": "bb1ba1f029e6a4913b720824",
+      "sha256": "c3d2ebc62d59cf296abdd2cbfb561a80af9ae70e0123d0ed47cc9e63d4684f1f",
+      "lines": 23
+    },
+    "fitSpline.fs": {
+      "elementId": "6e8d96a622de0a7cfb5ddac1",
+      "sha256": "39590d3c552887a45eb74f191a8f49d15450f1d7ca59ef61514c26287dd24d1a",
+      "lines": 483
+    },
+    "fittolerancetables.gen.fs": {
+      "elementId": "63547d9b2ad0954575543f68",
+      "sha256": "3af52295abd5cde5bcd1ddfeaa1887ad67f40b9cca838b6cec2d4c794c65a48e",
+      "lines": 8833
+    },
+    "fixedparameterposition.gen.fs": {
+      "elementId": "86514834404a91538c97406a",
+      "sha256": "6c13788447aed33f385d283974761c961bff0e9660284007e8d5a8dc5dece921",
+      "lines": 22
+    },
+    "flatOperationType.fs": {
+      "elementId": "59196ac3cd00246544c705f3",
+      "sha256": "2a75ba898bdc7f1430cdc42b7837fd582a10c273f93bd083a278fa66fc8f363e",
+      "lines": 16
+    },
+    "formedUtils.fs": {
+      "elementId": "5f3106614f70dd207f9e8f74",
+      "sha256": "57e8630cff3948578117f8dea200d6a3663e0f390d86d4868e0ea04ef44c952b",
+      "lines": 112
+    },
+    "frame.fs": {
+      "elementId": "7d39eff85eff86d560b39fd0",
+      "sha256": "0ecc52fd9f6c1bd6cee6ef4d964953ded03f03e32da68a8a13718732b8acf39c",
+      "lines": 2190
+    },
+    "frameAttributes.fs": {
+      "elementId": "434d48af701685a970ed4547",
+      "sha256": "e6ac41aadf9aa94ff473f425e214d341608d92c9a36fd2b5bb41a1ab1fd4d10c",
+      "lines": 337
+    },
+    "frameTrim.fs": {
+      "elementId": "0097cdbf0e6bb877a03bb6a9",
+      "sha256": "3d90b117c172e900a7e4116a6ab8099542e6711947f3e6a0f9a16b384a480d04",
+      "lines": 628
+    },
+    "frameUtils.fs": {
+      "elementId": "f4211fc37f071413a7d15562",
+      "sha256": "9dda043c3c4c4ed5b83cf89724928e945088d821d11dd8ce892fd6fe1c64d59a",
+      "lines": 296
+    },
+    "geomOperations.fs": {
+      "elementId": "ddbe7e9c67ca4a44935354fa",
+      "sha256": "60a8b21a8deb597feeeefc565c4d961ec0f4c16870f488b59a63767863a9fd7e",
+      "lines": 1900
+    },
+    "geometriccontinuity.gen.fs": {
+      "elementId": "acb9d8d3e36bd2f6c59a070e",
+      "sha256": "19347bff138aac595a536257ad681ae5d44b33e9be508dceadfd215323d2ffad",
+      "lines": 21
+    },
+    "geometry.fs": {
+      "elementId": "b9a58548f6cc4fa7acef723a",
+      "sha256": "b763bfbb877fa412db2bfbb4b0ebe82db667ee15f765bfadb75062b41cc7173e",
+      "lines": 115
+    },
+    "gtolconstrainttype.gen.fs": {
+      "elementId": "4a747c8375e166894f9a84d6",
+      "sha256": "2d7126e7c5f372a26c5a57452a07836689924261aa305816837505d06156940d",
+      "lines": 27
+    },
+    "gtolextendedconstrainttype.gen.fs": {
+      "elementId": "9b68ce155c8eb050a615e3f8",
+      "sha256": "8a7f2bc073ecc58eb6febc6eaa1ecacbf202561564d8e6438a856bbd102546fd",
+      "lines": 28
+    },
+    "gusset.fs": {
+      "elementId": "e2572c23647afebacc8e0af1",
+      "sha256": "673b51d73d1e59055fc5e67519751ab037d11098386aec78a7d8bbd4185c5faf",
+      "lines": 824
+    },
+    "helix.fs": {
+      "elementId": "a80a05e9b600481ba245f9b3",
+      "sha256": "67071d9b1440955384d12a7229b602543dfbea4d4c580665d62e19c8e4e56b54",
+      "lines": 1237
+    },
+    "hole.fs": {
+      "elementId": "75b72139bd104b1bbf74528e",
+      "sha256": "002a583ebad148696286ca068e9c3c66a53a0e217c828ffeb3be0098960164b3",
+      "lines": 5262
+    },
+    "holeAttribute.fs": {
+      "elementId": "5fcf48cb66a061fc3b60a0a3",
+      "sha256": "115f7cab04dd9ed888d178e45e02ff572c1cc9f169aba0d5cb913f274815a778",
+      "lines": 95
+    },
+    "holeTable.fs": {
+      "elementId": "c2f42855d1225ded9be6506b",
+      "sha256": "7ba948b9c5cfc16a11bb435206df4e5295c63ffbac15a040596468e01d4bd5ef",
+      "lines": 325
+    },
+    "holeUtils.fs": {
+      "elementId": "35f769732bd47acc2fbcb14e",
+      "sha256": "c6b8f01e58fdfefbe68a9bd89aa837b9cbf0fca03ad7b61a50603becec560949",
+      "lines": 237
+    },
+    "holepositionreference.gen.fs": {
+      "elementId": "39df3afac6279538bd48c0c9",
+      "sha256": "9a1d34d9bc9425551ea4830eb8e2df55de7e352d7c70f7d51500bfd0ebf5cb45",
+      "lines": 59
+    },
+    "holeprofiletype.gen.fs": {
+      "elementId": "8981ea8abe8bf9c690be78fc",
+      "sha256": "0115a602342e905467a29d5a2db428fc1cf5c523044425402961f2901a943eb2",
+      "lines": 20
+    },
+    "holepropagationtype.gen.fs": {
+      "elementId": "cf4964a790eab4984d7fd59d",
+      "sha256": "72d15ffe7e1e84d4b45fda2ba75add0da43212c7a87331ee3cad3dd3cf2342ab",
+      "lines": 16
+    },
+    "holesectionfacetype.gen.fs": {
+      "elementId": "91b01f6628d1379f43ae0f43",
+      "sha256": "8297e1bda5617da7c77f1bcdafe2f472ae0179773402f9c8ae134b1bef789cb0",
+      "lines": 44
+    },
+    "holetables.gen.fs": {
+      "elementId": "7404cb4ca6ff18ada8fce168",
+      "sha256": "90330db22ec42858732034f9d91905ecee1c79a206b3f363f213d9acf7041951",
+      "lines": 35557
+    },
+    "icon.gen.fs": {
+      "elementId": "439a28b770db621045a9d16c",
+      "sha256": "4497e4d4690ea99d4af144050c416aa92858480beec174377efa7a1f13341450",
+      "lines": 76
+    },
+    "imagemappingtype.gen.fs": {
+      "elementId": "959aa9bfa3553f909761ee4f",
+      "sha256": "2978c43fcb674904a2dd6abd6418dc231e7de656a1795452f64e7f44e467c467",
+      "lines": 15
+    },
+    "importDerived.fs": {
+      "elementId": "347a20e00cc748938db716a6",
+      "sha256": "ba7bc3d7761b67cf389b02a298c138ea67e8b1af3637db398045556954c33327",
+      "lines": 683
+    },
+    "importForeign.fs": {
+      "elementId": "98fe97e44b354b13b737d2b8",
+      "sha256": "a11335c3a18397c27f535a9f8400025cbb434643471e39d3190494acb3edca70",
+      "lines": 162
+    },
+    "instantiator.fs": {
+      "elementId": "fc465547b6e7c4543820da2d",
+      "sha256": "13898786776275416ce9b284270c764469c8c366edcff02fa8d84fbcfda18633",
+      "lines": 529
+    },
+    "isocline.fs": {
+      "elementId": "e5b011a4a78d5b3ce3acca6f",
+      "sha256": "594251b5829fd617838ddd935f0e3addbb5c4f243e60c92f00b04d77c3865a1e",
+      "lines": 67
+    },
+    "isoparametricCurve.fs": {
+      "elementId": "e6cf88cc8ce4455ab330b5e8",
+      "sha256": "0738dde374b18b54317ec6d350d039c10f59a0e8f72939ca5a2e08807bd936dd",
+      "lines": 162
+    },
+    "jogPolygons.fs": {
+      "elementId": "64066ccd65a5fd3aa87ae952",
+      "sha256": "c4f8708e9b656e1a3e379b8201f52730d0803511fd41974e18b71ad9e1cfd546",
+      "lines": 247
+    },
+    "libraryValidation.fs": {
+      "elementId": "9ff4d85d726fe82596089c75",
+      "sha256": "18a31e5be4e78152aaa7f92ca36f2a67d96c4f74a1e8c3c9141463c9606c40a7",
+      "lines": 51
+    },
+    "linearPattern.fs": {
+      "elementId": "2ad55c3d15cc45368a53e92c",
+      "sha256": "c903115765eeb0abe57e05cab4157fdf8d985a3842859b93476d4482d98bfda0",
+      "lines": 413
+    },
+    "loft.fs": {
+      "elementId": "0aef2b1033d14885b0266e73",
+      "sha256": "496b2fabfb865893a3b0bfb39b629996c8e7b9cc2829c84b65d22b2e381fe963",
+      "lines": 1252
+    },
+    "lofttopology.gen.fs": {
+      "elementId": "b2077a52c9d520f2bda0b236",
+      "sha256": "76a257dfc0be1ab77894e0a51aa7c82a1f6618758574382bed344a46a20e17db",
+      "lines": 21
+    },
+    "lookupTablePath.fs": {
+      "elementId": "13ebf0d4c7f82f6f6f3831f4",
+      "sha256": "0c694f3faed0b53f0b56940a7b9bc04be1a1b69f5dfc71f47e61f174ddac9257",
+      "lines": 200
+    },
+    "manipulator.fs": {
+      "elementId": "1896b9c860a540c48f3dea31",
+      "sha256": "203503151bc4a545374d9a330037820a0d8a8154a63ea78649c7e26abe9234d8",
+      "lines": 644
+    },
+    "manipulatordragtypeenum.gen.fs": {
+      "elementId": "82dada4a398d1fb6a6a5ff29",
+      "sha256": "63c9472154565c044c343f02177facaf2f5b6f686d0759dd792a020f6c7f77be",
+      "lines": 26
+    },
+    "manipulatorstyleenum.gen.fs": {
+      "elementId": "b288f1db7d5d462fb700b139",
+      "sha256": "8bd0e25625a83868aea388880b98d436a0e953cbf15e818fed77c7a87694a844",
+      "lines": 20
+    },
+    "manipulatortype.gen.fs": {
+      "elementId": "b3c95f9f41fc49d48bd919c4",
+      "sha256": "d35f019fc3b11604d1a71f8a1fcf9ef7f2896c50773ece0ca189b97920cd00d6",
+      "lines": 35
+    },
+    "massProperty.fs": {
+      "elementId": "ff3fabe83cda025971f8ef27",
+      "sha256": "1b502386d0b379fa9523fc3d7facfd772aa74ea8293de3d4a7fead2815c46ab5",
+      "lines": 41
+    },
+    "mateConnector.fs": {
+      "elementId": "82a05608e31d46b6988ffde7",
+      "sha256": "f1150a0fd6739741747d9c98f1ef5b8214111969a4bf51f775f8f3af98f1ac59",
+      "lines": 473
+    },
+    "mateconnectoraxistype.gen.fs": {
+      "elementId": "c286c303e24d4255bf459f53",
+      "sha256": "cef4d0eb563d04b81935af04320cff9aa6a31dd510a034f98dd2cc511d8c4676",
+      "lines": 26
+    },
+    "matedoftype.gen.fs": {
+      "elementId": "cac1280218bc217d7896d326",
+      "sha256": "5d0922f7d6cbb7b36d2df5bcbda886073e6c0961b58e464d747139e4cc8eb723",
+      "lines": 35
+    },
+    "math.fs": {
+      "elementId": "8c35c386abc54cc7af7f8a7c",
+      "sha256": "fd87601d875ea8ef5ed110b54d392aa5648d78e04885ffa735b34fc9251ce07f",
+      "lines": 485
+    },
+    "mathUtils.fs": {
+      "elementId": "ba43a5fc50f44cfabadb3a5d",
+      "sha256": "d86c4c8337eb702beeaf1fcb1ad66b1f69732fe97eb335a88daf5ed70e47bdc9",
+      "lines": 16
+    },
+    "matrix.fs": {
+      "elementId": "ddfe7f76d34e4622a9d69b6a",
+      "sha256": "8280ecd2b4f436cf5ff2cb8220eca03d8f58549a9dd4822b0656c9707404a5e1",
+      "lines": 226
+    },
+    "matrixWithUnits.fs": {
+      "elementId": "ae38bebfd3c8607d6bb6a986",
+      "sha256": "63356f70ad69beb3d4a97a0ca3d25d1d9636fe84496a333d20d812d987cfcc29",
+      "lines": 182
+    },
+    "metadata.fs": {
+      "elementId": "32029212261606cb210c9287",
+      "sha256": "d1ff84f0b8612b3302bfeaedf51d6ac40c38956050967574f198813f85252e9f",
+      "lines": 208
+    },
+    "mirror.fs": {
+      "elementId": "a467826ff0df4970804cbe40",
+      "sha256": "9cb33f79db5f3c0f970858f9ca6416f100a8e9703085f9e68d737b2f6d7e173b",
+      "lines": 156
+    },
+    "modifyFillet.fs": {
+      "elementId": "9fa139fb0be24611874fa080",
+      "sha256": "090ef7792600ad052d82064923dfe338abf37d8a82a5c4cc4c88063c45679072",
+      "lines": 77
+    },
+    "moveCurveBoundary.fs": {
+      "elementId": "5156171ca2dff4e1afb66614",
+      "sha256": "4e5a94ce1eb4552fc89c60f5160d34f72b2e6092a6b7aca6cb4af3fcb3da9f59",
+      "lines": 203
+    },
+    "moveFace.fs": {
+      "elementId": "7edcd76bfb344d97b93a5829",
+      "sha256": "62e841ed0ba2837e389c241b02365af0f1049b78b96dcf69c38e8d9872dd405b",
+      "lines": 1595
+    },
+    "movecurveboundarytype.gen.fs": {
+      "elementId": "d580f996f85dab59905c63d1",
+      "sha256": "08d45c275fe5384e7cc7ffb5b9168c5c79718c9350ad63992afd2e29a3915ce5",
+      "lines": 19
+    },
+    "mutualTrim.fs": {
+      "elementId": "dba2cb40f6128fb6215b4aa2",
+      "sha256": "78c3cfe8184caacdc1044abf13771aa170d327643c41705e6aae8340424fb839",
+      "lines": 415
+    },
+    "nameEntity.fs": {
+      "elementId": "ec0c840897771ac385c9b5ef",
+      "sha256": "1b164bb1d643e851b506878705b4a93b50c01707b42bd701f0b78b26ae41862c",
+      "lines": 38
+    },
+    "nurbsUtils.fs": {
+      "elementId": "e09693a880994d545b43e60c",
+      "sha256": "a41df68061581add05b78a9b48bafd9c8d1a86dae8aeb49a6877130a9a20b1ea",
+      "lines": 208
+    },
+    "offsetCurveOnFace.fs": {
+      "elementId": "796a758013a5141024f894ec",
+      "sha256": "da4fa9d95785a7c4f897185587e891735e71b4c663822a36e8fa7f47172c98d3",
+      "lines": 285
+    },
+    "offsetSurface.fs": {
+      "elementId": "d2eb43a944d84c2e47139545",
+      "sha256": "159ccb2b041dfb091b25bf171a9bf2a504bad5337516816c01690d815da91e96",
+      "lines": 99
+    },
+    "offsetcurvetype.gen.fs": {
+      "elementId": "de2eb70b7fbcbfd7fbfdcec5",
+      "sha256": "02f8b9d9440544afb75eea09c833220ee4ba49c290987e83ebe9977263c6dbdc",
+      "lines": 22
+    },
+    "origincreationtype.gen.fs": {
+      "elementId": "0cb87dff1a72422fbc84f5e5",
+      "sha256": "9163df9b07d554b4d377f2440d237aec58331008bae18d4045fc192a7af20336",
+      "lines": 19
+    },
+    "partStudio.fs": {
+      "elementId": "13138abbdc63f6cf37a73f07",
+      "sha256": "6bbb10f8ec647ee0051e342128c18b5f8c721ab1185e87d209081a8d1e0a8604",
+      "lines": 31
+    },
+    "partpurpose.gen.fs": {
+      "elementId": "1b6c51eddb24f440361ac06a",
+      "sha256": "3af2d80be992cf5872978b948c7132ff4d85032ab0b098d37be45ebb0dc34d8e",
+      "lines": 19
+    },
+    "partstudioitemtype.gen.fs": {
+      "elementId": "fa31b273cf5a324d77de5816",
+      "sha256": "00d13c04543059cf2e19f70d584ff1723bb8dcd4bc8ca6232b5b9dda3cc35189",
+      "lines": 38
+    },
+    "path.fs": {
+      "elementId": "541ed415686a934607f3e443",
+      "sha256": "0aa039c5ff0b70d2a8cdb7259d5cb5204d63e5ed23b00c6e197c304049209685",
+      "lines": 634
+    },
+    "pattern.fs": {
+      "elementId": "426004953ded4dca8014c480",
+      "sha256": "23936fe933e77f315966bb1c84fde8d6028b706f1e1f797370d4c163c1f135d8",
+      "lines": 9
+    },
+    "patternCommon.fs": {
+      "elementId": "6b9125df513067dc8a08b128",
+      "sha256": "684eb6bffa066c76c72bd3165d9fe4ca1fc3c9f789b6874e9d794dcd85698e6d",
+      "lines": 79
+    },
+    "patternUtils.fs": {
+      "elementId": "c27f27a32c1b484b8333e433",
+      "sha256": "7ddd1ccb037f022bb62426bac9b460fbe34d71ef16ad4e470c9df13b4342fd60",
+      "lines": 603
+    },
+    "pcbEnd.fs": {
+      "elementId": "7ce6f2078b07b67190d10e60",
+      "sha256": "c0985f9352454382419cc8c114f1681a7846c11e47062af11e5e2f8fe5b256db",
+      "lines": 397
+    },
+    "pcbStart.fs": {
+      "elementId": "bf8e59eaa5c1fc9033cf2742",
+      "sha256": "d9d81b1623ff746306af94bfc9b09230f7be139e3e07f478f17ff9002b6478bc",
+      "lines": 177
+    },
+    "persistentCoordSystem.fs": {
+      "elementId": "669dcbdd2a10b8552de45a7c",
+      "sha256": "1059a30f679e8819b089d5fab74982e53d644cdf41c2be7f7ad542b8705a5ef0",
+      "lines": 64
+    },
+    "primitives.fs": {
+      "elementId": "dc9e71d454d34142ae66df18",
+      "sha256": "0f2031c8081a1b10be46a36ec6d5a8771258f25a00c889c8bbbf49a1ffca2ec3",
+      "lines": 316
+    },
+    "profilecontrolmode.gen.fs": {
+      "elementId": "4bf897bf5f1dda8b20e128ff",
+      "sha256": "a9e0a59a1517736f6ca724d3469f4fa60ae4033e4fa4a7d6a5ecdbbe1383f366",
+      "lines": 28
+    },
+    "projectCurves.fs": {
+      "elementId": "ed406c2c2cb8da09b7d6c5e6",
+      "sha256": "7cc061c2515e544d7087b9571da29db343fa2d17efca234256e061e1b9a8adbc",
+      "lines": 349
+    },
+    "projectiontype.gen.fs": {
+      "elementId": "ec739638f0a117a475a744af",
+      "sha256": "6b792f06ba6e27dae504a21643f16a1d060a90c8bd6e5c71c6821f976854d82b",
+      "lines": 17
+    },
+    "properties.fs": {
+      "elementId": "cc103fba3c348eac3f68de66",
+      "sha256": "1113c1bff9aa56fe31390624c9c416a6343edae8d3fb34a5829274a29acb17d0",
+      "lines": 232
+    },
+    "propertytype.gen.fs": {
+      "elementId": "a306525bc0604ebbc0371a18",
+      "sha256": "fdd3b823e8330e56d42373d72020298d84d8d7dd179b39d8734afc0330f05ade",
+      "lines": 31
+    },
+    "query.fs": {
+      "elementId": "9fde5dffaf8d4e4c99aaa22c",
+      "sha256": "fbca2bcf9a3728231c75ac3e0b012c59eebf60dc760d4ba72998806bd2d42c4f",
+      "lines": 2270
+    },
+    "queryVariable.fs": {
+      "elementId": "2f3802712bd8620b3f97f4d3",
+      "sha256": "4d3d378ccd7beaa49a8937e49587dd2f0bf8ce91386324984cd571ab912971fc",
+      "lines": 679
+    },
+    "radiusdisplay.gen.fs": {
+      "elementId": "bcb323ec829649ecb3b3cb08",
+      "sha256": "893f6279350fbfd3465e991e0319247fc0c9a51eae213e990a6421305356de9b",
+      "lines": 16
+    },
+    "recordpatterntype.gen.fs": {
+      "elementId": "5848ecaca27364e5dcd23848",
+      "sha256": "2d5dfdedd0f161c014aeac178850d5189fea81a57a8f9f5011f0ca3d4cfaceec",
+      "lines": 28
+    },
+    "registerSheetMetalBooleanTools.fs": {
+      "elementId": "8f13008615f1941e7ca4132b",
+      "sha256": "2ee694dd4b1803dd28e957a7252134a3bac72e7a45e77db67cb299155d93eb94",
+      "lines": 272
+    },
+    "registerSheetMetalFormedTools.fs": {
+      "elementId": "2692edb5e6a878a3c3044ebd",
+      "sha256": "a78f13ce825d1c4cb96eeb45ab8f2c8006811f54c8ba839b449bf2617d4d1ee5",
+      "lines": 179
+    },
+    "releases.fs": {
+      "elementId": "104280ffd3ebe797b0826920",
+      "sha256": "30d4ddbeb80a681b3ec980aa96cb9f0c159e176867ad8862f960c4790c5e52a3",
+      "lines": 268
+    },
+    "replaceFace.fs": {
+      "elementId": "5bb9bf6d8b544ce08e7bbea3",
+      "sha256": "16a64cf9ff3ff96e7f4f87a6a267c64e45569e0abd82ee7a6248f85c6b422014",
+      "lines": 134
+    },
+    "revolve.fs": {
+      "elementId": "b29e3c6fee9a45cdb0c1b8d0",
+      "sha256": "05e7ee8a2dc0d6b921df19b1e86e9a0b318a2298db651b50218b58fd5d63a664",
+      "lines": 1094
+    },
+    "rib.fs": {
+      "elementId": "88905950195fcc6a1eb7cff1",
+      "sha256": "80912c16b64b992cb22608ce9f4f1ddf8cc3796538c1e542d094207d4a382f96",
+      "lines": 751
+    },
+    "rotationtype.gen.fs": {
+      "elementId": "5e1fada3df174b0e9f70f902",
+      "sha256": "208625b0a28d27b13540342688c64d1168afdccf10db827b20571d044923541e",
+      "lines": 19
+    },
+    "routingCurve.fs": {
+      "elementId": "0dc790088e5c768286ffe759",
+      "sha256": "66f95ed3b9d40f0ec48132a278996c016a42a4f341b9c81d58a43986ca106537",
+      "lines": 2644
+    },
+    "routingCurveAttributes.fs": {
+      "elementId": "a48c7faebebd87ed788c2479",
+      "sha256": "ddd74a67f22ed68855267b1904d72a19644db916453509759b98b0312be983d8",
+      "lines": 148
+    },
+    "ruledSurface.fs": {
+      "elementId": "09baebccb794ebb8a89053bc",
+      "sha256": "f5e13fefb04fd7ee83a15798bdf6d96df8b26da11bc3a8be386401fd61564549",
+      "lines": 1157
+    },
+    "ruledsurfacecornertype.gen.fs": {
+      "elementId": "cf661ac29a043a499fc79d1a",
+      "sha256": "28eba2122e00704808ada8a9c434c0ffe52db5be8a14274790f68c23774616e3",
+      "lines": 28
+    },
+    "ruledsurfacetype.gen.fs": {
+      "elementId": "aacd201f9173e3b49eb115c0",
+      "sha256": "f60bb09c7a462317856b4c28b8b402247ad9771d6c7713015418ab0906bc5a91",
+      "lines": 24
+    },
+    "sectionpart.fs": {
+      "elementId": "0b4412195ce044c5bcbf1a8a",
+      "sha256": "3913a22ed26f6a670eec1500b5ccef0d0e47df7de01abb8bb2ea77a64c919377",
+      "lines": 1326
+    },
+    "sheetMetalAttribute.fs": {
+      "elementId": "079e7a7434d6d6d257ce71c4",
+      "sha256": "c9d1f7d1b7a737bede02b68d94373077cce37c74d13ea8592fd36e47c6f75c07",
+      "lines": 574
+    },
+    "sheetMetalBend.fs": {
+      "elementId": "79aae9754b4dc30288ea5ae9",
+      "sha256": "88b383d74f82ce94c775a9015efb6279df0c14a8c1bd2c8d22644ba1afb07d6e",
+      "lines": 69
+    },
+    "sheetMetalBendRelief.fs": {
+      "elementId": "79411e0e82e1c7f9d7217662",
+      "sha256": "8298d12a854111c5a63e533ec5402b58b8ec206b717eee0857276075174f08de",
+      "lines": 194
+    },
+    "sheetMetalBendUtils.fs": {
+      "elementId": "eb091044f72a84739fc06784",
+      "sha256": "0e8d163fc7e2f73ff61ad17152ec4a4cf0d9eb2359609bb71217441dff2d441f",
+      "lines": 1730
+    },
+    "sheetMetalBuiltIns.fs": {
+      "elementId": "d0b6b6ddce3f9eaf84fdaaeb",
+      "sha256": "96e06a325cd79c8551b2d57ba14c4c614460baeb29de003e1557c895d284d4fe",
+      "lines": 23
+    },
+    "sheetMetalCorner.fs": {
+      "elementId": "5eb89c21267a54d77e704240",
+      "sha256": "401253b97274ec32759dcdf51fe92ac5b4925e066e2f515cdc6b54eb09d49375",
+      "lines": 191
+    },
+    "sheetMetalCornerBreak.fs": {
+      "elementId": "29c5681cfdb2fadb8e2b2e74",
+      "sha256": "1e975d30dade94c1b68895dea93e9bda4d22bf1fcec8fe7b58013b934b6a0a1d",
+      "lines": 307
+    },
+    "sheetMetalCornerBreakAttributeBased.fs": {
+      "elementId": "b697c03b6f3e6b23978ad913",
+      "sha256": "66bdd03dc6fb27149e9f4057f4211f6b8ab70c06295e62402d75a348994e52e9",
+      "lines": 263
+    },
+    "sheetMetalEnd.fs": {
+      "elementId": "71117f3f819aa455757866bd",
+      "sha256": "32080f9b74de5ba73b7963efeee168f329cb33600eb25a4550f9ed4ac8bc4cda",
+      "lines": 145
+    },
+    "sheetMetalFlange.fs": {
+      "elementId": "a2594e5a9c489bfbb5ab8533",
+      "sha256": "3c778a477d0151279c6f4fdbd8a146970017bee06ce1d5273ca54b538fd0fa7a",
+      "lines": 3899
+    },
+    "sheetMetalFormed.fs": {
+      "elementId": "f2ebdbe97b6e634bff37fdf9",
+      "sha256": "df9642189fac29cbf87391aba5fafdb974bfcb39379289098208aaff46f2b183",
+      "lines": 320
+    },
+    "sheetMetalFormedLibraryValidation.fs": {
+      "elementId": "039878d26204b0b4b96a75eb",
+      "sha256": "f9ca18c055f808518eab22e3ca9642fa9347a55109479b8c6371fb417e582067",
+      "lines": 62
+    },
+    "sheetMetalHem.fs": {
+      "elementId": "1be7b53034b866b20141a528",
+      "sha256": "6df6cc1a0b6b736de7ee3e3083bb9d0f8de37ee03d059cec5510f85f812ec777",
+      "lines": 2358
+    },
+    "sheetMetalInFlat.fs": {
+      "elementId": "cac4065bea2be328fbe52b6d",
+      "sha256": "853f9b08afe44676b87fae461bc6a92cda38e4e0682a05f48c97db2f566a29c9",
+      "lines": 458
+    },
+    "sheetMetalJog.fs": {
+      "elementId": "d22dd69673c16d53225c017e",
+      "sha256": "9855089c2070e19f9904385f1186d7f49f3170a48c0fecc2d72ab973d3774c62",
+      "lines": 142
+    },
+    "sheetMetalJoint.fs": {
+      "elementId": "be0ff52b0adb7757190df7b0",
+      "sha256": "f35bc6f771dee10d0ea90842c9db326d51770974524ba5f4f4d4ee572f464f2f",
+      "lines": 561
+    },
+    "sheetMetalLoft.fs": {
+      "elementId": "45d29ee59606aab5fd096119",
+      "sha256": "2c432e2c1f0582c51b25aa50bc93294ba0fc8af26193ab1ad60b12e6bbce7638",
+      "lines": 1164
+    },
+    "sheetMetalMakeJoint.fs": {
+      "elementId": "1d664cfbd4aed0fa8fad363e",
+      "sha256": "a2693d9136c36366872bdfcac41751778458f194dca22dfea14085726b178e63",
+      "lines": 253
+    },
+    "sheetMetalPattern.fs": {
+      "elementId": "4a32569c427abd2be2b479bf",
+      "sha256": "fe6051d862bfb5b5aa921fb6345a3c0be17d138c73be31c8de55c8703026aa06",
+      "lines": 1619
+    },
+    "sheetMetalRip.fs": {
+      "elementId": "031340625f297a66ec1b4fe8",
+      "sha256": "7c6495e76eec163edb1cf0d728d8ccaa8153322e0736434c6e4129c02f68db2e",
+      "lines": 168
+    },
+    "sheetMetalStart.fs": {
+      "elementId": "d72cde0155be691657609507",
+      "sha256": "966e96eeb72c2d5d89cb711b31a18daeab76ded8f2ad43bb6cd8009d98b46411",
+      "lines": 1326
+    },
+    "sheetMetalTab.fs": {
+      "elementId": "d0b73846dd4acdc82203ae66",
+      "sha256": "ece65b35bc5144c9fc8d76553d96c7c763f6e93bd926bd42d13b97e52f718063",
+      "lines": 725
+    },
+    "sheetMetalUnfold.fs": {
+      "elementId": "1b0273755811ac770c26bdda",
+      "sha256": "e8e19e5887d2ee0cf9a851f8827158d32f3efc03a33a9456a86ea102383492a3",
+      "lines": 348
+    },
+    "sheetMetalUtils.fs": {
+      "elementId": "459d631d67c38b8d80944f2f",
+      "sha256": "ac8fadb2e4f86030d46630ce666cfc2598d16a713664f9ff7190877f82f1a2c7",
+      "lines": 2529
+    },
+    "shell.fs": {
+      "elementId": "8ca395d9c7db47e5805098d5",
+      "sha256": "77b500c7660335108984baba28a352541acc4f1228209fc30c2063fb75765aad",
+      "lines": 60
+    },
+    "sidegeometryrule.gen.fs": {
+      "elementId": "3c3a1c87b8a5b846176e28be",
+      "sha256": "d293580cb7c7b6760ab749f7148a8941c351f437c526e1666bb23a79ab75f958",
+      "lines": 17
+    },
+    "sketch.fs": {
+      "elementId": "a1ec05982b87401dad3728db",
+      "sha256": "2000d4f968897c502e4216bd6d86fb381cfd266c6923630bbe050f052dfae8be",
+      "lines": 979
+    },
+    "sketchsilhouettedisambiguation.gen.fs": {
+      "elementId": "143551335650437f8843e23e",
+      "sha256": "2b340efcffc6bed2ffbf307384db768a00f2330bc471395fbf9c340e8adb8527",
+      "lines": 22
+    },
+    "sketchtooltype.gen.fs": {
+      "elementId": "876ac5066ad0471bb8633927",
+      "sha256": "34c2f5c7c38c583c876edfcc569b8ee26ebf4c3b954bd8578fd3608d5d3c6713",
+      "lines": 25
+    },
+    "smapplicationtype.gen.fs": {
+      "elementId": "7a9d4321e73f3f3d191f9313",
+      "sha256": "d18945423171b4ea65744a67a3cbd47d1371db64ea0dd9769e2a61032144f786",
+      "lines": 18
+    },
+    "smbendreliefstyle.gen.fs": {
+      "elementId": "dc5d36200e683b958b4608fd",
+      "sha256": "6c35cc38095e6461161f9e9439e5c9ed93a0eddf46bad21258bb20b138a4d84e",
+      "lines": 27
+    },
+    "smbendtype.gen.fs": {
+      "elementId": "0b0b0b567113f1c3c3214dcd",
+      "sha256": "b8b2ac5cae9dfd6afe84d773d5ac9e657163153a6b626364bffea6220f2db37a",
+      "lines": 17
+    },
+    "smcornerbreakstyle.gen.fs": {
+      "elementId": "aa7f60542056e959313c5c94",
+      "sha256": "56b6b6c969cb05caad888133c2eb8ef24b2751d52ea7df2d474a4550e2da3e7e",
+      "lines": 20
+    },
+    "smcornerreliefstyle.gen.fs": {
+      "elementId": "11da5d1e50b9e43b0333a6d5",
+      "sha256": "9627bbda0280fb4f1a1285d22ee2c7334b4dda65d2168cb9dbe0d7da1e5c4ede",
+      "lines": 29
+    },
+    "smcornertype.gen.fs": {
+      "elementId": "2f383c31b37fcba1b3388ff4",
+      "sha256": "5f275c2bffb1b3bd2f76daf2466ab2ff5af688255f0661dae7258d8dc3bbf984",
+      "lines": 22
+    },
+    "smjointstyle.gen.fs": {
+      "elementId": "00296aebc78c1ea6d17daa23",
+      "sha256": "b3ff183e705d349f962ed5c5fdee656e6409a41edf4ff863448cd6ad6bb8a86f",
+      "lines": 21
+    },
+    "smjointtype.gen.fs": {
+      "elementId": "5432c36bf17203851d943df1",
+      "sha256": "8f6757dc4428dac00119b23acfbec250dddd6709cbf493b58d536d1ce3159773",
+      "lines": 21
+    },
+    "smobjecttype.gen.fs": {
+      "elementId": "9710574b3f9d3f5fbf47b9fe",
+      "sha256": "041557edc12934ddb45a6f58f8946fd0bd1f7ab108d94a6f8530e76e80d963b4",
+      "lines": 20
+    },
+    "smreliefstyle.gen.fs": {
+      "elementId": "1726690f7f345a52c548390f",
+      "sha256": "c75ace0057a89c9bac0f4b69d5950f6e15e72ae0cee6a005903d48e2f063e01e",
+      "lines": 34
+    },
+    "splineUtils.fs": {
+      "elementId": "0dd13f15cc529acadc98dcc9",
+      "sha256": "61c399f24559e8cc4b7a6ea03629f05abcb2bf4d83d3b64039d0200ed87be634",
+      "lines": 126
+    },
+    "splitoperationkeeptype.gen.fs": {
+      "elementId": "6520e264ed54f633165a96f4",
+      "sha256": "15373acfceb87254d4350b396ad3b7c333c6b44e790316f78edbd9e40d80e9a7",
+      "lines": 19
+    },
+    "splitpart.fs": {
+      "elementId": "748321f899c84fa2958d96c5",
+      "sha256": "3575acbd43dfe37bd81d5086a7897b603170f23ecd53b821b4f429b7d52582e4",
+      "lines": 371
+    },
+    "standardContentUtils.fs": {
+      "elementId": "a04f84ccac40e275918d2071",
+      "sha256": "fef047e0ecd3f7f228b49b61d5f1d09b89f6e89dde3c4e1b8e83daafd09aad56",
+      "lines": 759
+    },
+    "standardcontentvaluefieldtype.gen.fs": {
+      "elementId": "739059b30cd02f27dbd86f1c",
+      "sha256": "eb6c28943f8010e654207e6097da6d78a8f6ace533dbff70b9960747f47c6fc1",
+      "lines": 26
+    },
+    "string.fs": {
+      "elementId": "50fecfa4a779479ab19cceed",
+      "sha256": "3515758da6d2e2b588433468453a5ea03d7f9f56cfe473bb21989352741691a6",
+      "lines": 292
+    },
+    "surfaceBoolean.fs": {
+      "elementId": "11d6f2fcfb0e001e2c2f76fb",
+      "sha256": "35895c56a138b1a90b5f02060ea71d7611944e925a56d5b424362f32c53557f9",
+      "lines": 46
+    },
+    "surfaceGeometry.fs": {
+      "elementId": "84088a0d613e48ca96093b07",
+      "sha256": "5c45afb9e771a8fbbe32e7240611fc006e97fc473d7e3a046826c90426249988",
+      "lines": 863
+    },
+    "surfacetype.gen.fs": {
+      "elementId": "2a093215086b45519b7540db",
+      "sha256": "6dbc574ad989fbb02471bb80ad856658bd27d79db2e0490b9901cfe2d026e958",
+      "lines": 25
+    },
+    "sweep.fs": {
+      "elementId": "1094094453bb4339acd8feca",
+      "sha256": "08316089f974797e9ebe7592046bb48477b0a5662fbccb2bfc5a26b4ce83d718",
+      "lines": 631
+    },
+    "sweeptwisttype.gen.fs": {
+      "elementId": "f527f6220d5df3c540b395c6",
+      "sha256": "50a9e03b9b987f44a15a1acb7e42fe77651d6d8c8853a3eb5bc20a3d7933d21b",
+      "lines": 21
+    },
+    "tabReferences.fs": {
+      "elementId": "3662889522982032f5938115",
+      "sha256": "e4b427fef72990355189dd591aeb689541c84dd6126c2c04f7453a2e9a10bf5b",
+      "lines": 162
+    },
+    "table.fs": {
+      "elementId": "0bb1ccbe071d83ab5f670342",
+      "sha256": "04795a2a5d2e3fdec9e8f0f6fa26716ffaed2a51f94996770f98e8c5e5bfc9b0",
+      "lines": 706
+    },
+    "tabletextalignment.gen.fs": {
+      "elementId": "dfe7882414cf388803fa8cb8",
+      "sha256": "0953c67804ccc363577847b9469b12422ee530959a6017bf1bb90110a55519fc",
+      "lines": 16
+    },
+    "tag.fs": {
+      "elementId": "0ebf144570c405d3151998fa",
+      "sha256": "c2fd259a109277f3389e19079037781c3d8035d8070a3354b5c2ce8aac6c2194",
+      "lines": 753
+    },
+    "templatestring.fs": {
+      "elementId": "d3fc54355ef9aea4afd90434",
+      "sha256": "58a68b23acc442e550909b33c11a89a18f9d6f98c3933fc4e0fdbf86950154e3",
+      "lines": 66
+    },
+    "tessellatedloftreturnstatus.gen.fs": {
+      "elementId": "cbb5af1e57e846f9022887cf",
+      "sha256": "43dd3535ab87554a9df9b1136c1961ac744a030046c46364a1a80888c23e291a",
+      "lines": 35
+    },
+    "thicken.fs": {
+      "elementId": "58ff1936073d4b278a453881",
+      "sha256": "a76c703fd1339a384b52f4ad2e97475363da7d4c8312daaeb2fbb88c283c9da9",
+      "lines": 130
+    },
+    "tolerance.fs": {
+      "elementId": "587cafa3f61f86bf2e0b909c",
+      "sha256": "297271a166d152e40237c36793e377f0caa158bcd769b572a482937ede576395",
+      "lines": 872
+    },
+    "toleranceSchemaValidation.fs": {
+      "elementId": "d4246a8c4fdc89e2d50c5eb3",
+      "sha256": "70ff43a6fdeb61361c25c8d171d7eb6d5877dcd7f87e07083f538d26ced4e40b",
+      "lines": 17
+    },
+    "toleranceTypes.fs": {
+      "elementId": "59189068e59fc8a3fa6a0f7e",
+      "sha256": "0f54e45f5eae7cbd58d323a2a359527e99479f5a23d95fae354df6f97b257078",
+      "lines": 246
+    },
+    "toleranceschemaclass.gen.fs": {
+      "elementId": "ada718aa602b06e1de252fa6",
+      "sha256": "0790d9ac2e832f6f87e72009f5865ad592461582691edf6e304c1ac00edcb3c7",
+      "lines": 18
+    },
+    "tool.fs": {
+      "elementId": "0ff331b203ab4620aed3f966",
+      "sha256": "678394c1e16fb3a33a071fe32601a78d80bbaec34350339c421feb655765bd65",
+      "lines": 97
+    },
+    "topologyUtils.fs": {
+      "elementId": "d7bf5b4a972f78db54f09203",
+      "sha256": "7ce75b88d73f7837e56145aba51006bee0bb74201fd83883da5829de11507e5e",
+      "lines": 565
+    },
+    "topologymatchtype.gen.fs": {
+      "elementId": "e39b0d9917a6048a96491a90",
+      "sha256": "70eb9cba2a3ea81d9e2bdd6e66455c1ccde4dfe1ccd4b0d2c1cb9d2b9d688a69",
+      "lines": 22
+    },
+    "transform.fs": {
+      "elementId": "6d5267035f3b4a908db705cd",
+      "sha256": "9330827cbdaccdf797438fa3dfdadfc564e942fd87517af626c4b08b29050a37",
+      "lines": 166
+    },
+    "transformCopy.fs": {
+      "elementId": "81869edac6224be29410b2a3",
+      "sha256": "86b00798e1723bfcde6198101163357402df1ee61abbf8b5beb7c7342f3901a7",
+      "lines": 567
+    },
+    "transformUV.fs": {
+      "elementId": "f56cd06c5bf3f9b41a209320",
+      "sha256": "5b3e991a062db3230236e41ed7c5548c8dd0bfbaca3a34df7321082d6b147bdf",
+      "lines": 147
+    },
+    "uihint.gen.fs": {
+      "elementId": "0117c447f7854b87ba124535",
+      "sha256": "b19db4d56c9d7371bc98b82bf3d3e1f4ccdae2961a0894c1fcee518583d1ad98",
+      "lines": 121
+    },
+    "units.fs": {
+      "elementId": "1d63f39bbbe543ab87196395",
+      "sha256": "77b39f72837582885784e691d413e4efdf6096e50fb1befaf3b089b17acb417d",
+      "lines": 1178
+    },
+    "valueBounds.fs": {
+      "elementId": "87b09e244a234eb791b47826",
+      "sha256": "0f5fe46ea09b5b24e38ae47897da91f7b5b096370acde5198c7ddf173a089140",
+      "lines": 1132
+    },
+    "variable.fs": {
+      "elementId": "357eadcd05424ef4a2360e88",
+      "sha256": "be82b3ea0adcd622dcf291b7c6279fe987d6c8b1df9d68be747e3dfee5658724",
+      "lines": 1280
+    },
+    "variabletype.gen.fs": {
+      "elementId": "7f673738e6913ee727a79f1d",
+      "sha256": "d18574f2d753df4513cfbc7638be8a22517929531fdef8a496b94480ea9b9cd9",
+      "lines": 21
+    },
+    "vector.fs": {
+      "elementId": "b81f3a02f1e34b7dab9d239c",
+      "sha256": "ace08c879623c79378e740ea98554a6c9579039c91fa456994b4a42b2fd2aa6e",
+      "lines": 479
+    },
+    "volumeaccuracy.gen.fs": {
+      "elementId": "b98e66f3ed0bd9f7b4b4ee4b",
+      "sha256": "f233655236605e2ab17db6a64b1c1d99d04ce0d2fd29b567e12587be7c9fff51",
+      "lines": 24
+    },
+    "weldcontourtype.gen.fs": {
+      "elementId": "ece770f1a9e74399bd1e9439",
+      "sha256": "9b30a9a53784c1057a10d69e353a94a0fed0a8a4a7f7d67d0d5ebfe49417eab5",
+      "lines": 17
+    },
+    "weldfinishing.gen.fs": {
+      "elementId": "bc6f2917329e95e4075c2366",
+      "sha256": "7f266b3c26caa23b2f903fd17f1033f17ed98457b84a5a0a4810562dea9dd93a",
+      "lines": 22
+    },
+    "weldjointtype.gen.fs": {
+      "elementId": "d97585896b051cc1e2695962",
+      "sha256": "8b55818fe81e02c6612ad7a13561c1423ed92e0d91fb6281e77a14ce5f6a554c",
+      "lines": 20
+    },
+    "weldstandard.gen.fs": {
+      "elementId": "b07e9a7da4ba691a92319d29",
+      "sha256": "39507ffcf32fb4811fc8018f0ddc685f7a788509918535fd34d10eac792ae667",
+      "lines": 17
+    },
+    "weldtype.gen.fs": {
+      "elementId": "ce60eb22fc4a5a5b5cb84518",
+      "sha256": "25e5a990681560889266371793821ec123ddf13316d92a55c8f9a6cb15068c67",
+      "lines": 27
+    },
+    "workflow.fs": {
+      "elementId": "e55c40f309dc1073b489a1b8",
+      "sha256": "599fefd1dd623b10cbfdadd53d6da4a74b7a36eaec2531b9e3cf6e95cee69f3c",
+      "lines": 180
+    },
+    "wrap.fs": {
+      "elementId": "5e2ac00ef43da299ccb2ff00",
+      "sha256": "b056fbbcc1c1f029cb2c56dd7e95335ef4823457d1b3e3e980de368cf4ce3327",
+      "lines": 1031
+    },
+    "wrapSurface.fs": {
+      "elementId": "6f0c4f171ea09db350577341",
+      "sha256": "26f8562c2e9288bc3b88d7715a856eb97e31573fa4670b9e65f69466eb80f3e8",
+      "lines": 525
+    },
+    "wraptype.gen.fs": {
+      "elementId": "3ca3f0740529d1b6c6cd07f1",
+      "sha256": "38358a77985a72da4ad04d18e085ca21000a53289d9b2b1ac6825d250d5ee4e9",
+      "lines": 25
+    }
+  },
+  "fetchedAt": "2026-11-07T18:04:28.584Z"
+}
