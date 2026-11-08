@@ -3,9 +3,8 @@
 
 use std::path::PathBuf;
 
-/// Cases that differ (see docs/std-coverage.md): a plane tangent to a cylinder, placed from the cylinder's surface
-/// origin, which Onshape puts at the far end of an extruded cylinder (c016).
-const KNOWN_GAPS: &[&str] = &["c016"];
+/// Cases that differ (see docs/std-coverage.md): none.
+const KNOWN_GAPS: &[&str] = &[];
 
 #[test]
 fn batch_006_matches_onshape() {
