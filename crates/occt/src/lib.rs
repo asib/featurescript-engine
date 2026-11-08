@@ -1035,6 +1035,12 @@ pub fn delete_faces(solid: &Shape, faces: &[Shape]) -> Result<Operation> {
 
 /// Replaces a planar face of a solid with a plane, extending or trimming the faces next to it, which must be
 /// perpendicular to it.
+/// Replaces a planar face of a solid with another face's surface (offset along its normal); see
+/// `replace_planar_face`.
+pub fn replace_face_with_surface(solid: &Shape, face: &Shape, template: &Shape, offset: f64) -> Result<Operation> {
+    Ok(Operation(ffi::replace_face_with_surface_op(&solid.0, &face.0, &template.0, offset)?))
+}
+
 pub fn replace_planar_face(solid: &Shape, face: &Shape, target: Frame) -> Result<Operation> {
     Ok(Operation(ffi::replace_planar_face_op(&solid.0, &face.0, target)?))
 }
@@ -1087,6 +1093,11 @@ pub fn full_round(solid: &Shape, side1: &Shape, side2: &Shape, centre: &[Shape])
 }
 
 /// Splits faces of a body where the tools (sheets, faces or wires) cross them.
+/// A body with one of its faces split along edges lying on it.
+pub fn split_face_by_edges(body: &Shape, face: &Shape, edges: &[Shape]) -> Result<Operation> {
+    Ok(Operation(ffi::split_face_by_edges_op(&body.0, &face.0, &to_list(edges))?))
+}
+
 pub fn split_faces(body: &Shape, faces: &[Shape], tools: &[Shape]) -> Result<Operation> {
     Ok(Operation(ffi::split_faces_op(&body.0, &to_list(faces), &to_list(tools))?))
 }

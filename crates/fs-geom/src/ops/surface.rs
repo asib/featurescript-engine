@@ -573,10 +573,12 @@ pub fn move_curve_boundary(model: &mut Model, id: FeatureId, definition: &Value)
 /// `@opWrap`: planar faces wrapped onto a cylinder face, as sheets (`SIMPLE` or `TRIM`). The source plane's anchor
 /// and direction go to the destination's, without stretching.
 pub fn wrap(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
-    match field(definition, "wrapType").as_str() {
-        Some("SIMPLE") | Some("TRIM") | None => {}
+    let imprint = match field(definition, "wrapType").as_str() {
+        Some("SIMPLE") | Some("TRIM") | None => false,
+        Some("IMPRINT") => true,
         Some(other) => return Err(error(format!("@opWrap: wrapType {other} isn't supported yet"))),
-    }
+    };
+    let mut destination_face: Option<crate::model::EntityRef> = None;
     let faces = shapes(model, field(definition, "entities"), EntityType::Face)?;
     let source = field(definition, "source");
     let destination = field(definition, "destination");
@@ -615,6 +617,7 @@ pub fn wrap(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
                 .into_iter()
                 .find(|r| r.kind == EntityType::Face)
                 .ok_or_else(|| error("@opWrap: the destination must be a face or a cylinder for now"))?;
+            destination_face = Some(r);
             model.shape(r).clone()
         }
     };
@@ -639,6 +642,15 @@ pub fn wrap(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
         arc_radius,
     )
     .map_err(|_| regen_error("WRAP_FAILED"))?;
+    // An imprint splits the destination face along the wrapped faces' edges (batch 020).
+    if imprint {
+        let r = destination_face.ok_or_else(|| error("@opWrap: an imprint needs a destination face"))?;
+        let edges = wrapped.shape().sub_shapes(ShapeKind::Edge);
+        let op = occt::split_face_by_edges(&model.bodies[r.body].shape, model.shape(r), &edges)
+            .map_err(|_| regen_error("WRAP_FAILED"))?;
+        super::replace_bodies(model, &id, vec![(r.body, op)]);
+        return Ok(Value::UNDEFINED);
+    }
     let inputs: Vec<&crate::model::Entity> = sources.iter().collect();
     let origins = Origins::derived(&wrapped, &inputs);
     let info = Info::new(id.clone());

@@ -772,6 +772,14 @@ std::unique_ptr<Operation> split_faces_op(const Shape &body, const ShapeList &fa
   return finish(one(body.shape), splitter, "split faces");
 }
 
+// A body with one of its faces split along edges lying on it (a wrap's imprint).
+std::unique_ptr<Operation> split_face_by_edges_op(const Shape &body, const Shape &face, const ShapeList &edges) {
+  BRepFeat_SplitShape splitter(body.shape);
+  for (const TopoDS_Shape &e : edges.shapes) splitter.Add(TopoDS::Edge(e), TopoDS::Face(face.shape));
+  splitter.Build();
+  return finish(one(body.shape), splitter, "split face by edges");
+}
+
 // Rounds faces between two parallel planar side faces into a half cylinder tangent to both, as wide as the gap
 // between them: the solid is kept below the plane through the cylinder's axis, and inside the cylinder above it.
 std::unique_ptr<Operation> full_round_op(const Shape &solid, const Shape &side1, const Shape &side2, const ShapeList &centre) {

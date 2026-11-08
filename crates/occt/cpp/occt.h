@@ -194,6 +194,7 @@ std::unique_ptr<Operation> wrap_onto_cylinder(const ShapeList &faces, Vec3 sourc
 std::unique_ptr<Operation> face_blend_op(const ShapeList &side1, bool reverse1, const ShapeList &side2, bool reverse2,
                                          double radius);
 std::unique_ptr<Operation> split_faces_op(const Shape &body, const ShapeList &faces, const ShapeList &tools);
+std::unique_ptr<Operation> split_face_by_edges_op(const Shape &body, const Shape &face, const ShapeList &edges);
 bool point_in_solid(const Shape &solid, Vec3 p);
 Conic curve_definition(const Shape &s);
 BSplineData edge_bspline(const Shape &s, double tolerance, bool force_cubic, bool force_non_rational);
