@@ -123,17 +123,44 @@ pub fn register(m: &mut GeomBuiltins) {
             };
             let transient = |r: EntityRef| tags.transient_query(&query::tid_string(model.tid(r)));
             let owner = |r: EntityRef| tags.transient_query(&query::tid_string(model.bodies[r.body].tid));
+            // Bodies clash face by face: each pair of their faces that meet is reported, with how the bodies
+            // meet (std's sheet metal booleans find the walls a tool cuts from the target faces, batch 017).
+            // Bodies that meet without their faces touching (one inside the other) are reported as bodies.
+            let faces_of = |r: EntityRef| -> Vec<EntityRef> {
+                if r.kind != EntityType::Body || model.bodies[r.body].body_type != crate::model::BodyType::Solid {
+                    return vec![r];
+                }
+                (0..model.bodies[r.body].faces.len()).map(|index| EntityRef { body: r.body, kind: EntityType::Face, index }).collect()
+            };
             let mut out = Vec::new();
+            let mut push = |kind: &str, tool: EntityRef, target: EntityRef| {
+                out.push(map(vec![
+                    ("type", tags.enum_value(clash_type, kind)),
+                    ("tool", transient(tool)),
+                    ("toolBody", owner(tool)),
+                    ("target", transient(target)),
+                    ("targetBody", owner(target)),
+                ]));
+            };
             for &tool in &tools {
                 for &target in &targets {
-                    if let Some(kind) = clash(&shape(tool), &shape(target)) {
-                        out.push(map(vec![
-                            ("type", tags.enum_value(clash_type, kind)),
-                            ("tool", transient(tool)),
-                            ("toolBody", owner(tool)),
-                            ("target", transient(target)),
-                            ("targetBody", owner(target)),
-                        ]));
+                    let Some(kind) = clash(&shape(tool), &shape(target)) else { continue };
+                    let (tool_faces, target_faces) = (faces_of(tool), faces_of(target));
+                    if tool_faces == [tool] && target_faces == [target] {
+                        push(kind, tool, target);
+                        continue;
+                    }
+                    let mut touched = false;
+                    for &tf in &tool_faces {
+                        for &gf in &target_faces {
+                            if shape(tf).distance(&shape(gf)).is_ok_and(|d| d.distance <= 1e-8) {
+                                push(kind, tf, gf);
+                                touched = true;
+                            }
+                        }
+                    }
+                    if !touched {
+                        push(kind, tool, target);
                     }
                 }
             }
