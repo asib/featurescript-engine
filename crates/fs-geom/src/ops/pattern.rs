@@ -90,7 +90,7 @@ pub fn pattern(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
                 new.properties = body.properties.clone();
                 new.attributes = body.attributes.clone();
             }
-            copies.push((new, info.clone(), origins));
+            copies.push((new, info.clone(), origins, Some((body.clone(), op.shape(), t.clone()))));
             sources.push((instance, Some(b)));
         }
     }
@@ -107,14 +107,18 @@ pub fn pattern(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
                 let op = occt::transform(&piece, &t).map_err(occt_error)?;
                 let mut new = NewBody::new(op.shape(), body.body_type, info.clone());
                 new.construction = body.construction;
-                copies.push((new, info.clone(), Origins::default()));
+                copies.push((new, info.clone(), Origins::default(), None));
                 sources.push((usize::MAX, None));
             }
         }
     }
     let mut added = Vec::new();
-    for (new, info, origins) in copies {
-        added.push(model.add_body(new, &origins, &info, &|_| None));
+    for (new, info, origins, moved) in copies {
+        let b = model.add_body(new, &origins, &info, &|_| None);
+        if let Some((source, shape, t)) = moved {
+            super::carry_frames(model, b, &source, &shape, &t);
+        }
+        added.push(b);
     }
     for (instance, name) in names.iter().enumerate() {
         let name = name.as_str().ok_or_else(|| error("@opPattern: instance names must be strings"))?;

@@ -369,9 +369,62 @@ fn transform_bodies(model: &mut Model, id: FeatureId, definition: &Value) -> R<V
     let default = Info::new(id);
     for (shape, body, origins) in replacements {
         let frame = body.frame.map(|f| transform_frame(&f, &transform));
-        model.add_body(NewBody { frame, ..NewBody::replacing(&body, shape) }, &origins, &default, &|_| None);
+        let moved = shape.clone();
+        let b = model.add_body(NewBody { frame, ..NewBody::replacing(&body, shape) }, &origins, &default, &|_| None);
+        carry_frames(model, b, &body, &moved, &transform);
     }
     Ok(Value::UNDEFINED)
+}
+
+/// After `t` moved (or copied) `source` to the body `target`, whose shape is `moved`: its faces' surfaces keep
+/// their own coordinate systems, moved with them, as Onshape's do (a planar face that had none recorded had the
+/// canonical one: a rotated copy's plane keeps its axes, batch 037 c004), and its edges their line origins.
+pub(crate) fn carry_frames(
+    model: &mut Model,
+    target: usize,
+    source: &crate::model::Body,
+    moved: &Shape,
+    t: &Transform,
+) {
+    let point = |p: Vec3| {
+        transform_frame(&occt::Frame { origin: p, normal: Vec3::new(0.0, 0.0, 1.0), x: Vec3::new(1.0, 0.0, 0.0) }, t)
+            .origin
+    };
+    // Match each source entity to its image by where it lands: the same shape moved.
+    let faces_of = |shape: &Shape| shape.sub_shapes(occt::ShapeKind::Face);
+    let images = faces_of(moved);
+    let source_faces = faces_of(&source.shape);
+    let mut updates: Vec<(Shape, occt::Frame)> = Vec::new();
+    for (i, face) in source_faces.iter().enumerate() {
+        let Some(entity) = source.faces.iter().find(|f| f.shape.is_same(face)) else { continue };
+        let frame = match entity.info.surface_frame {
+            Some(f) => Some(f),
+            None => face.face_plane().ok().map(|p| occt::Frame { x: values::canonical_x(p.normal), ..p }),
+        };
+        if let (Some(frame), Some(image)) = (frame, images.get(i)) {
+            updates.push((image.clone(), transform_frame(&frame, t)));
+        }
+    }
+    let edge_images = moved.sub_shapes(occt::ShapeKind::Edge);
+    let mut edge_updates: Vec<(Shape, Vec3)> = Vec::new();
+    for (i, edge) in source.shape.sub_shapes(occt::ShapeKind::Edge).iter().enumerate() {
+        let Some(entity) = source.edges.iter().find(|e| e.shape.is_same(edge)) else { continue };
+        if let (Some(origin), Some(image)) = (entity.info.line_origin, edge_images.get(i)) {
+            edge_updates.push((image.clone(), point(origin)));
+        }
+    }
+    model.update_body(target, |body| {
+        for (image, frame) in &updates {
+            if let Some(f) = body.faces.iter_mut().find(|f| f.shape.is_same(image)) {
+                f.info = Rc::new(Info { surface_frame: Some(*frame), ..(*f.info).clone() });
+            }
+        }
+        for (image, origin) in &edge_updates {
+            if let Some(e) = body.edges.iter_mut().find(|e| e.shape.is_same(image)) {
+                e.info = Rc::new(Info { line_origin: Some(*origin), ..(*e.info).clone() });
+            }
+        }
+    });
 }
 
 pub(crate) fn id_and_definition(args: &[Value], name: &str) -> R<(FeatureId, Value)> {
