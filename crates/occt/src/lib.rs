@@ -213,6 +213,13 @@ mod ffi {
         ) -> Result<UniquePtr<Operation>>;
         fn shell_op(solid: &Shape, faces: &ShapeList, thickness: f64) -> Result<UniquePtr<Operation>>;
         fn offset_shape(s: &Shape, distance: f64) -> Result<UniquePtr<Shape>>;
+        fn draft_angles_op(
+            solid: &Shape,
+            faces: &ShapeList,
+            pull: Vec3,
+            angles: &[f64],
+            neutrals: &[Frame],
+        ) -> Result<UniquePtr<Operation>>;
         fn draft_op(
             solid: &Shape,
             faces: &ShapeList,
@@ -1032,6 +1039,11 @@ pub fn draft(solid: &Shape, faces: &[Shape], pull: Vec3, angle: f64, neutral: Fr
 /// Drafts faces of a solid by `angle`, each about where it meets its own neutral plane.
 pub fn draft_each(solid: &Shape, faces: &[Shape], pull: Vec3, angle: f64, neutrals: &[Frame]) -> Result<Operation> {
     Ok(Operation(ffi::draft_op(&solid.0, &to_list(faces), pull, angle, neutrals)?))
+}
+
+/// Faces of a solid drafted each about its own neutral plane, at its own angle.
+pub fn draft_angles(solid: &Shape, faces: &[Shape], pull: Vec3, angles: &[f64], neutrals: &[Frame]) -> Result<Operation> {
+    Ok(Operation(ffi::draft_angles_op(&solid.0, &to_list(faces), pull, angles, neutrals)?))
 }
 
 /// A sheet with its faces turned to agree with each other across their shared edges.

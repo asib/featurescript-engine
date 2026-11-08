@@ -332,6 +332,40 @@ std::unique_ptr<Operation> draft_op(const Shape &solid, const ShapeList &faces, 
   return finish(one(solid.shape), maker, "draft");
 }
 
+// As draft_op, each face at its own angle (a symmetric or two sided parting line draft, batch 049).
+std::unique_ptr<Operation> draft_angles_op(const Shape &solid, const ShapeList &faces, Vec3 pull,
+                                           rust::Slice<const double> angles, rust::Slice<const Frame> neutrals) {
+  if (neutrals.empty() || angles.empty()) throw std::runtime_error("draft: no neutral plane or angle");
+  // Faces split from one face share its surface, and drafting one would turn them all: on a copy of the solid,
+  // each face to draft gets a surface of its own first (a parting line splitting a block's sides, batch 049).
+  BRepBuilderAPI_Copy copier(solid.shape, Standard_True);
+  const TopoDS_Shape copy = copier.Shape();
+  std::vector<TopoDS_Face> targets;
+  BRep_Builder builder;
+  for (const TopoDS_Shape &f : faces.shapes) {
+    const TopTools_ListOfShape &images = copier.Modified(f);
+    TopoDS_Face face = TopoDS::Face(images.IsEmpty() ? f : images.First());
+    TopLoc_Location location;
+    Handle(Geom_Surface) surface = BRep_Tool::Surface(face, location);
+    builder.UpdateFace(face, Handle(Geom_Surface)::DownCast(surface->Copy()), location, BRep_Tool::Tolerance(face));
+    targets.push_back(face);
+  }
+  BRepOffsetAPI_DraftAngle maker(copy);
+  for (size_t i = 0; i < targets.size(); ++i) {
+    const Frame &neutral = neutrals[std::min(i, neutrals.size() - 1)];
+    gp_Pln plane(pnt(neutral.origin), dir(neutral.normal));
+    maker.Add(targets[i], dir(pull), angles[std::min(i, angles.size() - 1)], plane);
+    if (!maker.AddDone()) throw std::runtime_error("draft: a face can't be drafted");
+  }
+  maker.Build();
+  if (!maker.IsDone()) throw std::runtime_error("draft failed");
+  auto op = std::make_unique<Operation>();
+  op->history = new BRepTools_History(one(solid.shape), copier);
+  op->history->Merge(one(copy), maker);
+  op->result = maker.Shape();
+  return op;
+}
+
 // Thickens a face or sheet `t1` along its normal and `t2` against it. Planar faces are swept exactly; curved ones
 // are offset.
 std::unique_ptr<Operation> thicken_op(const Shape &input, double t1, double t2) {

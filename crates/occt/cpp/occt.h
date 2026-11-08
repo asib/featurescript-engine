@@ -146,6 +146,8 @@ std::unique_ptr<Operation> chamfer_op(const Shape &solid, const ShapeList &edges
                                       int32_t kind, double d1, double d2);
 std::unique_ptr<Operation> shell_op(const Shape &solid, const ShapeList &faces, double thickness);
 std::unique_ptr<Shape> offset_shape(const Shape &s, double distance);
+std::unique_ptr<Operation> draft_angles_op(const Shape &solid, const ShapeList &faces, Vec3 pull,
+                                           rust::Slice<const double> angles, rust::Slice<const Frame> neutrals);
 std::unique_ptr<Operation> draft_op(const Shape &solid, const ShapeList &faces, Vec3 pull, double angle,
                                     rust::Slice<const Frame> neutrals);
 std::unique_ptr<Operation> thicken_op(const Shape &sheet, double t1, double t2);
