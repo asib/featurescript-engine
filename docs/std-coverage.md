@@ -70,7 +70,7 @@ Onshape.
 | `frameTrim` (frameTrim.fs) | matches: ordered groups, to a plane | 008 |
 | `gusset` (gusset.fs) | matches: triangle and chamfered rectangle, centred, in a mitred corner, offset from the centre. Not yet: aligned | 008, 021 |
 | `endcap` (endcap.fs) | matches: matching the profile, filleted and chamfered rectangles, circle, internal | 008, 019 |
-| `importDerived` (importDerived.fs) | matches: at the origin, at mate connectors, chosen parts with their mate connectors (from build functions). Not yet: sheet metal | 009 |
+| `importDerived` (importDerived.fs) | matches: at the origin, at mate connectors, chosen parts with their mate connectors (from build functions); sheet metal models kept (at the origin, at a mate connector, at the source's mate connector, then edited; one of two models), or derived as plain parts. Not yet: composite parts with sheet metal | 009, 023 |
 | the `sectionPart` family (sectionpart.fs) | matches: `sectionPart`, `planeSectionPart`. Not yet: several planes, jogged sections | 009 |
 | `cutlist` (cutlist.fs) | matches: the two tubes of a mitred L, grouped and tabled. Not yet: overrides, composite segments | 011 |
 | `tag` (tag.fs) | matches: a form's positive part. Not yet: frame profiles, PCB holes, standard content | 011 |
@@ -93,7 +93,7 @@ Onshape.
 | `sheetMetalGeometryPattern` (sheetMetalPattern.fs) | matches, through linear patterns: a part pattern, a face pattern of a hole | 017 |
 | `pcbStart`, `pcbEnd` (pcbStart.fs, pcbEnd.fs) | matches: a flex PCB plate with a flange, finished without unfolding. Not yet: unfolding, the bend table | 017 |
 | `sheetMetalFormed` (sheetMetalFormed.fs) | matches: a boss and a cup (a part to add and one to remove) formed on a plate from form Part Studios given as build functions, at one and two places, flipped | 022 |
-| `sheetMetalTransform` | not started: it moves derived sheet metal parts (`importDerived`, `derivedMirror`) | later |
+| `sheetMetalTransform` | matches: moving derived sheet metal models (a quarter turn, a tilt, to a base mate connector) through `importDerived`. Not yet: through `derivedMirror` | 023 |
 | tables (`cutlistTable`, `routingCurveTable`) | match, called from a feature | 011 |
 | `holeTable`, computed properties (`computeMass`) | Onshape won't run them inside a feature (they read properties, or start their own feature), and neither does the engine: both refuse with "Execution error" as Onshape does (c009, c014). Their output outside a feature isn't checked | 011 |
 

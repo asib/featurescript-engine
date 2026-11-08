@@ -333,6 +333,13 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   way the material lies from the definition sheet ((20, 15, 2) to (20, 15, 0) on a plate's top; a flipped form's
   from (20, 15, 0) to (20, 15, −2)).
 
+- **Derived sheet metal parts** (batch 023): with `preserveActiveSheetMetal`, `importDerived` merges the source's
+  model (definition sheet with its wall and joint attributes, and its parts) and, unless it lands where it was,
+  `sheetMetalTransform` moves the definition and rebuilds the parts, which stay active: a flange can be added to
+  them. Each copy is its own model, even when two copies come from one source: their association ids are the
+  copies' own. Placement at a base mate connector puts the source's mate connector (owned by the part) at the
+  origin. Sheet metal parts can't be moved with `opTransform` (`SHEET_METAL_PARTS_PROHIBITED`).
+
 - **Bend reliefs** (batch 016). Where a bend covers only part of its base wall's edge, the rest of the edge is
   cut back as the bend is, and each end of the bend gets a slot in the base wall: as wide as the width scale ×
   the thickness, reaching from the edge to the depth scale × the bend's inner radius at the centre of an
