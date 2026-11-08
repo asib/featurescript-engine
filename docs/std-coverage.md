@@ -157,8 +157,9 @@ What fixtures show Onshape doing that the engine can't yet:
   (5 mm of arc at radius 7.50037, not quite the edge's middle radius 7.5); a band of a sphere (radius 10, 0° to
   60°) turns 0.621337 rad (5 mm at radius 8.047); extended past its top it reaches latitude 88.654° (5.0011 mm of
   arc). The rule isn't known yet.
-- **Where `evPlane` puts a rotated copy's planar face's origin** (batch 037 c004): in the axes of the copy's
-  plane, not the canonical ones, which the engine doesn't track through the copy's transform.
+- **Where `evPlane` puts the origin of a rotated copy's piece bounded by a curve** (batch 037 c004): the engine
+  carries the copy's axes and stretches the box as for straight-edged faces, and lands 0.025 mm off Onshape's,
+  all across the copy's axes: the side where the face touches the box along the curve evidently stretches by more.
 - **Lofts between unlike profiles** (c038, square to circle: 3% of the volume) **and through three profiles**
   (c039: 3e-4; Onshape splits the side into four patches): the surfaces come from each kernel's own lofting.
 - **Relieved bends** (batch 013 c006; batch 016 c007–c011, c013). Corner reliefs and closed corners leave Onshape's

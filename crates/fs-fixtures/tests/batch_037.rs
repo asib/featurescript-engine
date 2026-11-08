@@ -3,9 +3,10 @@
 
 use std::path::PathBuf;
 
-/// Where Onshape puts the origin of a planar sheet that isn't symmetric (docs/std-coverage.md, batch 024): c004's
-/// aligned section leaves a piece of a default plane's rotated copy, whose origin is 0.3% of its box off the middle
-/// of its box in the copy's own axes. The sheet itself matches.
+/// Where Onshape puts the origin of a planar sheet (docs/std-coverage.md): c004's aligned section leaves a piece of a
+/// default plane's rotated copy, bounded by a curve at one side; in the copy's own axes, with the box stretched
+/// where it only touches the face at points, the engine's origin is 0.025 mm off Onshape's, all across those axes.
+/// The sheet itself matches.
 const KNOWN_GAPS: &[&str] = &["c004 probe: c004.3 plane"];
 
 #[test]
