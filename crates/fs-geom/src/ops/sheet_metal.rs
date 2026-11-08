@@ -621,8 +621,10 @@ fn rip_setback(wall: &Shape, other: &Shape, edge: &Shape, front: f64, back: f64,
     // The other wall's material lies between its definition offset by -back and +front along its normal; along
     // `into`, that's between these distances from the edge.
     let c = dot(into, n);
-    if c.abs() < 1e-12 {
-        return Ok(clearance);
+    // Walls meeting tangentially (a flat wall running on into a rolled one, batch 043) are each cut back by half the
+    // clearance.
+    if c.abs() < 1e-6 {
+        return Ok(clearance / 2.0);
     }
     let reach = (front / c).max(-back / c).max(0.0);
     Ok(reach + clearance)
