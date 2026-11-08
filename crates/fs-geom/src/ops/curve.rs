@@ -63,7 +63,13 @@ pub fn fit_spline(model: &mut Model, id: FeatureId, definition: &Value) -> R<Val
         v if v.is_undefined() => None,
         v => Some(values::numbers(v, "opFitSpline parameters")?),
     };
-    let edge = splines::spline(&points, ends, parameters).map_err(|_| regen_error("FIT_SPLINE_FAILED"))?;
+    // Through two points with nothing more to fit, a spline is straight: a line, which then merges with lines it
+    // continues (a rib's profile extended to the part, batch 019; a jog's second bend line).
+    let edge = if points.len() == 2 && matches!(ends, Ends::Natural) {
+        occt::line_edge(points[0], points[1]).map_err(|_| regen_error("FIT_SPLINE_FAILED"))?
+    } else {
+        splines::spline(&points, ends, parameters).map_err(|_| regen_error("FIT_SPLINE_FAILED"))?
+    };
     add_wire(model, id, edge);
     Ok(Value::UNDEFINED)
 }
