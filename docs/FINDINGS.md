@@ -269,7 +269,9 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   isn't notched.
 - **Corner reliefs** (batch 016) are cut in the flat pattern, centred where the two bends' centre lines cross:
   round, a circle of radius scale × flat length / √2; rectangular, a square of side scale × flat length; sized,
-  the given diameter or width. This fits the base wall's relief faces in every case to 1e-3 mm.
+  the given diameter or width. This fits the base wall's relief faces in every case to 1e-3 mm. The hole goes
+  through the base wall, the flanges (unfolded back to the base wall's plane) and the bends, which Onshape builds
+  flat, cuts and wraps round the bend's cylinder, leaving B-spline faces.
 
 ## STEP export
 
