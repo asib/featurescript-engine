@@ -1,0 +1,77 @@
+{
+  "batch": "014",
+  "title": "sheet metal hems, rips, flange options",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "sheet-metal-hem",
+      "description": "a straight hem, 10 mm long with a 1 mm inner radius",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "sheet-metal-hem",
+      "description": "a straight hem closed down to the minimal gap, aligned outside",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "sheet-metal-hem",
+      "description": "a rolled hem, 270 degrees round a 3 mm radius",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "sheet-metal-rip",
+      "description": "a plate ripped corner to corner",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "sheet-metal-flange",
+      "description": "a flange up to a plane 12 mm above the plate",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "sheet-metal-flange",
+      "description": "flanges on two edges at a corner, mitred at 30 degrees",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "sheet-metal-flange",
+      "description": "a flange on an edge of a converted box",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    }
+  ]
+}
