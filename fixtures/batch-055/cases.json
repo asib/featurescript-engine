@@ -1,0 +1,277 @@
+{
+  "batch": "055",
+  "title": "face blends, sphere bands extended round, curvature fillets past 0.85, loft end conditions and guides",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "face-blend",
+      "description": "two 60 mm sheets at right angles, circular, 5 mm, untrimmed",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "face-blend",
+      "description": "two 30 mm sheets at right angles, circular, 2 mm, untrimmed",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "face-blend",
+      "description": "an upright sheet along x 0..30 and a level one along 10..50, circular, 5 mm, untrimmed",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "face-blend",
+      "description": "the same, trimmed to the walls",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "face-blend",
+      "description": "the same, short trim",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "face-blend",
+      "description": "the same, long trim",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "face-blend",
+      "description": "an upright sheet 2 mm above a level one, circular, 5 mm, the level sheet flipped",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c008",
+      "kind": "face-blend",
+      "description": "the same, conic, rho 0.7",
+      "slotMeters": [
+        2.8000000000000003,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c009",
+      "kind": "face-blend",
+      "description": "an upright sheet at 60° to a level one, circular, radii 5 and 3 mm",
+      "slotMeters": [
+        3.2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c010",
+      "kind": "face-blend",
+      "description": "an upright sheet at 120° to a level one, circular, 6 mm wide, ratio 2",
+      "slotMeters": [
+        3.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c011",
+      "kind": "face-blend",
+      "description": "an upright sheet at 60° to a level one, conic, 5 mm, rho 0.7",
+      "slotMeters": [
+        0,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c012",
+      "kind": "extend-surface",
+      "description": "a band of a sphere extended 1 mm round it, at its edge in the xz plane",
+      "slotMeters": [
+        0.4,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c013",
+      "kind": "extend-surface",
+      "description": "a band of a sphere extended 2 mm round it, at its edge in the xz plane",
+      "slotMeters": [
+        0.8,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c014",
+      "kind": "extend-surface",
+      "description": "a band of a sphere extended 5 mm round it, at its edge in the xz plane",
+      "slotMeters": [
+        1.2000000000000002,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c015",
+      "kind": "extend-surface",
+      "description": "a band of a sphere extended 10 mm round it, at its edge in the xz plane",
+      "slotMeters": [
+        1.6,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c016",
+      "kind": "fillet",
+      "description": "a block's upright edge, curvature, 4 mm, magnitude 0.86",
+      "slotMeters": [
+        2,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c017",
+      "kind": "fillet",
+      "description": "a block's upright edge, curvature, 4 mm, magnitude 0.88",
+      "slotMeters": [
+        2.4000000000000004,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c018",
+      "kind": "fillet",
+      "description": "a block's upright edge, curvature, 4 mm, magnitude 0.9",
+      "slotMeters": [
+        2.8000000000000003,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c019",
+      "kind": "fillet",
+      "description": "a block's upright edge, curvature, 4 mm, magnitude 0.99",
+      "slotMeters": [
+        3.2,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c020",
+      "kind": "fillet",
+      "description": "a 60 × 40 × 10 block's upright edge, curvature, 10 mm, magnitude 0.95",
+      "slotMeters": [
+        3.6,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c021",
+      "kind": "loft",
+      "description": "a square to a smaller square, normal to the start profile, magnitude 1",
+      "slotMeters": [
+        0,
+        0.8,
+        0
+      ]
+    },
+    {
+      "name": "c022",
+      "kind": "loft",
+      "description": "the same, magnitude 2",
+      "slotMeters": [
+        0.4,
+        0.8,
+        0
+      ]
+    },
+    {
+      "name": "c023",
+      "kind": "loft",
+      "description": "the same, normal to both profiles, magnitude 1",
+      "slotMeters": [
+        0.8,
+        0.8,
+        0
+      ]
+    },
+    {
+      "name": "c024",
+      "kind": "loft",
+      "description": "a circle to a smaller circle, normal to the start profile, magnitude 1",
+      "slotMeters": [
+        1.2000000000000002,
+        0.8,
+        0
+      ]
+    },
+    {
+      "name": "c025",
+      "kind": "loft",
+      "description": "the same, normal to both profiles, magnitude 1",
+      "slotMeters": [
+        1.6,
+        0.8,
+        0
+      ]
+    },
+    {
+      "name": "c026",
+      "kind": "loft",
+      "description": "the same, tangent to the start profile, magnitude 1",
+      "slotMeters": [
+        2,
+        0.8,
+        0
+      ]
+    },
+    {
+      "name": "c027",
+      "kind": "loft",
+      "description": "a circle to an equal circle, guided by an arc bulging out between them",
+      "slotMeters": [
+        2.4000000000000004,
+        0.8,
+        0
+      ]
+    }
+  ]
+}
