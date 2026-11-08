@@ -333,6 +333,11 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   way the material lies from the definition sheet ((20, 15, 2) to (20, 15, 0) on a plate's top; a flipped form's
   from (20, 15, 0) to (20, 15, −2)).
 
+- **External threads** (batch 031) split the shaft at the thread's depth, chamfer its end, or cut an undercut by
+  splitting the shaft face twice and offsetting the piece between inward; the thread is a hole attribute on the
+  shaft's face (`isExternalThread`, major and minor diameters, pitch).
+- **Recognizing sheet metal** (batch 031): `evOffsetDetection` pairs the faces a thickness apart; std extracts one
+  side as the definition sheet and rounds its sharp joins into bends of the given radius.
 - **Frames** (batch 030): limited by a part, a frame's end is trimmed to the part's face it runs into; locked to
   a planar face, its profile turns only about the face's normal (std sweeps with `LOCK_FACES`); alignment point 0
   puts the path at the profile's corner. A cut list column override for all frames shows in the table.

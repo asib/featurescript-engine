@@ -30,6 +30,7 @@ Onshape.
 | `moveFace` (moveFace.fs) | matches: offsets; translating a face along its normal, a hole sideways, a top face sideways; rotating a planar face whose neighbours are perpendicular to it; a top face translated up to a plane and to a vertex; creating new surfaces (translated, offset) | 003, 010, 018, 021, 026 |
 | `replaceFace` (replaceFace.fs) | matches: a planar face replaced by a plane, with an offset, or by a curved sheet's surface, when its neighbours are perpendicular to it; a cylinder by a coaxial cylinder. Not yet: other curved replaced faces | 003, 020, 028 |
 | `thicken` (thicken.fs) | matches: faces of solids, planar and curved, one and two sides, midplane, added to a part; sheets (inside rib, thin revolve and thin loft, the offset faces meeting sharply) | 003, 006, 028 |
+| `externalThread` (externalThread.fs) | matches: ISO threads on a shaft, blind with the face split, with a chamfer, with an undercut, up to the next face, with their hole attributes. Not yet: ANSI, threads on several edges | 031 |
 | `hole` (hole.fs) | matches: simple, counterbored and countersunk holes; blind (118° and flat tips), through, up to the next part, up to a face, blind in the last part; several at once; simple, counterbored and countersunk holes through a sheet metal plate; from a plane; tapped and clearance holes from the standard tables, with their hole attributes; the newer (V3) hole; depth to the tip; clearance and tapped (the V3 hole's, through one part into the next) | 006, 007, 017, 018, 021, 024, 026 |
 | `rib` (rib.fs) | matches: parallel and normal to the sketch plane, with and without draft, a short profile extended to the part, crossing ribs merged | 006, 007, 019, 021 |
 | `modifyFillet` (modifyFillet.fs) | matches: changing the radius, removing; refilleting neighbouring fillets (a top fillet round upright ones) | 006, 028 |
@@ -75,6 +76,7 @@ Onshape.
 | `cutlist` (cutlist.fs) | matches: the two tubes of a mitred L, grouped and tabled; a column overridden for all frames. Not yet: overrides of chosen frames, composite segments | 011, 030 |
 | `tag` (tag.fs) | matches: a form's positive part. Not yet: frame profiles, PCB holes, standard content | 011 |
 | `derivedMirror`, `importForeign` | not started (`derivedMirror` fails in a Part Studio feature; `importForeign` needs uploaded data) | later |
+| `sheetMetalRecognize` (sheetMetalStart.fs) | matches: an extruded L bracket recognized as sheet metal with bends. Not yet: walls other than planes (bends already rounded), several thicknesses | 031 |
 | `sheetMetalStart` (sheetMetalStart.fs) | matches: thickening sketch regions (both ways), extruding sketch lines into an L and a U (with bends), converting a block into an open box (bends along the bottom, rips up the corners) | 012 |
 | `sheetMetalFlange` (sheetMetalFlange.fs) | matches: 90° and 45° flanges (inner, outer, middle and hold-line alignment, default and own radius, the other way), up to a plane, flanges on two edges meeting at a corner (simple corner, edge-to-edge rip), on an edge of a converted box (whose rips leave the wall short of the edge's ends). Mitred flanges at 30° fail in Onshape and the engine alike. Partial flanges, with their bend reliefs (obround, rectangular, tear; scaled). Corner reliefs where two flanges meet: round and rectangular (scaled), sized round and square, closed; their areas and volumes within 0.01 (2e-6 of them), as Onshape's relieved bends are B-spline faces | 012, 013, 014, 015, 016 |
 | `sheetMetalBend` (sheetMetalBend.fs) | matches: a plate bent along a line, 90° up and 60° down holding the other side | 013 |
@@ -109,6 +111,7 @@ engine doesn't have. After batch 002, std calls 269 builtins; these are implemen
 - sketches: `newSketch`, `skPoint`, `skLineSegment`, `skCircle`, `skArc`, `skSolve`; `skConstraint` constraints are
   solved where the entities don't already meet them (fix, coincident, tangent, perpendicular, parallel,
   horizontal, vertical, distance; batch 029); others are ignored.
+- evaluations added: `evOffsetDetection` (planar walls; batch 031).
 - operations: `opPoint`, `opPlane`, `opExtrude`, `opRevolve`, `opSphere`, `opBoolean`, `opTransform`, `opPattern`
   (bodies and faces), `opSplitPart`, `opSplitFace`, `opDeleteBodies`, `opFillet` (circular), `opChamfer`,
   `opShell`, `opDraft` (reference surface and entity), `opBodyDraft`, `opThicken`, `opOffsetFace`, `opDeleteFace`,
