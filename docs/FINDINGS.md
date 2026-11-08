@@ -333,6 +333,9 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   way the material lies from the definition sheet ((20, 15, 2) to (20, 15, 0) on a plate's top; a flipped form's
   from (20, 15, 0) to (20, 15, −2)).
 
+- **Composites derived** (batch 045): an open composite holding a sheet metal part comes across with its parts,
+  the model kept; a closed one holding sheet metal is refused (`DERIVED_NO_CLOSED_COMPOSITE_WITH_SM_ERROR`); a
+  closed composite of plain parts is instantiated. The copied composite holds the copies of its members.
 - **Sheet metal lofts** (batch 044): a sketch's lines are wire bodies of their own, so a profile's edges chain
   where their ends coincide. A quad between matched points that isn't planar splits along its shorter diagonal,
   with a bend between the triangles. Where a bend meets the profiles' planes at a slant, Onshape ends it with
