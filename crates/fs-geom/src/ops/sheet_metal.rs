@@ -35,6 +35,26 @@ fn association(attributes: &Attributes) -> Option<&Value> {
     attributes.unnamed.iter().find(|a| is_type(a, "SMAssociationAttribute"))
 }
 
+/// The transient ids of the bodies registered to cut a wall (`cuttingToolBodyIds` of its wall attribute).
+fn wall_tool_tids(attributes: &Attributes) -> Vec<crate::model::Tid> {
+    sm_attribute(attributes, "WALL")
+        .and_then(|a| a.get("cuttingToolBodyIds"))
+        .and_then(Value::as_array)
+        .map(|ids| ids.iter().filter_map(|v| v.as_str().and_then(crate::query::parse_tid)).collect())
+        .unwrap_or_default()
+}
+
+/// The bodies registered to cut sheet metal walls. Like the definition sheets, they belong to the model and are
+/// hidden outside sheet metal features (Onshape doesn't count them as parts, batch 017).
+pub fn cutting_tools(model: &Model) -> Vec<crate::model::Tid> {
+    model
+        .bodies
+        .iter()
+        .filter(|b| b.is_sheet_metal_definition())
+        .flat_map(|b| b.faces.iter().flat_map(|f| wall_tool_tids(&f.attributes)))
+        .collect()
+}
+
 /// The value of an attribute field kept as `{ "value" : ... }`.
 fn attribute_value<'a>(attribute: &'a Value, key: &str) -> Option<&'a Value> {
     attribute.get(key).and_then(|v| v.get("value"))
@@ -1119,12 +1139,61 @@ pub fn update(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> 
     for tid in defs {
         let Some(index) = model.bodies.iter().position(|b| b.tid == tid) else { continue };
         if is_active(&model.bodies[index]) {
+            cut_registered_tools(model, &id, index)?;
+            let index = model.bodies.iter().position(|b| b.tid == tid).ok_or_else(|| regen_error("SHEET_METAL_REBUILD_ERROR"))?;
             regenerate(model, &id, index)?;
         } else {
             release_parts(model, index);
         }
     }
     Ok(Value::UNDEFINED)
+}
+
+/// The bodies registered on the walls to cut them (`cuttingToolBodyIds`: holes, batch 017) are cut from the
+/// definition sheet itself: std looks for the circular edges they leave on it, made by the update and tracked from
+/// the tools, and the parts take the holes from it. A tool already cut (the sheet has edges on it) is left alone.
+/// The new entities get association attributes, as std gives the entities it makes.
+fn cut_registered_tools(model: &mut Model, id: &FeatureId, index: usize) -> R<()> {
+    let def = model.bodies[index].clone();
+    let mut tool_bodies: Vec<usize> = Vec::new();
+    for tid in def.faces.iter().flat_map(|f| wall_tool_tids(&f.attributes)) {
+        let Some(b) = model.bodies.iter().position(|b| b.tid == tid) else { continue };
+        let tool = &model.bodies[b].shape;
+        let already = def.edges.iter().any(|e| lies_on(&samples(&e.shape), tool));
+        if !already && !tool_bodies.contains(&b) {
+            tool_bodies.push(b);
+        }
+    }
+    if tool_bodies.is_empty() {
+        return Ok(());
+    }
+    let tools: Vec<Shape> = tool_bodies.iter().map(|&b| model.bodies[b].shape.clone()).collect();
+    let op = occt::boolean(occt::BooleanKind::Subtraction, std::slice::from_ref(&def.shape), &tools, false)
+        .map_err(|_| regen_error("SHEET_METAL_REBUILD_ERROR"))?;
+    let mut inputs: Vec<&Body> = vec![&def];
+    let tool_rcs: Vec<Rc<Body>> = tool_bodies.iter().map(|&b| model.bodies[b].clone()).collect();
+    inputs.extend(tool_rcs.iter().map(|b| &**b));
+    let origins = Origins::of_operation(&op, &inputs);
+    let shape = op.shape();
+    let shape = shape.sub_shapes(ShapeKind::Shell).into_iter().next().unwrap_or(shape);
+    model.remove_bodies(&[index]);
+    let info = Info::new(id.clone());
+    let new = model.add_body(NewBody::replacing(&def, shape), &origins, &info, &|_| None);
+    // Association attributes for what the cut made.
+    let Some(tag) = fs_interp::types::find("SMAssociationAttribute") else { return Ok(()) };
+    for kind in [EntityType::Face, EntityType::Edge, EntityType::Vertex] {
+        for i in 0..model.bodies[new].entities(kind).len() {
+            let entity = &model.bodies[new].entities(kind)[i];
+            if association(&entity.attributes).is_some() {
+                continue;
+            }
+            let name = format!("{{ queryType : TRANSIENT , transientId : {} }}", crate::query::tid_string(entity.tid));
+            let mut attribute = values::map(vec![("attributeId", Value::string(name))]);
+            attribute.tag = Some(tag);
+            model.update_attributes(EntityRef { body: new, kind, index: i }, |attributes| attributes.unnamed.push(attribute));
+        }
+    }
+    Ok(())
 }
 
 /// Sample points of a face, edge or vertex.

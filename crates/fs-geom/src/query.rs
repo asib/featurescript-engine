@@ -36,7 +36,7 @@ pub fn tid_string(tid: Tid) -> String {
     format!("T{tid}")
 }
 
-fn parse_tid(s: &str) -> Option<Tid> {
+pub(crate) fn parse_tid(s: &str) -> Option<Tid> {
     s.strip_prefix('T')?.parse().ok()
 }
 
@@ -67,7 +67,11 @@ fn visible(model: &Model, found: Vec<EntityRef>) -> Vec<EntityRef> {
     if model.sheet_metal_scope {
         return found;
     }
-    found.into_iter().filter(|r| !model.bodies[r.body].is_sheet_metal_definition()).collect()
+    let tools = crate::ops::sheet_metal::cutting_tools(model);
+    found
+        .into_iter()
+        .filter(|r| !model.bodies[r.body].is_sheet_metal_definition() && !tools.contains(&model.bodies[r.body].tid))
+        .collect()
 }
 
 fn sub(model: &Model, query: &Value, key: &str) -> R<Vec<EntityRef>> {
