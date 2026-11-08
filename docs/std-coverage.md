@@ -61,8 +61,12 @@ Onshape.
 | `isocline` (isocline.fs) | matches: splitting a sphere, curves on a torus. Not yet: other faces, tilted tori | 007 |
 | `nameEntity` (nameEntity.fs) | matches: a face found again by name after a fillet trims it | 007 |
 | `queryVariable` (queryVariable.fs) | matches: fillets of a radius and more; the selection queries all match | 007 |
-| `frame`, `frameTrim`, `gusset`, `endcap`, `cutlist`, the `sectionPart` family, `importDerived`, `derivedMirror`, `importForeign`, `tag` | not started | 008 (planned) |
-| sheet metal: `sheetMetalStart`, `sheetMetalFlange`, `sheetMetalHem`, `sheetMetalTab`, `sheetMetalJoint`, `sheetMetalMakeJoint`, `sheetMetalCorner`, `sheetMetalCornerBreak`, `sheetMetalBendRelief`, `sheetMetalRip`, `sheetMetalJog`, `sheetMetalBend`, `sheetMetalUnfold`/`Refold`, `sheetMetalFormed`, `sheetMetalLoft`, `sheetMetalGeometryPattern`, `sheetMetalTransform`, `sheetMetalEnd`, `pcbStart`/`pcbEnd` | not started | 009+ (planned) |
+| `frame` (frame.fs) | matches: square tube, flat bar and round tube profiles (from build functions, as element libraries give them) along an L, a closed rectangle and a line with a tangent arc; mitred, butted both ways, coped, corners left alone; turned and mirrored; trimmed to a plane. Not yet: corner overrides, locked profile faces, alignment points, trimming to parts | 008 |
+| `frameTrim` (frameTrim.fs) | matches: ordered groups, to a plane | 008 |
+| `gusset` (gusset.fs) | matches: triangle and chamfered rectangle, centred, in a mitred corner. Not yet: aligned, offset | 008 |
+| `endcap` (endcap.fs) | matches: matching the profile, filleted rectangle. Not yet: circle, internal, chamfered corners | 008 |
+| `cutlist`, the `sectionPart` family, `importDerived`, `derivedMirror`, `importForeign`, `tag` | not started | 009 (planned) |
+| sheet metal: `sheetMetalStart`, `sheetMetalFlange`, `sheetMetalHem`, `sheetMetalTab`, `sheetMetalJoint`, `sheetMetalMakeJoint`, `sheetMetalCorner`, `sheetMetalCornerBreak`, `sheetMetalBendRelief`, `sheetMetalRip`, `sheetMetalJog`, `sheetMetalBend`, `sheetMetalUnfold`/`Refold`, `sheetMetalFormed`, `sheetMetalLoft`, `sheetMetalGeometryPattern`, `sheetMetalTransform`, `sheetMetalEnd`, `pcbStart`/`pcbEnd` | not started | 010+ (planned) |
 | tables (`cutlistTable`, `holeTable`, `routingCurveTable`), computed properties (`computeMass`) | not started | later |
 
 ## Builtins
@@ -80,7 +84,7 @@ engine doesn't have. After batch 002, std calls 269 builtins; these are implemen
   (bodies and faces), `opSplitPart`, `opSplitFace`, `opDeleteBodies`, `opFillet` (circular), `opChamfer`,
   `opShell`, `opDraft` (reference surface and entity), `opBodyDraft`, `opThicken`, `opOffsetFace`, `opDeleteFace`,
   `opMoveFace`, `opReplaceFace`, `opModifyFillet`, `opHole`, `opCreateCompositePart`, `opNameEntity`,
-  `opCreateIsocline`, `opSplitByIsocline` (the cases above), and the
+  `opCreateIsocline`, `opSplitByIsocline`, `opMergeContexts` (the cases above), and the
   curve and surface operations of batches 004 and 005.
 - attributes: `setAttribute`, `getAttributes`, `getAttribute`, `getAllAttributes`, `removeAttributes`; they follow
   their entities through operations.
@@ -91,7 +95,8 @@ engine doesn't have. After batch 002, std calls 269 builtins; these are implemen
   coordinate systems for extruded and revolved cylinders and cones).
 - patterns: `computeLinearPatternTransforms`, `computeCircularPatternTransforms`, `setPatternData`.
 - properties: `setProperty`, `getProperty`.
-- not modelled yet, answered as if absent: sheet metal, feature patterns.
+- not modelled yet, answered as if absent: sheet metal, feature patterns; Onshape's history bookkeeping
+  (`convert`, `recordQuery`, `clampContextVersion`, the disambiguation builtins) does nothing.
 
 ## Query types
 
@@ -101,7 +106,8 @@ Handled: `NOTHING`, `EVERYTHING`, `TRANSIENT`, `CREATED_BY`, `SKETCH_REGION`, `S
 `EDGE_ADJACENT`, `EDGE_VERTEX`, `TANGENT_CONNECTED_EDGES`, `TANGENT_CONNECTED_FACES`, `CLOSEST_TO`, `FARTHEST_ALONG`,
 `LARGEST`, `SMALLEST`, `TRACKING` (entities record what they were made from), `ATTRIBUTE_FILTER`, `OP_HOLE_FACE`,
 `OP_HOLE_PROFILE`, `EDGE_TOPOLOGY_FILTER`, `SPLIT` (split faces' sides), `CONTAINED_IN_COMPOSITE`,
-`COMPOSITE_CONTAINING`, `NAMED`, the selection queries (`CONVEX_CONNECTED_FACES`, `CONCAVE_CONNECTED_FACES`,
+`COMPOSITE_CONTAINING`, `CONSUMED`, `NAMED`, `PLANE_PARALLEL_DIRECTION`, `FACE_PARALLEL_DIRECTION`,
+`INTERSECTS_PLANE`, the selection queries (`CONVEX_CONNECTED_FACES`, `CONCAVE_CONNECTED_FACES`,
 `HOLE_FACES`, `FILLET_FACES`, `LOOP_EDGES`, `PARALLEL_EDGES`, `LOOP_BOUNDED_FACES`, `FACE_OR_EDGE_BOUNDED_FACES`,
 `PATTERN`, `PLANE_NORMAL`, `IN_FRONT_OF_PLANE`, `EDGE_CONVEXITY_FILTER`), and the sheet metal, mesh and modifiable
 filters (as if there were none).

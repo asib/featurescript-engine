@@ -107,7 +107,8 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   (Batch 003, c054.)
 - **Some feature parameters have no defaults:** `replaceFace`'s `offset` and `thicken`'s `thickness2` must be
   passed. (Batch 003's first build.)
-- **A sketch is a wire body per curve and a sheet body per region**, with point bodies for points and centres;
+- **A sketch is a wire body per curve and a sheet body per set of regions joined by shared edges** (a ring and
+  the square inside it are one sheet of two faces; batch 008, c001), with point bodies for points and centres;
   construction curves are wire bodies too, but `qConstructionFilter` doesn't count them as construction.
   `qCreatedBy(sketch, EntityType.EDGE)` finds the regions' edges as well as the curves'. (Batch 004, c012.)
 - **Fit splines are cubic with centripetal parameters on [0, 1]**, natural (zero second derivative) at the ends
@@ -175,6 +176,13 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   given angle: latitude circles on a sphere, two circles at the same height on a torus. (Batch 007, c026–c027.)
 - **A closed composite part** owns its bodies' entities (`qOwnedByBody` of it finds them); the bodies stay in the
   context as solids, but Onshape's STEP export writes them without their names. (Batch 006, c017.)
+- **A named function can't be used as a value**: "Cannot reference function f as a variable." Pass lambdas, as
+  std's operations are (`export const opExtrude = function(...)`). A build function for `PartStudioData` must be
+  a lambda too. (Batch 008's first build.)
+- **Frames** instantiate their profile's context (std's `derive`, merging contexts), sweep it from whichever end of
+  each path edge the path's order starts at, and mitre and butt by replacing cap faces with planes: the new face
+  keeps the cap's attributes, which gussets and end caps look for. Coped corners subtract one member from the
+  other and delete the leftover pieces, found by tracking the member's body. (Batch 008.)
 - **Mutual trim** splits each sheet's faces with the other (`opSplitFace` with `mutualImprint`), keeps the pieces
   behind the other sheet's normal (`qSplitBy`), and merges the sheets into one. (Batch 005, c023.)
 
