@@ -404,7 +404,7 @@ fn regenerate(model: &mut Model, id: &FeatureId, def_index: usize) -> R<()> {
             .transpose()?
             .unwrap_or(0.0),
     };
-    let corners = corner_reliefs(&def, &bends, &corner_defaults)?;
+    let corners = corner_reliefs(&def, &bends, &corner_defaults, front, back, clearance)?;
     // The bodies registered to cut each wall: besides the outline they leave in the definition, they're cut from
     // the wall's piece of the part, which takes what doesn't go through it (a counterbore, batch 018).
     let tools: Vec<Vec<Shape>> = def
@@ -766,6 +766,9 @@ struct CornerRelief {
     base: Shape,
     /// The hole, as a face in the base wall's plane.
     hole: Shape,
+    /// A closed corner: what each bend loses in the flat (by bend index), the hole only taking the base wall's
+    /// corner; the walls beyond keep their rip setbacks.
+    closed: Vec<(usize, Shape)>,
 }
 
 /// The corner reliefs a model has: at each vertex where two bends meet, with the vertex's own corner style or the
@@ -773,7 +776,14 @@ struct CornerRelief {
 /// half its flat length): round, a circle of radius scale × flat length / √2; rectangular, a square of side scale ×
 /// flat length; sized, the given diameter or width (fitted to fixture batch 016). Closed corners aren't supported
 /// yet.
-fn corner_reliefs(def: &Body, bends: &[Bend], defaults: &CornerDefaults) -> R<Vec<CornerRelief>> {
+fn corner_reliefs(
+    def: &Body,
+    bends: &[Bend],
+    defaults: &CornerDefaults,
+    front: f64,
+    back: f64,
+    clearance: f64,
+) -> R<Vec<CornerRelief>> {
     let mut out = Vec::new();
     for vertex in &def.vertices {
         let at: Vec<usize> = (0..bends.len())
@@ -829,6 +839,10 @@ fn corner_reliefs(def: &Body, bends: &[Bend], defaults: &CornerDefaults) -> R<Ve
                 None => Ok(default),
             }
         };
+        if style == "CLOSED" {
+            out.push(closed_corner(def, vertex, (i, j), base, (t1, away1), (t2, away2), n, bends, front, back, clearance)?);
+            continue;
+        }
         let frame = occt::Frame { origin: centre, normal: n, x: d1 };
         let hole = match style.as_str() {
             "ROUND" | "SIZED_ROUND" => {
@@ -852,9 +866,110 @@ fn corner_reliefs(def: &Body, bends: &[Bend], defaults: &CornerDefaults) -> R<Ve
                 return Err(error(format!("@updateSheetMetalGeometry: {other} corner reliefs aren't supported yet")));
             }
         };
-        out.push(CornerRelief { bends: (i, j), base, hole });
+        out.push(CornerRelief { bends: (i, j), base, hole, closed: Vec::new() });
     }
     Ok(out)
+}
+
+/// A closed corner (batch 016, c013): each bend runs on to the corner, its end where the plane through two points,
+/// parallel to the base wall's normal, cuts the sheet: on the bend's tangent line on the base wall, just short of where
+/// the two tangent lines meet, and where the wall beyond it stops (its rip setback). The part's end face runs across
+/// the thickness from there (Onshape's B-spline face): in the flat, the cut is a sine curve. The base wall's corner is
+/// cut square to the corner's diagonal so the two bends stay the minimal clearance apart there.
+#[allow(clippy::too_many_arguments)]
+fn closed_corner(
+    def: &Body,
+    vertex: &crate::model::Entity,
+    (i, j): (usize, usize),
+    base: Shape,
+    (t1, away1): (Vec3, Vec3),
+    (t2, away2): (Vec3, Vec3),
+    normal: Vec3,
+    bends: &[Bend],
+    front: f64,
+    back: f64,
+    clearance: f64,
+) -> R<CornerRelief> {
+    let failed = || error("@updateSheetMetalGeometry: a closed corner whose bends don't meet");
+    let (b1, b2) = (&bends[i], &bends[j]);
+    let (d1, d2) = (b1.axis_direction, b2.axis_direction);
+    // Where the two tangent lines meet.
+    let w = sub(t2, t1);
+    let cr = cross(d1, d2);
+    let denom = dot(cr, cr);
+    if denom < 1e-18 {
+        return Err(failed());
+    }
+    let p = add(t1, scale(d1, dot(cross(w, d2), cr) / denom));
+    let v = vertex.shape.vertex_point().map_err(occt_error)?;
+    let g = normalize(sub(sub(v, scale(normal, dot(sub(v, p), normal))), p)).ok_or_else(failed)?;
+    // Along each tangent line, away from the corner.
+    let e1 = if dot(d1, g) < 0.0 { d1 } else { scale(d1, -1.0) };
+    let e2 = if dot(d2, g) < 0.0 { d2 } else { scale(d2, -1.0) };
+    let half = norm(add(e1, e2)) / 2.0;
+    let delta = (clearance / 2.0) / half.max(1e-9);
+    let (a1, a2) = (add(p, scale(e1, delta)), add(p, scale(e2, delta)));
+    // Far enough to cover the corner, but not so far the regions' tiny edges get lost.
+    let reach = (b1.flat_length + b2.flat_length) * 4.0 + 1e-3;
+    let polygon = |points: &[Vec3]| -> R<Shape> {
+        let edges = (0..points.len())
+            .map(|k| occt::line_edge(points[k], points[(k + 1) % points.len()]).map_err(occt_error))
+            .collect::<R<Vec<_>>>()?;
+        let x = normalize(sub(points[1], points[0])).ok_or_else(failed)?;
+        occt::sketch_regions(&edges, occt::Frame { origin: points[0], normal, x })
+            .map_err(occt_error)?
+            .into_iter()
+            .next()
+            .ok_or_else(failed)
+    };
+    let hole = polygon(&[a1, add(a1, scale(g, reach)), add(a2, scale(g, reach)), a2])?;
+    // Each bend: the wall beyond it stops its rip setback short of the corner.
+    let wall_beyond = |b: &Bend| if b.walls.0.is_same(&base) { b.walls.1.clone() } else { b.walls.0.clone() };
+    let (w1, w2) = (wall_beyond(b1), wall_beyond(b2));
+    let rip = def.edges.iter().map(|e| &e.shape).find(|e| {
+        let on = |f: &Shape| f.sub_shapes(ShapeKind::Edge).iter().any(|x| x.is_same(e));
+        on(&w1) && on(&w2)
+    });
+    let setback = |wall: &Shape, other: &Shape| -> R<f64> {
+        match rip {
+            Some(edge) => rip_setback(wall, other, edge, front, back, clearance),
+            None => Ok(clearance),
+        }
+    };
+    let (s1, s2) = (setback(&w1, &w2)?, setback(&w2, &w1)?);
+    let cut = |bend: &Bend, t: Vec3, away: Vec3, d: Vec3, e: Vec3, a: Vec3, s: f64| -> R<Shape> {
+        let flat = bend.flat_length;
+        let at_corner = add(t, scale(d, dot(sub(v, t), d)));
+        let b = add(add(at_corner, scale(away, flat)), scale(e, s));
+        // Along the bend, the cut moves by its share of the way from a to b as the sine of the angle turned.
+        let turn = std::f64::consts::PI - dot(bend.into.0, bend.into.1).clamp(-1.0, 1.0).acos();
+        let along = dot(sub(b, a), d) / turn.sin();
+        let n = 24;
+        let mut points = Vec::new();
+        let mut params = Vec::new();
+        for k in 0..=n {
+            let f = k as f64 / n as f64;
+            points.push(add(add(a, scale(away, flat * f)), scale(d, along * (turn * f).sin())));
+            params.push(f);
+        }
+        let derivative = |f: f64| add(scale(away, flat), scale(d, along * turn * (turn * f).cos()));
+        let curve = crate::splines::spline(&points, crate::splines::Ends::Clamped(derivative(0.0), derivative(1.0)), Some(params))?;
+        let (far_b, far_a) = (sub(b, scale(e, reach)), sub(a, scale(e, reach)));
+        let edges = vec![
+            curve,
+            occt::line_edge(b, far_b).map_err(occt_error)?,
+            occt::line_edge(far_b, far_a).map_err(occt_error)?,
+            occt::line_edge(far_a, a).map_err(occt_error)?,
+        ];
+        let x = normalize(away).ok_or_else(failed)?;
+        occt::sketch_regions(&edges, occt::Frame { origin: a, normal, x })
+            .map_err(occt_error)?
+            .into_iter()
+            .next()
+            .ok_or_else(failed)
+    };
+    let closed = vec![(i, cut(b1, t1, away1, d1, e1, a1, s1)?), (j, cut(b2, t2, away2, d2, e2, a2, s2)?)];
+    Ok(CornerRelief { bends: (i, j), base, hole, closed })
 }
 
 /// How the ends of a bend shorter than its wall's edge are relieved (the model's defaults, or a bend end's own).
@@ -1073,6 +1188,9 @@ fn build_part(
                 continue;
             }
             for &k in &[corner.bends.0, corner.bends.1] {
+                if !corner.closed.is_empty() {
+                    continue;
+                }
                 let bend = &bends[k];
                 let far_is_first = bend.walls.0.is_same(&wall.shape);
                 if !(far_is_first || bend.walls.1.is_same(&wall.shape)) {
@@ -1181,7 +1299,14 @@ fn build_part(
             let (v0, v1) = if dot(v_axis, away) > 0.0 { (0.0, bend.flat_length) } else { (-bend.flat_length, 0.0) };
             let frame = occt::Frame { origin: start, normal, x: bend.axis_direction };
             let strip = occt::plane_face(frame, 0.0, span.1 - span.0, v0, v1).map_err(occt_error)?;
-            let holes: Vec<Shape> = relieved.iter().map(|c| c.hole.clone()).collect();
+            let index = bends.iter().position(|b| std::ptr::eq(b, bend)).expect("a bend of the model");
+            let holes: Vec<Shape> = relieved
+                .iter()
+                .map(|c| match c.closed.iter().find(|(k, _)| *k == index) {
+                    Some((_, region)) => region.clone(),
+                    None => c.hole.clone(),
+                })
+                .collect();
             let cut = occt::boolean(occt::BooleanKind::Subtraction, &[strip], &holes, true)
                 .map_err(|_| regen_error("SHEET_METAL_REBUILD_ERROR"))?
                 .shape();
