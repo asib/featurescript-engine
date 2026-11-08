@@ -158,8 +158,9 @@ What fixtures show Onshape doing that the engine can't yet:
   known yet.
 - **Curvature fillets of magnitude 0.86 and up** (batch 053 c004, 055 c016–c020): Onshape keeps the quintic, P1
   and the shoulder as below 0.71, but places the inner poles by no rule found yet (docs/FINDINGS.md has them).
-- **Loft tangent to its profile** (batch 055 c026): the start row's poles lie at the projected chord over 3, but
-  the ring between them sits further out than that (0.27% of the volume).
+- **Loft tangent to its profile** (batch 055 c026): Onshape's derivative field is the projected chord at four
+  points of the circle and a periodic cubic spline between (0.27% of the volume off the exact field); where the
+  samples fall on other profiles isn't known.
 - **A width-controlled face blend at 120°, ratio 2** (batch 055 c010): Onshape fails it; the engine builds it.
 - **Where `evPlane` puts the origin of a rotated copy's piece bounded by a curve** (batch 037 c004): the engine
   carries the copy's axes and stretches the box as for straight-edged faces, and lands 0.025 mm off Onshape's,

@@ -604,10 +604,13 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   derivative (P2 midway between P1 and P3, say). Normal to the profile, D is the magnitude times the plane's normal
   (towards the other profile) times a length L = 0.9 h + 0.1 d, h how far apart the profiles' planes are and d
   how far apart their corners (squares 20 apart, corners 21.2132: L = 20.12132; circles 30 apart, points 30.5941:
-  30.05941), the same for every point (Onshape's volumes to 2e-7). Tangent to the profile, the circles' P1 lies 2
-  mm in at the poles (the projected chord over 3), but the rows between aren't that ring (its tangent poles sit
-  further out): Onshape's volume is 0.27% over it. Onshape's profiles are cubic Hermite fits (64 spans for a
-  circle).
+  30.05941), the same for every point (Onshape's volumes to 2e-7). Tangent to the profile, the derivative field
+  isn't the projected chord at every point (radial, 6 mm long, for the circles): it is exactly that at 0°, 90°,
+  180° and 270° and between follows the periodic C² cubic spline through those four (5.83363 = 33√2/8 mm at
+  45°, turned ±0.0107 rad at 22.5°, within Onshape's fit), which puts Onshape's volume 0.27% over the exact
+  field's. Why four samples (and where they fall on other profiles) isn't known. Onshape's profiles are cubic
+  Hermite fits (64 spans for a circle), and a square's rows rise and fall along each edge by up to 0.0008 mm
+  about the exact construction's.
 
 ## STEP export
 
