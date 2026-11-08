@@ -59,6 +59,15 @@ pub fn register(m: &mut GeomBuiltins) {
     m.insert("opDeleteBodies", |_, args| {
         run_op(&args, "opDeleteBodies", |model, _, definition| {
             let bodies = owner_bodies(model, field(definition, "entities"))?;
+            // Outside sheet metal features, sheet metal parts can't be deleted: a failed fixture case's sheet metal
+            // part stays behind in Onshape (batch 014, c006).
+            if !model.sheet_metal_scope
+                && bodies
+                    .iter()
+                    .any(|&b| !model.bodies[b].is_sheet_metal_definition() && sheet_metal::in_active_model(model, b))
+            {
+                return Err(regen_error("SHEET_METAL_PARTS_PROHIBITED"));
+            }
             model.remove_bodies(&bodies);
             Ok(Value::UNDEFINED)
         })
