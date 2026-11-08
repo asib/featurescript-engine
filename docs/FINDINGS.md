@@ -333,6 +333,12 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   way the material lies from the definition sheet ((20, 15, 2) to (20, 15, 0) on a plate's top; a flipped form's
   from (20, 15, 0) to (20, 15, −2)).
 
+- **Parting line drafts** (batch 049): from std 3013, `draft` hands `opDraft` the parting edges and sides
+  (`inferReferences`, `inferReferenceOptions`) instead of the faces: each edge's two faces are ordered by
+  steepness, the face's normal · (the edge's direction in it × the pull), the one along the pull first; one sided
+  drafts take the first (or the second), symmetric and two sided ones both, the face along the pull at the
+  negative or second angle. Each face turns about the plane through its edge square to the pull. Faces split from
+  one face share its surface, so each needs a surface of its own before OCCT drafts it.
 - **Twisted and scaled sweeps along an arc** (batch 048): the profile is carried round the arc's axis, turned
   right-handed about the path's direction and grown about the path's point in proportion to the distance along
   it. Onshape's surfaces lie up to about a micrometre inside that, as along a straight path (batch 019): a 6 × 4
