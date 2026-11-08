@@ -318,7 +318,11 @@ fn solve(model: &mut Model, sketch: &Sketch) -> R<()> {
                 if let Some((center, _)) = circle_through(*start, *mid, *end) {
                     points.push((format!("{}.center", entity.id).into(), world(center), entity.construction));
                 }
-                occt::arc_through(world(*start), world(*mid), world(*end)).map_err(occt_error)?
+                // Onshape's arcs run counterclockwise about the sketch normal, whichever end is the start
+                // (batch 010, c006).
+                let clockwise = (mid.0 - start.0) * (end.1 - mid.1) - (mid.1 - start.1) * (end.0 - mid.0) < 0.0;
+                let (a, b) = if clockwise { (*end, *start) } else { (*start, *end) };
+                occt::arc_through(world(a), world(*mid), world(b)).map_err(occt_error)?
             }
             Geometry::Ellipse { center, major_axis, major, minor, arc } => {
                 points.push((format!("{}.center", entity.id).into(), world(*center), entity.construction));
