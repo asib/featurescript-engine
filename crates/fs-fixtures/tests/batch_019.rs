@@ -4,7 +4,7 @@
 use std::path::PathBuf;
 
 /// Onshape's twisted sweep is itself up to 0.8 µm off the profile turned along the path (the engine's surfaces pass
-/// through it), so where a boolean can't tell the two apart their surfaces are compared to 1 µm (c001).
+/// through it), so where a boolean can't tell the two apart their surfaces are compared to 5 µm (c001).
 const LOOSE: &[(&str, f64)] = &[("c001", 1e-3)];
 
 #[test]

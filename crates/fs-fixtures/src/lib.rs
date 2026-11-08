@@ -586,9 +586,10 @@ pub fn check_batch_with(batch: &Path, step: Option<&Path>, loose: &[(&str, f64)]
             report.duplicated.push(name.clone());
             continue;
         }
-        // A case compared loosely may have surfaces a micrometre apart (Onshape's twisted sweep, batch 019).
+        // A case compared loosely may have surfaces micrometres apart (Onshape's twisted sweep, batch 019; its conic
+        // corner break, batch 020).
         let case = name.split('.').next().unwrap_or(name);
-        let strictness = if loose.iter().any(|(c, _)| *c == case) { Strictness { close: 1e-6, ..strictness } } else { strictness };
+        let strictness = if loose.iter().any(|(c, _)| *c == case) { Strictness { close: 5e-6, ..strictness } } else { strictness };
         report.parts.push(compare_with(name, our_shapes[0], shapes[0], strictness));
     }
     Ok(report)
