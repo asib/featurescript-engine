@@ -533,6 +533,22 @@ pub fn register(m: &mut GeomBuiltins) {
             Ok(Value::array(planes))
         })
     });
+    // Pairs of planar faces a thin solid's thickness apart, facing away from each other with the material between
+    // (sheet metal recognition, batch 031): one group per body, the faces of one side in `side0` and their partners
+    // in `side1`, side0 being the faces that join the body's first paired face across shared edges.
+    m.insert("evOffsetDetection", |_, args| {
+        let definition = definition(&args, "evOffsetDetection")?;
+        model_mut(&args, "evOffsetDetection", |model| {
+            let bodies: Vec<usize> = query::evaluate(model, field(&definition, "bodies"))?.iter().map(|r| r.body).collect();
+            let mut groups = Vec::new();
+            for b in bodies {
+                if let Some(group) = offset_group(model, b)? {
+                    groups.push(group);
+                }
+            }
+            Ok(Value::array(groups))
+        })
+    });
     m.insert("evDistance", |interp, args| {
         let tags = tags(interp)?;
         let definition = definition(&args, "evDistance")?;
@@ -837,4 +853,97 @@ fn straight_spline(edge: &occt::Shape) -> Option<(Vec3, Vec3)> {
         })
     });
     straight.then_some((start, direction))
+}
+
+/// One body's offset face pairs: see `evOffsetDetection`.
+fn offset_group(model: &Model, b: usize) -> R<Option<Value>> {
+    use crate::values::{dot, scale, sub};
+    let body = &model.bodies[b];
+    let planes: Vec<(usize, occt::Frame)> =
+        body.faces.iter().enumerate().filter_map(|(i, f)| f.shape.face_plane().ok().map(|p| (i, p))).collect();
+    // Each face's nearest opposite face behind it that it overlaps.
+    let partner = |i: usize, p: &occt::Frame| -> Option<(usize, f64)> {
+        let mut best: Option<(usize, f64)> = None;
+        for (j, q) in &planes {
+            if *j == i || dot(p.normal, q.normal) > -1.0 + 1e-9 {
+                continue;
+            }
+            let d = -dot(sub(q.origin, p.origin), p.normal);
+            if d <= 1e-9 {
+                continue;
+            }
+            // A point inside one face, moved across, lands on the other.
+            let over = |a: usize, onto: usize, along: occt::Vec3, by: f64| {
+                body.faces[a].shape.face_inner_point().ok().is_some_and(|c| {
+                    occt::vertex(sub(c, scale(along, by)))
+                        .and_then(|v| v.distance(&body.faces[onto].shape))
+                        .is_ok_and(|d| d.distance < 1e-9)
+                })
+            };
+            if !(over(i, *j, p.normal, d) || over(*j, i, q.normal, d)) {
+                continue;
+            }
+            if best.is_none_or(|(_, bd)| d < bd) {
+                best = Some((*j, d));
+            }
+        }
+        best
+    };
+    let mut pairs: Vec<(usize, usize, f64)> = Vec::new();
+    for (i, p) in &planes {
+        let Some((j, d)) = partner(*i, p) else { continue };
+        let mutual = planes.iter().find(|(k, _)| *k == j).and_then(|(_, q)| partner(j, q)).is_some_and(|(k, _)| k == *i);
+        if mutual && !pairs.iter().any(|(a, c, _)| (*a, *c) == (j, *i)) {
+            pairs.push((*i, j, d));
+        }
+    }
+    // The commonest thickness.
+    let Some(thickness) = pairs
+        .iter()
+        .map(|p| p.2)
+        .max_by_key(|t| pairs.iter().filter(|q| (q.2 - t).abs() < 1e-7).count())
+    else {
+        return Ok(None);
+    };
+    let pairs: Vec<(usize, usize)> = pairs.into_iter().filter(|p| (p.2 - thickness).abs() < 1e-7).map(|p| (p.0, p.1)).collect();
+    // Sides: from the first pair, a neighbour's side0 is its face sharing an edge with a side0 face.
+    let touches = |a: usize, c: usize| {
+        let theirs = body.faces[c].shape.visible_sub_shapes(occt::ShapeKind::Edge);
+        body.faces[a].shape.visible_sub_shapes(occt::ShapeKind::Edge).iter().any(|e| theirs.iter().any(|f| f.is_same(e)))
+    };
+    let mut sides: Vec<Option<(usize, usize)>> = vec![None; pairs.len()];
+    sides[0] = Some(pairs[0]);
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for k in 0..pairs.len() {
+            if sides[k].is_some() {
+                continue;
+            }
+            let (a, c) = pairs[k];
+            let mut decided = None;
+            for s in sides.iter().flatten() {
+                if touches(a, s.0) || touches(c, s.1) {
+                    decided = Some((a, c));
+                } else if touches(c, s.0) || touches(a, s.1) {
+                    decided = Some((c, a));
+                }
+                if decided.is_some() {
+                    break;
+                }
+            }
+            if decided.is_some() {
+                sides[k] = decided;
+                changed = true;
+            }
+        }
+    }
+    let tid = |i: usize| Value::string(crate::query::tid_string(body.faces[i].tid));
+    let (side0, side1): (Vec<Value>, Vec<Value>) = sides.iter().flatten().map(|&(a, c)| (tid(a), tid(c))).unzip();
+    Ok(Some(crate::values::map(vec![
+        ("side0", Value::array(side0)),
+        ("side1", Value::array(side1)),
+        ("offsetLow", Value::number(thickness)),
+        ("offsetHigh", Value::number(thickness)),
+    ])))
 }
