@@ -565,6 +565,21 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   through the base wall, the flanges (unfolded back to the base wall's plane) and the bends, which Onshape builds
   flat, cuts and wraps round the bend's cylinder, leaving B-spline faces.
 
+- **Face blends between planar sheets** (batch 054). The section is a fillet's (batches 052, 053): two radii
+  set the points back as an asymmetric fillet's do, `radius` the centre's distance from side 1 (`switchAsymmetric`
+  swaps them); width control makes the chord between the two points the width, side 2's setback `widthRatio` ×
+  side 1's. Unlike a fillet's, the conic sections are exact: Onshape's areas are the exact conics' (a 5 × 3 mm
+  quarter ellipse 6.38175 mm long, its exported 4-span cubic 6.38120), and its STEP holds cubic approximations of
+  them (the conic's own parameter, uniform knots, through the conic at them with its end derivatives: 4 spans
+  for c003, 8 for the rho 0.7 conic). The curvature section is the fillet's quintic, pole for pole. Untrimmed, the
+  sides are still trimmed and attached, and the blend runs on past their ends: 3 mm at each end of 30 mm sheets
+  (the engine takes a tenth of the length, a guess from that one case). Detached, the sides stay whole and the
+  blend is a sheet of its own. Sheets apart: std's `wallsNormalAlignment` (since V2844) tests both normals
+  against the vector from side 1 to side 2 with the same sign, so with the upright sheet 2 mm above the level one
+  it flips the level sheet's sense away from the blend, and Onshape refuses it with
+  `FACE_BLEND_WRONG_RIGHT_WALL_SENSE`. The engine checks each side's sense (its normal, flipped if
+  `flipSideNNormal`) against the side of it the other side goes.
+
 ## STEP export
 
 - **Part names** are written on each `MANIFOLD_SOLID_BREP` (`MANIFOLD_SOLID_BREP('c030.1', ...)`), as well as on
