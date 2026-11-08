@@ -633,6 +633,12 @@ impl Origins {
         self.insert(image, origin);
     }
 
+    /// A copy of an input entity with info of its own: new, tracked back to the entity, with its attributes.
+    pub fn copy_with_info(&mut self, image: &Shape, parent: &Entity, info: Rc<Info>) {
+        let ancestry = Ancestry::child_of(parent, true);
+        self.insert(image, Origin { tid: None, info: Some(info), ancestry, attributes: parent.attributes.clone() });
+    }
+
     /// A shape the operation made from an input entity (modified, or generated from it): new, with the operation's
     /// info, but tracked back to the entity.
     pub fn derive(&mut self, image: &Shape, parent: &Entity, modified: bool) {

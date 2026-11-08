@@ -30,6 +30,9 @@ pub fn pattern(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
         return Err(error("@opPattern: instanceNames and transforms must be the same size"));
     }
     let copy_properties = values::opt_bool(definition, "copyPropertiesAndAttributes")?.unwrap_or(true);
+    // A hole's faces and profile edges copied as the same hole (std copying sheet metal hole tools to register them)
+    // or as a new one (patterning them), batch 032: the names `@opHole` gave them carry over.
+    let holes = field(definition, "holePropagationType").as_str().map(String::from);
 
     let mut copies = Vec::new();
     for (t, name) in transforms.iter().zip(names.iter()) {
@@ -48,10 +51,19 @@ pub fn pattern(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
             let mut origins = Origins::default();
             for entity in body.all_entities() {
                 for image in op.modified(&entity.shape) {
-                    if copy_properties {
-                        origins.copy(&image, entity);
-                    } else {
-                        origins.derive(&image, entity, true);
+                    match (entity.info.label.is_some(), holes.as_deref()) {
+                        (true, Some("PROPAGATE_SAME_HOLE")) => origins.inherit(&image, entity),
+                        (true, Some("PROPAGATE_NEW_HOLE")) => {
+                            let copied = Rc::new(Info {
+                                created_by: info.created_by.clone(),
+                                label: entity.info.label.clone(),
+                                identity: entity.info.identity,
+                                ..Default::default()
+                            });
+                            origins.copy_with_info(&image, entity, copied);
+                        }
+                        _ if copy_properties => origins.copy(&image, entity),
+                        _ => origins.derive(&image, entity, true),
                     }
                 }
             }
