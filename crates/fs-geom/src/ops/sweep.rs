@@ -69,6 +69,24 @@ pub fn sweep(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
             Some("LOCK_DIRECTION") => {
                 Some(Some(values::vec3(field(definition, "lockDirection"), "opSweep lockDirection")?))
             }
+            // Locked to planar faces sharing a normal: turning only about that normal (a frame on a block's top,
+            // batch 030).
+            Some("LOCK_FACES") => {
+                let faces: Vec<Shape> = query::evaluate(model, field(definition, "lockFaces"))?
+                    .into_iter()
+                    .filter(|r| r.kind == EntityType::Face)
+                    .map(|r| model.shape(r).clone())
+                    .collect();
+                let normals: Vec<Vec3> =
+                    faces.iter().map(|f| f.face_plane().map(|p| p.normal)).collect::<Result<_, _>>().map_err(|_| {
+                        error("@opSweep: profiles locked to faces other than planes aren't supported yet")
+                    })?;
+                let Some(&first) = normals.first() else { return Err(regen_error("SWEEP_SELECT_LOCK_FACES")) };
+                if normals.iter().any(|n| values::norm(values::cross(*n, first)) > 1e-9) {
+                    return Err(error("@opSweep: profiles locked to faces of different planes aren't supported yet"));
+                }
+                Some(Some(first))
+            }
             Some(other) => return Err(error(format!("@opSweep: profileControl {other} isn't supported yet"))),
         }
     };
