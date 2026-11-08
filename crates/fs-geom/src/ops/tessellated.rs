@@ -127,6 +127,10 @@ pub fn loft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
         let off_plane = values::dot(values::sub(c, a), quad_normal).abs();
         if off_plane < 1e-9 {
             faces.push(facet(&[a, b, c, d], quad_normal)?);
+        } else if values::norm(values::sub(d, b)) < values::norm(values::sub(c, a)) {
+            // Split along the shorter diagonal (batch 044: a line lofted to a skew line).
+            faces.push(facet(&[a, b, d], normal(a, b, d).ok_or_else(|| regen_error("TL_FAILED"))?)?);
+            faces.push(facet(&[b, c, d], normal(b, c, d).ok_or_else(|| regen_error("TL_FAILED"))?)?);
         } else {
             faces.push(facet(&[a, b, c], normal(a, b, c).ok_or_else(|| regen_error("TL_FAILED"))?)?);
             faces.push(facet(&[a, c, d], normal(a, c, d).ok_or_else(|| regen_error("TL_FAILED"))?)?);
