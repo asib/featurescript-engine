@@ -366,7 +366,22 @@ std::unique_ptr<Shape> offset_edge_on_planar_face(const Shape &edge_shape, const
   for (TopExp_Explorer it(face, TopAbs_EDGE); it.More(); it.Next())
     if (it.Current().IsSame(edge)) edge = TopoDS::Edge(it.Current());
   BRepAdaptor_Curve curve(edge);
-  if (curve.GetType() != GeomAbs_Line) throw std::runtime_error("offset curve: only straight edges are supported yet");
+  if (curve.GetType() == GeomAbs_Circle) {
+    // A circle (or arc) moves towards the face's inside: concentric, its radius shrinking or growing.
+    gp_Circ circle = curve.Circle();
+    double mid = (curve.FirstParameter() + curve.LastParameter()) / 2;
+    gp_Pnt p = curve.Value(mid);
+    gp_Vec toward_centre(p, circle.Location());
+    toward_centre.Normalize();
+    BRepClass_FaceClassifier classifier(face, p.Translated(toward_centre * 1e-6), 1e-9);
+    bool inside_is_centre = classifier.State() == TopAbs_IN;
+    double radius = circle.Radius() + (inside_is_centre ? -distance : distance);
+    if (radius <= 1e-12) throw std::runtime_error("offset curve: the circle shrinks away");
+    circle.SetRadius(radius);
+    Handle(Geom_Circle) c = new Geom_Circle(circle);
+    return wrap(BRepBuilderAPI_MakeEdge(c, curve.FirstParameter(), curve.LastParameter()).Edge());
+  }
+  if (curve.GetType() != GeomAbs_Line) throw std::runtime_error("offset curve: only straight and circular edges are supported yet");
   gp_Pnt a = BRep_Tool::Pnt(TopExp::FirstVertex(edge, Standard_True));
   gp_Pnt b = BRep_Tool::Pnt(TopExp::LastVertex(edge, Standard_True));
   gp_Vec inward = gp_Vec(normal).Crossed(gp_Vec(a, b)).Normalized() * distance;
