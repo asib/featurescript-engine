@@ -132,7 +132,9 @@ pub fn register(m: &mut GeomBuiltins) {
             };
             for r in found {
                 model.update_attributes(r, |attributes| {
-                    attributes.unnamed.retain(|v| pattern.as_ref().is_some_and(|p| !(same_type(v, p) && fields_match(v, p))));
+                    attributes
+                        .unnamed
+                        .retain(|v| pattern.as_ref().is_some_and(|p| !(same_type(v, p) && fields_match(v, p))));
                 });
             }
             Ok(Value::UNDEFINED)

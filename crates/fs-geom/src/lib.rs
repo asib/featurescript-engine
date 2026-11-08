@@ -7,13 +7,13 @@
 // Values are keys of FeatureScript maps; their interior mutability is only in builtin objects, never hashed.
 #![allow(clippy::mutable_key_type)]
 
+pub mod attributes;
 pub mod evaluate;
 pub mod mate;
 pub mod model;
 pub mod ops;
 pub mod paths;
 pub mod patterns;
-pub mod attributes;
 pub mod properties;
 pub mod query;
 pub mod sketch;
