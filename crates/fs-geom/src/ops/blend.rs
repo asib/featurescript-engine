@@ -313,17 +313,18 @@ enum Section {
 /// 053, to 1e-11 in every case): the quintic B-spline on knots 0⁶ 0.5² 1⁶ whose eight poles are, as `c + α (a − c)
 /// + β (b − c)`, (1, 0), (1 − 0.3m, 0), (1 − 0.6m, 0), (α₃, β₃) and their mirror images, with
 /// β₃ = 1/3 − 7m/15 and α₃ = 2(1 − m)/3: it starts and ends straight (no curvature, nor second derivative), passes
-/// through the chord's middle moved `m` of the way to the corner, with no third derivative there. β₃ is kept to
-/// 0.001 at least (α₃ taking up the difference, m 0.8); past that (m 0.95, α₃ below 0.001) Onshape makes some
-/// other curve, which the engine doesn't.
+/// through the chord's middle moved `m` of the way to the corner, with no third derivative there. Past m = 5/7,
+/// where that β₃ would be negative, it is a fortieth of that the other way, (7m − 5)/600, α₃ taking up the
+/// difference through the shoulder (batches 053, 055, 056: m 0.72 to 0.86, exactly). Past that, where α₃ would fall
+/// below β₃ (m about 0.87), Onshape moves the third pole too, by no rule found yet.
 fn curvature_section(a: occt::Vec3, c: occt::Vec3, b: occt::Vec3, m: f64) -> R<Shape> {
     use crate::values::{add, scale, sub};
     let (mut alpha, mut beta) = (2.0 * (1.0 - m) / 3.0, 1.0 / 3.0 - 7.0 * m / 15.0);
-    if beta < 1e-3 {
-        beta = 1e-3;
-        alpha = 1.0 - 17.0 * m / 15.0 - 1e-3;
+    if beta < 0.0 {
+        beta = -beta / 40.0;
+        alpha = 1.0 - 17.0 * m / 15.0 - beta;
     }
-    if alpha < 1e-3 {
+    if alpha < beta {
         return Err(error("@opFillet: curvature fillets of so great a magnitude aren't supported yet"));
     }
     let at = |s: f64, t: f64| add(c, add(scale(sub(a, c), s), scale(sub(b, c), t)));
