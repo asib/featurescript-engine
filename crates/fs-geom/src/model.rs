@@ -300,6 +300,8 @@ pub struct Model {
     /// Whether a sheet metal feature is running, which sees the sheet metal definition bodies that `qEverything`
     /// and `qCreatedBy` otherwise don't (batch 012). Set on every builtin call.
     pub sheet_metal_scope: bool,
+    /// Sheet metal forms' placement mate connectors the model has already moved where Onshape leaves them.
+    pub placed_forms: Rc<Vec<Tid>>,
 }
 
 /// A new body: its shape and what it is. [`Model::add_body`] fills in the entities.

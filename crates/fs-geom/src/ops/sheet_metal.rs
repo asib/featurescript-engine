@@ -44,14 +44,42 @@ fn wall_tool_tids(attributes: &Attributes) -> Vec<crate::model::Tid> {
         .unwrap_or_default()
 }
 
-/// The bodies registered to cut sheet metal walls. Like the definition sheets, they belong to the model and are
-/// hidden outside sheet metal features (Onshape doesn't count them as parts, batch 017).
+/// A form registered on a wall (`formedToolBodyIds` of its wall attribute): the transient ids of its part to add, its
+/// part to remove and its placement mate connector.
+struct Form {
+    positive: Option<crate::model::Tid>,
+    negative: Option<crate::model::Tid>,
+    placement: Option<crate::model::Tid>,
+}
+
+fn wall_forms(attributes: &Attributes) -> Vec<Form> {
+    let id = |v: &Value, key: &str| v.get(key).and_then(Value::as_str).and_then(crate::query::parse_tid);
+    sm_attribute(attributes, "WALL")
+        .and_then(|a| a.get("formedToolBodyIds"))
+        .and_then(Value::as_array)
+        .map(|forms| {
+            forms
+                .iter()
+                .map(|f| Form { positive: id(f, "positiveBodyId"), negative: id(f, "negativeBodyId"), placement: id(f, "placementBodyId") })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The bodies registered to cut or form sheet metal walls. Like the definition sheets, they belong to the model and
+/// are hidden outside sheet metal features (Onshape doesn't count them as parts, batches 017 and 022). A form's
+/// placement mate connector stays.
 pub fn cutting_tools(model: &Model) -> Vec<crate::model::Tid> {
     model
         .bodies
         .iter()
         .filter(|b| b.is_sheet_metal_definition())
-        .flat_map(|b| b.faces.iter().flat_map(|f| wall_tool_tids(&f.attributes)))
+        .flat_map(|b| {
+            b.faces.iter().flat_map(|f| {
+                let forms = wall_forms(&f.attributes).into_iter().flat_map(|form| [form.positive, form.negative]).flatten();
+                wall_tool_tids(&f.attributes).into_iter().chain(forms)
+            })
+        })
         .collect()
 }
 
@@ -417,7 +445,17 @@ fn regenerate(model: &mut Model, id: &FeatureId, def_index: usize) -> R<()> {
                 .collect()
         })
         .collect();
-    let solid = build_part(&def, &bends, &rips, front, back, clearance, &relief, &corners, &tools)?;
+    // The forms on each wall: what each removes, and what it adds (batch 022).
+    let body_of = |t: Option<crate::model::Tid>| t.and_then(|t| model.bodies.iter().find(|b| b.tid == t)).map(|b| b.shape.clone());
+    let forms: Vec<(Vec<Shape>, Vec<Shape>)> = def
+        .faces
+        .iter()
+        .map(|f| {
+            let forms = wall_forms(&f.attributes);
+            (forms.iter().filter_map(|form| body_of(form.negative)).collect(), forms.iter().filter_map(|form| body_of(form.positive)).collect())
+        })
+        .collect();
+    let solid = build_part(&def, &bends, &rips, front, back, clearance, &relief, &corners, &tools, &forms)?;
 
     // Replace the model's part, keeping its identity, or make one.
     // Replace the model's parts (one for each piece a rip cuts off), keeping their identities, or make them.
@@ -1130,6 +1168,7 @@ fn build_part(
     relief: &BendRelief,
     corners: &[CornerRelief],
     tools: &[Vec<Shape>],
+    forms: &[(Vec<Shape>, Vec<Shape>)],
 ) -> R<Shape> {
     let faces_of_edge = |edge: &Shape| -> Vec<&Shape> {
         def.faces
@@ -1232,6 +1271,18 @@ fn build_part(
             if !tools[w].is_empty() {
                 solid = occt::boolean(occt::BooleanKind::Subtraction, std::slice::from_ref(&solid), &tools[w], true)
                     .map_err(|_| regen_error("SHEET_METAL_REBUILD_ERROR"))?
+                    .shape();
+            }
+            // Forms: their parts to remove taken away, then their parts to add joined on.
+            let (remove, join) = &forms[w];
+            if !remove.is_empty() {
+                solid = occt::boolean(occt::BooleanKind::Subtraction, std::slice::from_ref(&solid), remove, true)
+                    .map_err(|_| regen_error("SHEET_METAL_FORMED_REBUILD_FAILED"))?
+                    .shape();
+            }
+            if !join.is_empty() {
+                solid = occt::boolean(occt::BooleanKind::Union, std::slice::from_ref(&solid), join, true)
+                    .map_err(|_| regen_error("SHEET_METAL_FORMED_REBUILD_FAILED"))?
                     .shape();
             }
             pieces.push(solid);
@@ -1400,6 +1451,7 @@ pub fn update(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> 
         let Some(index) = model.bodies.iter().position(|b| b.tid == tid) else { continue };
         if is_active(&model.bodies[index]) {
             cut_registered_tools(model, &id, index)?;
+            place_form_connectors(model, &id, index)?;
             let index = model.bodies.iter().position(|b| b.tid == tid).ok_or_else(|| regen_error("SHEET_METAL_REBUILD_ERROR"))?;
             regenerate(model, &id, index)?;
         } else {
@@ -1407,6 +1459,44 @@ pub fn update(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> 
         }
     }
     Ok(Value::UNDEFINED)
+}
+
+/// A form's placement mate connector ends up a sheet thickness from where it was placed, the way the material lies from
+/// the definition sheet (batch 022: (20, 15, 2) on a plate's top goes to (20, 15, 0); a flipped form's at (20, 15, 0) to (20, 15, -2)),
+/// as a new body made by the update: std then deletes what's left of the form's instance, but not it. Each moves once.
+fn place_form_connectors(model: &mut Model, id: &FeatureId, index: usize) -> R<()> {
+    let def = model.bodies[index].clone();
+    let Some(model_attribute) = sm_attribute(&def.attributes, "MODEL").cloned() else { return Ok(()) };
+    let side = |k: &str| -> R<f64> {
+        attribute_value(&model_attribute, k).map(|v| values::length(v, "thickness")).transpose().map(|t| t.unwrap_or(0.0))
+    };
+    let (front, back) = (side("frontThickness")?, side("backThickness")?);
+    let thickness = front + back;
+    for wall in &def.faces {
+        let Ok(plane) = wall.shape.face_plane() else { continue };
+        for form in wall_forms(&wall.attributes) {
+            let Some(tid) = form.placement else { continue };
+            if model.placed_forms.contains(&tid) {
+                continue;
+            }
+            let Some(b) = model.bodies.iter().position(|body| body.tid == tid) else { continue };
+            // Towards the material from the definition sheet.
+            let toward_material = if front >= back { plane.normal } else { scale(plane.normal, -1.0) };
+            let t = super::translation(scale(toward_material, thickness));
+            let body = model.bodies[b].clone();
+            let moved = occt::transform(&body.shape, &t).map_err(occt_error)?;
+            let frame = body.frame.map(|f| super::transform_frame(&f, &t));
+            model.remove_bodies(&[b]);
+            let info = Info::new(id.clone());
+            let new = NewBody { frame, ..NewBody::new(moved.shape(), body.body_type, info.clone()) };
+            let added = model.add_body(new, &Origins::default(), &info, &|_| None);
+            let new_tid = model.bodies[added].tid;
+            let placed = Rc::make_mut(&mut model.placed_forms);
+            placed.push(tid);
+            placed.push(new_tid);
+        }
+    }
+    Ok(())
 }
 
 /// The bodies registered on the walls to cut them (`cuttingToolBodyIds`: holes, batch 017) are cut from the
