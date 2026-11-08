@@ -333,6 +333,13 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   way the material lies from the definition sheet ((20, 15, 2) to (20, 15, 0) on a plate's top; a flipped form's
   from (20, 15, 0) to (20, 15, −2)).
 
+- **Tear drop hems** (batch 029): std draws the profile and lets the sketch solver place it: the hem's arc fixed
+  (centre and radius; its end free to move round), a line from its end tangent to it, a construction cap square to
+  the line at its far end, its inner point the tip gap plus a thickness from the plate and its outer point the
+  hem's width from the arc's start. Sketch arcs' `.start` and `.end` run counterclockwise whatever order they were
+  given in, and std leaves the cap out with `qConstructionFilter` on the sketch's edges: construction curves' edges
+  are construction, though their wire bodies aren't (batch 004). Solved, the line meets the arc at 107.6° round a
+  1 mm radius for a 10 mm hem on a 2 mm plate.
 - **Thin lofts** (batch 028) loft a sheet facing outward from its loops (as extruded sheets face) and thicken it
   with offset faces meeting where they intersect: sharp corners, 16 planar faces between two squares (OCCT's arc
   joins round them). Without `trimEnds` the ends are square to the walls; with it they're cut to construction

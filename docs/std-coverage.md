@@ -83,7 +83,7 @@ Onshape.
 | `sheetMetalEnd` (sheetMetalEnd.fs) | matches: the parts become ordinary parts | 013 |
 | `sheetMetalJog` (sheetMetalJog.fs) | matches: a 5 mm jog anchored outside, whose bends std turns to 75.5° to meet with no wall between | 013 |
 | `sheetMetalCorner` (sheetMetalCorner.fs) | matches: a round relief where two flanges meet, cut in the flat pattern and folded back through the plate, the bends and the flanges (area and volume within 0.01) | 013 |
-| `sheetMetalHem` (sheetMetalHem.fs) | matches: straight hems (with a radius, closed to the minimal gap, aligned in place or outside), a rolled hem. Known gap: hems meeting at a closed corner, where Onshape leaves the plate whole and the engine cuts its corner (021 c012). Not yet: tear drops (their profile needs the sketch solved) | 014, 021 |
+| `sheetMetalHem` (sheetMetalHem.fs) | matches: straight hems (with a radius, closed to the minimal gap, aligned in place or outside), a rolled hem. tear drops (closed to the minimal gap or with a tip gap, in place or outside; their profile from a constrained sketch the engine solves). Known gap: hems meeting at a closed corner, where Onshape leaves the plate whole and the engine cuts its corner (021 c012); the engine's STEP of a tear drop hem reads back 2e-6 off (029) | 014, 021, 029 |
 | `sheetMetalRip` (sheetMetalRip.fs) | matches: a plate ripped corner to corner (Onshape leaves it whole) | 014 |
 | `sheetMetalCornerBreak` (sheetMetalCornerBreak.fs) | matches: plate corners rounded and chamfered (also with two offsets), a flange's corner rounded, a conic (within 2.4e-6: Onshape's is an approximation) | 015, 020 |
 | `sheetMetalUnfold`, `sheetMetalRefold` (sheetMetalUnfold.fs) | matches: an L's bend unfolded holding a wall, and folded again. Not yet: rounded bends and rolled walls | 015 |
@@ -106,8 +106,9 @@ engine doesn't have. After batch 002, std calls 269 builtins; these are implemen
 - context and features: contexts, feature start/end/abort, statuses, computed parameters, `getLastActiveId`.
 - variables: `setVariable`, `getVariable`, `setQueryVariable`, `getQueryVariable`, `getAllVariables`,
   `getAllVariablesAndDescriptions`.
-- sketches: `newSketch`, `skPoint`, `skLineSegment`, `skCircle`, `skArc`, `skSolve`; `skConstraint` is accepted and
-  ignored.
+- sketches: `newSketch`, `skPoint`, `skLineSegment`, `skCircle`, `skArc`, `skSolve`; `skConstraint` constraints are
+  solved where the entities don't already meet them (fix, coincident, tangent, perpendicular, parallel,
+  horizontal, vertical, distance; batch 029); others are ignored.
 - operations: `opPoint`, `opPlane`, `opExtrude`, `opRevolve`, `opSphere`, `opBoolean`, `opTransform`, `opPattern`
   (bodies and faces), `opSplitPart`, `opSplitFace`, `opDeleteBodies`, `opFillet` (circular), `opChamfer`,
   `opShell`, `opDraft` (reference surface and entity), `opBodyDraft`, `opThicken`, `opOffsetFace`, `opDeleteFace`,
