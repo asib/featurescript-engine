@@ -582,12 +582,16 @@ pub fn full_round(model: &mut Model, id: FeatureId, definition: &Value) -> R<Val
 /// `@opFaceBlend`: a rolling ball blend of constant radius between two sets of faces meeting along edges, trimming
 /// them to it; the sides' sheets become one. Each side's normal, flipped if asked, points towards the blend.
 pub fn face_blend(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
-    if field(definition, "crossSection").as_str().is_some_and(|c| c != "ROLLING_BALL")
-        || field(definition, "blendControlType").as_str().is_some_and(|c| c != "RADIUS")
-        || values::opt_bool(definition, "asymmetric")?.unwrap_or(false)
-        || field(definition, "crossSectionShape").as_str().is_some_and(|c| c != "CIRCULAR")
-    {
-        return Err(error("@opFaceBlend: only symmetric circular rolling ball blends of a radius are supported yet"));
+    if field(definition, "crossSection").as_str().is_some_and(|c| c != "ROLLING_BALL") {
+        return Err(error("@opFaceBlend: only rolling ball blends are supported yet"));
+    }
+    let plain = field(definition, "blendControlType").as_str().is_none_or(|c| c == "RADIUS")
+        && !values::opt_bool(definition, "asymmetric")?.unwrap_or(false)
+        && field(definition, "crossSectionShape").as_str().is_none_or(|c| c == "CIRCULAR")
+        && field(definition, "trim").as_str().is_none_or(|t| t == "WALLS")
+        && !values::opt_bool(definition, "detach")?.unwrap_or(false);
+    if !plain {
+        return planar_face_blend(model, id, definition);
     }
     let radius = values::length(field(definition, "radius"), "opFaceBlend radius")?;
     let side = |key: &str| -> R<Vec<EntityRef>> {
@@ -600,8 +604,10 @@ pub fn face_blend(model: &mut Model, id: FeatureId, definition: &Value) -> R<Val
     let shapes = |refs: &[EntityRef]| -> Vec<Shape> { refs.iter().map(|r| model.shape(*r).clone()).collect() };
     let reverse1 = !values::opt_bool(definition, "flipSide1Normal")?.unwrap_or(false);
     let reverse2 = !values::opt_bool(definition, "flipSide2Normal")?.unwrap_or(false);
-    let op = occt::face_blend(&shapes(&side1), reverse1, &shapes(&side2), reverse2, radius)
-        .map_err(|_| regen_error("FACE_BLEND_FAILED"))?;
+    let Ok(op) = occt::face_blend(&shapes(&side1), reverse1, &shapes(&side2), reverse2, radius) else {
+        // Sheets apart: OCCT only rounds an edge they share.
+        return planar_face_blend(model, id, definition);
+    };
     // The sides' bodies give way to the blended sheet, which keeps the first's identity.
     let first = model.bodies[side1[0].body].clone();
     let mut bodies: Vec<usize> = side1.iter().chain(&side2).map(|r| r.body).collect();
@@ -618,6 +624,136 @@ pub fn face_blend(model: &mut Model, id: FeatureId, definition: &Value) -> R<Val
             ..crate::model::NewBody::replacing(&first, sheet)
         };
         model.add_body(new, &crate::model::Origins::default(), &info, &|_| None);
+    }
+    Ok(Value::UNDEFINED)
+}
+
+/// A face blend between two planar sides, meeting or not: the section runs round the line where their planes meet,
+/// from a point set back along each (as a fillet's, [`section_fillet`]: a radius, two radii — the centre `radius`
+/// from side 1 and `secondRadius` from side 2 — or a width, the chord between the two points, `widthRatio` the
+/// ratio of side 2's setback to side 1's), swept along that line over both sides. With `WALLS` trimming each side
+/// is cut back to where the blend meets it and all are sewn into one sheet; untrimmed or detached, the blend is a
+/// sheet of its own and the sides stay as they are.
+fn planar_face_blend(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
+    use crate::values::{add, cross, dot, normalize, scale, sub};
+    let failed = || regen_error("FACE_BLEND_FAILED");
+    let side = |key: &str| -> R<Vec<EntityRef>> {
+        Ok(query::evaluate(model, field(definition, key))?.into_iter().filter(|r| r.kind == EntityType::Face).collect())
+    };
+    let (side1, side2) = (side("side1")?, side("side2")?);
+    if side1.is_empty() || side2.is_empty() {
+        return Err(regen_error("FACE_BLEND_SELECT_FACES"));
+    }
+    let ([f1], [f2]) = (&side1[..], &side2[..]) else {
+        return Err(error("@opFaceBlend: blends other than between two single faces aren't supported yet"));
+    };
+    let (face1, face2) = (model.shape(*f1).clone(), model.shape(*f2).clone());
+    let not_planar = || error("@opFaceBlend: blends other than between planar faces aren't supported yet");
+    let (plane1, plane2) =
+        (face1.face_plane().map_err(|_| not_planar())?, face2.face_plane().map_err(|_| not_planar())?);
+    // Where the planes meet: along `t`, through `c`.
+    let t = normalize(cross(plane1.normal, plane2.normal)).ok_or_else(failed)?;
+    let (n1, n2) = (plane1.normal, plane2.normal);
+    let (h1, h2) = (dot(n1, plane1.origin), dot(n2, plane2.origin));
+    let k = dot(n1, n2);
+    let det = 1.0 - k * k;
+    let c = add(scale(n1, (h1 - k * h2) / det), scale(n2, (h2 - k * h1) / det));
+    // Into each side from that line, square to it.
+    let into = |plane: &occt::Frame, face: &Shape| -> R<occt::Vec3> {
+        let u = normalize(cross(plane.normal, t)).ok_or_else(failed)?;
+        let inner = face.face_inner_point().map_err(|_| failed())?;
+        Ok(if dot(sub(inner, c), u) >= 0.0 { u } else { scale(u, -1.0) })
+    };
+    let (u1, u2) = (into(&plane1, &face1)?, into(&plane2, &face2)?);
+    let angle = dot(u1, u2).clamp(-1.0, 1.0).acos();
+    let asymmetric = values::opt_bool(definition, "asymmetric")?.unwrap_or(false);
+    let (s1, s2) = if field(definition, "blendControlType").as_str() == Some("WIDTH") {
+        let width = values::length(field(definition, "width"), "opFaceBlend width")?;
+        let ratio = if asymmetric { field(definition, "widthRatio").as_number().unwrap_or(1.0) } else { 1.0 };
+        // The chord between the points set back s1 and ratio × s1.
+        let chord = (1.0 + ratio * ratio - 2.0 * ratio * angle.cos()).sqrt();
+        (width / chord, ratio * width / chord)
+    } else {
+        let radius = values::length(field(definition, "radius"), "opFaceBlend radius")?;
+        let second = if asymmetric {
+            values::length(field(definition, "secondRadius"), "opFaceBlend secondRadius")?
+        } else {
+            radius
+        };
+        ((second + radius * angle.cos()) / angle.sin(), (radius + second * angle.cos()) / angle.sin())
+    };
+    if !(s1 > 1e-9 && s2 > 1e-9) {
+        return Err(failed());
+    }
+    let section = match field(definition, "crossSectionShape").as_str() {
+        Some("CONIC") => Section::Conic(field(definition, "rho").as_number().ok_or_else(failed)?),
+        Some("CURVATURE") => Section::Curvature(field(definition, "magnitude").as_number().ok_or_else(failed)?),
+        _ => Section::Circular,
+    };
+    // Along the line, over both sides (a little further, then trimmed back by the sides' extent).
+    let extent = |face: &Shape| -> Vec<f64> {
+        face.sub_shapes(ShapeKind::Vertex)
+            .iter()
+            .filter_map(|v| v.vertex_point().ok())
+            .map(|p| dot(sub(p, c), t))
+            .collect()
+    };
+    let along: Vec<f64> = extent(&face1).into_iter().chain(extent(&face2)).collect();
+    let (lo, hi) = along.iter().fold((f64::MAX, f64::MIN), |(a, b), &x| (a.min(x), b.max(x)));
+    let corner = add(c, scale(t, lo));
+    let (p1, p2) = (add(corner, scale(u1, s1)), add(corner, scale(u2, s2)));
+    let curve = match section {
+        Section::Circular if (s1 - s2).abs() < 1e-12 => {
+            let bisector = normalize(add(u1, u2)).ok_or_else(failed)?;
+            let radius = s1 * (angle / 2.0).tan();
+            let centre = add(corner, scale(bisector, radius / (angle / 2.0).sin()));
+            occt::arc_through(p2, sub(centre, scale(bisector, radius)), p1).map_err(crate::occt_error)?
+        }
+        Section::Circular => {
+            crate::curve_extend::Cubic::rational_quadratic(p2, corner, p1, (angle / 2.0).sin())?.edge()?
+        }
+        Section::Conic(rho) => {
+            crate::curve_extend::Cubic::rational_quadratic(p2, corner, p1, rho / (1.0 - rho))?.edge()?
+        }
+        Section::Curvature(m) => curvature_section(p2, corner, p1, m)?,
+    };
+    let swept = occt::prism(&curve, scale(t, hi - lo)).map_err(crate::occt_error)?.shape();
+    let blend_faces = swept.sub_shapes(ShapeKind::Face);
+    // Each side cut back to where the blend meets it: what lies at least its setback from the line.
+    let trimmed = |face: &Shape, u: occt::Vec3, s: f64| -> R<Vec<Shape>> {
+        let big = 10.0 * (hi - lo + s1 + s2 + 1.0);
+        let frame = occt::Frame { origin: add(c, scale(u, s)), normal: u, x: t };
+        let slab = occt::plane_face(frame, -big, big, -big, big).map_err(crate::occt_error)?;
+        let half = occt::prism(&slab, scale(u, big)).map_err(crate::occt_error)?.shape();
+        let kept = occt::boolean(occt::BooleanKind::Intersection, std::slice::from_ref(face), &[half], true)
+            .map_err(|_| failed())?;
+        Ok(kept.shape().sub_shapes(ShapeKind::Face))
+    };
+    let trim = field(definition, "trim").as_str().unwrap_or("WALLS").to_string();
+    let detach = values::opt_bool(definition, "detach")?.unwrap_or(false);
+    let info = crate::model::Info::new(id);
+    if trim == "WALLS" && !detach {
+        let mut faces = trimmed(&face1, u1, s1)?;
+        faces.extend(trimmed(&face2, u2, s2)?);
+        faces.extend(blend_faces);
+        let sewn = occt::sew_faces(&faces, 1e-6).map_err(|_| failed())?;
+        let first = model.bodies[f1.body].clone();
+        let mut bodies = vec![f1.body, f2.body];
+        bodies.sort_unstable();
+        bodies.dedup();
+        model.remove_bodies(&bodies);
+        let sheets = occt::connected_shells(&sewn).map_err(crate::occt_error)?;
+        for (i, sheet) in sheets.into_iter().enumerate() {
+            let new = crate::model::NewBody {
+                tid: (i == 0).then_some(first.tid),
+                body_type: crate::model::BodyType::Sheet,
+                ..crate::model::NewBody::replacing(&first, sheet)
+            };
+            model.add_body(new, &crate::model::Origins::default(), &info, &|_| None);
+        }
+    } else {
+        let sheet = occt::sew_faces(&blend_faces, 1e-6).map_err(|_| failed())?;
+        super::add_simple(model, sheet, crate::model::BodyType::Sheet, &info, false);
     }
     Ok(Value::UNDEFINED)
 }
