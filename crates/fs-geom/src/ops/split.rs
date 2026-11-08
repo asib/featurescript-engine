@@ -155,8 +155,13 @@ pub fn split_face(model: &mut Model, id: FeatureId, definition: &Value, tags: &v
         let plane = model.shape(r).face_plane().map_err(|_| crate::regen_error("SPLIT_FACE_FAILED"))?;
         tools.push(plane_through(plane, &bounds)?);
     }
+    // Tool faces, with their transient ids: the new edges they make are tracked back to them.
+    let mut tool_faces: Vec<(crate::model::Tid, Shape)> = Vec::new();
     for r in optional("faceTools")? {
         tools.push(model.shape(r).clone());
+        if r.kind == EntityType::Face {
+            tool_faces.push((model.tid(r), model.shape(r).clone()));
+        }
     }
     let body_tools = optional("bodyTools")?;
     for r in &body_tools {
@@ -223,6 +228,31 @@ pub fn split_face(model: &mut Model, id: FeatureId, definition: &Value, tags: &v
         let mut consumed: Vec<usize> = body_tools.iter().map(|r| r.body).collect();
         consumed.dedup();
         model.remove_bodies(&consumed);
+    }
+    // The new edges depend on the tool faces they lie on (std tracks them from the tools, partial dependency).
+    if !tool_faces.is_empty() {
+        for r in model.everything(Some(EntityType::Edge)) {
+            if !split_tids.contains(&model.bodies[r.body].tid) || !model.info(r).is_created_by(&id) {
+                continue;
+            }
+            let shape = model.shape(r).clone();
+            let samples: Vec<Vec3> =
+                [0.0, 0.5, 1.0].iter().filter_map(|&t| shape.edge_tangent(t, false).ok().map(|a| a.origin)).collect();
+            let from: Vec<crate::model::Tid> = tool_faces
+                .iter()
+                .filter(|(_, face)| {
+                    let surface = face.face_plane().ok();
+                    samples.iter().all(|p| match surface {
+                        Some(plane) => values::dot(values::sub(*p, plane.origin), plane.normal).abs() < 1e-7,
+                        None => occt::vertex(*p).and_then(|v| v.distance(face)).is_ok_and(|d| d.distance < 1e-7),
+                    })
+                })
+                .map(|(tid, _)| *tid)
+                .collect();
+            if !from.is_empty() {
+                model.add_ancestors(r, &from);
+            }
+        }
     }
     // The new edges: those this operation made on the split bodies.
     let mut edges = Vec::new();

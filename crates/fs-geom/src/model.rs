@@ -443,6 +443,21 @@ impl Model {
     }
 
     /// Changes the attributes of a body or entity.
+    /// Records that an entity was also made from these entities (not carrying on their identity).
+    pub fn add_ancestors(&mut self, r: EntityRef, from: &[Tid]) {
+        self.update_body(r.body, |body| {
+            let ancestry = match r.kind {
+                EntityType::Body => &mut body.ancestry,
+                EntityType::Face => &mut body.faces[r.index].ancestry,
+                EntityType::Edge => &mut body.edges[r.index].ancestry,
+                EntityType::Vertex => &mut body.vertices[r.index].ancestry,
+            };
+            let mut all = ancestry.all.to_vec();
+            all.extend(from.iter().filter(|t| !ancestry.all.contains(t)));
+            ancestry.all = all.into();
+        });
+    }
+
     pub fn update_attributes(&mut self, r: EntityRef, f: impl FnOnce(&mut Attributes)) {
         self.update_body(r.body, |body| {
             let attributes = match r.kind {

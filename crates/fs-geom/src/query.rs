@@ -122,6 +122,27 @@ fn resolve(model: &Model, query: &Value) -> R<Vec<EntityRef>> {
                 .filter(|r| model.info(*r).is_created_by(&feature))
                 .collect()
         }
+        // What opPattern's named instances made: each instance's id is the pattern's with its name added.
+        "PATTERN_INSTANCES" => {
+            let feature = values::feature_id(field(query, "featureId"), "qPatternInstances")?;
+            let kind = entity_type(field(query, "entityType"))?;
+            let names: Vec<std::rc::Rc<str>> = field(query, "instanceNames")
+                .as_array()
+                .map(|a| a.iter().filter_map(|v| v.as_str().map(std::rc::Rc::from)).collect())
+                .unwrap_or_default();
+            let ids: Vec<Vec<std::rc::Rc<str>>> = names
+                .iter()
+                .map(|name| {
+                    let mut id = feature.to_vec();
+                    id.push(name.clone());
+                    id
+                })
+                .collect();
+            visible(model, model.everything(kind))
+                .into_iter()
+                .filter(|r| ids.iter().any(|id| model.info(*r).is_created_by(id)))
+                .collect()
+        }
         "SKETCH_REGION" => {
             let feature = values::feature_id(field(query, "featureId"), "qSketchRegion")?;
             let filter_inner = field(query, "filterInnerLoops").as_bool().unwrap_or(false);
