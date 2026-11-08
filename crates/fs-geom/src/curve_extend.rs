@@ -22,9 +22,9 @@ use occt::{Shape, Vec3};
 /// The most a span of an arc or ellipse made a B-spline may have of its greatest distance from the centre times its
 /// angle to the fourth (m rad⁴).
 const SPAN_BOUND: f64 = 0.365e-3;
-/// How close a conic made a B-spline lies to the conic (m): c013's 4 mm ρ 0.7 conic took 8 spans (6.5 µm off at 4,
-/// 0.54 at 8), and c014's 2 × 5 mm quarter ellipse 4 (13 µm off at 2, 0.95 at 4).
-const CONIC_TOLERANCE: f64 = 2e-6;
+/// How close a conic made a B-spline must lie to the conic at the middle of each span, at the same parameter (m):
+/// this reproduces the knots of all 13 of Onshape's conic fillets in batches 003 and 052 (9 µm or 11 wouldn't).
+const CONIC_TOLERANCE: f64 = 1e-5;
 /// How far a curving extension's blend turns.
 const BLEND_TURN: f64 = 3.0 * std::f64::consts::PI / 180.0;
 
@@ -122,9 +122,10 @@ impl Cubic {
     }
 
     /// The conic arc from `p0` to `p2` with control point `p1` and middle weight `w` (the rational quadratic Bézier
-    /// `(b0 p0 + w b1 p1 + b2 p2) / (b0 + w b1 + b2)`), as Onshape makes a conic fillet's cross section (batch 003):
-    /// the clamped cubic spline through it at equal steps of its own parameter (0 to 1), with its exact derivatives
-    /// at the ends, its spans halved until the spline lies within [`CONIC_TOLERANCE`] of the conic.
+    /// `(b0 p0 + w b1 p1 + b2 p2) / (b0 + w b1 + b2)`), as Onshape makes a conic fillet's cross section (batches
+    /// 003, 052): the clamped cubic spline through it at its knots, in its own parameter (0 to 1), with its exact
+    /// derivatives at the ends. The knots start at the ends alone; each round, every span whose middle lies more
+    /// than [`CONIC_TOLERANCE`] from the conic at the same parameter is halved, and the spline fitted again.
     pub fn rational_quadratic(p0: Vec3, p1: Vec3, p2: Vec3, w: f64) -> R<Cubic> {
         let point = |t: f64| {
             let (b0, b1, b2) = ((1.0 - t) * (1.0 - t), 2.0 * t * (1.0 - t) * w, t * t);
@@ -141,39 +142,20 @@ impl Cubic {
             let (d, dd) = (b0 + b1 + b2, d0 + d1 + d2);
             scale(sub(scale(dn, d), scale(n, dd)), 1.0 / (d * d))
         };
-        let mut spans = 1;
+        let mut parameters = vec![0.0, 1.0];
         loop {
-            let parameters: Vec<f64> = (0..=spans).map(|i| i as f64 / spans as f64).collect();
             let points: Vec<Vec3> = parameters.iter().map(|t| point(*t)).collect();
             let cubic = Cubic::interpolate(&parameters, &points, tangent(0.0), tangent(1.0))?;
-            // The spline's distance from the conic, sampled along each span: each sample's nearest point on the
-            // conic found by Newton's method from the same parameter.
-            let deviation = (0..spans * 8)
-                .map(|k| {
-                    let u = (k as f64 + 0.5) / (spans * 8) as f64;
-                    let q = cubic.derivative(u, 0);
-                    let mut t = u;
-                    for _ in 0..20 {
-                        let (c, d) = (point(t), tangent(t));
-                        let h = 1e-6;
-                        let dd = scale(
-                            sub(tangent((t + h).min(1.0)), tangent((t - h).max(0.0))),
-                            1.0 / ((t + h).min(1.0) - (t - h).max(0.0)),
-                        );
-                        let r = sub(c, q);
-                        let (g, gp) = (dot(r, d), dot(d, d) + dot(r, dd));
-                        if gp.abs() < 1e-30 {
-                            break;
-                        }
-                        t = (t - g / gp).clamp(0.0, 1.0);
-                    }
-                    norm(sub(point(t), q))
-                })
-                .fold(0.0, f64::max);
-            if deviation <= CONIC_TOLERANCE || spans >= 256 {
+            let halves: Vec<f64> = parameters
+                .windows(2)
+                .map(|span| (span[0] + span[1]) / 2.0)
+                .filter(|&m| norm(sub(cubic.derivative(m, 0), point(m))) > CONIC_TOLERANCE)
+                .collect();
+            if halves.is_empty() || parameters.len() > 1024 {
                 return Ok(cubic);
             }
-            spans *= 2;
+            parameters.extend(halves);
+            parameters.sort_by(f64::total_cmp);
         }
     }
 
