@@ -1,0 +1,57 @@
+{
+  "batch": "044",
+  "title": "sheet metal lofts: L profiles, skew lines, unlike profiles, arcs, added to a plate",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "sheet-metal-loft",
+      "description": "walls lofted between an L and the same L 20 mm up and 10 mm along y",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "sheet-metal-loft",
+      "description": "a wall lofted between a line and a line 20 mm up turned 10 degrees",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "sheet-metal-loft",
+      "description": "walls lofted between an L and a line 20 mm up",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "sheet-metal-loft",
+      "description": "a wall lofted between an arc of radius 20 and one of radius 10 above it",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "sheet-metal-loft",
+      "description": "a wall lofted from a 40 × 30 plate's far edge to a line 20 mm up, added to the plate",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    }
+  ]
+}
