@@ -109,7 +109,7 @@ fn profile(model: &Model, definition: &Value) -> R<(Vec<Shape>, bool)> {
 }
 
 /// Keeps the pieces of `shape` that touch `start` (the profile at the start of the extrude).
-fn pieces_touching(shape: &Shape, start: &[Shape], kind: ShapeKind) -> Vec<Shape> {
+pub(super) fn pieces_touching(shape: &Shape, start: &[Shape], kind: ShapeKind) -> Vec<Shape> {
     shape
         .sub_shapes(kind)
         .into_iter()
@@ -289,7 +289,7 @@ fn moved_start(first: &[Shape], moved: &Shape) -> Vec<Shape> {
 }
 
 /// Whether a face lies on the cutting surface (sampled at its middle).
-fn on_surface(face: &Shape, cutter: &Shape) -> bool {
+pub(super) fn on_surface(face: &Shape, cutter: &Shape) -> bool {
     face.face_tangent_plane(0.5, 0.5)
         .is_ok_and(|p| occt::vertex(p.origin).is_ok_and(|v| v.distance(cutter).is_ok_and(|d| d.distance < 1e-7)))
 }

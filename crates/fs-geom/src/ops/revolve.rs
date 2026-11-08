@@ -26,7 +26,13 @@ pub fn revolve(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
         return Err(regen_error("REVOLVE_SELECT_FACES"));
     }
     let axis = values::line(field(definition, "axis"), "opRevolve axis")?;
-    let (start, sweep) = sweep_angles(definition)?;
+    let up_to = up_to_bound(model, definition, axis)?;
+    let (start, sweep) = if up_to.is_some() {
+        // Revolved nearly a whole turn, then cut where it meets the bound.
+        (0.0, TAU - 1e-4)
+    } else {
+        sweep_angles(definition)?
+    };
     let full = sweep >= TAU - 1e-12;
 
     // Faces revolve into solids; edges, joined into wires, into sheets.
@@ -68,6 +74,28 @@ pub fn revolve(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
         label: None,
         identity: None,
     });
+    let (kind, body_type) =
+        if solid { (ShapeKind::Solid, BodyType::Solid) } else { (ShapeKind::Shell, BodyType::Sheet) };
+    let pieces = match &up_to {
+        None => op.shape().sub_shapes(kind),
+        Some(cutter) => {
+            // The piece from the profile to where it first meets the bound; its faces on the bound are the end cap.
+            let split = occt::split(std::slice::from_ref(&op.shape()), std::slice::from_ref(cutter))
+                .map_err(|_| regen_error("REVOLVE_FAILED"))?;
+            let kept = super::extrude::pieces_touching(&split.shape(), std::slice::from_ref(&profile), kind);
+            for piece in &kept {
+                for f in piece.sub_shapes(ShapeKind::Face) {
+                    if f.distance(cutter).is_ok_and(|d| d.distance < 1e-7) && super::extrude::on_surface(&f, cutter) {
+                        end_cap.insert_all(&f);
+                    }
+                }
+            }
+            kept
+        }
+    };
+    if pieces.is_empty() {
+        return Err(regen_error("REVOLVE_FAILED"));
+    }
     let special = |s: &Shape| {
         if end_cap.contains(s) {
             Some(end_info.clone())
@@ -77,16 +105,75 @@ pub fn revolve(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
             None
         }
     };
-    let (kind, body_type) =
-        if solid { (ShapeKind::Solid, BodyType::Solid) } else { (ShapeKind::Shell, BodyType::Sheet) };
-    let pieces = op.shape().sub_shapes(kind);
-    if pieces.is_empty() {
-        return Err(regen_error("REVOLVE_FAILED"));
-    }
     for piece in pieces {
+        // A sheet revolved from edges faces along tangent × sweep direction in Onshape (as an extruded one faces
+        // along tangent × direction): the reverse of OCCT's surface of revolution. (Batch 006, c018.)
+        let piece = if solid { piece } else { piece.reversed() };
         model.add_body(NewBody::new(piece, body_type, created.clone()), &Origins::default(), &created, &special);
     }
     Ok(Value::UNDEFINED)
+}
+
+/// For an end bound up to a face, body or vertex, what to cut the revolve with: the face (a planar one as a large
+/// plane), the body, or the half plane from the axis through the vertex. Turned by the bound's offset angle.
+fn up_to_bound(model: &Model, definition: &Value, axis: occt::Axis) -> R<Option<Shape>> {
+    if let Some(start) = field(definition, "startBound").as_str()
+        && start != "BLIND"
+        && values::opt_bool(definition, "hasStartBound")?.unwrap_or(true)
+    {
+        return Err(error(format!("@opRevolve: startBound {start} isn't supported yet")));
+    }
+    let entity = |key: &str| -> R<Option<crate::model::EntityRef>> {
+        Ok(query::evaluate(model, field(definition, key))?.into_iter().next())
+    };
+    let reach = model
+        .bodies
+        .iter()
+        .filter_map(|b| b.shape.bounding_box(false).ok())
+        .map(|b| values::norm(values::sub(b.max, b.min)) + values::norm(values::sub(b.min, axis.origin)))
+        .fold(1.0, f64::max);
+    let cutter = match field(definition, "endBound").as_str() {
+        None | Some("BLIND") => return Ok(None),
+        Some("UP_TO_SURFACE") => {
+            let face =
+                entity("endBoundEntityFace")?.ok_or_else(|| regen_error("REVOLVE_SELECT_TERMINATING_SURFACE"))?;
+            let face = model.shape(face).clone();
+            match face.face_plane() {
+                Ok(plane) => {
+                    occt::plane_face(plane, -2.0 * reach, 2.0 * reach, -2.0 * reach, 2.0 * reach).map_err(occt_error)?
+                }
+                Err(_) => face,
+            }
+        }
+        Some("UP_TO_BODY") => {
+            let body = entity("endBoundEntityBody")?.ok_or_else(|| regen_error("REVOLVE_SELECT_TERMINATING_BODY"))?;
+            model.bodies[body.body].shape.clone()
+        }
+        Some("UP_TO_VERTEX") => {
+            let vertex =
+                entity("endBoundEntityVertex")?.ok_or_else(|| regen_error("REVOLVE_SELECT_TERMINATING_VERTEX"))?;
+            let at = model.shape(vertex).sub_shapes(ShapeKind::Vertex);
+            let at = at.first().and_then(|v| v.vertex_point().ok()).ok_or_else(|| regen_error("REVOLVE_FAILED"))?;
+            let rel = values::sub(at, axis.origin);
+            let radial = values::sub(rel, values::scale(axis.direction, values::dot(rel, axis.direction)));
+            let out = values::normalize(radial).ok_or_else(|| regen_error("REVOLVE_FAILED"))?;
+            let normal = values::cross(axis.direction, out);
+            let frame = occt::Frame { origin: axis.origin, normal, x: out };
+            occt::plane_face(frame, 0.0, 2.0 * reach, -2.0 * reach, 2.0 * reach).map_err(occt_error)?
+        }
+        Some(other) => return Err(error(format!("@opRevolve: endBound {other} isn't supported yet"))),
+    };
+    let offset = if values::opt_bool(definition, "endBoundHasOffset")?.unwrap_or(false) {
+        let a = values::angle(field(definition, "endBoundOffset"), "opRevolve endBoundOffset")?;
+        if values::opt_bool(definition, "endBoundOffsetFlip")?.unwrap_or(false) { a } else { -a }
+    } else {
+        0.0
+    };
+    Ok(Some(if offset == 0.0 {
+        cutter
+    } else {
+        occt::transform(&cutter, &rotation(axis, offset)).map_err(occt_error)?.shape()
+    }))
 }
 
 /// Where the revolve starts (radians from the profile, right-handed about the axis) and how far it sweeps.
