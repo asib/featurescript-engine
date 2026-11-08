@@ -28,6 +28,14 @@ struct Extremes {
     full_entrance: f64,
     first_exit: f64,
     full_exit: f64,
+    /// Where the cylinder first leaves the target after entering it (the range over the cylinder).
+    next_exit: (f64, f64),
+}
+
+/// Where a hole's cylinder meets each target, and its end bound entity, if any.
+struct Hits {
+    targets: Vec<(usize, Extremes)>,
+    entity: Option<(f64, f64)>,
 }
 
 /// A reference's range along the axis and the target that defines it.
@@ -82,6 +90,10 @@ pub fn hole(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
     let excluded = bodies("targetsToExcludeFromSubtraction")?;
     let subtract = values::opt_bool(definition, "subtractFromTargets")?.unwrap_or(true);
     let keep_tools = values::opt_bool(definition, "keepTools")?.unwrap_or(false);
+    let end_bound = match field(definition, "endBoundEntity") {
+        v if v.is_undefined() => None,
+        v => query::evaluate(model, v)?.into_iter().next(),
+    };
     let profile_names: Vec<Option<Rc<str>>> = profiles.iter().map(|p| p.name.clone()).collect();
     let max_radius = profiles.iter().map(|p| p.radius).fold(0.0, f64::max);
 
@@ -94,7 +106,9 @@ pub fn hole(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
             .iter()
             .filter_map(|&t| extremes(&model.bodies[t].shape, axis, max_radius).map(|e| (t, e)))
             .collect();
-        let Some(placed) = place_profiles(&profiles, &extremes)? else {
+        let entity = end_bound.and_then(|e| entity_hits(model, e, axis, max_radius));
+        let hits = Hits { targets: extremes, entity };
+        let Some(placed) = place_profiles(&profiles, &hits)? else {
             results.push(map(vec![("success", Value::bool(false))]));
             continue;
         };
@@ -117,10 +131,10 @@ pub fn hole(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
         );
         tools.push(body);
 
-        let first = extremes.iter().map(|(_, e)| e.first_entrance).fold(f64::INFINITY, f64::min);
+        let first = hits.targets.iter().map(|(_, e)| e.first_entrance).fold(f64::INFINITY, f64::min);
         let deepest = placed.iter().filter(|p| p.1 > 0.0).map(|p| p.0).fold(f64::NEG_INFINITY, f64::max);
         let mut depths = Vec::new();
-        for (t, e) in &extremes {
+        for (t, e) in &hits.targets {
             let entry = map(vec![
                 ("firstEntrance", Value::number(e.first_entrance)),
                 ("fullEntrance", Value::number(e.full_entrance)),
@@ -134,7 +148,7 @@ pub fn hole(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
             if references.iter().any(|(name, _): &(Rc<str>, Value)| *name == p.reference) {
                 continue;
             }
-            if let Some(r) = reference(&p.reference, &extremes)? {
+            if let Some(r) = reference(&p.reference, &hits)? {
                 let target =
                     r.target.map(|t| Value::string(tid_string(model.bodies[t].tid))).unwrap_or(Value::UNDEFINED);
                 let info = map(vec![
@@ -181,6 +195,7 @@ fn extremes(target: &Shape, axis: Axis, radius: f64) -> Option<Extremes> {
     }
     let mut entrances = Vec::new();
     let mut exits = Vec::new();
+    let mut next_exits = Vec::new();
     for o in origins {
         let Ok(crossings) = target.line_crossings(o, axis.direction) else { continue };
         if crossings.len() % 2 != 0 {
@@ -191,6 +206,7 @@ fn extremes(target: &Shape, axis: Axis, radius: f64) -> Option<Extremes> {
         if let (Some(first), Some(last)) = (inside.first(), inside.last()) {
             entrances.push(first.0);
             exits.push(last.1);
+            next_exits.push(first.1);
         }
     }
     if entrances.is_empty() {
@@ -203,11 +219,13 @@ fn extremes(target: &Shape, axis: Axis, radius: f64) -> Option<Extremes> {
         full_entrance: max(&entrances),
         first_exit: min(&exits),
         full_exit: max(&exits),
+        next_exit: (min(&next_exits), max(&next_exits)),
     })
 }
 
-/// A `HolePositionReference`'s range along the axis, or `None` if no target defines it.
-fn reference(name: &str, extremes: &[(usize, Extremes)]) -> R<Option<Reference>> {
+/// A `HolePositionReference`'s range along the axis, or `None` if nothing defines it.
+fn reference(name: &str, hits: &Hits) -> R<Option<Reference>> {
+    let extremes = &hits.targets;
     let pick = |key: fn(&Extremes) -> f64, furthest: bool| {
         extremes.iter().copied().reduce(|a, b| {
             let better = if furthest { key(&b.1) > key(&a.1) } else { key(&b.1) < key(&a.1) };
@@ -231,16 +249,24 @@ fn reference(name: &str, extremes: &[(usize, Extremes)]) -> R<Option<Reference>>
             end: e.full_exit,
             target: Some(t),
         }),
+        // Where the hole first leaves the first target it enters. (Batch 007, c014.)
+        "UP_TO_NEXT" => pick(|e| e.first_entrance, false).map(|(t, e)| Reference {
+            start: e.next_exit.0,
+            end: e.next_exit.1,
+            target: Some(t),
+        }),
+        // Where the hole meets the end bound entity. (Batch 007, c015.)
+        "UP_TO_ENTITY" => hits.entity.map(|(start, end)| Reference { start, end, target: None }),
         other => return Err(error(format!("@opHole: HolePositionReference.{other} isn't supported yet"))),
     })
 }
 
 /// Each profile's distance along the axis and radius, with each profile identical to the one before it dropped, and
 /// the index of the profile it came from. `None` if a reference the profiles need meets no target.
-fn place_profiles(profiles: &[Profile], extremes: &[(usize, Extremes)]) -> R<Option<Vec<(f64, f64, usize)>>> {
+fn place_profiles(profiles: &[Profile], hits: &Hits) -> R<Option<Vec<(f64, f64, usize)>>> {
     let mut placed: Vec<(f64, f64, usize)> = Vec::new();
     for (k, p) in profiles.iter().enumerate() {
-        let Some(r) = reference(&p.reference, extremes)? else { return Ok(None) };
+        let Some(r) = reference(&p.reference, hits)? else { return Ok(None) };
         let at = if p.before { r.start } else { r.end } + p.position;
         if let Some(last) = placed.last()
             && (last.0 - at).abs() < 1e-9
@@ -251,6 +277,31 @@ fn place_profiles(profiles: &[Profile], extremes: &[(usize, Extremes)]) -> R<Opt
         placed.push((at, p.radius, k));
     }
     Ok(Some(placed))
+}
+
+/// Where the hole's cylinder (sampled along its axis and lines around it) meets an end bound face, or where a
+/// vertex projects onto the axis: the nearest crossing ahead of the axis point, as a range over the samples.
+fn entity_hits(model: &Model, entity: crate::model::EntityRef, axis: Axis, radius: f64) -> Option<(f64, f64)> {
+    let shape = model.shape(entity);
+    if entity.kind == crate::model::EntityType::Vertex {
+        let p = shape.vertex_point().ok()?;
+        let t = dot(sub(p, axis.origin), axis.direction);
+        return Some((t, t));
+    }
+    let u = perpendicular(axis.direction);
+    let v = cross(axis.direction, u);
+    let mut origins = vec![axis.origin];
+    for k in 0..16 {
+        let a = k as f64 * std::f64::consts::TAU / 16.0;
+        origins.push(add(axis.origin, add(scale(u, radius * a.cos()), scale(v, radius * a.sin()))));
+    }
+    let hits: Vec<f64> = origins
+        .iter()
+        .filter_map(|o| shape.line_crossings(*o, axis.direction).ok()?.into_iter().find(|t| *t > -1e-9))
+        .collect();
+    let min = hits.iter().copied().fold(f64::INFINITY, f64::min);
+    let max = hits.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    min.is_finite().then_some((min, max))
 }
 
 fn perpendicular(d: Vec3) -> Vec3 {
