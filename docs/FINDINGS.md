@@ -333,6 +333,12 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   way the material lies from the definition sheet ((20, 15, 2) to (20, 15, 0) on a plate's top; a flipped form's
   from (20, 15, 0) to (20, 15, −2)).
 
+- **Sheet metal hole patterns** (batch 032): std finds a hole's faces on the part by the names `@opHole` gave its
+  tool's faces (the part's faces cut by a registered tool carry them), attributes them, and on a face pattern asks
+  `evSheetMetalHoleToolBodies` for the tools, copies them by the pattern's transforms (`PROPAGATE_NEW_HOLE`) and
+  registers the copies. Registering, it first copies the hole's own tools (`PROPAGATE_SAME_HOLE`), so they stay the
+  hole's for `qOpHoleFace`. It looks a hole's depths up under the sheet metal definition, and attributes the flat
+  pattern's faces too. A countersunk hole's shaft comes out 0.00126 mm² short in the engine (known, small).
 - **External threads** (batch 031) split the shaft at the thread's depth, chamfer its end, or cut an undercut by
   splitting the shaft face twice and offsetting the piece between inward; the thread is a hole attribute on the
   shaft's face (`isExternalThread`, major and minor diameters, pitch).
