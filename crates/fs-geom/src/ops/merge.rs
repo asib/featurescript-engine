@@ -84,6 +84,13 @@ pub fn merge(model: &mut Model, id: FeatureId, definition: &Value, source: &Sour
             let mapped = copies.iter().find(|(old, _)| *old == owner).map(|(_, new)| *new);
             model.update_body(first + i, |b| b.owner = mapped);
         }
+        // A composite part holds the copies of the bodies it held (batch 045).
+        if let Some((members, closed)) = &source.bodies[i].composite {
+            let mapped: Rc<[crate::model::Tid]> =
+                members.iter().filter_map(|m| copies.iter().find(|(old, _)| old == m).map(|(_, new)| *new)).collect();
+            let closed = *closed;
+            model.update_body(first + i, |b| b.composite = Some((mapped, closed)));
+        }
     }
     // Sheet metal attributes name entities and bodies by transient id (the association between a model's definition
     // and its parts, the tools registered on its walls): they name the copies now. Two copies of one source would
