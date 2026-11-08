@@ -49,7 +49,7 @@ Onshape.
 | `trimCurve` (moveCurveBoundary.fs) | matches: extending a straight curve by a distance and up to a plane, trimming it by a plane and by another straight curve; extending up to a cylinder; arcs, cubic B-splines and chains ending in them extended at their end, straight on and curving on, by a distance and up to a plane (Onshape's B-spline knots and poles), arcs trimmed by a plane (036); extended at their start, B-splines trimmed by a plane, arcs trimmed by a line, elliptical arcs extended (038). Not yet: curves other than lines trimmed by or extended up to curves other than lines, rational or other degree B-splines | 005, 018, 021, 027, 036, 038 |
 | `curvePattern` (curvePattern.fs) | matches: equal and distance spacing along an arc, keeping orientation, locked to a face | 005, 018, 019, 020 |
 | `offsetSurface` (offsetSurface.fs) | matches: faces of solids and sheets, both ways | 005 |
-| `extendSurface` (extend.fs) | matches: planar sheets extended by a distance, all or some edges; a cylindrical sheet, carried on round its cylinder; up to a plane and a vertex, up to a part; sheets extruded from curves, past a curve's end straight on and keeping its curvature, and along the extrusion (039). Known gap: cones and spheres (039 c001–c004). Not yet: other curved sheets | 005, 018, 020, 021, 027, 039 |
+| `extendSurface` (extend.fs) | matches: planar sheets extended by a distance, all or some edges; a cylindrical sheet, carried on round its cylinder; up to a plane and a vertex, up to a part; sheets extruded from curves, past a curve's end straight on and keeping its curvature, and along the extrusion (039); cones round and along, spheres past a circle (039, each point carried the distance along its circle or line). Known gaps: spheres round (039 c003), and the vertex Onshape keeps past a sphere's top (c004). Not yet: other curved sheets | 005, 018, 020, 021, 027, 039 |
 | `fill` (fillSurface.fs) | matches: planar loops (also a triangle; see known gaps for its plane's origin). Not yet: non-planar fills, tangency and curvature conditions, guides | 005, 024 |
 | `boundarySurface` (bsurf.fs) | Known gap: two u profiles give a surface 4e-6 off Onshape's (c019). Not yet: v profiles, end conditions | 005 |
 | `ruledSurface` (ruledSurface.fs) | matches: normal to a face, aligned with a direction (also as angle 0 from it), tangent to a face, 30° from a vector; vertex overrides on a straight edge (a width, up to a point); normal to a curved face along its edge, the rulings turning with it, with width overrides when they stay in a plane (040, to Onshape's approximations). Not yet: rulings turning out of a plane along a curved edge (std's up-to override takes only vertices and mate connectors) | 005, 018, 019, 024, 040 |
@@ -152,11 +152,10 @@ filters (as if there were none).
 
 What fixtures show Onshape doing that the engine can't yet:
 
-- **Cones and spheres extended** (batch 039 c001–c004). Onshape carries the surface on, but the distance isn't
-  arc length at an obvious radius: a quarter cone (radii 10 to 5) extended 5 mm round turns 0.666633 rad more
-  (5 mm of arc at radius 7.50037, not quite the edge's middle radius 7.5); a band of a sphere (radius 10, 0° to
-  60°) turns 0.621337 rad (5 mm at radius 8.047); extended past its top it reaches latitude 88.654° (5.0011 mm of
-  arc). The rule isn't known yet.
+- **Spheres extended round** (batch 039 c003): a band of a sphere extended 5 mm round, at its edge along a
+  meridian, turns 0.5 rad at the equator (5 mm of arc) but 1.106 rad at latitude 60° (5.53 mm), on a wobbly
+  approximated edge; the rule isn't known yet. Extended past its top it matches, but Onshape keeps a vertex where
+  one side's meridian met the old edge (c004: 5 edges to the engine's 4).
 - **Where `evPlane` puts the origin of a rotated copy's piece bounded by a curve** (batch 037 c004): the engine
   carries the copy's axes and stretches the box as for straight-edged faces, and lands 0.025 mm off Onshape's,
   all across the copy's axes: the side where the face touches the box along the curve evidently stretches by more.

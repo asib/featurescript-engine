@@ -199,6 +199,12 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   bridging curve's direction at an arc depends on it. (Batch 010, c006.)
 - **Variable fillets with a smooth transition** vary the radius as 3t² − 2t³ between the vertices (level at both
   ends): the volume matches that law exactly. (Batch 010, c002.)
+- **Cones and spheres extended** (batch 039) are carried on along the surface, each point of the edge the distance
+  along the surface's circle or line through it, square to the edge: round a quarter cone (radii 10 to 5), every
+  point goes 5 mm round its own circle, so the new edge is a curve turning 0.5 rad at radius 10 and 1 rad at
+  radius 5 (Onshape's box reaches exactly −10 sin 0.5); past its narrow end, 5 mm along the generators; past a
+  sphere band's top, 5 mm along the meridians (to latitude 88.648°). Onshape's new edges are approximations, a
+  little off that (areas within 0.03 mm²). A sphere extended round doesn't follow it (1.106 rad at radius 5).
 - **`evPlane`'s origin** is the middle of a box round the face in its plane's axes, but on each side where the
   face only touches that box at a point (a vertex, or where a curve turns) rather than along a straight edge, the
   box reaches 0.6% of its size further out (batch 004 c034, batch 024 c008–c010, to 1e-7). A filled right
