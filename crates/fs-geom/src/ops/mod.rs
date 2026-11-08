@@ -82,19 +82,51 @@ pub fn register(m: &mut GeomBuiltins) {
         let definition = fs_interp::builtins::arg(&args, 1, "evCornerType")?.clone();
         model_mut(&args, "evCornerType", |model| sheet_metal::corner_type(&tags, model, &definition))
     });
-    // The tools behind sheet metal holes and forms a face pattern carries along. Only patterns of faces without
-    // holes made by the hole feature, or forms, are supported yet: those have none.
+    // The tools behind sheet metal holes a face pattern carries along (batch 032): each registered tool a hole
+    // face lies on, with the wall it's registered on and that wall's frame (the identity: the engine keeps tools
+    // where they cut). Forms aren't supported yet.
     m.insert("evSheetMetalHoleToolBodies", |_, args| {
         let definition = fs_interp::builtins::arg(&args, 1, "evSheetMetalHoleToolBodies")?.clone();
         model_mut(&args, "evSheetMetalHoleToolBodies", |model| {
-            if !query::evaluate(model, field(&definition, "sheetMetalHoleFaces"))?.is_empty() {
-                return Err(error("@evSheetMetalHoleToolBodies: patterns of sheet metal holes aren't supported yet"));
+            let found: Vec<crate::model::EntityRef> = query::evaluate(model, field(&definition, "sheetMetalHoleFaces"))?
+                .into_iter()
+                .filter(|r| r.kind == EntityType::Face)
+                .collect();
+            let faces: Vec<Shape> = found.iter().map(|r| model.shape(*r).clone()).collect();
+            // Only the models the faces' parts belong to.
+            let models: Vec<crate::model::Tid> = found
+                .iter()
+                .filter_map(|r| sheet_metal::definition_of_part(model, r.body))
+                .map(|d| model.bodies[d].tid)
+                .collect();
+            let points: Vec<occt::Vec3> = faces.iter().filter_map(|f| f.face_inner_point().ok()).collect();
+            let identity = || {
+                let row = |i: usize| Value::array((0..3).map(|j| Value::number(if i == j { 1.0 } else { 0.0 })).collect());
+                crate::values::map(vec![
+                    ("linear", Value::array((0..3).map(row).collect())),
+                    ("translation", Value::array(vec![Value::number(0.0); 3])),
+                ])
+            };
+            let (mut bodies, mut walls, mut transforms) = (Vec::new(), Vec::new(), Vec::new());
+            for def in model.bodies.iter().filter(|b| b.is_sheet_metal_definition() && models.contains(&b.tid)) {
+                for wall in &def.faces {
+                    for tool in sheet_metal::wall_tool_tids_of(&wall.attributes) {
+                        let Some(body) = model.bodies.iter().find(|b| b.tid == tool) else { continue };
+                        let touches = points.iter().any(|p| {
+                            occt::vertex(*p).and_then(|v| v.distance(&body.shape)).is_ok_and(|d| d.distance < 1e-7)
+                        });
+                        if touches && !bodies.iter().any(|b: &Value| b.as_str() == Some(&query::tid_string(tool))) {
+                            bodies.push(Value::string(query::tid_string(tool)));
+                            walls.push(Value::string(query::tid_string(wall.tid)));
+                            transforms.push(identity());
+                        }
+                    }
+                }
             }
-            let none = || Value::array(Vec::new());
             Ok(crate::values::map(vec![
-                ("sheetMetalHoleToolBodies", none()),
-                ("sheetMetalHoleToolWalls", none()),
-                ("sheetMetalHoleToolTransforms", none()),
+                ("sheetMetalHoleToolBodies", Value::array(bodies)),
+                ("sheetMetalHoleToolWalls", Value::array(walls)),
+                ("sheetMetalHoleToolTransforms", Value::array(transforms)),
             ]))
         })
     });

@@ -44,6 +44,11 @@ fn wall_tool_tids(attributes: &Attributes) -> Vec<crate::model::Tid> {
         .unwrap_or_default()
 }
 
+/// `wall_tool_tids` for other modules.
+pub(crate) fn wall_tool_tids_of(attributes: &Attributes) -> Vec<crate::model::Tid> {
+    wall_tool_tids(attributes)
+}
+
 /// A form registered on a wall (`formedToolBodyIds` of its wall attribute): the transient ids of its part to add, its
 /// part to remove and its placement mate connector.
 struct Form {
