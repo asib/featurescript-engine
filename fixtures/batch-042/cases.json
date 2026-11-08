@@ -1,0 +1,37 @@
+{
+  "batch": "042",
+  "title": "sheet metal recognized: rounded bends, rolled walls, several thicknesses",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "sheet-metal-recognize",
+      "description": "an L bracket 2 mm thick with its bend rounded 2 mm inside, extruded 30 mm, recognized",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "sheet-metal-recognize",
+      "description": "half a tube 2 mm thick, extruded 30 mm, recognized as a rolled wall",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "sheet-metal-recognize",
+      "description": "an L bracket 2 mm thick at its base and 3 mm at its upright, recognized",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    }
+  ]
+}
