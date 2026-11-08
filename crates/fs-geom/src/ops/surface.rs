@@ -178,8 +178,11 @@ pub fn extend_sheet(model: &mut Model, id: FeatureId, definition: &Value) -> R<V
     }
     let mut results = Vec::new();
     for (b, edges) in groups {
-        let shape = occt::extend_planar_sheet(&model.bodies[b].shape, &edges, distance)
-            .map_err(|_| regen_error("EXTEND_SHEET_BODY_FAILED"))?;
+        let shape = match extend_cylindrical(&model.bodies[b], &edges, distance)? {
+            Some(patch) => patch,
+            None => occt::extend_planar_sheet(&model.bodies[b].shape, &edges, distance)
+                .map_err(|_| regen_error("EXTEND_SHEET_BODY_FAILED"))?,
+        };
         results.push((b, shape));
     }
     let info = Info::new(id);
@@ -193,6 +196,33 @@ pub fn extend_sheet(model: &mut Model, id: FeatureId, definition: &Value) -> R<V
         model.add_body(NewBody::replacing(&old, shape), &origins, &info, &|_| None);
     }
     Ok(Value::UNDEFINED)
+}
+
+/// A sheet of one cylindrical face bounded by its parameter lines, grown at the chosen edges: round the cylinder
+/// by the distance as arc length, along it by the distance (batch 018: Onshape carries the cylinder on).
+fn extend_cylindrical(body: &crate::model::Body, edges: &[Shape], distance: f64) -> R<Option<Shape>> {
+    let [face] = &body.faces[..] else { return Ok(None) };
+    let face = &face.shape;
+    let Ok(s) = face.surface_definition() else { return Ok(None) };
+    if s.kind != 1 {
+        return Ok(None);
+    }
+    let ((u0, v0), (u1, v1)) = face.face_uv_bounds().map_err(occt_error)?;
+    let (mut u, mut v) = ((u0, u1), (v0, v1));
+    let du = distance / s.radius1;
+    for e in edges {
+        let mid = e.edge_tangent(0.5, false).map_err(occt_error)?.origin;
+        let (fu, fv) = face.face_fraction(mid).map_err(occt_error)?;
+        let near = |f: f64, at: f64| (f - at).abs() < 1e-6;
+        match () {
+            _ if near(fu, 0.0) => u.0 -= du,
+            _ if near(fu, 1.0) => u.1 += du,
+            _ if near(fv, 0.0) => v.0 -= distance,
+            _ if near(fv, 1.0) => v.1 += distance,
+            _ => return Ok(None),
+        }
+    }
+    occt::surface_patch(face, u, v).map(Some).map_err(|_| regen_error("EXTEND_SHEET_BODY_FAILED"))
 }
 
 pub fn curves_on_face(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {

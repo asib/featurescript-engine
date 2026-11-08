@@ -542,6 +542,18 @@ std::unique_ptr<Shape> cylinder_face(Frame frame, double radius, double half_hei
   return wrap(maker.Face());
 }
 
+// A face on the same surface as `face_shape`, bounded by the parameter rectangle [u0, u1] x [v0, v1], facing the
+// same way.
+std::unique_ptr<Shape> surface_patch(const Shape &face_shape, double u0, double u1, double v0, double v1) {
+  const TopoDS_Face &face = TopoDS::Face(face_shape.shape);
+  Handle(Geom_Surface) surface = BRep_Tool::Surface(face);
+  BRepBuilderAPI_MakeFace maker(surface, u0, u1, v0, v1, Precision::Confusion());
+  if (!maker.IsDone()) throw std::runtime_error("surface patch failed");
+  TopoDS_Face patch = maker.Face();
+  if (face.Orientation() == TopAbs_REVERSED) patch.Reverse();
+  return wrap(patch);
+}
+
 // A planar face with corners at some of its vertices rounded to `size` (or, for `chamfer`, cut back `size` along
 // both edges), as a 2D fillet in its plane.
 std::unique_ptr<Shape> face_corners_2d(const Shape &face_shape, const ShapeList &vertices, double size, bool chamfer) {

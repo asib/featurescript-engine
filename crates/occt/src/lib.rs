@@ -170,6 +170,7 @@ mod ffi {
         fn extend_planar_face(sheet: &Shape, edges: &ShapeList, distances: &[f64]) -> Result<UniquePtr<Shape>>;
         fn sew_faces(faces: &ShapeList, tolerance: f64) -> Result<UniquePtr<Shape>>;
         fn cylinder_face(frame: Frame, radius: f64, half_height: f64) -> Result<UniquePtr<Shape>>;
+        fn surface_patch(face: &Shape, u0: f64, u1: f64, v0: f64, v1: f64) -> Result<UniquePtr<Shape>>;
         fn face_corners_2d(face: &Shape, vertices: &ShapeList, size: f64, chamfer: bool) -> Result<UniquePtr<Shape>>;
         fn iso_curves(face: &Shape, along_u: bool, t: f64) -> Result<UniquePtr<ShapeList>>;
         fn face_periodic(face: &Shape, along_u: bool) -> Result<bool>;
@@ -766,6 +767,11 @@ pub fn extend_planar_face(face: &Shape, edges: &[Shape], distances: &[f64]) -> R
 
 /// A face on the cylinder about `frame`'s normal through its origin, all the way round and `half_height` along the
 /// axis each way, its normal pointing away from the axis.
+/// A face on the same surface as `face`, bounded by the parameter rectangle `u` × `v`, facing the same way.
+pub fn surface_patch(face: &Shape, u: (f64, f64), v: (f64, f64)) -> Result<Shape> {
+    Ok(Shape::new(ffi::surface_patch(&face.0, u.0, u.1, v.0, v.1)?))
+}
+
 pub fn cylinder_face(frame: Frame, radius: f64, half_height: f64) -> Result<Shape> {
     Ok(Shape::new(ffi::cylinder_face(frame, radius, half_height)?))
 }
