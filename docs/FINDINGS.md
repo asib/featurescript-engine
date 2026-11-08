@@ -334,7 +334,7 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   from (20, 15, 0) to (20, 15, −2)).
 
 - **Section parts** (batch 025) delete every body they aren't given, sketches included. A jog section removes the
-  side of its line towards the sketch plane's −x (with the line's points going down its y), not the +x side its
+  side of its line towards the sketch plane's −x, whichever way the line's points run, not the +x side its
   documentation names; a partial section of a line across the whole part cuts as a full one does.
 - **Revolve start bounds** (batch 024). With a blind end and a start bound up to a face or vertex, the revolve
   runs from the end's angle back to where the bound is first met going *forward* from the profile: a plane y = −5
