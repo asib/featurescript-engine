@@ -373,16 +373,24 @@ std::unique_ptr<Operation> offset_faces_op(const Shape &solid, const ShapeList &
   if (!maker.IsDone()) throw std::runtime_error("offset faces failed");
   auto op = std::make_unique<Operation>();
   op->history = new BRepTools_History();
-  // BRepOffset_MakeOffset has no history interface: record each input face's image.
-  TopTools_IndexedMapOfShape inputs;
-  TopExp::MapShapes(solid.shape, TopAbs_FACE, inputs);
-  for (int i = 1; i <= inputs.Extent(); ++i) {
-    TopTools_ListOfShape images;
-    maker.OffsetFacesFromShapes().LastImage(inputs(i), images);
-    for (const TopoDS_Shape &image : images)
-      if (!image.IsSame(inputs(i))) op->history->AddModified(inputs(i), image);
-  }
   op->result = maker.Shape();
+  // BRepOffset_MakeOffset has no history interface: record each input face's and edge's image in the result.
+  TopTools_IndexedMapOfShape result_faces, result_edges;
+  TopExp::MapShapes(op->result, TopAbs_FACE, result_faces);
+  TopExp::MapShapes(op->result, TopAbs_EDGE, result_edges);
+  auto record = [&](TopAbs_ShapeEnum kind, const BRepAlgo_Image &image_of, const TopTools_IndexedMapOfShape &result) {
+    TopTools_IndexedMapOfShape inputs;
+    TopExp::MapShapes(solid.shape, kind, inputs);
+    for (int i = 1; i <= inputs.Extent(); ++i) {
+      if (!image_of.HasImage(inputs(i))) continue;
+      TopTools_ListOfShape images;
+      image_of.LastImage(inputs(i), images);
+      for (const TopoDS_Shape &image : images)
+        if (!image.IsSame(inputs(i)) && result.Contains(image)) op->history->AddModified(inputs(i), image);
+    }
+  };
+  record(TopAbs_FACE, maker.OffsetFacesFromShapes(), result_faces);
+  record(TopAbs_EDGE, maker.OffsetEdgesFromShapes(), result_edges);
   return op;
 }
 
@@ -407,6 +415,19 @@ std::unique_ptr<Operation> replace_planar_face_op(const Shape &solid, const Shap
   const TopoDS_Face &f = TopoDS::Face(face.shape);
   if (BRepAdaptor_Surface(f).GetType() != GeomAbs_Plane) throw std::runtime_error("replace face: not planar");
   gp_Dir n = face_normal(f);
+  // Replacing a face with (nearly) its own plane changes nothing: frame mitres a tangent joint that way, and a joint
+  // drawn tangent to a few digits is still one.
+  {
+    GProp_GProps props;
+    BRepGProp::SurfaceProperties(f, props);
+    gp_Pln plane(pnt(target.origin), dir(target.normal));
+    if (n.IsParallel(dir(target.normal), 1e-5) && plane.Distance(props.CentreOfMass()) < 1e-7) {
+      auto op = std::make_unique<Operation>();
+      op->history = new BRepTools_History();
+      op->result = solid.shape;
+      return op;
+    }
+  }
   TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
   TopExp::MapShapesAndUniqueAncestors(solid.shape, TopAbs_EDGE, TopAbs_FACE, edge_faces);
   for (TopExp_Explorer it(f, TopAbs_EDGE); it.More(); it.Next()) {
@@ -417,7 +438,8 @@ std::unique_ptr<Operation> replace_planar_face_op(const Shape &solid, const Shap
       BRepAdaptor_Surface surface(TopoDS::Face(g));
       if (surface.GetType() == GeomAbs_Plane) {
         if (std::abs(surface.Plane().Axis().Direction().Dot(n)) > 1e-9)
-          throw std::runtime_error("replace face: a neighbouring face isn't perpendicular");
+          throw std::runtime_error("replace face: a neighbouring face isn't perpendicular (" +
+                                   std::to_string(surface.Plane().Axis().Direction().Dot(n)) + ")");
       } else if (surface.GetType() == GeomAbs_Cylinder) {
         if (!surface.Cylinder().Axis().Direction().IsParallel(n, 1e-9))
           throw std::runtime_error("replace face: a neighbouring face isn't perpendicular");
@@ -604,7 +626,18 @@ std::unique_ptr<Shape> remove_faces_open(const Shape &solid, const ShapeList &fa
 // Sweeps a profile (a face or a wire) along a path wire. `first` and `last` hold the faces at each end for a face
 // profile.
 std::unique_ptr<Operation> sweep_op(const Shape &profile, const Shape &path) {
-  BRepOffsetAPI_MakePipe maker(TopoDS::Wire(path.shape), profile.shape);
+  // The profile is swept from the end of the path it sits at: if that's the far end, sweep along the path reversed.
+  TopoDS_Wire spine = TopoDS::Wire(path.shape);
+  {
+    TopoDS_Vertex first, last;
+    TopExp::Vertices(spine, first, last);
+    if (!first.IsNull() && !last.IsNull() && !first.IsSame(last)) {
+      BRepExtrema_DistShapeShape to_first(profile.shape, first), to_last(profile.shape, last);
+      if (to_first.IsDone() && to_last.IsDone() && to_last.Value() + 1e-9 < to_first.Value())
+        spine = TopoDS::Wire(spine.Reversed());
+    }
+  }
+  BRepOffsetAPI_MakePipe maker(spine, profile.shape);
   maker.Build();
   auto op = finish(one(profile.shape), maker, "sweep");
   if (profile.shape.ShapeType() == TopAbs_FACE) {
