@@ -118,6 +118,21 @@ impl Cubic {
         Ok(Cubic { knots, poles })
     }
 
+    /// The clamped cubic spline through `points` at increasing `parameters` (its knots), with the derivatives `start`
+    /// and `end` there.
+    pub fn interpolate(parameters: &[f64], points: &[Vec3], start: Vec3, end: Vec3) -> R<Cubic> {
+        let n = parameters.len();
+        if n < 2 || points.len() != n {
+            return Err(error("interpolation: needs as many points as parameters, two at least"));
+        }
+        let knots = [vec![parameters[0]; 4], parameters[1..n - 1].to_vec(), vec![parameters[n - 1]; 4]].concat();
+        let mut conditions: Vec<(f64, usize, Vec3)> = parameters.iter().zip(points).map(|(t, p)| (*t, 0, *p)).collect();
+        conditions.push((parameters[0], 1, start));
+        conditions.push((parameters[n - 1], 1, end));
+        let poles = fit(&knots, &conditions)?;
+        Ok(Cubic { knots, poles })
+    }
+
     /// The direction and speed at the end.
     fn end_tangent(&self) -> R<(Vec3, f64)> {
         let d = self.derivative(self.end(), 1);

@@ -537,7 +537,8 @@ pub fn ruled_surface(model: &mut Model, id: FeatureId, definition: &Value) -> R<
         v if v.is_undefined() => Vec::new(),
         v => faces_of(model, v)?,
     };
-    let direction_of = |edge: &Shape, angle: f64| -> R<occt::Vec3> {
+    // The ruling's direction at a fraction `at` of the way along the edge (by length).
+    let direction_at = |edge: &Shape, angle: f64, at: f64| -> R<occt::Vec3> {
         Ok(match kind.as_str() {
             "ALIGNED_WITH_VECTOR" => {
                 values::normalize(values::vec3(field(definition, "ruledDirection"), "ruledDirection")?)
@@ -554,7 +555,7 @@ pub fn ruled_surface(model: &mut Model, id: FeatureId, definition: &Value) -> R<
                     .into_iter()
                     .find(|e| e.is_same(edge))
                     .ok_or_else(|| regen_error("RULED_SURFACE_FAILED"))?;
-                let tangent = used.edge_tangent(0.5, true).map_err(occt_error)?;
+                let tangent = used.edge_tangent(at, true).map_err(occt_error)?;
                 let (u, v) = face.face_fraction(tangent.origin).map_err(occt_error)?;
                 let normal = face.face_tangent_plane(u, v).map_err(occt_error)?.normal;
                 let away = values::scale(values::cross(normal, tangent.direction), -1.0);
@@ -571,7 +572,7 @@ pub fn ruled_surface(model: &mut Model, id: FeatureId, definition: &Value) -> R<
             "ANGLE_FROM_VECTOR" => {
                 let v = values::normalize(values::vec3(field(definition, "ruledDirection"), "ruledDirection")?)
                     .ok_or_else(|| error("@opRuledSurface: zero direction"))?;
-                let tangent = edge.edge_tangent(0.5, true).map_err(occt_error)?;
+                let tangent = edge.edge_tangent(at, true).map_err(occt_error)?;
                 let outward = references
                     .iter()
                     .find(|f| f.sub_shapes(ShapeKind::Edge).iter().any(|e| e.is_same(edge)))
@@ -597,9 +598,13 @@ pub fn ruled_surface(model: &mut Model, id: FeatureId, definition: &Value) -> R<
             other => return Err(error(format!("@opRuledSurface: {other} isn't supported yet"))),
         })
     };
+    let direction_of = |edge: &Shape, angle: f64| direction_at(edge, angle, 0.5);
     let overrides = vertex_overrides(model, definition)?;
     let cubic = values::opt_bool(definition, "useCubicInterpolation")?.unwrap_or(true);
     let mut sheets = Vec::new();
+    // Planar faces from curved edges, by a point inside, with the frame Onshape gives their plane (x along the middle
+    // ruling): evPlane centres its origin in the face's box in those axes (batch 040).
+    let mut frames: Vec<(occt::Vec3, occt::Frame)> = Vec::new();
     for edge in &path {
         let direction = direction_of(edge, angle)?;
         let ruling = values::scale(direction, width);
@@ -618,6 +623,80 @@ pub fn ruled_surface(model: &mut Model, id: FeatureId, definition: &Value) -> R<
             }))
         };
         let (start, end) = (at(a)?, at(b)?);
+        // Along a curved edge, rulings normal or tangent to a face (or turned from a vector about the edge) turn
+        // with it: normal to a round from its top arc, they fan out (batch 040).
+        if edge.curve_type().ok() != Some(occt::CurveType::Line) && kind != "ALIGNED_WITH_VECTOR" {
+            let width_at = |p: occt::Vec3| {
+                overrides.iter().find(|o| values::norm(values::sub(o.vertex, p)) < 1e-7).and_then(|o| o.width)
+            };
+            let angle_at = |p: occt::Vec3| {
+                overrides.iter().find(|o| values::norm(values::sub(o.vertex, p)) < 1e-7).and_then(|o| o.angle)
+            };
+            if overrides.iter().any(|o| {
+                (values::norm(values::sub(o.vertex, a)) < 1e-7 || values::norm(values::sub(o.vertex, b)) < 1e-7)
+                    && (o.up_to.is_some() || o.direction.is_some())
+            }) {
+                return Err(error("@opRuledSurface: up to or along overrides on curved edges aren't supported yet"));
+            }
+            let (w0, w1) = (width_at(a).unwrap_or(width), width_at(b).unwrap_or(width));
+            let (a0, a1) = (angle_at(a).unwrap_or(angle), angle_at(b).unwrap_or(angle));
+            let smooth = |t: f64| if cubic { t * t * (3.0 - 2.0 * t) } else { t };
+            let far_at = |t: f64| -> R<occt::Vec3> {
+                let s = smooth(t);
+                let point = edge.edge_tangent(t, true).map_err(occt_error)?.origin;
+                let d = direction_at(edge, a0 + (a1 - a0) * s, t)?;
+                Ok(values::add(point, values::scale(d, w0 + (w1 - w0) * s)))
+            };
+            let n = 32;
+            let parameters: Vec<f64> = (0..=n).map(|k| k as f64 / n as f64).collect();
+            let points: Vec<occt::Vec3> = parameters.iter().map(|t| far_at(*t)).collect::<R<_>>()?;
+            // The far curve's derivative at an end, by a second order one-sided difference.
+            let slope = |t: f64, h: f64| -> R<occt::Vec3> {
+                let (f0, f1, f2) = (far_at(t)?, far_at(t + h)?, far_at(t + 2.0 * h)?);
+                Ok(values::scale(
+                    values::add(values::sub(values::scale(f1, 4.0), values::scale(f0, 3.0)), values::scale(f2, -1.0)),
+                    1.0 / (2.0 * h),
+                ))
+            };
+            let far =
+                crate::curve_extend::Cubic::interpolate(&parameters, &points, slope(0.0, 1e-3)?, slope(1.0, -1e-3)?)?;
+            // Only rulings in one plane, making a planar face, are supported yet.
+            let base = values::sub(points[n], points[0]);
+            let normal = values::normalize(values::cross(values::sub(b, a), base))
+                .or_else(|| values::normalize(values::cross(values::sub(points[0], a), base)))
+                .ok_or_else(|| regen_error("RULED_SURFACE_FAILED"))?;
+            let edge_points: Vec<occt::Vec3> = parameters
+                .iter()
+                .map(|t| edge.edge_tangent(*t, true).map(|l| l.origin))
+                .collect::<Result<_, _>>()
+                .map_err(occt_error)?;
+            if points.iter().chain(&edge_points).any(|p| values::dot(values::sub(*p, a), normal).abs() > 1e-9) {
+                return Err(error(
+                    "@opRuledSurface: rulings that turn out of a plane along a curved edge aren't supported yet",
+                ));
+            }
+            let far_edge = far.edge()?;
+            let edges = [
+                edge.clone(),
+                occt::line_edge(b, points[n]).map_err(occt_error)?,
+                far_edge,
+                occt::line_edge(points[0], a).map_err(occt_error)?,
+            ];
+            let face = occt::fill_edges(&edges).map_err(|_| regen_error("RULED_SURFACE_FAILED"))?;
+            // Facing along ruling × tangent at the middle, as a sheet swept along a straight edge does (the reverse
+            // of OCCT's prism).
+            let mid = direction_at(edge, angle, 0.5)?;
+            let tangent = edge.edge_tangent(0.5, true).map_err(occt_error)?.direction;
+            let facing = values::cross(mid, tangent);
+            let face_normal = face.face_plane().map_err(occt_error)?.normal;
+            let middle = edge.edge_tangent(0.5, true).map_err(occt_error)?.origin;
+            frames.push((
+                values::add(middle, values::scale(mid, width * 0.5)),
+                occt::Frame { origin: middle, normal: face_normal, x: mid },
+            ));
+            sheets.push(if values::dot(face_normal, facing) < 0.0 { face.reversed() } else { face });
+            continue;
+        }
         if start.is_none() && end.is_none() {
             let op = occt::prism(edge, ruling).map_err(|_| regen_error("RULED_SURFACE_FAILED"))?;
             sheets.extend(op.shape().sub_shapes(ShapeKind::Face).into_iter().map(|f| f.reversed()));
@@ -679,8 +758,16 @@ pub fn ruled_surface(model: &mut Model, id: FeatureId, definition: &Value) -> R<
         sheets.push(if faces_along(&face)? { face } else { face.reversed() });
     }
     let joined = occt::extract_faces(&sheets, 0.0).map_err(occt_error)?;
+    let info = Info::new(id.clone());
+    let framed = |s: &Shape| -> Option<std::rc::Rc<Info>> {
+        let (_, frame) = frames.iter().find(|(p, _)| {
+            s.kind() == Some(ShapeKind::Face)
+                && occt::vertex(*p).and_then(|v| v.distance(s)).is_ok_and(|d| d.distance < 1e-9)
+        })?;
+        Some(std::rc::Rc::new(Info { created_by: id.clone(), surface_frame: Some(*frame), ..Default::default() }))
+    };
     for sheet in joined {
-        add(model, &id, sheet, BodyType::Sheet);
+        model.add_body(NewBody::new(sheet, BodyType::Sheet, info.clone()), &Origins::default(), &info, &framed);
     }
     // std reads the ruled bases only to place manipulators.
     Ok(Value::array(Vec::new()))
