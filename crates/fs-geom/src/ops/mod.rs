@@ -214,8 +214,9 @@ fn run_op(args: &[Value], name: &str, f: impl FnOnce(&mut Model, FeatureId, &Val
 fn transform_bodies(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
     let transform = transform(field(definition, "transform"))?;
     let bodies = owner_bodies(model, field(definition, "bodies"))?;
-    // Sheet metal parts move only with their model, which opTransform can't do (batch 012).
-    if bodies.iter().any(|&b| sheet_metal::in_active_model(model, b)) {
+    // Sheet metal parts move only with their model, which opTransform can't do (batch 012); the features move
+    // their definition sheets themselves.
+    if bodies.iter().any(|&b| !model.bodies[b].is_sheet_metal_definition() && sheet_metal::in_active_model(model, b)) {
         return Err(regen_error("SHEET_METAL_PARTS_PROHIBITED"));
     }
     let mut replacements = Vec::new();
@@ -448,6 +449,32 @@ pub(crate) fn boolean_bodies(
         let mut pieces = result.sub_shapes(ShapeKind::Solid);
         if pieces.is_empty() {
             pieces = occt::connected_shells(&result).map_err(occt_error)?;
+            if kind == BooleanKind::Union {
+                // A union of sheets faces one way throughout, the way the first sheet faced (a sheet metal bend's
+                // wrapped face joins its walls this way).
+                let reference: Vec<(Vec3, Vec3)> = objects
+                    .iter()
+                    .flat_map(|&b| model.bodies[b].faces.iter())
+                    .filter_map(|f| {
+                        let p = f.shape.face_inner_point().ok()?;
+                        let (fu, fv) = f.shape.face_fraction(p).ok()?;
+                        Some((p, f.shape.face_tangent_plane(fu, fv).ok()?.normal))
+                    })
+                    .collect();
+                for piece in pieces.iter_mut() {
+                    let Ok(oriented) = occt::orient_sheet(piece) else { continue };
+                    let agrees = reference.iter().find_map(|(p, n)| {
+                        let vertex = occt::vertex(*p).ok()?;
+                        let face = oriented
+                            .sub_shapes(ShapeKind::Face)
+                            .into_iter()
+                            .find(|f| f.distance(&vertex).is_ok_and(|d| d.distance < 1e-9))?;
+                        let (fu, fv) = face.face_fraction(*p).ok()?;
+                        Some(crate::values::dot(face.face_tangent_plane(fu, fv).ok()?.normal, *n) > 0.0)
+                    });
+                    *piece = if agrees == Some(false) { oriented.reversed() } else { oriented };
+                }
+            }
         }
         for solid in pieces {
             // The result takes the identity of the first input with a face in it.
