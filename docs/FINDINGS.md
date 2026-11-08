@@ -239,6 +239,14 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   as well, and follows them into surfaces extracted from the regions: the flange builds its wall that way.
   (Batch 012, c006.)
 
+- **More sheet metal** (batch 013). A bend along a line wraps the bend's strip of the definition onto a cylinder
+  (distances taken at the allowance radius), so the definition holds the rounded bend itself. A rip on an L's
+  only bend leaves two parts, both active. Ending a model leaves ordinary parts, which then move. A tab facing
+  against its wall is mirrored onto it and merged: its face and the wall's become one. qPatternInstances finds a
+  pattern's named instances; a face split's new edges depend on the tool faces they lie on; opPattern's copies
+  keep their attributes and are tracked to what they copy; deleting faces of a sheet leaves a body for each piece,
+  the edges that lost a neighbour changed; unions of sheets face one way throughout.
+
 ## STEP export
 
 - **Part names** are written on each `MANIFOLD_SOLID_BREP` (`MANIFOLD_SOLID_BREP('c030.1', ...)`), as well as on

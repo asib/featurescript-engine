@@ -76,8 +76,14 @@ Onshape.
 | `tag` (tag.fs) | matches: a form's positive part. Not yet: frame profiles, PCB holes, standard content | 011 |
 | `derivedMirror`, `importForeign` | not started (`derivedMirror` fails in a Part Studio feature; `importForeign` needs uploaded data) | later |
 | `sheetMetalStart` (sheetMetalStart.fs) | matches: thickening sketch regions (both ways), extruding sketch lines into an L and a U (with bends), converting a block into an open box (bends along the bottom, rips up the corners) | 012 |
-| `sheetMetalFlange` (sheetMetalFlange.fs) | matches: 90° and 45° flanges (inner alignment, default and own radius, the other way), flanges on two edges meeting at a corner (simple corner, edge-to-edge rip). Not yet: other alignments, up to an entity, miters, partial flanges | 012 |
-| sheet metal: `sheetMetalHem`, `sheetMetalTab`, `sheetMetalJoint`, `sheetMetalMakeJoint`, `sheetMetalCorner`, `sheetMetalCornerBreak`, `sheetMetalBendRelief`, `sheetMetalRip`, `sheetMetalJog`, `sheetMetalBend`, `sheetMetalUnfold`/`Refold`, `sheetMetalFormed`, `sheetMetalLoft`, `sheetMetalGeometryPattern`, `sheetMetalTransform`, `sheetMetalEnd`, `pcbStart`/`pcbEnd` | not started. The folded part is built from the model for planar walls, straight bends, edge-to-edge rips and simple corners; not yet: rolled walls, butt rips, corner and bend reliefs, the flat pattern | later |
+| `sheetMetalFlange` (sheetMetalFlange.fs) | matches: 90° and 45° flanges (inner, outer, middle and hold-line alignment, default and own radius, the other way), flanges on two edges meeting at a corner (simple corner, edge-to-edge rip). Not yet: up to an entity, miters, partial flanges | 012, 013 |
+| `sheetMetalBend` (sheetMetalBend.fs) | matches: a plate bent along a line, 90° up and 60° down holding the other side | 013 |
+| `sheetMetalJoint` (sheetMetalJoint.fs) | matches: a bend made a rip (the model falls into two parts), a bend given another radius | 013 |
+| `sheetMetalTab` (sheetMetalTab.fs) | matches: a tab merged into a plate's edge | 013 |
+| `sheetMetalEnd` (sheetMetalEnd.fs) | matches: the parts become ordinary parts | 013 |
+| `sheetMetalJog` (sheetMetalJog.fs) | Known gap: std finds the jog's second split badly decomposed (c003) | 013 |
+| `sheetMetalCorner` (sheetMetalCorner.fs) | Known gap: a round relief, which Onshape cuts in the flat pattern and folds back, through the plate, the flanges and the bends (c006) | 013 |
+| sheet metal: `sheetMetalHem`, `sheetMetalMakeJoint`, `sheetMetalCornerBreak`, `sheetMetalBendRelief`, `sheetMetalRip`, `sheetMetalUnfold`/`Refold`, `sheetMetalFormed`, `sheetMetalLoft`, `sheetMetalGeometryPattern`, `sheetMetalTransform`, `pcbStart`/`pcbEnd` | not started. The folded part is built from the model for planar and cylindrical walls, sharp and rounded bends, edge-to-edge rips and simple corners; not yet: butt rips, corner and bend reliefs, the flat pattern | later |
 | tables (`cutlistTable`, `routingCurveTable`) | match, called from a feature | 011 |
 | `holeTable`, computed properties (`computeMass`) | Onshape won't run them inside a feature (they read properties, or start their own feature), and neither does the engine: both refuse with "Execution error" as Onshape does (c009, c014). Their output outside a feature isn't checked | 011 |
 
@@ -146,6 +152,9 @@ What fixtures show Onshape doing that the engine can't yet:
   edge of a block has its origin at the edge's top end with x pointing away from the corner; one case isn't enough
   for the rule. A cylinder cut through all has its origin at the far end of Onshape's own through-all depth
   (2108.986 mm from the profile in that case), which the engine doesn't reproduce.
+- **Sheet metal jogs and corner reliefs** (batch 013, c003, c006). The jog's second split leaves a fixed edge
+  with no moving face beside it, by std's check; a round corner relief needs the flat pattern, where Onshape cuts
+  it before folding (it leaves B-spline faces in the bends).
 - **Constrained surfaces** (batch 011, c006). Through nine points on a 40 × 30 mm grid with the middle one 4 mm
   up, Onshape's surface reaches 0.05 mm (in x) and 0.09 mm (in y) past the outer points, dips to −0.015 mm and
   has an area of 1242.61 mm²; the engine's least-squares bicubic over the points' rectangle has 1255.91 mm². Both
