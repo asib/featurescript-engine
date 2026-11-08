@@ -28,6 +28,10 @@ const CHECKS: &[&str] = &[
     "(function() { var x = 1; const f = function() { return x; }; x = 2; return f(); })() == 1",
     "(function() { var total = 0; for (var k, v in { \"a\" : 1, \"b\" : 2 }) { total += v; } return total; })() == 3",
     "mapArray([1, 2, 3], x => x * 2) == [2, 4, 6]",
+    // Predicates check loop bodies as predicate statements, with `continue` and `break` (std's canBeBoundSpec).
+    "canBeBoundSpec({ (meter) : [0, 1, 2], (inch) : 3 })",
+    "!canBeBoundSpec({ (meter) : [2, 1, 0] })",
+    "boundsRange({ (meter) : [0, 1, 2], (inch) : 3 }) == [0 * meter, 2 * meter]",
     "[1, 2, 3]->filter(x => x > 1)->size() == 2",
     "replace(\"a~~aa~a\", \"a.\", \"X\") == \"X~X~a\"",
     "match(\"a.b[12].c\", \"(.+)(\\\\[[0-9]+\\\\]\\\\.)(.*)\").captures[2] == \"[12].\"",

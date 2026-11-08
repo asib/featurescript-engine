@@ -900,15 +900,55 @@ impl Interp {
                     Ok(true)
                 }
             }
+            // Loops check their bodies as predicate statements; `continue` and `break` work as in any loop.
             StmtKind::ForIn { decl, key, value, iterable, body } => {
                 let iterable = self.eval(iterable)?;
                 let mut holds = true;
-                self.for_each(&iterable, *decl, key.as_ref(), value, |this| {
-                    holds = this.exec_predicate(body)?;
-                    Ok(holds)
+                self.for_each(&iterable, *decl, key.as_ref(), value, |this| match this.exec_predicate(body) {
+                    Ok(h) => {
+                        holds = h;
+                        Ok(h)
+                    }
+                    Err(Flow::Continue) => Ok(true),
+                    Err(Flow::Break) => Ok(false),
+                    Err(e) => Err(e),
                 })?;
                 Ok(holds)
             }
+            StmtKind::For { init, cond, step, body } => self.in_scope(|this| {
+                if let Some(init) = init {
+                    this.exec_stmt(init)?;
+                }
+                loop {
+                    if let Some(cond) = cond {
+                        let c = this.eval(cond)?;
+                        if !this.condition(c)? {
+                            return Ok(true);
+                        }
+                    }
+                    match this.in_scope(|this| this.exec_predicate(body)) {
+                        Ok(true) | Err(Flow::Continue) => {}
+                        Ok(false) => return Ok(false),
+                        Err(Flow::Break) => return Ok(true),
+                        Err(e) => return Err(e),
+                    }
+                    if let Some(step) = step {
+                        this.exec_stmt(step)?;
+                    }
+                }
+            }),
+            StmtKind::While { cond, body } => loop {
+                let c = self.eval(cond)?;
+                if !self.condition(c)? {
+                    return Ok(true);
+                }
+                match self.in_scope(|this| this.exec_predicate(body)) {
+                    Ok(true) | Err(Flow::Continue) => {}
+                    Ok(false) => return Ok(false),
+                    Err(Flow::Break) => return Ok(true),
+                    Err(e) => return Err(e),
+                }
+            },
             StmtKind::Return(Some(value)) => {
                 let value = self.eval(value)?;
                 value.as_bool().ok_or_else(|| error("A predicate must return a boolean"))
