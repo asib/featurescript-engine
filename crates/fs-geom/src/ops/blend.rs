@@ -721,6 +721,13 @@ fn planar_face_blend(model: &mut Model, id: FeatureId, definition: &Value) -> R<
     let (lo, hi) = if trim == "NO_TRIM" { (lo - 0.1 * (hi - lo), hi + 0.1 * (hi - lo)) } else { (lo, hi) };
     let corner = add(c, scale(t, lo));
     let (p1, p2) = (add(corner, scale(u1, s1)), add(corner, scale(u2, s2)));
+    // How fast the section runs at its ends (p2's, p1's), in its own parameter.
+    let (speed2, speed1) = match section {
+        Section::Circular if (s1 - s2).abs() < 1e-12 => (s1 * (angle / 2.0).tan(), s1 * (angle / 2.0).tan()),
+        Section::Circular => (2.0 * (angle / 2.0).sin() * s2, 2.0 * (angle / 2.0).sin() * s1),
+        Section::Conic(rho) => (2.0 * rho / (1.0 - rho) * s2, 2.0 * rho / (1.0 - rho) * s1),
+        Section::Curvature(m) => (3.0 * m * s2, 3.0 * m * s1),
+    };
     let curve = match section {
         Section::Circular if (s1 - s2).abs() < 1e-12 => {
             let bisector = normalize(add(u1, u2)).ok_or_else(failed)?;
@@ -735,7 +742,42 @@ fn planar_face_blend(model: &mut Model, id: FeatureId, definition: &Value) -> R<
         Section::Curvature(m) => curvature_section(p2, corner, p1, m)?,
     };
     let swept = occt::prism(&curve, scale(t, hi - lo)).map_err(crate::occt_error)?.shape();
-    let blend_faces = swept.sub_shapes(ShapeKind::Face);
+    let mut blend_faces = swept.sub_shapes(ShapeKind::Face);
+    // Trimmed to walls of unequal extent, the blend runs along each wall as far as that wall does, and its ends
+    // slant across from one wall's corner to the other's: in the blend's parameters, a cubic leaving each corner
+    // along the section, as fast as the chord between the corners is long (batch 055 c004, a circular blend OCCT
+    // rounds; built this way instead, it matches Onshape's area and edges too).
+    if trim == "WALLS" && !detach && ((lo1 - lo2).abs() > 1e-9 || (hi1 - hi2).abs() > 1e-9) {
+        let face = blend_faces.first().ok_or_else(failed)?.clone();
+        let ((fu0, fv0), (fu1, fv1)) = face.face_uv_bounds().map_err(|_| failed())?;
+        let (at_p2, start) = face.face_fraction(p2).map_err(|_| failed())?;
+        let (_, finish) = face.face_fraction(add(p2, scale(t, hi - lo))).map_err(|_| failed())?;
+        // The section's parameter at side 2's end and at side 1's; the sweep's at a point along the line.
+        let (ua, ub) = if at_p2 < 0.5 { (fu0, fu1) } else { (fu1, fu0) };
+        let toward = if ub > ua { 1.0 } else { -1.0 };
+        let v_at = |x: f64| fv0 + (start + (x - lo) / (hi - lo) * (finish - start)) * (fv1 - fv0);
+        let end = |x1: f64, x2: f64| -> Vec<(f64, f64)> {
+            let chord = values::norm(sub(add(p1, scale(t, x1 - lo)), add(p2, scale(t, x2 - lo))));
+            let poles = [
+                (ub, v_at(x1)),
+                (ub - toward * chord / (3.0 * speed1), v_at(x1)),
+                (ua + toward * chord / (3.0 * speed2), v_at(x2)),
+                (ua, v_at(x2)),
+            ];
+            (0..=32)
+                .map(|k| {
+                    let s = k as f64 / 32.0;
+                    let b = [(1.0 - s).powi(3), 3.0 * (1.0 - s).powi(2) * s, 3.0 * (1.0 - s) * s * s, s.powi(3)];
+                    (0..4).fold((0.0, 0.0), |(u, v), i| (u + b[i] * poles[i].0, v + b[i] * poles[i].1))
+                })
+                .collect()
+        };
+        let mut low = end(lo1, lo2);
+        low.reverse();
+        let boundary =
+            vec![vec![(ub, v_at(lo1)), (ub, v_at(hi1))], end(hi1, hi2), vec![(ua, v_at(hi2)), (ua, v_at(lo2))], low];
+        blend_faces = vec![occt::face_from_uv(&face, &boundary).map_err(|_| failed())?];
+    }
     // Each side cut back to where the blend meets it: what lies at least its setback from the line, or with a
     // short trim, notched only where the blend runs.
     let trimmed = |face: &Shape, u: occt::Vec3, s: f64| -> R<Vec<Shape>> {
