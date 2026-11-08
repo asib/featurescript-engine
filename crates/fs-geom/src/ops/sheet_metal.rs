@@ -172,7 +172,8 @@ fn segment(edge: &Shape) -> Option<(Vec3, Vec3)> {
 /// takes. Walls give the faces offset from them; bends the cylinders round them and the lines where those meet
 /// the walls; edges on the sheet's boundary the faces across the thickness there, and the part's edges along
 /// them; vertices the part's edges across the thickness at them.
-fn associate(def: &Body, bends: &[Bend], thickness: f64, kind: EntityType, shape: &Shape) -> Option<EntityRef> {
+fn associate(def: &Body, bends: &[Bend], front: f64, back: f64, kind: EntityType, shape: &Shape) -> Option<EntityRef> {
+    let thickness = front + back;
     let reach = thickness + TOLERANCE;
     let def_ref = |kind, index| Some(EntityRef { body: usize::MAX, kind, index });
     let boundary: Vec<usize> = (0..def.edges.len())
@@ -229,6 +230,27 @@ fn associate(def: &Body, bends: &[Bend], thickness: f64, kind: EntityType, shape
                     let apart = norm(sub(offset, scale(bend.axis_direction, dot(offset, bend.axis_direction))));
                     if parallel && apart < 1e-6 {
                         return def_ref(EntityType::Edge, def_edge_index(def, &bend.edge)?);
+                    }
+                }
+            }
+            // Across the thickness at a curved boundary edge (the wall of a hole, batch 017): the face holds the
+            // edge carried into the material.
+            let mid = if (front - back).abs() > 1e-9 { (front - back) / 2.0 } else { thickness / 4.0 };
+            for &i in &boundary {
+                let e = &def.edges[i].shape;
+                if segment(e).is_some() {
+                    continue;
+                }
+                let Some(wall) = def.faces.iter().find(|f| f.shape.sub_shapes(ShapeKind::Edge).iter().any(|x| x.is_same(e)))
+                else {
+                    continue;
+                };
+                let Ok(plane) = wall.shape.face_plane() else { continue };
+                let points = samples(e);
+                let on = |q: Vec3| occt::vertex(q).and_then(|v| v.distance(shape)).is_ok_and(|d| d.distance < 1e-6);
+                for side in [mid, -mid] {
+                    if !points.is_empty() && points.iter().all(|&q| on(add(q, scale(plane.normal, side)))) {
+                        return def_ref(EntityType::Edge, i);
                     }
                 }
             }
@@ -422,8 +444,20 @@ fn regenerate(model: &mut Model, id: &FeatureId, def_index: usize) -> R<()> {
         for kind in [EntityType::Face, EntityType::Edge, EntityType::Vertex] {
             for i in 0..model.bodies[index].entities(kind).len() {
                 let shape = model.bodies[index].entities(kind)[i].shape.clone();
-                let Some(from) = associate(&def, &bends, thickness, kind, &shape) else { continue };
-                let Some(a) = association(&def.entities(from.kind)[from.index].attributes).cloned() else { continue };
+                let Some(from) = associate(&def, &bends, front, back, kind, &shape) else { continue };
+                let source = &def.entities(from.kind)[from.index];
+                // The part's entities are made by what made the definition's (a hole's wall by the cut that made
+                // the hole's edge, batch 017).
+                let made_by = source.info.clone();
+                model.update_body(index, |body| {
+                    let entities = match kind {
+                        EntityType::Face => &mut body.faces,
+                        EntityType::Edge => &mut body.edges,
+                        _ => &mut body.vertices,
+                    };
+                    entities[i].info = made_by;
+                });
+                let Some(a) = association(&source.attributes).cloned() else { continue };
                 model.update_attributes(EntityRef { body: index, kind, index: i }, |attributes| {
                     attributes.unnamed.retain(|v| !is_type(v, "SMAssociationAttribute"));
                     attributes.unnamed.push(a);
