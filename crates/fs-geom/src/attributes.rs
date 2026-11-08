@@ -60,6 +60,21 @@ pub fn filter(model: &Model, found: Vec<EntityRef>, wanted: &Wanted) -> Vec<Enti
     found.into_iter().filter(|r| !wanted.matching(model.attributes(*r)).is_empty()).collect()
 }
 
+/// The distinct attributes matching `wanted` on what the definition's `entities` find.
+fn get_attributes(args: &[Value], name: &str, definition: &Value, wanted: &Wanted) -> fs_interp::eval::R<Value> {
+    model_mut(args, name, |model| {
+        let mut out: Vec<Value> = Vec::new();
+        for r in query::evaluate(model, field(definition, "entities"))? {
+            for value in wanted.matching(model.attributes(r)) {
+                if !out.contains(value) {
+                    out.push(value.clone());
+                }
+            }
+        }
+        Ok(Value::array(out))
+    })
+}
+
 pub fn register(m: &mut GeomBuiltins) {
     m.insert("setAttribute", |_, args| {
         let definition = arg(&args, 1, "setAttribute")?.clone();
@@ -91,18 +106,20 @@ pub fn register(m: &mut GeomBuiltins) {
     });
     m.insert("getAttributes", |_, args| {
         let definition = arg(&args, 1, "getAttributes")?.clone();
-        let wanted = Wanted::of(&definition);
-        model_mut(&args, "getAttributes", |model| {
-            let mut out: Vec<Value> = Vec::new();
-            for r in query::evaluate(model, field(&definition, "entities"))? {
-                for value in wanted.matching(model.attributes(r)) {
-                    if !out.contains(value) {
-                        out.push(value.clone());
-                    }
-                }
-            }
-            Ok(Value::array(out))
-        })
+        get_attributes(&args, "getAttributes", &definition, &Wanted::of(&definition))
+    });
+    // The holes' own attributes, unnamed `HoleAttribute`s (what the hole table reads).
+    m.insert("getHoleAttributes", |_, args| {
+        let definition = arg(&args, 1, "getHoleAttributes")?.clone();
+        let tag =
+            fs_interp::types::find("HoleAttribute").ok_or_else(|| error("std type HoleAttribute isn't loaded"))?;
+        let pattern = Value::map(Default::default()).with_tag(Some(tag));
+        get_attributes(
+            &args,
+            "getHoleAttributes",
+            &definition,
+            &Wanted { name: None, exact: None, pattern: Some(pattern) },
+        )
     });
     m.insert("getAttribute", |_, args| {
         let definition = arg(&args, 1, "getAttribute")?.clone();

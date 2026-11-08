@@ -196,6 +196,17 @@ fn resolve(model: &Model, query: &Value) -> R<Vec<EntityRef>> {
                 })
                 .collect()
         }
+        // (Std spells it this way.)
+        "COMPOSITE_PART_TYPE_FITLER" => {
+            let closed = field(query, "compositePartType").as_str() == Some("CLOSED");
+            sub(model, query, "subquery")?
+                .into_iter()
+                .filter(|r| {
+                    r.kind == EntityType::Body
+                        && model.bodies[r.body].composite.as_ref().is_some_and(|(_, is_closed)| *is_closed == closed)
+                })
+                .collect()
+        }
         // A named entity, or what it became: entities carrying on its identity.
         "NAMED" => {
             let name = field(query, "name").as_str().unwrap_or_default();

@@ -34,6 +34,8 @@ pub fn register(m: &mut GeomBuiltins) {
         "setHighlightedEntities",
         "addDebugEntities",
         "transferSubfeatureErrorDisplay",
+        // Hidden parameters only steer the feature dialog.
+        "setFeatureHiddenParameters",
     ] {
         m.insert(name, |_, _| Ok(Value::UNDEFINED));
     }

@@ -58,7 +58,59 @@ fn clash(tool: &Shape, target: &Shape) -> Option<&'static str> {
     })
 }
 
+/// What `@clusterBodies` compares: topology counts, then sizes that don't change when a body turns.
+fn body_signature(model: &Model, b: usize) -> R<(Vec<usize>, Vec<f64>)> {
+    let body = &model.bodies[b];
+    let counts = vec![body.faces.len(), body.edges.len(), body.vertices.len()];
+    let shape = &body.shape;
+    let moments = shape.principal_moments().map_err(occt_error)?;
+    let sizes = vec![
+        shape.volume().unwrap_or(0.0),
+        shape.area().unwrap_or(0.0),
+        shape.length().unwrap_or(0.0),
+        moments.x,
+        moments.y,
+        moments.z,
+    ];
+    Ok((counts, sizes))
+}
+
 pub fn register(m: &mut GeomBuiltins) {
+    // Bodies alike up to a rotation, by topology counts, volume, area, length and principal moments of inertia.
+    m.insert("clusterBodies", |_, args| {
+        let definition = definition(&args, "clusterBodies")?;
+        let tolerance = field(&definition, "relativeTolerance").as_number().unwrap_or(1e-6);
+        model_mut(&args, "clusterBodies", |model| {
+            let bodies: Vec<usize> = query::evaluate(model, field(&definition, "bodies"))?
+                .into_iter()
+                .filter(|r| r.kind == EntityType::Body)
+                .map(|r| r.body)
+                .collect();
+            let signatures = bodies.iter().map(|&b| body_signature(model, b)).collect::<R<Vec<_>>>()?;
+            let alike = |a: &(Vec<usize>, Vec<f64>), b: &(Vec<usize>, Vec<f64>)| {
+                // Moments are compared against the largest, so a near-zero one doesn't demand an exact match.
+                let largest = a.1[3..].iter().chain(&b.1[3..]).fold(0.0f64, |m, x| m.max(x.abs()));
+                a.0 == b.0
+                    && a.1.iter().zip(&b.1).enumerate().all(|(i, (x, y))| {
+                        let scale = if i >= 3 { largest } else { x.abs().max(y.abs()) };
+                        (x - y).abs() <= tolerance * scale + 1e-15
+                    })
+            };
+            let mut clusters: Vec<Vec<usize>> = Vec::new();
+            for (i, signature) in signatures.iter().enumerate() {
+                match clusters.iter_mut().find(|c| alike(&signatures[c[0]], signature)) {
+                    Some(cluster) => cluster.push(i),
+                    None => clusters.push(vec![i]),
+                }
+            }
+            Ok(Value::array(
+                clusters
+                    .into_iter()
+                    .map(|c| Value::array(c.into_iter().map(|i| Value::number(i as f64)).collect()))
+                    .collect(),
+            ))
+        })
+    });
     m.insert("evCollisionDetection", |interp, args| {
         let tags = tags(interp)?;
         let definition = definition(&args, "evCollisionDetection")?;
