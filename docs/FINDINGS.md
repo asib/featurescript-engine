@@ -107,11 +107,23 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   (Batch 003, c054.)
 - **Some feature parameters have no defaults:** `replaceFace`'s `offset` and `thicken`'s `thickness2` must be
   passed. (Batch 003's first build.)
+- **A sketch is a wire body per curve and a sheet body per region**, with point bodies for points and centres;
+  construction curves are wire bodies too, but `qConstructionFilter` doesn't count them as construction.
+  `qCreatedBy(sketch, EntityType.EDGE)` finds the regions' edges as well as the curves'. (Batch 004, c012.)
+- **Fit splines are cubic with centripetal parameters on [0, 1]**, natural (zero second derivative) at the ends
+  unless end derivatives are given, which are with respect to that parameter; a spline whose last point is its
+  first is periodic. This reproduces Onshape's splines to 1e-8. (Batch 004, c004–c006.)
+- **`skEllipticalArc`'s parameters have a period of 1** and `skEllipse`'s `majorAxis` must be a unit vector.
+- **Up to next stops at the first face of any part**, whatever the boolean scope, even when the extrude starts
+  inside a part. (Batch 004, c026.)
+- **A sheet extruded from edges faces along the edge's tangent × the extrude direction.** (Batch 004, c013.)
+- **Thin walls:** the first thickness goes to the right of the first edge (its direction × the plane normal) for
+  an open chain, outward for a closed loop; corners are sharp. (Batch 004, c019–c021.)
+- **A helix with `clockwise: false` turns left-handed about its direction.** (Batch 004, c043.)
+- **A loft between parallel squares has planar sides**, and sweeps merge faces that continue onto one surface
+  along the path. (Batch 004, c032, c035, c036.)
 - **Assumptions not yet checked against Onshape:** transient ids are strings (ours look like `"T12"`); the
-  results of `@evaluateQuery` come in body order, then faces, edges and vertices; a solved sketch makes one sheet
-  body for its regions, one wire body for its edges (and one for construction edges), and a point body for each
-  `skPoint` and each circle or arc centre. std's sketch documentation describes those kinds of body but not how
-  many.
+  results of `@evaluateQuery` come in body order, then faces, edges and vertices.
 
 ## STEP export
 

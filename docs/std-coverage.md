@@ -9,8 +9,8 @@ Onshape.
 
 | feature (file) | status | batch |
 |---|---|---|
-| `extrude` (extrude.fs) | matches: blind, symmetric, two directions; new, add, remove, intersect | 001 |
-| `revolve` (revolve.fs) | matches: full, blind, opposite, symmetric, two directions; new, add, remove, intersect. Not yet: up-to bounds, thin, surface | 002 |
+| `extrude` (extrude.fs) | matches: blind, symmetric, two directions; new, add, remove, intersect; surfaces from edges; thin walls; up to a face (with offset), body, vertex, the next part; through all; drafts | 001, 004 |
+| `revolve` (revolve.fs) | matches: full, blind, opposite, symmetric, two directions; new, add, remove, intersect; surfaces. Known gap: a revolved semicircle's boundary is one ring edge in Onshape (c018 of batch 004). Not yet: up-to bounds, thin | 002, 004 |
 | `cube`, `fCuboid`, `fCylinder`, `fCone`, `fSphere`, `fEllipsoid` (primitives.fs) | matches | 002 |
 | `booleanBodies` (boolean.fs) | matches: union, subtraction (keep tools, several targets), intersection. Not yet: offset, sheet metal | 002 |
 | `transform`, `copyPart` (transformCopy.fs) | matches: translate (xyz, distance, line), rotate, copy, uniform scale. Not yet: mate connectors, non-uniform scale | 002 |
@@ -31,7 +31,12 @@ Onshape.
 | `replaceFace` (replaceFace.fs) | matches: a planar face replaced by a plane, with an offset, when its neighbours are perpendicular to it. Not yet: other faces | 003 |
 | `thicken` (thicken.fs) | matches: faces of solids, planar and curved, one and two sides, midplane, added to a part. Not yet: sheet bodies (no surfaces can be made yet) | 003 |
 | `hole`, `rib`, `modifyFillet`, `faceBlend`, `bodyDraft` | not started | later |
-| `sweep`, `loft`, `helix`, `fitSpline`, sketch curves (ellipses, splines, conics, text), `curvePattern`, `compositeCurve`, `projectCurves`, `intersectionCurve`, `isoparametricCurve`, `bridgingCurve`, `offsetCurveOnFace`, `trimCurve`, `editCurve`, `routingCurve` | not started | 004 (planned) |
+| sketch curves (sketch.fs) | matches: lines, arcs, circles, rectangles, polygons, polylines, ellipses, elliptical arcs, fit splines (open, closed, with end derivatives), Béziers, conics; the sketch's bodies and entities. Not yet: text, images, interpolated splines, constraints (accepted, not solved) | 001, 004 |
+| `sweep` (sweep.fs) | matches: circles and rectangles along lines, arcs and tangent chains; surface sweeps. Known gap: where `evPlane` puts the origin of a swept planar face (c034). Not yet: profile control, twist, scale, thin | 004 |
+| `loft` (loft.fs) | matches: lofts between squares and between two circles. Known gaps: lofts between unlike profiles or through three profiles, whose surfaces come from each kernel's own lofting (c038, c039). Not yet: guides, connections, end conditions, sections, thin | 004 |
+| `helix` (helix.fs) | matches: around a cylinder by turns and pitch, both hands; about an axis; tapering | 004 |
+| `fitSpline` (fitSpline.fs) | matches: through vertices, open and closed. Not yet: through edges, end directions | 004 |
+| `curvePattern`, `compositeCurve`, `projectCurves`, `intersectionCurve`, `isoparametricCurve`, `bridgingCurve`, `offsetCurveOnFace`, `trimCurve`, `editCurve`, `routingCurve` | not started | 005 (planned) |
 | `fill`, `boundarySurface`, `ruledSurface`, `offsetSurface`, `extendSurface`, `enclose`, `mutualTrim`, `constrainedSurface`, `isocline`, `wrap`, `decal` | not started | 005 (planned) |
 | `mateConnector`, `frame`, `frameTrim`, `gusset`, `endcap`, `cutlist`, `compositePart`, the `sectionPart` family, `importDerived`, `derivedMirror`, `importForeign`, `nameEntity`, `tag`, `queryVariable` | not started | 006 (planned) |
 | sheet metal: `sheetMetalStart`, `sheetMetalFlange`, `sheetMetalHem`, `sheetMetalTab`, `sheetMetalJoint`, `sheetMetalMakeJoint`, `sheetMetalCorner`, `sheetMetalCornerBreak`, `sheetMetalBendRelief`, `sheetMetalRip`, `sheetMetalJog`, `sheetMetalBend`, `sheetMetalUnfold`/`Refold`, `sheetMetalFormed`, `sheetMetalLoft`, `sheetMetalGeometryPattern`, `sheetMetalTransform`, `sheetMetalEnd`, `pcbStart`/`pcbEnd` | not started | 007+ (planned) |
@@ -75,6 +80,14 @@ What fixtures show Onshape doing that the engine can't yet:
   within the probes' tolerance; OCCT has no conic fillets, so this needs building by hand.
 - **Asymmetric fillets** (c014). The cross section removes 2.14379 mm² for setbacks of 2 and 5 mm, close to but
   not a quarter ellipse (2.14602 mm²); the exact curve isn't known yet.
+- **A revolved semicircle's boundary** (batch 004, c018): revolving a semicircle half a turn as a surface leaves
+  a boundary of two semicircles meeting at the poles; Onshape makes it one ring edge with no vertices, OCCT keeps
+  two edges and two vertices.
+- **Where `evPlane` puts a planar face's origin** (c034): the centroid for faces with straight edges, but not for
+  the annular sector a line swept along an arc makes: Onshape gives (16.239, 12.045), the centroid is
+  (18.127, 10.157) and the box centre (16.142, 12.142).
+- **Lofts between unlike profiles** (c038, square to circle: 3% of the volume) **and through three profiles**
+  (c039: 3e-4; Onshape splits the side into four patches): the surfaces come from each kernel's own lofting.
 - **Fillets too big for their faces** (c015). A 15 mm fillet on the four vertical edges of a 30 × 20 mm block:
   Onshape lets the two fillets on each 20 mm side consume it, leaving the lens where the cylinders meet (4 faces,
   6 edges, 4 vertices); OCCT fails.
