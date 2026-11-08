@@ -1,0 +1,457 @@
+{
+  "batch": "004",
+  "title": "sketch curves, surface and thin extrudes, extrude bounds, sweep, loft, helix, fit spline",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "sketch-curve",
+      "description": "ellipse",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "sketch-curve",
+      "description": "ellipse at an angle",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "sketch-curve",
+      "description": "elliptical arc closed by a line",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "sketch-curve",
+      "description": "closed fit spline",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "sketch-curve",
+      "description": "open fit spline closed by a line",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "sketch-curve",
+      "description": "fit spline with end derivatives",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "sketch-curve",
+      "description": "Bezier closed by a line",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c008",
+      "kind": "sketch-curve",
+      "description": "conic segment, rho 0.3, closed by lines",
+      "slotMeters": [
+        2.8000000000000003,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c009",
+      "kind": "sketch-curve",
+      "description": "conic segment, rho 0.7",
+      "slotMeters": [
+        3.2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c010",
+      "kind": "sketch-curve",
+      "description": "regular hexagon",
+      "slotMeters": [
+        3.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c011",
+      "kind": "sketch-curve",
+      "description": "polyline",
+      "slotMeters": [
+        0,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c012",
+      "kind": "sketch-topology",
+      "description": "the bodies and entities of a sketch",
+      "slotMeters": [
+        0.4,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c013",
+      "kind": "surface-extrude",
+      "description": "a line extruded as a surface",
+      "slotMeters": [
+        0.8,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c014",
+      "kind": "surface-extrude",
+      "description": "an arc extruded as a surface",
+      "slotMeters": [
+        1.2000000000000002,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c015",
+      "kind": "surface-extrude",
+      "description": "a circle extruded as a surface, symmetric",
+      "slotMeters": [
+        1.6,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c016",
+      "kind": "surface-extrude",
+      "description": "an open polyline extruded as a surface",
+      "slotMeters": [
+        2,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c017",
+      "kind": "surface-revolve",
+      "description": "a line revolved as a surface",
+      "slotMeters": [
+        2.4000000000000004,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c018",
+      "kind": "surface-revolve",
+      "description": "an arc revolved 180 degrees as a surface",
+      "slotMeters": [
+        2.8000000000000003,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c019",
+      "kind": "thin-extrude",
+      "description": "a thin wall from an open polyline",
+      "slotMeters": [
+        3.2,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c020",
+      "kind": "thin-extrude",
+      "description": "a thin wall from a rectangle, flipped",
+      "slotMeters": [
+        3.6,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c021",
+      "kind": "thin-extrude",
+      "description": "a thin midplane wall from a circle",
+      "slotMeters": [
+        0,
+        0.8,
+        0
+      ]
+    },
+    {
+      "name": "c022",
+      "kind": "extrude-bound",
+      "description": "up to a face",
+      "slotMeters": [
+        0.4,
+        0.8,
+        0
+      ]
+    },
+    {
+      "name": "c023",
+      "kind": "extrude-bound",
+      "description": "up to a face with an offset",
+      "slotMeters": [
+        0.8,
+        0.8,
+        0
+      ]
+    },
+    {
+      "name": "c024",
+      "kind": "extrude-bound",
+      "description": "up to a body",
+      "slotMeters": [
+        1.2000000000000002,
+        0.8,
+        0
+      ]
+    },
+    {
+      "name": "c025",
+      "kind": "extrude-bound",
+      "description": "up to a vertex",
+      "slotMeters": [
+        1.6,
+        0.8,
+        0
+      ]
+    },
+    {
+      "name": "c026",
+      "kind": "extrude-bound",
+      "description": "up to next, added",
+      "slotMeters": [
+        2,
+        0.8,
+        0
+      ]
+    },
+    {
+      "name": "c027",
+      "kind": "extrude-bound",
+      "description": "through all, removed",
+      "slotMeters": [
+        2.4000000000000004,
+        0.8,
+        0
+      ]
+    },
+    {
+      "name": "c028",
+      "kind": "extrude-bound",
+      "description": "blind with a 10 degree draft",
+      "slotMeters": [
+        2.8000000000000003,
+        0.8,
+        0
+      ]
+    },
+    {
+      "name": "c029",
+      "kind": "extrude-bound",
+      "description": "blind with an inward 5 degree draft",
+      "slotMeters": [
+        3.2,
+        0.8,
+        0
+      ]
+    },
+    {
+      "name": "c030",
+      "kind": "sweep",
+      "description": "a circle along a line",
+      "slotMeters": [
+        3.6,
+        0.8,
+        0
+      ]
+    },
+    {
+      "name": "c031",
+      "kind": "sweep",
+      "description": "a circle along an arc",
+      "slotMeters": [
+        0,
+        1.2000000000000002,
+        0
+      ]
+    },
+    {
+      "name": "c032",
+      "kind": "sweep",
+      "description": "a rectangle along a line, an arc and a line",
+      "slotMeters": [
+        0.4,
+        1.2000000000000002,
+        0
+      ]
+    },
+    {
+      "name": "c033",
+      "kind": "sweep",
+      "description": "a circle along a line, an arc and a line",
+      "slotMeters": [
+        0.8,
+        1.2000000000000002,
+        0
+      ]
+    },
+    {
+      "name": "c034",
+      "kind": "sweep",
+      "description": "an edge swept along an arc as a surface",
+      "slotMeters": [
+        1.2000000000000002,
+        1.2000000000000002,
+        0
+      ]
+    },
+    {
+      "name": "c035",
+      "kind": "loft",
+      "description": "square to a smaller square",
+      "slotMeters": [
+        1.6,
+        1.2000000000000002,
+        0
+      ]
+    },
+    {
+      "name": "c036",
+      "kind": "loft",
+      "description": "square to an offset square",
+      "slotMeters": [
+        2,
+        1.2000000000000002,
+        0
+      ]
+    },
+    {
+      "name": "c037",
+      "kind": "loft",
+      "description": "circle to a smaller circle",
+      "slotMeters": [
+        2.4000000000000004,
+        1.2000000000000002,
+        0
+      ]
+    },
+    {
+      "name": "c038",
+      "kind": "loft",
+      "description": "circle to circle to circle",
+      "slotMeters": [
+        2.8000000000000003,
+        1.2000000000000002,
+        0
+      ]
+    },
+    {
+      "name": "c039",
+      "kind": "loft",
+      "description": "square to a circle",
+      "slotMeters": [
+        3.2,
+        1.2000000000000002,
+        0
+      ]
+    },
+    {
+      "name": "c040",
+      "kind": "helix",
+      "description": "around a cylinder, 4 turns",
+      "slotMeters": [
+        3.6,
+        1.2000000000000002,
+        0
+      ]
+    },
+    {
+      "name": "c041",
+      "kind": "helix",
+      "description": "around a cylinder, 5 mm pitch, clockwise",
+      "slotMeters": [
+        0,
+        1.6,
+        0
+      ]
+    },
+    {
+      "name": "c042",
+      "kind": "helix",
+      "description": "about an axis, 3 turns, 20 mm high, radius 8",
+      "slotMeters": [
+        0.4,
+        1.6,
+        0
+      ]
+    },
+    {
+      "name": "c043",
+      "kind": "helix",
+      "description": "about an axis, tapering from radius 10 to 4",
+      "slotMeters": [
+        0.8,
+        1.6,
+        0
+      ]
+    },
+    {
+      "name": "c044",
+      "kind": "fit-spline",
+      "description": "through four vertices of a box",
+      "slotMeters": [
+        1.2000000000000002,
+        1.6,
+        0
+      ]
+    },
+    {
+      "name": "c045",
+      "kind": "fit-spline",
+      "description": "closed through three vertices",
+      "slotMeters": [
+        1.6,
+        1.6,
+        0
+      ]
+    }
+  ]
+}
