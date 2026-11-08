@@ -58,7 +58,7 @@ Onshape.
 | `mateConnector` (mateConnector.fs) | matches: on faces (centroid), vertices, circular edges (centre), edge mid points; moved, turned, flipped, secondary axis; between two faces; realigned to two edges; a given normal (ignored, as Onshape does, off meshes) | 005, 018, 020 |
 | `transform` by mate connectors | matches | 005 |
 | `bridgingCurve` (bridgingCurve.fs) | matches: tangent and curvature matches between lines and an arc | 010 |
-| `wrap` (wrap.fs) | matches: a planar face onto a cylinder as a surface, a solid and an imprint; onto a cone as a surface. Not yet: unwrapping | 010, 020, 024 |
+| `wrap` (wrap.fs) | matches: a planar face onto a cylinder as a surface, a solid and an imprint; onto a cone as a surface; unwrapping a cylinder's face onto a plane with `opWrap`, and a whole side refused (046). Not yet: unwrapping cones | 010, 020, 024, 046 |
 | `editCurve` (editCurve.fs) | matches: raising the degree (of an arc, via its exact rational B-spline, and of a line), flattening onto a plane, approximating a line and arc with one cubic (to within its tolerance), moving control points; raising a periodic curve (known gap: Onshape keeps std's clamped result flagged periodic, which OCCT can't, 027 c005) | 011, 027 |
 | `routingCurve` (routingCurve.fs) | matches: polylines with bends, interpolated splines, their tables (XYZ and LRA); points at vertices (034); points on curves, derivatives at end and inner points (035). Not yet: points from CSV | 011, 034, 035 |
 | `constrainedSurface` (constrainedSurface.fs) | Known gap: a smooth surface through nine points is within tolerance of them, but isn't Onshape's surface (c006). Not yet: normals at the points, meshes, deviation | 011 |
