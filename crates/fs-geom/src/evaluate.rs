@@ -628,30 +628,54 @@ pub fn register(m: &mut GeomBuiltins) {
                     s.frame = frame;
                 }
                 let cs = || tags.coord_system(s.frame);
+                // Every definition carries its `SurfaceType`, as Onshape's do (std tells extruded surfaces by it).
+                let surface_type =
+                    fs_interp::types::find("SurfaceType").ok_or_else(|| error("std type SurfaceType isn't loaded"))?;
+                let kind = |name: &str| ("surfaceType", tags.enum_value(surface_type, name));
                 match s.kind {
                     0 => {
                         let plane = model.shape(*r).face_plane().map_err(occt_error)?;
-                        Ok(tags.plane(occt::Frame { x: values::canonical_x(plane.normal), ..plane }))
+                        let plane = occt::Frame { x: values::canonical_x(plane.normal), ..plane };
+                        tags.tagged(
+                            map(vec![
+                                ("origin", tags.length_vector(plane.origin)),
+                                ("normal", tags.unit_vector(plane.normal)),
+                                ("x", tags.unit_vector(plane.x)),
+                                kind("PLANE"),
+                            ]),
+                            "Plane",
+                        )
                     }
-                    1 => tags.tagged(map(vec![("coordSystem", cs()?), ("radius", tags.length(s.radius1))]), "Cylinder"),
+                    1 => tags.tagged(
+                        map(vec![("coordSystem", cs()?), ("radius", tags.length(s.radius1)), kind("CYLINDER")]),
+                        "Cylinder",
+                    ),
                     2 => tags.tagged(
-                        map(vec![("coordSystem", cs()?), ("halfAngle", tags.with_units(s.radius1, "radian", 1.0))]),
+                        map(vec![
+                            ("coordSystem", cs()?),
+                            ("halfAngle", tags.with_units(s.radius1, "radian", 1.0)),
+                            kind("CONE"),
+                        ]),
                         "Cone",
                     ),
-                    3 => tags.tagged(map(vec![("coordSystem", cs()?), ("radius", tags.length(s.radius1))]), "Sphere"),
+                    3 => tags.tagged(
+                        map(vec![("coordSystem", cs()?), ("radius", tags.length(s.radius1)), kind("SPHERE")]),
+                        "Sphere",
+                    ),
                     4 => tags.tagged(
                         map(vec![
                             ("coordSystem", cs()?),
                             ("radius", tags.length(s.radius1)),
                             ("minorRadius", tags.length(s.radius2)),
+                            kind("TORUS"),
                         ]),
                         "Torus",
                     ),
                     // A surface swept straight from a curve (a sheet extruded from a spline, batch 039).
                     _ if model.shape(*r).surface_type().ok() == Some(occt::SurfaceType::Extrusion) => {
-                        Ok(map(vec![("surfaceType", Value::string("EXTRUDED"))]))
+                        Ok(map(vec![kind("EXTRUDED")]))
                     }
-                    _ => Ok(map(vec![("surfaceType", Value::string("OTHER"))])),
+                    _ => Ok(map(vec![kind("OTHER")])),
                 }
             },
             &tags,
