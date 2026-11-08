@@ -157,14 +157,8 @@ What fixtures show Onshape doing that the engine can't yet:
   (5 mm of arc at radius 7.50037, not quite the edge's middle radius 7.5); a band of a sphere (radius 10, 0° to
   60°) turns 0.621337 rad (5 mm at radius 8.047); extended past its top it reaches latitude 88.654° (5.0011 mm of
   arc). The rule isn't known yet.
-- **Where `evPlane` puts a planar face's origin** (batch 004 c034; batch 024 c008–c010; batch 037 c004, in the
-  axes of a rotated copy's plane, not the canonical ones). Batch 040 shows the rule: the middle of the face's box
-  in its plane surface's own axes (a ruled sheet's x runs along its middle ruling; the engine records that frame
-  and matches). Where the engine doesn't know the surface's frame it uses the canonical axes, as below. Near the middle of the
-  face's box in the plane's axes, which the engine uses, but 0.3% of the box's size off it along each axis, one
-  way or the other: a right triangle 30 × 12 mm gives (15.09, 6.036), not the box centre (15, 6) or the centroid
-  (10, 4); the annular sector a line swept along an arc makes, (16.239, 12.045) against the box centre
-  (16.142, 12.142). For faces symmetric in their box the two agree.
+- **Where `evPlane` puts a rotated copy's planar face's origin** (batch 037 c004): in the axes of the copy's
+  plane, not the canonical ones, which the engine doesn't track through the copy's transform.
 - **Lofts between unlike profiles** (c038, square to circle: 3% of the volume) **and through three profiles**
   (c039: 3e-4; Onshape splits the side into four patches): the surfaces come from each kernel's own lofting.
 - **Relieved bends** (batch 013 c006; batch 016 c007–c011, c013). Corner reliefs and closed corners leave Onshape's

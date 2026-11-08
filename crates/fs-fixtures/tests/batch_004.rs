@@ -3,9 +3,9 @@
 
 use std::path::PathBuf;
 
-/// Cases that differ (see docs/std-coverage.md): where `evPlane` puts the origin of a planar face with curved edges
-/// (c034); and lofts between unlike profiles, whose surfaces come from the kernels' own lofting (c038, c039).
-const KNOWN_GAPS: &[&str] = &["c034", "c038", "c039"];
+/// Cases that differ (see docs/std-coverage.md): lofts between unlike profiles, whose surfaces come from the
+/// kernels' own lofting (c038, c039).
+const KNOWN_GAPS: &[&str] = &["c038", "c039"];
 
 #[test]
 fn batch_004_matches_onshape() {

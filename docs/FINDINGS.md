@@ -199,6 +199,11 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   bridging curve's direction at an arc depends on it. (Batch 010, c006.)
 - **Variable fillets with a smooth transition** vary the radius as 3t² − 2t³ between the vertices (level at both
   ends): the volume matches that law exactly. (Batch 010, c002.)
+- **`evPlane`'s origin** is the middle of a box round the face in its plane's axes, but on each side where the
+  face only touches that box at a point (a vertex, or where a curve turns) rather than along a straight edge, the
+  box reaches 0.6% of its size further out (batch 004 c034, batch 024 c008–c010, to 1e-7). A filled right
+  triangle with 30 and 12 mm legs along the axes gets (15.09, 6.036), not (15, 6); a ruled trapezoid whose long
+  side runs along x moves only across it; symmetric faces (rectangles, discs) keep the box's middle.
 - **Through all** (batch 007, c007) goes as far as the diagonal of the box round the Part Studio's parts (not
   construction or sketch bodies: a sketched 100 mm axis line in an earlier case doesn't count) plus 0.01 mm: a
   hole cut down through all from z = 12 makes a cylinder whose coordinate system sits at the far end, z =
