@@ -222,6 +222,15 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   these fillets stray from its exported surfaces (which match the engine's) and from the exact conics: a 2 × 5
   section measures 2.143786 mm² along a convex edge, 2.144238 along a concave one, 2.146018 exactly, 2.147538 as
   exported.
+- **Curvature fillets** (batch 053) have a non-rational quintic B-spline section on knots 0⁶ 0.5² 1⁶, the same
+  for every size and angle in the oblique frame of the corner `c` and the two setback points `a`, `b` (the
+  circular fillet's, or an asymmetric fillet's): as `c + α (a − c) + β (b − c)`, its eight poles are (1, 0),
+  (1 − 0.3m, 0), (1 − 0.6m, 0), (α₃, β₃) and their mirror images, α₃ = 2(1 − m)/3, β₃ = 1/3 − 7m/15 (to 1e-11 in
+  all ten cases). So it leaves each face straight (no second derivative), passes through the chord's middle moved
+  `m` of the way to the corner (as rho moves a conic's shoulder), with no third derivative there. At m 0.8 β₃
+  would be negative: it's held at 0.001, α₃ taking up the difference. At m 0.95 even that fails, and Onshape makes
+  a cubic B-spline of 8 equal spans with the quintic's end derivative (3m times the setback) and shoulder, through
+  some other curve.
 - **Fillets too big for their faces** (batch 003, c015): a 30 × 20 × 10 block's four upright edges rounded 15 mm.
   Onshape lets the fillets eat the faces between them: the result is the block with each edge's own region
   (between the edge and its arc, the arc's centre 15 mm in from both faces) taken away. The arcs of the corners
