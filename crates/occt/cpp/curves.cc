@@ -2,7 +2,24 @@
 
 #include "occt/cpp/occt.h"
 
+#include <BRepAdaptor_Curve.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
+#include <BRepBuilderAPI_MakeFace.hxx>
+#include <BRepBuilderAPI_MakeWire.hxx>
+#include <BRepAlgoAPI_Cut.hxx>
+#include <BRepGProp.hxx>
+#include <BRepOffsetAPI_MakeOffset.hxx>
+#include <BRepTools_WireExplorer.hxx>
+#include <BRep_Tool.hxx>
+#include <GProp_GProps.hxx>
+#include <TopExp.hxx>
+#include <TopExp_Explorer.hxx>
+#include <TopoDS_Wire.hxx>
+#include <gp_Circ.hxx>
+#include <gp_Pln.hxx>
+#include <ShapeAnalysis_FreeBounds.hxx>
+#include <ShapeFix_Face.hxx>
+#include <TopTools_HSequenceOfShape.hxx>
 #include <GeomAPI_Interpolate.hxx>
 #include <Geom_BSplineCurve.hxx>
 #include <Geom_BezierCurve.hxx>
@@ -20,6 +37,7 @@
 #include <gp_Elips.hxx>
 
 #include <cmath>
+#include <cstdio>
 
 #include "occt/src/lib.rs.h"
 #include "occt/cpp/internal.h"
@@ -98,6 +116,137 @@ std::unique_ptr<Shape> make_conic_edge(Vec3 a, Vec3 c, Vec3 b, double w) {
   weights.SetValue(3, 1.0);
   Handle(Geom_BezierCurve) curve = new Geom_BezierCurve(poles, weights);
   return wrap(BRepBuilderAPI_MakeEdge(curve).Edge());
+}
+
+// Joins edges that meet end to end into wires.
+std::unique_ptr<ShapeList> connect_edges(const ShapeList &edges) {
+  Handle(TopTools_HSequenceOfShape) input = new TopTools_HSequenceOfShape();
+  for (const TopoDS_Shape &e : edges.shapes) input->Append(e);
+  Handle(TopTools_HSequenceOfShape) wires;
+  ShapeAnalysis_FreeBounds::ConnectEdgesToWires(input, 1e-7, Standard_False, wires);
+  auto out = std::make_unique<ShapeList>();
+  for (int i = 1; i <= wires->Length(); ++i) out->shapes.push_back(wires->Value(i));
+  return out;
+}
+
+namespace {
+
+// A planar wire offset by `distance` (positive or negative) in its plane, with sharp corners. Returns the wire
+// itself for zero.
+TopoDS_Wire offset_wire(const TopoDS_Wire &wire, const gp_Pln &plane, double distance, bool open) {
+  if (distance == 0) return wire;
+  // OCCT's offset crashes shrinking a wire that is one whole circle; its offsets are circles anyway.
+  TopExp_Explorer edges(wire, TopAbs_EDGE);
+  if (edges.More()) {
+    const TopoDS_Edge &edge = TopoDS::Edge(edges.Current());
+    edges.Next();
+    BRepAdaptor_Curve curve(edge);
+    if (!edges.More() && curve.GetType() == GeomAbs_Circle && BRep_Tool::IsClosed(edge)) {
+      gp_Circ circle = curve.Circle();
+      double radius = circle.Radius() + distance;
+      if (radius <= 0) throw std::runtime_error("offset wire: the circle vanishes");
+      circle.SetRadius(radius);
+      return BRepBuilderAPI_MakeWire(BRepBuilderAPI_MakeEdge(circle).Edge()).Wire();
+    }
+  }
+  BRepOffsetAPI_MakeOffset offset;
+  if (open) {
+    offset.Init(GeomAbs_Intersection, Standard_True);
+    offset.AddWire(wire);
+  } else {
+    BRepBuilderAPI_MakeFace face_maker(plane, wire, Standard_True);
+    if (!face_maker.IsDone()) throw std::runtime_error("offset wire: no face");
+    offset.Init(face_maker.Face(), GeomAbs_Intersection, Standard_False);
+  }
+  offset.Perform(distance);
+  if (!offset.IsDone()) throw std::runtime_error("offset wire failed");
+  TopExp_Explorer it(offset.Shape(), TopAbs_WIRE);
+  if (!it.More()) throw std::runtime_error("offset wire made no wire");
+  return TopoDS::Wire(it.Current());
+}
+
+double enclosed_area(const TopoDS_Wire &wire, const gp_Pln &plane) {
+  BRepBuilderAPI_MakeFace maker(plane, wire, Standard_True);
+  GProp_GProps props;
+  BRepGProp::SurfaceProperties(maker.Face(), props);
+  return std::abs(props.Mass());
+}
+
+// The ends of a wire, in order along it.
+void wire_ends(const TopoDS_Wire &wire, gp_Pnt &start, gp_Pnt &end) {
+  TopoDS_Vertex first, last;
+  TopExp::Vertices(wire, first, last);
+  start = BRep_Tool::Pnt(first);
+  end = BRep_Tool::Pnt(last);
+}
+
+}  // namespace
+
+// The region between a planar wire offset by `o1` on one side and by `o2` on the other, with sharp corners: what a
+// thin feature extrudes. The first side is to the right of the wire's first edge (its direction × `normal`) for an
+// open wire, and outward for a closed one.
+std::unique_ptr<Shape> offset_wire_region(const Shape &wire_shape, Vec3 normal, double o1, double o2) {
+  TopoDS_Wire wire = TopoDS::Wire(wire_shape.shape);
+  bool open = !wire.Closed() && !BRep_Tool::IsClosed(wire);
+  TopoDS_Vertex v0, v1;
+  TopExp::Vertices(wire, v0, v1);
+  if (!v0.IsNull() && v0.IsSame(v1)) open = false;
+  gp_Pnt origin = BRep_Tool::Pnt(v0.IsNull() ? TopExp::FirstVertex(TopoDS::Edge(TopExp_Explorer(wire, TopAbs_EDGE).Current())) : v0);
+  gp_Pln plane(origin, dir(normal));
+  if (!open) {
+    // Outward is the offset that encloses more.
+    TopoDS_Wire grown = offset_wire(wire, plane, 1e-4, false);
+    double sign = enclosed_area(grown, plane) > enclosed_area(wire, plane) ? 1.0 : -1.0;
+    TopoDS_Wire outer = offset_wire(wire, plane, sign * o1, false);
+    TopoDS_Wire inner = offset_wire(wire, plane, -sign * o2, false);
+    TopoDS_Face outer_face = BRepBuilderAPI_MakeFace(plane, outer, Standard_True).Face();
+    TopoDS_Face inner_face = BRepBuilderAPI_MakeFace(plane, inner, Standard_True).Face();
+    BRepAlgoAPI_Cut cut(outer_face, inner_face);
+    if (!cut.IsDone()) throw std::runtime_error("offset region failed");
+    TopExp_Explorer face(cut.Shape(), TopAbs_FACE);
+    if (!face.More()) throw std::runtime_error("offset region is empty");
+    return wrap(face.Current());
+  }
+  // Which way OCCT's positive offset goes for this wire: compare with the right of the first edge.
+  BRepTools_WireExplorer first_edge(wire);
+  BRepAdaptor_Curve curve(first_edge.Current());
+  bool reversed = first_edge.Current().Orientation() == TopAbs_REVERSED;
+  double u = reversed ? curve.LastParameter() : curve.FirstParameter();
+  gp_Pnt p;
+  gp_Vec d;
+  curve.D1(u, p, d);
+  if (reversed) d.Reverse();
+  gp_Vec right = d.Crossed(gp_Vec(dir(normal))).Normalized();
+  double probe = 1e-4;
+  TopoDS_Wire test = offset_wire(wire, plane, probe, true);
+  gp_Pnt t0, t1;
+  wire_ends(test, t0, t1);
+  gp_Pnt near = t0.Distance(p) < t1.Distance(p) ? t0 : t1;
+  double sign = gp_Vec(p, near).Dot(right) > 0 ? 1.0 : -1.0;
+  TopoDS_Wire a = offset_wire(wire, plane, sign * o1, true);
+  TopoDS_Wire b = offset_wire(wire, plane, -sign * o2, true);
+  gp_Pnt a0, a1, b0, b1;
+  wire_ends(a, a0, a1);
+  wire_ends(b, b0, b1);
+  // Make the two wires run the same way: a's start nearer b's start than b's end.
+  if (a0.Distance(b1) + a1.Distance(b0) < a0.Distance(b0) + a1.Distance(b1)) {
+    b.Reverse();
+    std::swap(b0, b1);
+  }
+  // Join the two sides and the end caps by position: the sides' vertices aren't shared.
+  Handle(TopTools_HSequenceOfShape) pieces = new TopTools_HSequenceOfShape();
+  for (TopExp_Explorer e(a, TopAbs_EDGE); e.More(); e.Next()) pieces->Append(e.Current());
+  for (TopExp_Explorer e(b, TopAbs_EDGE); e.More(); e.Next()) pieces->Append(e.Current());
+  if (a1.Distance(b1) > 1e-9) pieces->Append(BRepBuilderAPI_MakeEdge(a1, b1).Edge());
+  if (b0.Distance(a0) > 1e-9) pieces->Append(BRepBuilderAPI_MakeEdge(b0, a0).Edge());
+  Handle(TopTools_HSequenceOfShape) loops;
+  ShapeAnalysis_FreeBounds::ConnectEdgesToWires(pieces, 1e-7, Standard_False, loops);
+  if (loops->Length() != 1) throw std::runtime_error("offset region: the loop doesn't close");
+  BRepBuilderAPI_MakeFace face(plane, TopoDS::Wire(loops->Value(1)), Standard_True);
+  if (!face.IsDone()) throw std::runtime_error("offset region face failed");
+  ShapeFix_Face fix(face.Face());
+  fix.Perform();
+  return wrap(fix.Face());
 }
 
 }  // namespace occt

@@ -72,6 +72,7 @@
 namespace occt {
 
 std::unique_ptr<Shape> shape_clone(const Shape &s) { return wrap(s.shape); }
+std::unique_ptr<Shape> shape_reversed(const Shape &s) { return wrap(s.shape.Reversed()); }
 bool shape_is_null(const Shape &s) { return s.shape.IsNull(); }
 int32_t shape_kind(const Shape &s) { return s.shape.IsNull() ? -1 : static_cast<int32_t>(s.shape.ShapeType()); }
 int32_t shape_orientation(const Shape &s) { return static_cast<int32_t>(s.shape.Orientation()); }

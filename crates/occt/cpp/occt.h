@@ -70,6 +70,7 @@ class Operation {
 };
 
 std::unique_ptr<Shape> shape_clone(const Shape &s);
+std::unique_ptr<Shape> shape_reversed(const Shape &s);
 bool shape_is_null(const Shape &s);
 int32_t shape_kind(const Shape &s);
 int32_t shape_orientation(const Shape &s);
@@ -96,6 +97,8 @@ std::unique_ptr<Shape> make_interpolated_edge(rust::Slice<const Vec3> points, ru
                                               rust::Slice<const double> parameters, bool closed);
 std::unique_ptr<Shape> make_bezier_edge(rust::Slice<const Vec3> points);
 std::unique_ptr<Shape> make_conic_edge(Vec3 a, Vec3 c, Vec3 b, double w);
+std::unique_ptr<ShapeList> connect_edges(const ShapeList &edges);
+std::unique_ptr<Shape> offset_wire_region(const Shape &wire, Vec3 normal, double o1, double o2);
 
 std::unique_ptr<ShapeList> sketch_regions(const ShapeList &edges, Frame f);
 std::unique_ptr<Operation> merge_faces(const ShapeList &faces);

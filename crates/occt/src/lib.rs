@@ -78,6 +78,7 @@ mod ffi {
         fn shape_is_null(s: &Shape) -> bool;
         fn shape_kind(s: &Shape) -> i32;
         fn shape_orientation(s: &Shape) -> i32;
+        fn shape_reversed(s: &Shape) -> UniquePtr<Shape>;
         fn shape_is_same(a: &Shape, b: &Shape) -> bool;
         fn shape_hash(s: &Shape) -> u64;
 
@@ -112,6 +113,8 @@ mod ffi {
         ) -> Result<UniquePtr<Shape>>;
         fn make_bezier_edge(points: &[Vec3]) -> Result<UniquePtr<Shape>>;
         fn make_conic_edge(a: Vec3, c: Vec3, b: Vec3, w: f64) -> Result<UniquePtr<Shape>>;
+        fn connect_edges(edges: &ShapeList) -> Result<UniquePtr<ShapeList>>;
+        fn offset_wire_region(wire: &Shape, normal: Vec3, o1: f64, o2: f64) -> Result<UniquePtr<Shape>>;
 
         fn sketch_regions(edges: &ShapeList, f: Frame) -> Result<UniquePtr<ShapeList>>;
         fn merge_faces(faces: &ShapeList) -> Result<UniquePtr<Operation>>;
@@ -295,6 +298,11 @@ impl Shape {
     }
 
     /// The shape's kind, or `None` for a null shape.
+    /// The same shape with its orientation reversed (a face's normal flipped).
+    pub fn reversed(&self) -> Shape {
+        Shape::new(ffi::shape_reversed(&self.0))
+    }
+
     /// TopAbs orientation: 0 forward, 1 reversed, 2 internal, 3 external.
     pub fn orientation(&self) -> i32 {
         ffi::shape_orientation(&self.0)
@@ -505,6 +513,18 @@ pub fn bezier_edge(points: &[Vec3]) -> Result<Shape> {
 /// A conic from `a` to `b` tangent at them to the lines through `control`, with weight `w` at the control point.
 pub fn conic_edge(a: Vec3, control: Vec3, b: Vec3, w: f64) -> Result<Shape> {
     Ok(Shape::new(ffi::make_conic_edge(a, control, b, w)?))
+}
+
+/// Edges that meet end to end, joined into wires.
+pub fn connect_edges(edges: &[Shape]) -> Result<Vec<Shape>> {
+    let wires = ffi::connect_edges(&to_list(edges))?;
+    Ok(from_list(&wires))
+}
+
+/// The face between a planar wire offset `o1` to one side and `o2` to the other, with sharp corners: right of the
+/// first edge (direction × normal) for an open wire, outward for a closed one.
+pub fn offset_wire_region(wire: &Shape, normal: Vec3, o1: f64, o2: f64) -> Result<Shape> {
+    Ok(Shape::new(ffi::offset_wire_region(&wire.0, normal, o1, o2)?))
 }
 
 pub fn compound(shapes: &[Shape]) -> Shape {

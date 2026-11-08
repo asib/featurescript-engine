@@ -65,6 +65,14 @@ std::unique_ptr<Operation> revolve(const Shape &profile, Axis axis, double angle
   arguments.Append(profile.shape);
   op->history = new BRepTools_History(arguments, maker);
   op->result = maker.Shape();
+  // Edges left on one curve, such as the two halves of a circle where a semicircle revolved half a turn meets
+  // itself, become one edge, as in Onshape.
+  {
+    ShapeUpgrade_UnifySameDomain unifier(op->result, Standard_True, Standard_False, Standard_False);
+    unifier.Build();
+    op->history->Merge(unifier.History());
+    op->result = unifier.Shape();
+  }
   if (std::abs(angle) < 2 * M_PI - 1e-12) {
     TopTools_IndexedMapOfShape faces;
     TopExp::MapShapes(profile.shape, TopAbs_FACE, faces);
