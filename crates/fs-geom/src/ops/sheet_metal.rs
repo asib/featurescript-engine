@@ -327,14 +327,6 @@ fn regenerate(model: &mut Model, id: &FeatureId, def_index: usize) -> R<()> {
             }
         }
     }
-    for vertex in &def.vertices {
-        let style = sm_attribute(&vertex.attributes, "CORNER")
-            .and_then(|c| attribute_value(c, "cornerStyle"))
-            .and_then(Value::as_str);
-        if let Some(style) = style.filter(|s| *s != "SIMPLE") {
-            return Err(error(format!("@updateSheetMetalGeometry: {style} corner reliefs aren't supported yet")));
-        }
-    }
     let clearance = match attribute_value(&model_attribute, "minimalClearance") {
         Some(v) => values::length(v, "minimal clearance")?,
         None => 2e-5,
@@ -347,7 +339,20 @@ fn regenerate(model: &mut Model, id: &FeatureId, def_index: usize) -> R<()> {
         width_scale: scale("defaultBendReliefScale", 1.0625),
         thickness,
     };
-    let solid = build_part(&def, &bends, &rips, front, back, clearance, &relief)?;
+    let corner_defaults = CornerDefaults {
+        two: model_attribute.get("defaultTwoCornerStyle").and_then(Value::as_str).unwrap_or("SIMPLE").to_string(),
+        scale: scale("defaultCornerReliefScale", 1.5),
+        diameter: attribute_value(&model_attribute, "defaultRoundReliefDiameter")
+            .map(|v| values::length(v, "relief diameter"))
+            .transpose()?
+            .unwrap_or(0.0),
+        width: attribute_value(&model_attribute, "defaultSquareReliefWidth")
+            .map(|v| values::length(v, "relief width"))
+            .transpose()?
+            .unwrap_or(0.0),
+    };
+    let corners = corner_reliefs(&def, &bends, &corner_defaults)?;
+    let solid = build_part(&def, &bends, &rips, front, back, clearance, &relief, &corners)?;
 
     // Replace the model's part, keeping its identity, or make one.
     // Replace the model's parts (one for each piece a rip cuts off), keeping their identities, or make them.
@@ -547,6 +552,17 @@ impl Rigid {
         Rigid { r, t: sub(to.0, m.vec(from.0)) }
     }
 
+    fn inverse(&self) -> Rigid {
+        let mut r = [[0.0; 3]; 3];
+        for (i, row) in r.iter_mut().enumerate() {
+            for (j, x) in row.iter_mut().enumerate() {
+                *x = self.r[j][i];
+            }
+        }
+        let back = Rigid { r, t: Vec3::new(0.0, 0.0, 0.0) };
+        Rigid { r, t: scale(back.vec(self.t), -1.0) }
+    }
+
     fn transform(&self) -> occt::Transform {
         let r = &self.r;
         occt::Transform {
@@ -579,6 +595,18 @@ impl Placement {
             if from == wall_index(&bend.walls.0) { wall_index(&bend.walls.1) } else { wall_index(&bend.walls.0) };
         (from, other)
     }
+}
+
+/// The motion laying the wall on the far side of a bend into the near wall's plane, a flat bend's length on.
+fn unfolding(bend: &Bend, near_is_first: bool) -> Rigid {
+    let leaves = |toward: Vec3| add(bend.axis_origin, scale(toward, bend.sheet_radius));
+    let (t_near, d_near, n_near, t_far, d_far, n_far) = if near_is_first {
+        (leaves(bend.toward.0), bend.into.0, bend.normals.0, leaves(bend.toward.1), bend.into.1, bend.normals.1)
+    } else {
+        (leaves(bend.toward.1), bend.into.1, bend.normals.1, leaves(bend.toward.0), bend.into.0, bend.normals.0)
+    };
+    let target = add(t_near, scale(d_near, -bend.flat_length));
+    Rigid::between((t_far, d_far, n_far), (target, scale(d_near, -1.0), n_near))
 }
 
 fn placements(def: &Body, bends: &[Bend], wall_index: &dyn Fn(&Shape) -> usize) -> Placement {
@@ -614,28 +642,7 @@ fn placements(def: &Body, bends: &[Bend], wall_index: &dyn Fn(&Shape) -> usize) 
             }
             let there = if bend.unfolded {
                 from.push((bend.edge.clone(), near));
-                let leaves = |toward: Vec3| add(bend.axis_origin, scale(toward, bend.sheet_radius));
-                let (t_near, d_near, n_near, t_far, d_far, n_far) = if first {
-                    (
-                        leaves(bend.toward.0),
-                        bend.into.0,
-                        bend.normals.0,
-                        leaves(bend.toward.1),
-                        bend.into.1,
-                        bend.normals.1,
-                    )
-                } else {
-                    (
-                        leaves(bend.toward.1),
-                        bend.into.1,
-                        bend.normals.1,
-                        leaves(bend.toward.0),
-                        bend.into.0,
-                        bend.normals.0,
-                    )
-                };
-                let target = add(t_near, scale(d_near, -bend.flat_length));
-                here.then(&Rigid::between((t_far, d_far, n_far), (target, scale(d_near, -1.0), n_near)))
+                here.then(&unfolding(bend, first))
             } else {
                 here
             };
@@ -652,6 +659,113 @@ fn placements(def: &Body, bends: &[Bend], wall_index: &dyn Fn(&Shape) -> usize) 
 /// The folded part, piece by piece: each wall cut back where it meets bends and rips and thickened, and each bend
 /// a ring sector along the stretch both its walls still reach; the pieces fused. Where bends meet at a corner,
 /// each stops where the other cuts its walls back, leaving the corner open (Onshape's simple corner).
+/// The model's default corner relief: its style where two bends meet, and sizes.
+struct CornerDefaults {
+    two: String,
+    scale: f64,
+    diameter: f64,
+    width: f64,
+}
+
+/// A corner relief: where two bends meet on a base wall, a hole cut in the flat pattern (the base wall's plane)
+/// and folded back through the base wall, the bends and the walls beyond them.
+struct CornerRelief {
+    /// The bends (indices into the model's bends) and the base wall they share.
+    bends: (usize, usize),
+    base: Shape,
+    /// The hole, as a face in the base wall's plane.
+    hole: Shape,
+}
+
+/// The corner reliefs a model has: at each vertex where two bends meet, with the vertex's own corner style or the
+/// model's. Centred where the bends' centre lines cross in the flat (each bend's tangent line on the base wall plus
+/// half its flat length): round, a circle of radius scale × flat length / √2; rectangular, a square of side scale ×
+/// flat length; sized, the given diameter or width (fitted to fixture batch 016). Closed corners aren't supported
+/// yet.
+fn corner_reliefs(def: &Body, bends: &[Bend], defaults: &CornerDefaults) -> R<Vec<CornerRelief>> {
+    let mut out = Vec::new();
+    for vertex in &def.vertices {
+        let at: Vec<usize> = (0..bends.len())
+            .filter(|&i| bends[i].edge.sub_shapes(ShapeKind::Vertex).iter().any(|v| v.is_same(&vertex.shape)))
+            .collect();
+        if at.len() < 2 {
+            continue;
+        }
+        let corner = sm_attribute(&vertex.attributes, "CORNER");
+        let own = |key: &str| corner.and_then(|c| attribute_value(c, key));
+        let style =
+            own("cornerStyle").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| defaults.two.clone());
+        if style == "SIMPLE" {
+            continue;
+        }
+        if at.len() > 2 {
+            return Err(error("@updateSheetMetalGeometry: reliefs where three bends meet aren't supported yet"));
+        }
+        let (i, j) = (at[0], at[1]);
+        let (b1, b2) = (&bends[i], &bends[j]);
+        // The wall both bends leave.
+        let base = [&b1.walls.0, &b1.walls.1]
+            .into_iter()
+            .find(|w| w.is_same(&b2.walls.0) || w.is_same(&b2.walls.1))
+            .ok_or_else(|| error("@updateSheetMetalGeometry: a corner relief needs the bends to share a wall"))?
+            .clone();
+        let leaves = |b: &Bend| -> (Vec3, Vec3, Vec3) {
+            let (toward, into, normal) = if b.walls.0.is_same(&base) {
+                (b.toward.0, b.into.0, b.normals.0)
+            } else {
+                (b.toward.1, b.into.1, b.normals.1)
+            };
+            (add(b.axis_origin, scale(toward, b.sheet_radius)), scale(into, -1.0), normal)
+        };
+        let (t1, away1, n) = leaves(b1);
+        let (t2, away2, _) = leaves(b2);
+        let c1 = add(t1, scale(away1, b1.flat_length / 2.0));
+        let c2 = add(t2, scale(away2, b2.flat_length / 2.0));
+        // Where c1 + s·axis1 meets c2 + u·axis2.
+        let (d1, d2) = (b1.axis_direction, b2.axis_direction);
+        let w = sub(c2, c1);
+        let cr = cross(d1, d2);
+        let denom = dot(cr, cr);
+        if denom < 1e-18 {
+            return Err(error("@updateSheetMetalGeometry: a corner relief between parallel bends"));
+        }
+        let centre = add(c1, scale(d1, dot(cross(w, d2), cr) / denom));
+        let flat = b1.flat_length.max(b2.flat_length);
+        let number = |key: &str, default: f64| own(key).and_then(Value::as_number).unwrap_or(default);
+        let length = |key: &str, default: f64| -> R<f64> {
+            match own(key) {
+                Some(v) => values::length(v, "corner relief size"),
+                None => Ok(default),
+            }
+        };
+        let frame = occt::Frame { origin: centre, normal: n, x: d1 };
+        let hole = match style.as_str() {
+            "ROUND" | "SIZED_ROUND" => {
+                let radius = if style == "ROUND" {
+                    number("cornerReliefScale", defaults.scale) * flat / std::f64::consts::SQRT_2
+                } else {
+                    length("roundReliefDiameter", defaults.diameter)? / 2.0
+                };
+                let circle = occt::circle_edge(frame, radius).map_err(occt_error)?;
+                occt::fill_edges(&[circle]).map_err(occt_error)?
+            }
+            "RECTANGLE" | "SIZED_RECTANGLE" => {
+                let side = if style == "RECTANGLE" {
+                    number("cornerReliefScale", defaults.scale) * flat
+                } else {
+                    length("squareReliefWidth", defaults.width)?
+                };
+                occt::plane_face(frame, -side / 2.0, side / 2.0, -side / 2.0, side / 2.0).map_err(occt_error)?
+            }
+            other => {
+                return Err(error(format!("@updateSheetMetalGeometry: {other} corner reliefs aren't supported yet")));
+            }
+        };
+        out.push(CornerRelief { bends: (i, j), base, hole });
+    }
+    Ok(out)
+}
+
 /// How the ends of a bend shorter than its wall's edge are relieved (the model's defaults).
 struct BendRelief {
     style: String,
@@ -725,6 +839,7 @@ fn build_part(
     back: f64,
     clearance: f64,
     relief: &BendRelief,
+    corners: &[CornerRelief],
 ) -> R<Shape> {
     let faces_of_edge = |edge: &Shape| -> Vec<&Shape> {
         def.faces
@@ -761,7 +876,24 @@ fn build_part(
         }
         // A rolled wall, or a bend the model already rounds (std's bend wraps one in), is thickened as it is.
         let planar = wall.shape.surface_type().ok() == Some(occt::SurfaceType::Plane);
-        let (stubs, slots) = if planar { bend_reliefs(&wall.shape, bends, relief)? } else { (Vec::new(), Vec::new()) };
+        let (stubs, mut slots) =
+            if planar { bend_reliefs(&wall.shape, bends, relief)? } else { (Vec::new(), Vec::new()) };
+        // Corner reliefs: cut as they are from the base wall, and carried into the walls beyond the bends.
+        for corner in corners {
+            if wall.shape.is_same(&corner.base) {
+                slots.push(corner.hole.clone());
+                continue;
+            }
+            for &k in &[corner.bends.0, corner.bends.1] {
+                let bend = &bends[k];
+                let far_is_first = bend.walls.0.is_same(&wall.shape);
+                if !(far_is_first || bend.walls.1.is_same(&wall.shape)) {
+                    continue;
+                }
+                let back = unfolding(bend, !far_is_first).inverse();
+                slots.push(occt::transform(&corner.hole, &back.transform()).map_err(occt_error)?.shape());
+            }
+        }
         for (edge, setback) in stubs {
             if !edges.iter().any(|e| e.is_same(&edge)) {
                 edges.push(edge);
@@ -807,12 +939,67 @@ fn build_part(
             let (lo, hi) = reach.ok_or_else(|| regen_error("SHEET_METAL_REBUILD_ERROR"))?;
             span = (span.0.max(lo), span.1.min(hi));
         }
+        let relieved: Vec<&CornerRelief> = corners
+            .iter()
+            .filter(|c| std::ptr::eq(&bends[c.bends.0], bend) || std::ptr::eq(&bends[c.bends.1], bend))
+            .collect();
+        if !relieved.is_empty() {
+            // Out to the corner: the relief takes the corner away.
+            if let Some((a, b)) = segment(&bend.edge) {
+                let (ta, tb) = (dot(sub(a, bend.at), bend.axis_direction), dot(sub(b, bend.at), bend.axis_direction));
+                span = (ta.min(tb), ta.max(tb));
+            }
+        }
         // No further than the bend's own edge (a wall's edge can run on past a bend that covers part of it).
         if let Some((a, b)) = segment(&bend.edge) {
             let (ta, tb) = (dot(sub(a, bend.at), bend.axis_direction), dot(sub(b, bend.at), bend.axis_direction));
             span = (span.0.max(ta.min(tb)), span.1.min(ta.max(tb)));
         }
         if span.1 - span.0 <= 1e-9 {
+            continue;
+        }
+        if !relieved.is_empty() && !bend.unfolded {
+            // Built flat, the reliefs cut from it, and wrapped round the bend at its neutral radius.
+            let base = &relieved[0].base;
+            let (toward, into, normal) = if bend.walls.0.is_same(base) {
+                (bend.toward.0, bend.into.0, bend.normals.0)
+            } else {
+                (bend.toward.1, bend.into.1, bend.normals.1)
+            };
+            let start =
+                add(add(bend.axis_origin, scale(toward, bend.sheet_radius)), scale(bend.axis_direction, span.0));
+            let away = scale(into, -1.0);
+            let v_axis = cross(normal, bend.axis_direction);
+            let (v0, v1) = if dot(v_axis, away) > 0.0 { (0.0, bend.flat_length) } else { (-bend.flat_length, 0.0) };
+            let frame = occt::Frame { origin: start, normal, x: bend.axis_direction };
+            let strip = occt::plane_face(frame, 0.0, span.1 - span.0, v0, v1).map_err(occt_error)?;
+            let holes: Vec<Shape> = relieved.iter().map(|c| c.hole.clone()).collect();
+            let cut = occt::boolean(occt::BooleanKind::Subtraction, &[strip], &holes, true)
+                .map_err(|_| regen_error("SHEET_METAL_REBUILD_ERROR"))?
+                .shape();
+            let cylinder = occt::cylinder_face(
+                occt::Frame { origin: bend.axis_origin, normal: bend.axis_direction, x: toward },
+                bend.sheet_radius,
+                1.0,
+            )
+            .map_err(occt_error)?;
+            let turn = std::f64::consts::PI - dot(bend.into.0, bend.into.1).clamp(-1.0, 1.0).acos();
+            let neutral = bend.flat_length / turn;
+            let faces = cut.sub_shapes(ShapeKind::Face);
+            if faces.is_empty() {
+                continue;
+            }
+            let wrapped =
+                occt::wrap_onto_cylinder(&faces, (start, away, normal), &cylinder, start, away, Some(neutral))
+                    .map_err(|_| regen_error("SHEET_METAL_REBUILD_ERROR"))?;
+            // The wrapped faces face away from the axis; the material lies in front of the definition's normal.
+            let (along, against) = if dot(normal, toward) > 0.0 { (front, back) } else { (back, front) };
+            for face in wrapped.shape().sub_shapes(ShapeKind::Face) {
+                let solid = occt::thicken(&face, along, against)
+                    .map_err(|_| regen_error("SHEET_METAL_CANNOT_THICKEN"))?
+                    .shape();
+                pieces.push(place(solid, wall_index(&bend.walls.0))?);
+            }
             continue;
         }
         if bend.unfolded {
