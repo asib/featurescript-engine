@@ -93,7 +93,7 @@ pub enum Cap {
 }
 
 /// Where an entity came from.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Info {
     /// The feature (or sub-feature) that created it. `qCreatedBy(id)` matches this id and every id inside it.
     pub created_by: FeatureId,
@@ -112,6 +112,9 @@ pub struct Info {
     /// For the edges and vertices of a sketch's construction curves: construction to `qConstructionFilter`, though
     /// their wire bodies aren't (batches 004 and 029).
     pub construction: bool,
+    /// For a straight edge, where Onshape's line is placed, if not at the edge's middle: an extrude's edge swept
+    /// from a vertex has it at the far end (a fillet's cylinder takes its origin from it, batch 047).
+    pub line_origin: Option<occt::Vec3>,
 }
 
 impl Info {

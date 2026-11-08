@@ -352,6 +352,23 @@ pub fn extrude(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
             Some(start_info.clone())
         } else if s.kind() == Some(ShapeKind::Face) && !circles.is_empty() {
             super::frames::extruded(s, &circles, direction, !solid).map(side_info)
+        } else if s.kind() == Some(ShapeKind::Edge) && s.curve_type().ok() == Some(occt::CurveType::Line) {
+            // An edge swept from a vertex: Onshape's line sits at its far end (batch 047).
+            let (a, b) = (s.edge_tangent(0.0, false).ok()?, s.edge_tangent(1.0, false).ok()?);
+            if crate::values::norm(crate::values::cross(a.direction, direction)) > 1e-9 {
+                return None;
+            }
+            let far = if crate::values::dot(crate::values::sub(b.origin, a.origin), direction) > 0.0 {
+                b.origin
+            } else {
+                a.origin
+            };
+            Some(Rc::new(Info {
+                created_by: created.created_by.clone(),
+                dependency: created.dependency.clone(),
+                line_origin: Some(far),
+                ..Default::default()
+            }))
         } else {
             None
         }
