@@ -340,8 +340,8 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   curve, std hands back Bézier spans (each inner knot as often as the degree) from the second point, with clamped
   knots, still flagged periodic.
 - **Offset curves Onshape finds no result for** (batches 020 and 027) warn `OFFSET_CURVE_ON_FACE_CHAIN_YIELDED_NO_RESULT`
-  and make nothing: a cylinder's top edge across its top; a chamfer's edge on a block's top, extended. The same
-  chamfer edge offset without extending, and a cylinder's top edge down its side, work.
+  and make nothing: a cylinder's top edge across its top; a chamfer's edge on a block's top, extended. A block's
+  front top edge across its top (batch 005) and a cylinder's top edge down its side work.
 - **Feature patterns that reapply the feature** (batch 026) run it once per instance with the instance's transform
   pushed (`setFeaturePatternInstanceData`); std's extrude moves its profile by the remainder transform (all of it
   when the profile isn't made inside the pattern), so a boss up to a slanted plane ends at its own height in each
