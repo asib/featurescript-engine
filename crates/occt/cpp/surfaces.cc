@@ -165,6 +165,13 @@ std::unique_ptr<ShapeList> extract_faces(const ShapeList &faces, double offset) 
 // A planar sheet with some of its boundary edges moved outward in its plane by `distance`, the edges around them
 // extended to meet (linear extension).
 std::unique_ptr<Shape> extend_planar_sheet(const Shape &sheet, const ShapeList &edges, double distance) {
+  std::vector<double> distances(edges.shapes.size(), distance);
+  return extend_planar_face(sheet, edges, rust::Slice<const double>(distances.data(), distances.size()));
+}
+
+// A planar sheet of one face with some straight boundary edges moved outward, each by its own distance (negative
+// moves it in); the neighbouring edges run on to meet them.
+std::unique_ptr<Shape> extend_planar_face(const Shape &sheet, const ShapeList &edges, rust::Slice<const double> distances) {
   TopExp_Explorer faces(sheet.shape, TopAbs_FACE);
   if (!faces.More()) throw std::runtime_error("extend: no face");
   TopoDS_Face face = TopoDS::Face(faces.Current());
@@ -178,15 +185,18 @@ std::unique_ptr<Shape> extend_planar_sheet(const Shape &sheet, const ShapeList &
   std::vector<std::pair<gp_Pnt, gp_Pnt>> lines;
   gp_Dir normal = plane.Axis().Direction();
   if (face.Orientation() == TopAbs_REVERSED) normal.Reverse();
-  TopTools_IndexedMapOfShape selected;
-  for (const TopoDS_Shape &e : edges.shapes) selected.Add(e);
+  auto distance_of = [&](const TopoDS_Shape &edge) -> double {
+    for (size_t i = 0; i < edges.shapes.size(); ++i)
+      if (edges.shapes[i].IsSame(edge)) return distances[i];
+    return 0;
+  };
   for (BRepTools_WireExplorer it(outer, face); it.More(); it.Next()) {
     const TopoDS_Edge &edge = it.Current();
     BRepAdaptor_Curve curve(edge);
     if (curve.GetType() != GeomAbs_Line) throw std::runtime_error("extend: only straight edges are supported yet");
     gp_Pnt a = BRep_Tool::Pnt(TopExp::FirstVertex(edge, Standard_True));
     gp_Pnt b = BRep_Tool::Pnt(TopExp::LastVertex(edge, Standard_True));
-    if (selected.Contains(edge) || selected.Contains(edge.Reversed())) {
+    if (const double distance = distance_of(edge); distance != 0) {
       // Outward, for a face on the left of the loop.
       gp_Vec outward = gp_Vec(a, b).Crossed(gp_Vec(normal)).Normalized() * distance;
       a.Translate(outward);
@@ -456,6 +466,29 @@ std::unique_ptr<Shape> make_bspline_surface_face(rust::Slice<const Vec3> poles, 
   Handle(Geom_BSplineSurface) surface =
       new Geom_BSplineSurface(grid, ku->Array1(), kv->Array1(), mu->Array1(), mv->Array1(), degree_u, degree_v);
   return wrap(BRepBuilderAPI_MakeFace(surface, Precision::Confusion()).Face());
+}
+
+// Faces sewn together where their edges meet: one shell, or a compound of shells if they fall apart.
+std::unique_ptr<Shape> sew_faces(const ShapeList &faces, double tolerance) {
+  if (faces.shapes.size() == 1) {
+    BRep_Builder builder;
+    TopoDS_Shell shell;
+    builder.MakeShell(shell);
+    builder.Add(shell, faces.shapes[0]);
+    return wrap(shell);
+  }
+  BRepBuilderAPI_Sewing sewing(tolerance);
+  for (const TopoDS_Shape &f : faces.shapes) sewing.Add(f);
+  sewing.Perform();
+  TopoDS_Shape sewn = sewing.SewedShape();
+  if (sewn.ShapeType() == TopAbs_FACE) {
+    BRep_Builder builder;
+    TopoDS_Shell shell;
+    builder.MakeShell(shell);
+    builder.Add(shell, sewn);
+    return wrap(shell);
+  }
+  return wrap(sewn);
 }
 
 }  // namespace occt

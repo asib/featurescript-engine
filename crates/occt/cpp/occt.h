@@ -96,6 +96,8 @@ std::unique_ptr<Shape> make_plane_face(Frame f, double umin, double umax, double
 std::unique_ptr<Shape> make_ellipse_edge(Frame f, double major, double minor, bool whole, double start, double end);
 std::unique_ptr<Shape> make_interpolated_edge(rust::Slice<const Vec3> points, rust::Slice<const Vec3> derivatives,
                                               rust::Slice<const double> parameters, bool closed);
+std::unique_ptr<Shape> orient_sheet(const Shape &input);
+std::unique_ptr<Shape> thicken_sheet(const Shape &input, double t1, double t2);
 std::unique_ptr<Shape> make_bspline_surface_face(rust::Slice<const Vec3> poles, int32_t nu, int32_t nv,
                                                  rust::Slice<const double> knots_u, rust::Slice<const double> knots_v,
                                                  int32_t degree_u, int32_t degree_v);
@@ -115,6 +117,8 @@ std::unique_ptr<Shape> fill_edges(const ShapeList &edges);
 std::unique_ptr<ShapeList> enclose_shapes(const ShapeList &shapes);
 std::unique_ptr<ShapeList> extract_faces(const ShapeList &faces, double offset);
 std::unique_ptr<Shape> extend_planar_sheet(const Shape &sheet, const ShapeList &edges, double distance);
+std::unique_ptr<Shape> extend_planar_face(const Shape &sheet, const ShapeList &edges, rust::Slice<const double> distances);
+std::unique_ptr<Shape> sew_faces(const ShapeList &faces, double tolerance);
 std::unique_ptr<ShapeList> iso_curves(const Shape &face, bool along_u, double t);
 bool face_periodic(const Shape &face, bool along_u);
 std::unique_ptr<Shape> join_edges(const Shape &wire);

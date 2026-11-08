@@ -3,6 +3,9 @@
 #include "occt/cpp/occt.h"
 
 #include <BRepGProp.hxx>
+#include <BRepFill.hxx>
+#include <BRepBuilderAPI_MakeWire.hxx>
+#include <BRepBuilderAPI_MakeEdge.hxx>
 #include <GProp_GProps.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepBndLib.hxx>
@@ -31,6 +34,7 @@
 #include <BRepFeat_SplitShape.hxx>
 #include <BRepClass3d_SolidClassifier.hxx>
 #include <ShapeFix_Solid.hxx>
+#include <ShapeFix_Shell.hxx>
 #include <ShapeAnalysis_FreeBounds.hxx>
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
@@ -67,6 +71,8 @@
 #include <gp_Trsf.hxx>
 
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <sstream>
 
 #include "occt/src/lib.rs.h"
@@ -395,6 +401,123 @@ std::unique_ptr<Operation> thicken_op(const Shape &input, double t1, double t2) 
   BRepGProp::VolumeProperties(op->result, props);
   if (props.Mass() < 0) op->result.Reverse();
   return op;
+}
+
+namespace {
+
+// A sheet offset by `distance` along its faces' normals, as a shell (the sheet itself, copied, for no distance).
+TopoDS_Shape offset_sheet(const TopoDS_Shape &sheet, double distance) {
+  if (std::abs(distance) < 1e-12) return BRepBuilderAPI_Copy(sheet).Shape();
+  BRepOffset_MakeOffset maker;
+  maker.Initialize(sheet, distance, 1e-7, BRepOffset_Skin, Standard_False, Standard_False, GeomAbs_Arc);
+  maker.MakeOffsetShape();
+  if (!maker.IsDone()) throw std::runtime_error("thicken sheet: offset failed");
+  return maker.Shape();
+}
+
+// The midpoint of an edge.
+gp_Pnt edge_middle(const TopoDS_Edge &edge) {
+  BRepAdaptor_Curve curve(edge);
+  return curve.Value(0.5 * (curve.FirstParameter() + curve.LastParameter()));
+}
+
+}  // namespace
+
+// A sheet with its faces turned to agree with each other across their shared edges (filleting an open shell can
+// leave the new faces turned the other way).
+std::unique_ptr<Shape> orient_sheet(const Shape &input) {
+  BRep_Builder builder;
+  TopoDS_Compound out;
+  builder.MakeCompound(out);
+  int shells = 0;
+  TopoDS_Shape last;
+  for (TopExp_Explorer s(input.shape, TopAbs_SHELL); s.More(); s.Next()) {
+    ShapeFix_Shell fixer;
+    fixer.FixFaceOrientation(TopoDS::Shell(s.Current()), Standard_True, Standard_False);
+    last = fixer.Shell();
+    builder.Add(out, last);
+    ++shells;
+  }
+  if (shells == 0) return wrap(input.shape);
+  return wrap(shells == 1 ? last : TopoDS_Shape(out));
+}
+
+// A smooth sheet thickened `t1` along its normals and `t2` against them: the sheet offset both ways, each pair of
+// matching boundary edges joined by a face across the thickness, all sewn into one solid. Sheet metal's sheets are
+// smooth once their bends are rounded, and OCCT's own thickening of such a sheet can come out invalid (batch 012).
+std::unique_ptr<Shape> thicken_sheet(const Shape &input, double t1, double t2) {
+  const TopoDS_Shape front = offset_sheet(input.shape, t1);
+  const TopoDS_Shape back = offset_sheet(input.shape, -t2);
+  auto free_edges = [](const TopoDS_Shape &shape) {
+    std::vector<TopoDS_Edge> out;
+    TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
+    TopExp::MapShapesAndAncestors(shape, TopAbs_EDGE, TopAbs_FACE, edge_faces);
+    for (int i = 1; i <= edge_faces.Extent(); ++i)
+      if (edge_faces(i).Extent() == 1 && !BRep_Tool::Degenerated(TopoDS::Edge(edge_faces.FindKey(i))))
+        out.push_back(TopoDS::Edge(edge_faces.FindKey(i)));
+    return out;
+  };
+  const std::vector<TopoDS_Edge> front_edges = free_edges(front), back_edges = free_edges(back);
+
+  const double reach = t1 + t2 + 1e-6;
+  BRepBuilderAPI_Sewing sewing(1e-6);
+  for (TopExp_Explorer f(front, TopAbs_FACE); f.More(); f.Next()) sewing.Add(f.Current());
+  for (TopExp_Explorer f(back, TopAbs_FACE); f.More(); f.Next()) sewing.Add(f.Current().Reversed());
+  std::vector<bool> used(back_edges.size(), false);
+  for (const TopoDS_Edge &e1 : front_edges) {
+    // The back edge across from this one: the nearest, with matching ends.
+    const gp_Pnt m1 = edge_middle(e1);
+    int best = -1;
+    double best_distance = reach;
+    for (size_t j = 0; j < back_edges.size(); ++j) {
+      if (used[j]) continue;
+      const double d = m1.Distance(edge_middle(back_edges[j]));
+      if (d < best_distance) {
+        best = static_cast<int>(j);
+        best_distance = d;
+      }
+    }
+    if (best < 0) throw std::runtime_error("thicken sheet: no edge across the thickness");
+    used[best] = true;
+    const TopoDS_Edge &e2 = back_edges[best];
+    TopoDS_Vertex a1, b1, a2, b2;
+    TopExp::Vertices(e1, a1, b1);
+    TopExp::Vertices(e2, a2, b2);
+    const gp_Pnt pa1 = BRep_Tool::Pnt(a1), pb1 = BRep_Tool::Pnt(b1);
+    gp_Pnt pa2 = BRep_Tool::Pnt(a2), pb2 = BRep_Tool::Pnt(b2);
+    TopoDS_Edge across = e2;
+    if (pa1.Distance(pa2) + pb1.Distance(pb2) > pa1.Distance(pb2) + pb1.Distance(pa2)) {
+      across = TopoDS::Edge(e2.Reversed());
+      std::swap(pa2, pb2);
+    }
+    // A planar face where the two edges lie in one plane (always, for planar walls and round bends), else ruled.
+    BRepBuilderAPI_MakeWire wire;
+    wire.Add(e1);
+    if (pb1.Distance(pb2) > 1e-9) wire.Add(BRepBuilderAPI_MakeEdge(pb1, pb2).Edge());
+    wire.Add(TopoDS::Edge(across.Reversed()));
+    if (pa2.Distance(pa1) > 1e-9) wire.Add(BRepBuilderAPI_MakeEdge(pa2, pa1).Edge());
+    TopoDS_Face side;
+    if (wire.IsDone()) {
+      BRepBuilderAPI_MakeFace planar(wire.Wire(), Standard_True);
+      if (planar.IsDone()) side = planar.Face();
+    }
+    if (side.IsNull()) side = BRepFill::Face(e1, across);
+    sewing.Add(side);
+  }
+  sewing.Perform();
+  TopoDS_Shape sewn = sewing.SewedShape();
+  TopoDS_Shell shell;
+  for (TopExp_Explorer s(sewn, TopAbs_SHELL); s.More(); s.Next()) {
+    shell = TopoDS::Shell(s.Current());
+    break;
+  }
+  if (shell.IsNull()) throw std::runtime_error("thicken sheet: sewing failed");
+  ShapeFix_Solid fixer;
+  TopoDS_Shape solid = fixer.SolidFromShell(shell);
+  GProp_GProps props;
+  BRepGProp::VolumeProperties(solid, props);
+  if (props.Mass() < 0) solid.Reverse();
+  return wrap(solid);
 }
 
 // Offsets some faces of a solid by `distance` along their normals, extending or trimming the faces around them.

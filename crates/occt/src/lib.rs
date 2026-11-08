@@ -133,6 +133,8 @@ mod ffi {
             periodic: bool,
         ) -> Result<UniquePtr<Shape>>;
         fn make_conic_edge(a: Vec3, c: Vec3, b: Vec3, w: f64) -> Result<UniquePtr<Shape>>;
+        fn thicken_sheet(input: &Shape, t1: f64, t2: f64) -> Result<UniquePtr<Shape>>;
+        fn orient_sheet(input: &Shape) -> Result<UniquePtr<Shape>>;
         fn make_bspline_surface_face(
             poles: &[Vec3],
             nu: i32,
@@ -163,6 +165,8 @@ mod ffi {
         fn enclose_shapes(shapes: &ShapeList) -> Result<UniquePtr<ShapeList>>;
         fn extract_faces(faces: &ShapeList, offset: f64) -> Result<UniquePtr<ShapeList>>;
         fn extend_planar_sheet(sheet: &Shape, edges: &ShapeList, distance: f64) -> Result<UniquePtr<Shape>>;
+        fn extend_planar_face(sheet: &Shape, edges: &ShapeList, distances: &[f64]) -> Result<UniquePtr<Shape>>;
+        fn sew_faces(faces: &ShapeList, tolerance: f64) -> Result<UniquePtr<Shape>>;
         fn iso_curves(face: &Shape, along_u: bool, t: f64) -> Result<UniquePtr<ShapeList>>;
         fn face_periodic(face: &Shape, along_u: bool) -> Result<bool>;
         fn join_edges(wire: &Shape) -> Result<UniquePtr<Shape>>;
@@ -750,6 +754,16 @@ pub fn extend_planar_sheet(sheet: &Shape, edges: &[Shape], distance: f64) -> Res
     Ok(Shape::new(ffi::extend_planar_sheet(&sheet.0, &to_list(edges), distance)?))
 }
 
+/// A planar face with some straight boundary edges moved outward, each by its own distance (negative moves it in).
+pub fn extend_planar_face(face: &Shape, edges: &[Shape], distances: &[f64]) -> Result<Shape> {
+    Ok(Shape::new(ffi::extend_planar_face(&face.0, &to_list(edges), distances)?))
+}
+
+/// Faces sewn together where their edges meet: a shell (or compound of shells), for a sheet body.
+pub fn sew_faces(faces: &[Shape], tolerance: f64) -> Result<Shape> {
+    Ok(Shape::new(ffi::sew_faces(&to_list(faces), tolerance)?))
+}
+
 /// The iso curve of a face at fraction `t` of its parameter range, along u or v, trimmed to the face.
 pub fn iso_curves(face: &Shape, along_u: bool, t: f64) -> Result<Vec<Shape>> {
     let edges = ffi::iso_curves(&face.0, along_u, t)?;
@@ -956,6 +970,17 @@ pub fn draft(solid: &Shape, faces: &[Shape], pull: Vec3, angle: f64, neutral: Fr
 /// Drafts faces of a solid by `angle`, each about where it meets its own neutral plane.
 pub fn draft_each(solid: &Shape, faces: &[Shape], pull: Vec3, angle: f64, neutrals: &[Frame]) -> Result<Operation> {
     Ok(Operation(ffi::draft_op(&solid.0, &to_list(faces), pull, angle, neutrals)?))
+}
+
+/// A sheet with its faces turned to agree with each other across their shared edges.
+pub fn orient_sheet(sheet: &Shape) -> Result<Shape> {
+    Ok(Shape::new(ffi::orient_sheet(&sheet.0)?))
+}
+
+/// Thickens a smooth sheet `t1` along its normals and `t2` against them, from its offsets and faces across the
+/// thickness at its boundary (sheet metal's walls and rounded bends). Gives the solid only, without history.
+pub fn thicken_sheet(sheet: &Shape, t1: f64, t2: f64) -> Result<Shape> {
+    Ok(Shape::new(ffi::thicken_sheet(&sheet.0, t1, t2)?))
 }
 
 /// Thickens a face or sheet `t1` along its normal and `t2` against it.
