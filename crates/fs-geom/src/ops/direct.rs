@@ -237,11 +237,29 @@ pub fn delete_face(model: &mut Model, id: FeatureId, definition: &Value) -> R<Va
             continue;
         }
         let sheet = occt::remove_faces_open(&old.shape, &faces).map_err(occt_error)?;
+        // Edges that lost a face beside them are changed (new ids, tracked back); the rest keep their identities.
+        let lost_neighbour =
+            |e: &Shape| faces.iter().any(|f| f.sub_shapes(ShapeKind::Edge).iter().any(|x| x.is_same(e)));
         let mut origins = Origins::default();
         for entity in old.all_entities() {
-            origins.keep(entity);
+            if entity.shape.kind() == Some(ShapeKind::Edge) && lost_neighbour(&entity.shape) {
+                origins.inherit(&entity.shape, entity);
+            } else {
+                origins.keep(entity);
+            }
         }
-        trimmed.push((b, NewBody { body_type: BodyType::Sheet, ..NewBody::replacing(&old, sheet) }, origins));
+        let origins = std::rc::Rc::new(origins);
+        // A sheet that falls apart becomes a body for each piece; the first keeps the body's identity.
+        let pieces = occt::connected_shells(&sheet).map_err(occt_error)?;
+        let pieces = if pieces.is_empty() { vec![sheet] } else { pieces };
+        for (k, piece) in pieces.into_iter().enumerate() {
+            let tid = (k == 0).then_some(old.tid);
+            trimmed.push((
+                b,
+                NewBody { body_type: BodyType::Sheet, tid, ..NewBody::replacing(&old, piece) },
+                origins.clone(),
+            ));
+        }
     }
     if !emptied.is_empty() || !trimmed.is_empty() {
         let info = Info::new(id.clone());
@@ -252,7 +270,7 @@ pub fn delete_face(model: &mut Model, id: FeatureId, definition: &Value) -> R<Va
             groups.drain(..).map(|(b, faces)| (model.bodies[b].tid, faces)).collect();
         model.remove_bodies(&removed);
         for (_, new, origins) in trimmed {
-            model.add_body(new, &origins, &info, &|_| None);
+            model.add_body(new, origins.as_ref(), &info, &|_| None);
         }
         for (tid, faces) in solid_tids {
             if let Some(b) = model.bodies.iter().position(|body| body.tid == tid) {
