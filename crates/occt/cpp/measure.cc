@@ -271,6 +271,15 @@ Frame face_tangent_plane(const Shape &s, double fu, double fv) {
   double u, v;
   face_uv_from_fraction(face, fu, fv, u, v);
   BRepAdaptor_Surface surface(face);
+  // On a face all the way round a periodic surface, the far end of the range is the seam again: evaluated there,
+  // not a period on, it is exactly where the near end is, as in Onshape (std's decals tell a full cylinder by it,
+  // batch 035).
+  if (surface.IsUPeriodic() && std::abs(surface.LastUParameter() - surface.FirstUParameter() - surface.UPeriod()) < 1e-9 &&
+      std::abs(u - surface.LastUParameter()) < 1e-12)
+    u = surface.FirstUParameter();
+  if (surface.IsVPeriodic() && std::abs(surface.LastVParameter() - surface.FirstVParameter() - surface.VPeriod()) < 1e-9 &&
+      std::abs(v - surface.LastVParameter()) < 1e-12)
+    v = surface.FirstVParameter();
   BRepLProp_SLProps props(surface, u, v, 1, 1e-9);
   if (!props.IsNormalDefined()) throw std::runtime_error("no tangent plane");
   gp_Dir normal = props.Normal();
