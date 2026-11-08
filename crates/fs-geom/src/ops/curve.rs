@@ -33,9 +33,6 @@ pub fn helix(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
 }
 
 pub fn fit_spline(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
-    if !field(definition, "derivatives").is_undefined() {
-        return Err(error("@opFitSpline: derivatives at the points aren't supported yet"));
-    }
     if values::opt_bool(definition, "hasTargetLength")?.unwrap_or(false) {
         return Err(error("@opFitSpline: target lengths aren't supported yet"));
     }
@@ -53,6 +50,26 @@ pub fn fit_spline(model: &mut Model, id: FeatureId, definition: &Value) -> R<Val
     };
     // A second derivative at an end (matching a curve's curvature there, batch 027).
     let (second_start, second_end) = (derivative("start2ndDerivative")?, derivative("end2ndDerivative")?);
+    // Derivatives at inner points, by index (a routing curve's, batch 035; std leaves the ends' undefined).
+    let mut inner: Vec<(usize, occt::Vec3)> = Vec::new();
+    if let Some(map) = field(definition, "derivatives").as_map() {
+        for (key, value) in map.iter() {
+            if value.is_undefined() {
+                continue;
+            }
+            let index = key.as_number().ok_or_else(|| error("@opFitSpline: derivatives must be keyed by point index"))?;
+            inner.push((index as usize, values::vec3(value, "opFitSpline derivative")?));
+        }
+    }
+    if !inner.is_empty() {
+        if closed || second_start.is_some() || second_end.is_some() {
+            return Err(error("@opFitSpline: inner derivatives of closed splines or with second derivatives aren't supported yet"));
+        }
+        let edge = splines::spline_with_point_derivatives(&points, derivative("startDerivative")?, derivative("endDerivative")?, &inner)
+            .map_err(|_| regen_error("FIT_SPLINE_FAILED"))?;
+        add_wire(model, id, edge);
+        return Ok(Value::UNDEFINED);
+    }
     if !closed && (second_start.is_some() || second_end.is_some()) {
         let conditions = |first: Option<occt::Vec3>, second: Option<occt::Vec3>| -> R<Vec<occt::Vec3>> {
             match (first, second) {

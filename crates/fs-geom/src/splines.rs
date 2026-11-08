@@ -154,6 +154,60 @@ pub fn spline_with_end_derivatives(points: &[Vec3], start: &[Vec3], end: &[Vec3]
     occt::bspline_edge(&poles, &[], &knots, p as i32, false).map_err(|e| error(format!("spline: {e}")))
 }
 
+/// A cubic spline through points with first derivatives at some inner points (`inner`: the point's index and the
+/// derivative there), and at its ends if `start` or `end` is given, natural at an end without (a routing curve's,
+/// batch 035). Its knots are at the centripetal parameters, as a spline's without inner derivatives are, and each
+/// inner derivative adds one more a third of the way into the longer of the spans either side of its point, though
+/// never into the first span (a second point's knot goes after it even when the first span is 2.4 times as long):
+/// through four points with a derivative at the second, [0, 0, 0, 0, t₁, (2t₁ + t₂)/3, t₂, 1, 1, 1, 1].
+pub fn spline_with_point_derivatives(points: &[Vec3], start: Option<Vec3>, end: Option<Vec3>, inner: &[(usize, Vec3)]) -> R<Shape> {
+    use crate::bspline::{basis_derivatives, find_span};
+    let n = points.len();
+    if n < 3 || inner.iter().any(|(i, _)| *i == 0 || *i >= n - 1) {
+        return Err(error("spline: inner derivatives need inner points"));
+    }
+    let t = centripetal(points, false);
+    let mut interior: Vec<f64> = t[1..n - 1].to_vec();
+    for (i, _) in inner {
+        let (before, after) = (t[*i] - t[i - 1], t[i + 1] - t[*i]);
+        interior.push(if *i == 1 || after >= before { t[*i] + after / 3.0 } else { t[*i] - before / 3.0 });
+    }
+    interior.sort_by(f64::total_cmp);
+    let p = 3;
+    let knots = [vec![0.0; p + 1], interior, vec![1.0; p + 1]].concat();
+    let count = knots.len() - p - 1;
+    let row = |x: f64, order: usize| -> Vec<f64> {
+        let span = find_span(count, p, x, &knots);
+        let ders = basis_derivatives(span, x, p, order, &knots);
+        let mut r = vec![0.0; count];
+        for j in 0..=p {
+            r[span - p + j] = ders[order][j];
+        }
+        r
+    };
+    let zero = Vec3::new(0.0, 0.0, 0.0);
+    let mut rows: Vec<(Vec<f64>, Vec3)> = (0..n).map(|i| (row(t[i], 0), points[i])).collect();
+    rows.extend(inner.iter().map(|(i, d)| (row(t[*i], 1), *d)));
+    rows.push(match start {
+        Some(d) => (row(0.0, 1), d),
+        None => (row(0.0, 2), zero),
+    });
+    rows.push(match end {
+        Some(d) => (row(1.0, 1), d),
+        None => (row(1.0, 2), zero),
+    });
+    if rows.len() != count {
+        return Err(error("spline: conditions and poles don't match"));
+    }
+    let a: Vec<Vec<f64>> = rows.iter().map(|(r, _)| r.clone()).collect();
+    let component = |f: fn(&Vec3) -> f64| -> R<Vec<f64>> {
+        solve(a.clone(), rows.iter().map(|(_, v)| f(v)).collect()).ok_or_else(|| error("spline: singular system"))
+    };
+    let (x, y, z) = (component(|v| v.x)?, component(|v| v.y)?, component(|v| v.z)?);
+    let poles: Vec<Vec3> = (0..count).map(|i| Vec3::new(x[i], y[i], z[i])).collect();
+    occt::bspline_edge(&poles, &[], &knots, p as i32, false).map_err(|e| error(format!("spline: {e}")))
+}
+
 /// A spline edge through points. `parameters`, if given, overrides the centripetal ones.
 pub fn spline(points: &[Vec3], ends: Ends, parameters: Option<Vec<f64>>) -> R<Shape> {
     let periodic = matches!(ends, Ends::Periodic);
