@@ -1,0 +1,187 @@
+{
+  "batch": "036",
+  "title": "curves other than lines trimmed and extended: arcs, fit splines, chains",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "trim-curve",
+      "description": "a quarter circle extended 10 mm at its end, curving on",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "trim-curve",
+      "description": "a quarter circle extended 10 mm at its end, straight on",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "trim-curve",
+      "description": "a quarter circle extended up to the plane x = -10, curving on",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "trim-curve",
+      "description": "a quarter circle trimmed by the plane x = 10, keeping its end at (0, 20)",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "trim-curve",
+      "description": "a fit spline through three corners of a block extended 10 mm at its end, straight on",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "trim-curve",
+      "description": "a fit spline through three corners of a block extended 10 mm at its end, curving on",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "trim-curve",
+      "description": "a line and a tangent arc extended 10 mm at the arc's end, curving on",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c008",
+      "kind": "trim-curve",
+      "description": "an arc of radius 5 through 90 degrees extended 10 mm, straight on",
+      "slotMeters": [
+        2.8000000000000003,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c009",
+      "kind": "trim-curve",
+      "description": "an arc of radius 40 through 90 degrees extended 10 mm, straight on",
+      "slotMeters": [
+        3.2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c010",
+      "kind": "trim-curve",
+      "description": "an arc of radius 100 through 90 degrees extended 10 mm, straight on",
+      "slotMeters": [
+        3.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c011",
+      "kind": "trim-curve",
+      "description": "an arc of radius 20 through 45 degrees extended 10 mm, straight on",
+      "slotMeters": [
+        0,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c012",
+      "kind": "trim-curve",
+      "description": "an arc of radius 20 through 180 degrees extended 10 mm, straight on",
+      "slotMeters": [
+        0.4,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c013",
+      "kind": "trim-curve",
+      "description": "an arc of radius 20 through 30 degrees extended 10 mm, straight on",
+      "slotMeters": [
+        0.8,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c014",
+      "kind": "trim-curve",
+      "description": "an arc of radius 7 through 120 degrees extended 10 mm, straight on",
+      "slotMeters": [
+        1.2000000000000002,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c015",
+      "kind": "trim-curve",
+      "description": "a quarter circle of radius 20 extended 5 mm, curving on",
+      "slotMeters": [
+        1.6,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c016",
+      "kind": "trim-curve",
+      "description": "a quarter circle of radius 20 extended 20 mm, curving on",
+      "slotMeters": [
+        2,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c017",
+      "kind": "trim-curve",
+      "description": "a quarter circle of radius 10 extended 5 mm, curving on",
+      "slotMeters": [
+        2.4000000000000004,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c018",
+      "kind": "trim-curve",
+      "description": "a quarter circle of radius 40 extended 10 mm, curving on",
+      "slotMeters": [
+        2.8000000000000003,
+        0.4,
+        0
+      ]
+    }
+  ]
+}
