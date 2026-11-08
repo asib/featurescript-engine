@@ -1,0 +1,27 @@
+{
+  "batch": "033",
+  "title": "sheet metal form patterns",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "sheet-metal-pattern",
+      "description": "a boss formed on a plate, its faces patterned 3 times, 15 mm apart",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "sheet-metal-pattern",
+      "description": "a cup formed on a plate, its faces patterned 3 times round the plate's middle",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    }
+  ]
+}
