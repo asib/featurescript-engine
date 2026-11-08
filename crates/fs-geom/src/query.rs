@@ -88,7 +88,20 @@ fn resolve(model: &Model, query: &Value) -> R<Vec<EntityRef>> {
     let kind = query_type(query)?;
     Ok(match kind {
         "NOTHING" => Vec::new(),
-        "EVERYTHING" => model.everything(entity_type(field(query, "entityType"))?),
+        // qBodyType folds its filter into an EVERYTHING query as `bodyType`.
+        "EVERYTHING" => {
+            let found = model.everything(entity_type(field(query, "entityType"))?);
+            match field(query, "bodyType") {
+                v if v.is_undefined() => found,
+                types => {
+                    let wanted: Vec<&str> = match types.as_array() {
+                        Some(items) => items.iter().filter_map(Value::as_str).collect(),
+                        None => types.as_str().into_iter().collect(),
+                    };
+                    found.into_iter().filter(|r| wanted.contains(&model.body(*r).body_type.name())).collect()
+                }
+            }
+        }
         "TRANSIENT" => {
             let id = field(query, "transientId").as_str().and_then(parse_tid);
             id.and_then(|tid| model.find_tid(tid)).into_iter().collect()
@@ -202,19 +215,6 @@ fn resolve(model: &Model, query: &Value) -> R<Vec<EntityRef>> {
                 })
                 .collect()
         }
-                v => Some(resolve(model, v)?.first().map(|r| model.tid(*r))),
-            };
-            let kind = if kind == "OP_HOLE_FACE" { EntityType::Face } else { EntityType::Edge };
-            model
-                .everything(Some(kind))
-                .into_iter()
-                .filter(|r| {
-                    let info = model.info(*r);
-                    info.is_created_by(&feature)
-                        && info.label.is_some()
-                        && name.is_none_or(|n| info.label.as_deref() == Some(n))
-                        && identity.is_none_or(|i| i.is_some() && info.identity == i)
-                })
         "ATTRIBUTE_FILTER" => {
             let found = match field(query, "subquery") {
                 v if v.is_undefined() => model.everything(None),
@@ -228,6 +228,19 @@ fn resolve(model: &Model, query: &Value) -> R<Vec<EntityRef>> {
             let name = field(query, "name").as_str();
             let identity = match field(query, "identity") {
                 v if v.is_undefined() => None,
+                v => Some(resolve(model, v)?.first().map(|r| model.tid(*r))),
+            };
+            let kind = if kind == "OP_HOLE_FACE" { EntityType::Face } else { EntityType::Edge };
+            model
+                .everything(Some(kind))
+                .into_iter()
+                .filter(|r| {
+                    let info = model.info(*r);
+                    info.is_created_by(&feature)
+                        && info.label.is_some()
+                        && name.is_none_or(|n| info.label.as_deref() == Some(n))
+                        && identity.is_none_or(|i| i.is_some() && info.identity == i)
+                })
                 .collect()
         }
         "TRACKING" => tracking(model, query)?,
