@@ -14,6 +14,7 @@ pub mod patterns;
 pub mod properties;
 pub mod query;
 pub mod sketch;
+pub mod splines;
 pub mod topology;
 pub mod unmodelled;
 pub mod values;
