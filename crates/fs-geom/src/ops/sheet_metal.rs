@@ -277,6 +277,16 @@ fn def_edge_index(def: &Body, edge: &Shape) -> Option<usize> {
 
 /// Builds the folded part of one model, replacing the part it had.
 fn regenerate(model: &mut Model, id: &FeatureId, def_index: usize) -> R<()> {
+    // The parts are tied to their definition sheet by its association attribute. std gives the sheets it makes
+    // one; a sheet patterned as a part (batch 017) gets one here, as std would name it.
+    if association(&model.bodies[def_index].attributes).is_none()
+        && let Some(tag) = fs_interp::types::find("SMAssociationAttribute")
+    {
+        let name = format!("{{ queryType : TRANSIENT , transientId : {} }}", crate::query::tid_string(model.bodies[def_index].tid));
+        let mut attribute = values::map(vec![("attributeId", Value::string(name))]);
+        attribute.tag = Some(tag);
+        model.update_body(def_index, |body| Rc::make_mut(&mut body.attributes).unnamed.push(attribute));
+    }
     let def = model.bodies[def_index].clone();
     let model_attribute =
         sm_attribute(&def.attributes, "MODEL").ok_or_else(|| regen_error("SHEET_METAL_REBUILD_ERROR"))?.clone();
