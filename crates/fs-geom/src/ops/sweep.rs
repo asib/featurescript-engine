@@ -275,10 +275,23 @@ fn twisted_or_scaled(
 }
 
 pub fn loft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
-    for key in ["guideSubqueries", "connections", "derivativeInfo"] {
+    for key in ["guideSubqueries", "connections"] {
         if field(definition, key).as_array().is_some_and(|a| !a.is_empty()) {
             return Err(error(format!("@opLoft: {key} isn't supported yet")));
         }
+    }
+    // Conditions at the ends: a derivative along a vector (normal to the profile's plane, or a direction given).
+    let mut ends: [Option<(occt::Vec3, f64)>; 2] = [None, None];
+    for info in field(definition, "derivativeInfo").as_array().map(|a| a.to_vec()).unwrap_or_default() {
+        if values::opt_bool(&info, "tangentToPlane")?.unwrap_or(false) || !field(&info, "adjacentFaces").is_undefined()
+        {
+            return Err(error("@opLoft: end conditions other than along a vector aren't supported yet"));
+        }
+        let index =
+            field(&info, "profileIndex").as_number().ok_or_else(|| error("@opLoft: profileIndex must be a number"))?;
+        let magnitude = field(&info, "magnitude").as_number().unwrap_or(1.0);
+        let vector = values::vec3(field(&info, "vector"), "@opLoft derivative vector")?;
+        ends[if index == 0.0 { 0 } else { 1 }] = Some((vector, magnitude));
     }
     let solid = field(definition, "bodyType").as_str() != Some("SURFACE");
     let subqueries = field(definition, "profileSubqueries")
@@ -310,7 +323,14 @@ pub fn loft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
     if wires.len() < 2 {
         return Err(regen_error("LOFT_SELECT_PROFILES"));
     }
-    let op = occt::loft(&wires, solid).map_err(|_| regen_error("LOFT_FAILED"))?;
+    let op = if ends.iter().any(Option::is_some) {
+        if wires.len() != 2 {
+            return Err(error("@opLoft: end conditions on lofts through more than two profiles aren't supported yet"));
+        }
+        occt::loft_clamped(&wires, solid, ends[0], ends[1]).map_err(|_| regen_error("LOFT_FAILED"))?
+    } else {
+        occt::loft(&wires, solid).map_err(|_| regen_error("LOFT_FAILED"))?
+    };
     // A sheet lofted from wires faces the other way from OCCT's, as an extruded one does: outward from a loop
     // (a thin loft thickens outward, batch 028).
     add_with_caps_facing(model, &id, &op, solid, !solid)?;

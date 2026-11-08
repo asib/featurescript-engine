@@ -169,6 +169,14 @@ mod ffi {
             direction: Vec3,
         ) -> Result<UniquePtr<Operation>>;
         fn loft_op(wires: &ShapeList, solid: bool) -> Result<UniquePtr<Operation>>;
+        fn loft_clamped_op(
+            wires: &ShapeList,
+            solid: bool,
+            start_dir: Vec3,
+            start_mag: f64,
+            end_dir: Vec3,
+            end_mag: f64,
+        ) -> Result<UniquePtr<Operation>>;
         fn outer_wire(face: &Shape) -> Result<UniquePtr<Shape>>;
         fn section_edges(a: &ShapeList, b: &ShapeList) -> Result<UniquePtr<ShapeList>>;
         fn fill_edges(edges: &ShapeList) -> Result<UniquePtr<Shape>>;
@@ -779,6 +787,19 @@ pub fn sweep(profile: &Shape, path: &Shape) -> Result<Operation> {
 /// Lofts through wires in order, into a solid or a sheet.
 pub fn loft(wires: &[Shape], solid: bool) -> Result<Operation> {
     Ok(Operation(ffi::loft_op(&to_list(wires), solid)?))
+}
+
+/// A loft between two profiles leaving them along derivatives at its ends: each end's direction and magnitude
+/// (`None` leaves that end free).
+pub fn loft_clamped(
+    wires: &[Shape],
+    solid: bool,
+    start: Option<(Vec3, f64)>,
+    end: Option<(Vec3, f64)>,
+) -> Result<Operation> {
+    let (sd, sm) = start.unwrap_or((Vec3::new(0.0, 0.0, 1.0), f64::NAN));
+    let (ed, em) = end.unwrap_or((Vec3::new(0.0, 0.0, 1.0), f64::NAN));
+    Ok(Operation(ffi::loft_clamped_op(&to_list(wires), solid, sd, sm, ed, em)?))
 }
 
 /// A face's outer wire.

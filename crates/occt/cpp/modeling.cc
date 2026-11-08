@@ -16,6 +16,9 @@
 #include <BRepOffsetAPI_MakePipe.hxx>
 #include <BRepOffsetAPI_MakePipeShell.hxx>
 #include <BRepOffsetAPI_ThruSections.hxx>
+#include <Geom_BSplineSurface.hxx>
+#include <Geom_RectangularTrimmedSurface.hxx>
+#include <GeomConvert.hxx>
 #include <BRepTools_WireExplorer.hxx>
 #include <BRepTools_ReShape.hxx>
 #include <ShapeAnalysis_CanonicalRecognition.hxx>
@@ -1293,6 +1296,124 @@ std::unique_ptr<Operation> loft_op(const ShapeList &wires, bool solid) {
   TopoDS_Shape first = maker.FirstShape(), last = maker.LastShape();
   if (!first.IsNull()) op->first.push_back(first);
   if (!last.IsNull()) op->last.push_back(last);
+  return op;
+}
+
+// A loft between two profiles whose ends leave them along given derivatives (a magnitude that isn't a number
+// leaves that end free). Its sides, as OCCT lofts them, are linear across from one profile to the other; each is
+// made cubic across, from the first profile through rows set by the derivatives (a free end's second derivative
+// zero) to the last (batch 055). A derivative is its magnitude times a length: 0.9 of how far apart the profiles'
+// planes are plus 0.1 of how far apart their corners are, along the direction given.
+std::unique_ptr<Operation> loft_clamped_op(const ShapeList &wires, bool solid, Vec3 start_dir, double start_mag,
+                                           Vec3 end_dir, double end_mag) {
+  if (wires.shapes.size() != 2) throw std::runtime_error("loft: end conditions need two profiles");
+  BRepOffsetAPI_ThruSections maker(solid ? Standard_True : Standard_False, Standard_False, 1e-7);
+  maker.CheckCompatibility(Standard_True);
+  for (const TopoDS_Shape &w : wires.shapes) maker.AddWire(TopoDS::Wire(w));
+  maker.Build();
+  if (!maker.IsDone()) throw std::runtime_error("loft failed");
+  const TopoDS_Shape lofted = maker.Shape();
+  TopTools_IndexedMapOfShape caps;
+  if (!maker.FirstShape().IsNull()) caps.Add(maker.FirstShape());
+  if (!maker.LastShape().IsNull()) caps.Add(maker.LastShape());
+  auto centroid = [](const TopoDS_Shape &w) {
+    GProp_GProps props;
+    BRepGProp::LinearProperties(w, props);
+    return props.CentreOfMass();
+  };
+  const gp_Pnt c0 = centroid(wires.shapes[0]), c1 = centroid(wires.shapes[1]);
+  BRepExtrema_DistShapeShape near_first;
+  near_first.LoadS1(wires.shapes[0]);
+  // The side faces' surfaces, with which end of each is on the first profile.
+  struct Side {
+    TopoDS_Face face;
+    Handle(Geom_BSplineSurface) surface;
+    bool flipped;
+  };
+  std::vector<Side> sides;
+  std::vector<TopoDS_Shape> kept;
+  double corners = 0;
+  int corner_count = 0;
+  for (TopExp_Explorer it(lofted, TopAbs_FACE); it.More(); it.Next()) {
+    const TopoDS_Face face = TopoDS::Face(it.Current());
+    if (caps.Contains(face)) {
+      kept.push_back(face);
+      continue;
+    }
+    // OCCT makes some sides cones or planes: as B-splines over the face, linear across.
+    TopLoc_Location location;
+    Handle(Geom_Surface) base = BRep_Tool::Surface(face, location);
+    Handle(Geom_BSplineSurface) surface = Handle(Geom_BSplineSurface)::DownCast(base->Copy());
+    if (surface.IsNull()) {
+      double fu1, fu2, fv1, fv2;
+      BRepTools::UVBounds(face, fu1, fu2, fv1, fv2);
+      surface = GeomConvert::SurfaceToBSplineSurface(new Geom_RectangularTrimmedSurface(base, fu1, fu2, fv1, fv2));
+    }
+    if (!surface.IsNull() && surface->UDegree() == 1 && surface->NbUPoles() == 2 && surface->NbVPoles() > 2)
+      surface->ExchangeUV();
+    if (surface.IsNull() || surface->VDegree() != 1 || surface->NbVPoles() != 2)
+      throw std::runtime_error("loft: a side isn't linear across the profiles");
+    if (!location.IsIdentity()) surface->Transform(location.Transformation());
+    double u1, u2, v1, v2;
+    surface->Bounds(u1, u2, v1, v2);
+    near_first.LoadS2(BRepBuilderAPI_MakeVertex(surface->Value(u1, v1)).Vertex());
+    near_first.Perform();
+    const bool flipped = !(near_first.IsDone() && near_first.Value() < 1e-6);
+    for (double u : {u1, u2}) {
+      corners += surface->Value(u, v1).Distance(surface->Value(u, v2));
+      ++corner_count;
+    }
+    sides.push_back({face, surface, flipped});
+  }
+  if (sides.empty()) throw std::runtime_error("loft: no sides");
+  const gp_Vec n0(dir(start_dir)), n1(dir(end_dir));
+  const gp_Vec travel(c0, c1);
+  const double apart = std::abs(travel.Dot(std::isnan(start_mag) ? n1 : n0));
+  const double length = 0.9 * apart + 0.1 * corners / corner_count;
+  // Along the travel from the first profile to the last.
+  auto toward = [&](const gp_Vec &n) { return travel.Dot(n) < 0 ? -n : n; };
+  const bool has_start = !std::isnan(start_mag), has_end = !std::isnan(end_mag);
+  const gp_Vec d0 = has_start ? toward(n0) * (start_mag * length) : gp_Vec(), d1 = has_end ? toward(n1) * (end_mag * length) : gp_Vec();
+  BRepBuilderAPI_Sewing sewing(1e-6);
+  for (const TopoDS_Shape &cap : kept) sewing.Add(cap);
+  for (Side &side : sides) {
+    Handle(Geom_BSplineSurface) s = side.surface;
+    s->IncreaseDegree(s->UDegree(), 3);
+    const int r0 = side.flipped ? 4 : 1, r1 = side.flipped ? 3 : 2, r2 = side.flipped ? 2 : 3, r3 = side.flipped ? 1 : 4;
+    for (int i = 1; i <= s->NbUPoles(); ++i) {
+      if (std::abs(s->Weight(i, r0) - s->Weight(i, r3)) > 1e-12)
+        throw std::runtime_error("loft: end conditions between unlike rational profiles aren't supported yet");
+      const gp_Pnt p0 = s->Pole(i, r0), p3 = s->Pole(i, r3);
+      gp_Pnt p1 = p0.Translated(d0 / 3), p2 = p3.Translated(-d1 / 3);
+      if (!has_start) p1 = gp_Pnt((p0.XYZ() + p2.XYZ()) / 2);
+      if (!has_end) p2 = gp_Pnt((p1.XYZ() + p3.XYZ()) / 2);
+      s->SetPole(i, r1, p1, s->Weight(i, r0));
+      s->SetPole(i, r2, p2, s->Weight(i, r0));
+    }
+    double u1, u2, v1, v2;
+    s->Bounds(u1, u2, v1, v2);
+    TopoDS_Face face = BRepBuilderAPI_MakeFace(s, u1, u2, v1, v2, 1e-7).Face();
+    if (side.face.Orientation() == TopAbs_REVERSED) face.Reverse();
+    sewing.Add(face);
+  }
+  sewing.Perform();
+  TopoDS_Shape result = sewing.SewedShape();
+  if (solid) {
+    TopoDS_Shell shell;
+    for (TopExp_Explorer it(result, TopAbs_SHELL); it.More(); it.Next()) shell = TopoDS::Shell(it.Current());
+    if (shell.IsNull()) throw std::runtime_error("loft: the sides and ends don't close");
+    BRepBuilderAPI_MakeSolid made(shell);
+    ShapeFix_Solid fix(made.Solid());
+    fix.Perform();
+    result = fix.Solid();
+  }
+  auto op = std::make_unique<Operation>();
+  op->history = new BRepTools_History;
+  op->result = result;
+  for (int i = 1; i <= caps.Extent(); ++i) {
+    TopoDS_Shape image = sewing.Modified(caps(i));
+    (i == 1 && !maker.FirstShape().IsNull() ? op->first : op->last).push_back(image);
+  }
   return op;
 }
 
