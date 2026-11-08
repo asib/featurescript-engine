@@ -667,8 +667,8 @@ pub fn move_curve_boundary(model: &mut Model, id: FeatureId, definition: &Value)
     Ok(Value::UNDEFINED)
 }
 
-/// `@opWrap`: planar faces wrapped onto a cylinder face, as sheets (`SIMPLE` or `TRIM`). The source plane's anchor
-/// and direction go to the destination's, without stretching.
+/// `@opWrap`: planar faces wrapped onto a cylinder or cone face, as sheets (`SIMPLE` or `TRIM`). The source plane's
+/// anchor and direction go to the destination's, without stretching.
 pub fn wrap(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
     let imprint = match field(definition, "wrapType").as_str() {
         Some("SIMPLE") | Some("TRIM") | None => false,

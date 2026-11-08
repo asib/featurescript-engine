@@ -16,6 +16,10 @@
 #include <Geom2dConvert.hxx>
 #include <ElSLib.hxx>
 #include <Geom_CylindricalSurface.hxx>
+#include <Geom_ConicalSurface.hxx>
+#include <Geom2dAPI_Interpolate.hxx>
+#include <TColgp_HArray1OfPnt2d.hxx>
+#include <gp_Cone.hxx>
 
 #include <BOPAlgo_MakerVolume.hxx>
 #include <BRepAdaptor_Curve.hxx>
@@ -388,6 +392,123 @@ std::unique_ptr<Shape> offset_edge_on_planar_face(const Shape &edge_shape, const
   return wrap(BRepBuilderAPI_MakeEdge(a.Translated(inward), b.Translated(inward)).Edge());
 }
 
+// Wraps planar faces onto a cone face without stretching: the source frame (anchor, direction, normal) on the plane
+// goes to the destination frame on the cone (anchor, direction tangent there, and the face's normal), and the plane
+// rolls onto the cone about its apex. The cone develops into a sector of the plane round the apex, so a point at
+// distance ρ from the apex and angle φ from the anchor's generator lands ρ from the apex, φ / sin α round the axis.
+// That isn't affine, so each edge is sampled and its curve on the cone fitted through the images (a generator or a
+// circle round the axis exactly).
+static std::unique_ptr<Operation> wrap_onto_cone(const ShapeList &faces, Vec3 source_anchor, Vec3 source_direction,
+                                                 Vec3 source_normal, const TopoDS_Face &dest,
+                                                 Handle(Geom_ConicalSurface) cone, Vec3 destination_anchor,
+                                                 Vec3 destination_direction) {
+  const gp_Cone c = cone->Cone();
+  const double alpha = c.SemiAngle(), sin_a = std::abs(std::sin(alpha)), ref = c.RefRadius();
+  const gp_Pnt apex = c.Apex();
+  double ua, va;
+  ElSLib::Parameters(c, pnt(destination_anchor), ua, va);
+  const gp_Pnt anchor = ElSLib::Value(ua, va, c);
+  gp_Vec du, dv;
+  gp_Pnt at;
+  cone->D1(ua, va, at, du, dv);
+  const gp_Vec t_a = du.Normalized();                         // round the axis, the way u grows
+  const gp_Vec g_a = gp_Vec(apex, anchor).Normalized();      // along the generator, away from the apex
+  const double rho_a = apex.Distance(anchor);
+  gp_Vec n_dest = du.Crossed(dv).Normalized();
+  if (dest.Orientation() == TopAbs_REVERSED) n_dest.Reverse();
+  const gp_Vec d = gp_Vec(dir(destination_direction));
+  const gp_Vec d_perp = n_dest.Crossed(d);
+  const gp_Vec ds = gp_Vec(dir(source_direction)), ns = gp_Vec(dir(source_normal));
+  const gp_Vec ds_perp = ns.Crossed(ds);
+  const gp_Pnt as = pnt(source_anchor);
+  // A point of the source plane to the cone's (u, v).
+  auto map = [&](const gp_Pnt &p) {
+    const gp_Vec rel(as, p);
+    const double a = rel.Dot(ds), b = rel.Dot(ds_perp);
+    const gp_Vec q = d * a + d_perp * b;
+    const double x = q.Dot(t_a), y = q.Dot(g_a) + rho_a;
+    const double rho = std::sqrt(x * x + y * y), phi = std::atan2(x, y);
+    return gp_Pnt2d(ua + phi / sin_a, -ref / std::sin(alpha) + (alpha > 0 ? rho : -rho));
+  };
+  auto op = std::make_unique<Operation>();
+  op->history = new BRepTools_History;
+  BRep_Builder builder;
+  TopoDS_Compound result;
+  builder.MakeCompound(result);
+  const int samples = 64;
+  for (const TopoDS_Shape &shape : faces.shapes) {
+    std::vector<std::pair<TopoDS_Shape, TopoDS_Shape>> edge_images;
+    const TopoDS_Face &face = TopoDS::Face(shape);
+    Handle(Geom_Plane) plane = Handle(Geom_Plane)::DownCast(BRep_Tool::Surface(face));
+    if (plane.IsNull()) throw std::runtime_error("wrap: the source faces must be planar");
+    BRepBuilderAPI_MakeFace maker(cone, Precision::Confusion());
+    bool first = true;
+    for (TopExp_Explorer w(face, TopAbs_WIRE); w.More(); w.Next()) {
+      BRepBuilderAPI_MakeWire wire;
+      for (BRepTools_WireExplorer e(TopoDS::Wire(w.Current()), face); e.More(); e.Next()) {
+        BRepAdaptor_Curve curve(e.Current());
+        const bool reversed = e.Current().Orientation() == TopAbs_REVERSED;
+        Handle(TColgp_HArray1OfPnt2d) points = new TColgp_HArray1OfPnt2d(1, samples + 1);
+        for (int i = 0; i <= samples; ++i) {
+          double t = static_cast<double>(i) / samples;
+          if (reversed) t = 1 - t;
+          points->SetValue(i + 1, map(curve.Value(curve.FirstParameter() + t * (curve.LastParameter() - curve.FirstParameter()))));
+        }
+        const gp_Pnt2d a = points->Value(1), b = points->Value(samples + 1);
+        bool same_u = true, same_v = true;
+        for (int i = 1; i <= samples + 1; ++i) {
+          same_u = same_u && std::abs(points->Value(i).X() - a.X()) < 1e-12;
+          same_v = same_v && std::abs(points->Value(i).Y() - a.Y()) < 1e-12;
+        }
+        TopoDS_Edge edge;
+        if (same_u || same_v) {
+          // A generator or a circle round the axis: exactly the cone's line or circle there.
+          Handle(Geom_Curve) iso = same_u ? cone->UIso(a.X()) : cone->VIso(a.Y());
+          Handle(Geom2d_Line) pcurve = same_u ? new Geom2d_Line(gp_Pnt2d(a.X(), 0), gp_Dir2d(0, 1))
+                                              : new Geom2d_Line(gp_Pnt2d(0, a.Y()), gp_Dir2d(1, 0));
+          const double p1 = same_u ? a.Y() : a.X(), p2 = same_u ? b.Y() : b.X();
+          edge = BRepBuilderAPI_MakeEdge(iso, std::min(p1, p2), std::max(p1, p2)).Edge();
+          BRep_Builder().UpdateEdge(edge, pcurve, cone, TopLoc_Location(), Precision::Confusion());
+          if (p2 < p1) edge.Reverse();
+        } else {
+          Geom2dAPI_Interpolate fit(points, Standard_False, 1e-12);
+          fit.Perform();
+          if (!fit.IsDone()) throw std::runtime_error("wrap: an edge's image couldn't be fitted");
+          Handle(Geom2d_BSplineCurve) spline = fit.Curve();
+          edge = BRepBuilderAPI_MakeEdge(spline, cone, spline->FirstParameter(), spline->LastParameter()).Edge();
+          BRepLib::BuildCurves3d(edge, 1e-7, GeomAbs_C1, 14, 200);
+        }
+        wire.Add(edge);
+        edge_images.emplace_back(e.Current(), wire.Edge());
+      }
+      if (!wire.IsDone()) throw std::runtime_error("wrap: a wire couldn't be rebuilt");
+      if (first) {
+        maker = BRepBuilderAPI_MakeFace(cone, wire.Wire(), Standard_True);
+        first = false;
+      } else {
+        maker.Add(wire.Wire());
+      }
+    }
+    if (!maker.IsDone()) throw std::runtime_error("wrap: the face couldn't be rebuilt");
+    ShapeFix_Face fix(maker.Face());
+    fix.SetContext(new ShapeBuild_ReShape);
+    fix.Perform();
+    TopoDS_Face built = fix.Face();
+    if (dest.Orientation() == TopAbs_REVERSED) built.Reverse();
+    op->history->AddModified(face, built);
+    TopTools_IndexedMapOfShape built_edges;
+    TopExp::MapShapes(built, TopAbs_EDGE, built_edges);
+    for (const auto &[source, image] : edge_images) {
+      const TopoDS_Shape fixed = fix.Context()->Value(image);
+      for (TopExp_Explorer x(fixed, TopAbs_EDGE); x.More(); x.Next())
+        if (built_edges.Contains(x.Current())) op->history->AddModified(source, x.Current());
+    }
+    builder.Add(result, built);
+  }
+  op->result = result;
+  return op;
+}
+
 // Wraps planar faces onto a cylinder face without stretching (or with distances round it taken at `arc_radius`). The source frame (anchor, direction, normal) on the
 // plane goes to the destination frame on the cylinder (anchor, direction tangent there, and the face's normal), and
 // distances along the plane become distances along the cylinder: the map from the plane's parameters to the
@@ -398,7 +519,11 @@ std::unique_ptr<Operation> wrap_onto_cylinder(const ShapeList &faces, Vec3 sourc
   const TopoDS_Face &dest = TopoDS::Face(destination.shape);
   Handle(Geom_Surface) dest_surface = BRep_Tool::Surface(dest);
   Handle(Geom_CylindricalSurface) cylinder = Handle(Geom_CylindricalSurface)::DownCast(dest_surface);
-  if (cylinder.IsNull()) throw std::runtime_error("wrap: the destination isn't a cylinder");
+  Handle(Geom_ConicalSurface) cone = Handle(Geom_ConicalSurface)::DownCast(dest_surface);
+  if (!cone.IsNull())
+    return wrap_onto_cone(faces, source_anchor, source_direction, source_normal, dest, cone, destination_anchor,
+                          destination_direction);
+  if (cylinder.IsNull()) throw std::runtime_error("wrap: the destination isn't a cylinder or a cone");
   const double r = cylinder->Radius();
   const gp_Ax3 position = cylinder->Position();
   double ta, za;
