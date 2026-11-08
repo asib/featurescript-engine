@@ -44,14 +44,16 @@ pub fn shell(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
 }
 
 pub fn draft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
-    match field(definition, "draftType").as_str() {
-        None | Some("REFERENCE_SURFACE") => {}
+    // NEUTRAL_PLANE is the older form of a reference surface draft, with the face in `neutralPlane`.
+    let reference_key = match field(definition, "draftType").as_str() {
+        None | Some("REFERENCE_SURFACE") => "referenceSurface",
+        Some("NEUTRAL_PLANE") => "neutralPlane",
         Some(other) => return Err(error(format!("@opDraft: {other} drafts aren't supported yet"))),
-    }
+    };
     let pull = values::normalize(values::vec3(field(definition, "pullVec"), "opDraft pullVec")?)
         .ok_or_else(|| error("@opDraft: zero pull direction"))?;
     let angle = values::angle(field(definition, "angle"), "opDraft angle")?;
-    let reference = field(definition, "referenceSurface");
+    let reference = field(definition, reference_key);
     let neutral = if reference.get("normal").is_some() {
         values::plane(reference, "opDraft referenceSurface")?
     } else {
@@ -296,5 +298,35 @@ pub fn move_face(model: &mut Model, id: FeatureId, definition: &Value) -> R<Valu
         results.push((b, op));
     }
     replace_bodies(model, &id, results);
+    Ok(Value::UNDEFINED)
+}
+
+/// `@opOffsetWire`: for thin features, the region between planar edges offset `offset1` to one side and `offset2` to
+/// the other (sharp corners), a sheet body per chain of edges.
+pub fn offset_wire(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
+    if values::opt_bool(definition, "makeRegions")? != Some(true) {
+        return Err(error("@opOffsetWire: only makeRegions is supported yet"));
+    }
+    let normal = values::normalize(values::vec3(field(definition, "normal"), "opOffsetWire normal")?)
+        .ok_or_else(|| error("@opOffsetWire: zero normal"))?;
+    let (mut o1, mut o2) = (
+        values::length(field(definition, "offset1"), "opOffsetWire offset1")?,
+        values::length(field(definition, "offset2"), "opOffsetWire offset2")?,
+    );
+    if values::opt_bool(definition, "flip")?.unwrap_or(false) {
+        std::mem::swap(&mut o1, &mut o2);
+    }
+    let found = query::evaluate(model, field(definition, "edges"))?;
+    let edges: Vec<Shape> =
+        found.iter().filter(|r| r.kind == EntityType::Edge).map(|r| model.shape(*r).clone()).collect();
+    if edges.is_empty() {
+        return Err(regen_error("OFFSET_WIRE_SELECT_WALL_PATH"));
+    }
+    let info = Info::new(id);
+    for wire in occt::connect_edges(&edges).map_err(occt_error)? {
+        let region =
+            occt::offset_wire_region(&wire, normal, o1, o2).map_err(|_| regen_error("OFFSET_WIRE_GENERIC_ERROR"))?;
+        model.add_body(NewBody::new(region, BodyType::Sheet, info.clone()), &Origins::default(), &info, &|_| None);
+    }
     Ok(Value::UNDEFINED)
 }

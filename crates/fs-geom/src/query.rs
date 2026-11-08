@@ -226,6 +226,72 @@ fn resolve(model: &Model, query: &Value) -> R<Vec<EntityRef>> {
             topology::farthest_along(model, &sub(model, query, "subquery")?, direction)
         }
         "LARGEST" | "SMALLEST" => topology::by_size(model, &sub(model, query, "subquery")?, kind == "LARGEST"),
+        "DEPENDENCY" => {
+            let mut out = Vec::new();
+            for r in sub(model, query, "subquery")? {
+                if let Some(tids) = &model.info(r).dependency {
+                    out.extend(tids.iter().filter_map(|tid| model.find_tid(*tid)));
+                }
+            }
+            out
+        }
+        // What wire edges were made from, followed back to edges of sheets (laminar edges). Sketch edges come from
+        // nothing, so they have none.
+        "LAMINAR_DEPENDENCY" => {
+            let mut out = Vec::new();
+            for r in sub(model, query, "subquery")? {
+                let mut current = vec![r];
+                for _ in 0..8 {
+                    let next: Vec<EntityRef> = current
+                        .iter()
+                        .filter_map(|c| model.info(*c).dependency.clone())
+                        .flat_map(|tids| tids.iter().filter_map(|tid| model.find_tid(*tid)).collect::<Vec<_>>())
+                        .collect();
+                    if next.is_empty() {
+                        break;
+                    }
+                    let laminar: Vec<EntityRef> = next
+                        .iter()
+                        .copied()
+                        .filter(|e| {
+                            e.kind == EntityType::Edge && model.body(*e).body_type == crate::model::BodyType::Sheet
+                        })
+                        .collect();
+                    if !laminar.is_empty() {
+                        out.extend(laminar);
+                        break;
+                    }
+                    current = next;
+                }
+            }
+            out
+        }
+        "COINCIDES_WITH_PLANE" => {
+            let plane = values::plane(field(query, "plane"), "qCoincidesWithPlane plane")?;
+            sub(model, query, "subquery")?
+                .into_iter()
+                .filter(|r| {
+                    model
+                        .shape(*r)
+                        .bounding_box_in(plane, true)
+                        .is_ok_and(|b| b.min.z.abs() < 1e-8 && b.max.z.abs() < 1e-8)
+                })
+                .collect()
+        }
+        // What an extrude or sweep swept from its profile's edges (faces) or vertices (edges): what it created
+        // other than its caps.
+        "SWEPT_FACE" | "SWEPT_EDGE" => {
+            let feature = values::feature_id(field(query, "operationId"), "swept query")?;
+            let wanted = if kind == "SWEPT_FACE" { EntityType::Face } else { EntityType::Edge };
+            model
+                .everything(Some(wanted))
+                .into_iter()
+                .filter(|r| {
+                    let info = model.info(*r);
+                    info.is_created_by(&feature) && info.cap.is_none()
+                })
+                .collect()
+        }
         // Composite parts aren't modelled yet, so no body is in one.
         "CONTAINED_IN_COMPOSITE" | "COMPOSITE_CONTAINING" => Vec::new(),
         // Nothing is locked in a context the engine builds itself.

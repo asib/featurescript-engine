@@ -97,11 +97,18 @@ pub struct Info {
     /// For sketch entities, the sketch entity's id, such as `"rect1.left"`.
     pub sketch_entity: Option<Rc<str>>,
     pub cap: Option<Cap>,
+    /// What it was made from, as transient ids (`qDependency`): an extrude's profile, say.
+    pub dependency: Option<Rc<[Tid]>>,
 }
 
 impl Info {
     pub fn new(created_by: FeatureId) -> Rc<Info> {
-        Rc::new(Info { created_by, sketch_entity: None, cap: None })
+        Rc::new(Info { created_by, sketch_entity: None, cap: None, dependency: None })
+    }
+
+    /// Info for entities `created_by` made from the entities `dependency`.
+    pub fn depending(created_by: FeatureId, dependency: Vec<Tid>) -> Rc<Info> {
+        Rc::new(Info { created_by, sketch_entity: None, cap: None, dependency: Some(dependency.into()) })
     }
 
     pub fn is_created_by(&self, feature: &[Rc<str>]) -> bool {

@@ -20,18 +20,24 @@ pub fn revolve(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
     let found = query::evaluate(model, field(definition, "entities"))?;
     let faces: Vec<Shape> =
         found.iter().filter(|r| r.kind == EntityType::Face).map(|r| model.shape(*r).clone()).collect();
-    if faces.is_empty() {
-        if found.iter().any(|r| r.kind == EntityType::Edge) {
-            return Err(error("@opRevolve: revolving edges into sheets isn't supported yet"));
-        }
+    let edges: Vec<Shape> =
+        found.iter().filter(|r| r.kind == EntityType::Edge).map(|r| model.shape(*r).clone()).collect();
+    if faces.is_empty() && edges.is_empty() {
         return Err(regen_error("REVOLVE_SELECT_FACES"));
     }
     let axis = values::line(field(definition, "axis"), "opRevolve axis")?;
     let (start, sweep) = sweep_angles(definition)?;
     let full = sweep >= TAU - 1e-12;
 
-    let profile =
-        if faces.len() == 1 { faces[0].clone() } else { occt::merge_faces(&faces).map_err(occt_error)?.shape() };
+    // Faces revolve into solids; edges, joined into wires, into sheets.
+    let solid = !faces.is_empty();
+    let profile = if !solid {
+        occt::compound(&occt::connect_edges(&edges).map_err(occt_error)?)
+    } else if faces.len() == 1 {
+        faces[0].clone()
+    } else {
+        occt::merge_faces(&faces).map_err(occt_error)?.shape()
+    };
     let profile = if start != 0.0 && !full {
         occt::transform(&profile, &rotation(axis, start)).map_err(occt_error)?.shape()
     } else {
@@ -46,8 +52,9 @@ pub fn revolve(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
         end_cap.insert_all(&face);
     }
     let created = Info::new(id.clone());
-    let start_info = Rc::new(Info { created_by: id.clone(), sketch_entity: None, cap: Some(Cap::Start) });
-    let end_info = Rc::new(Info { created_by: id.clone(), sketch_entity: None, cap: Some(Cap::End) });
+    let start_info =
+        Rc::new(Info { created_by: id.clone(), sketch_entity: None, cap: Some(Cap::Start), dependency: None });
+    let end_info = Rc::new(Info { created_by: id.clone(), sketch_entity: None, cap: Some(Cap::End), dependency: None });
     let special = |s: &Shape| {
         if end_cap.contains(s) {
             Some(end_info.clone())
@@ -57,12 +64,14 @@ pub fn revolve(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
             None
         }
     };
-    let solids = op.shape().sub_shapes(ShapeKind::Solid);
-    if solids.is_empty() {
+    let (kind, body_type) =
+        if solid { (ShapeKind::Solid, BodyType::Solid) } else { (ShapeKind::Shell, BodyType::Sheet) };
+    let pieces = op.shape().sub_shapes(kind);
+    if pieces.is_empty() {
         return Err(regen_error("REVOLVE_FAILED"));
     }
-    for solid in solids {
-        model.add_body(NewBody::new(solid, BodyType::Solid, created.clone()), &Origins::default(), &created, &special);
+    for piece in pieces {
+        model.add_body(NewBody::new(piece, body_type, created.clone()), &Origins::default(), &created, &special);
     }
     Ok(Value::UNDEFINED)
 }

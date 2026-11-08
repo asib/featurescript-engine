@@ -2,14 +2,15 @@
 
 mod blend;
 mod direct;
+mod extrude;
 mod pattern;
 mod revolve;
 mod split;
 
 pub use revolve::rotation;
 
-use crate::model::{BodyType, Cap, EntityType, FeatureId, Info, Model, NewBody, Origins};
-use crate::values::{self, field, scale};
+use crate::model::{BodyType, EntityType, FeatureId, Info, Model, NewBody, Origins};
+use crate::values::{self, field};
 use crate::{GeomBuiltins, model_mut, occt_error, query, regen_error};
 use fs_interp::Value;
 use fs_interp::builtins::{arg, context_arg};
@@ -45,7 +46,7 @@ pub fn register(m: &mut GeomBuiltins) {
             Ok(Value::UNDEFINED)
         })
     });
-    m.insert("opExtrude", |_, args| run_op(&args, "opExtrude", extrude));
+    m.insert("opExtrude", |_, args| run_op(&args, "opExtrude", extrude::extrude));
     m.insert("opBoolean", |_, args| run_op(&args, "opBoolean", boolean));
     m.insert("opDeleteBodies", |_, args| {
         run_op(&args, "opDeleteBodies", |model, _, definition| {
@@ -76,6 +77,7 @@ pub fn register(m: &mut GeomBuiltins) {
     m.insert("opDeleteFace", |_, args| run_op(&args, "opDeleteFace", direct::delete_face));
     m.insert("opReplaceFace", |_, args| run_op(&args, "opReplaceFace", direct::replace_face));
     m.insert("opMoveFace", |_, args| run_op(&args, "opMoveFace", direct::move_face));
+    m.insert("opOffsetWire", |_, args| run_op(&args, "opOffsetWire", direct::offset_wire));
 }
 
 /// The shapes of the entities a query finds, grouped by the body that owns them, in model order.
@@ -220,69 +222,6 @@ impl ShapeSet {
     pub(crate) fn contains(&self, s: &Shape) -> bool {
         self.0.get(&s.hash()).is_some_and(|entries| entries.iter().any(|e| e.is_same(s)))
     }
-}
-
-fn extrude(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
-    let found = query::evaluate(model, field(definition, "entities"))?;
-    let faces: Vec<Shape> =
-        found.iter().filter(|r| r.kind == EntityType::Face).map(|r| model.shape(*r).clone()).collect();
-    if faces.is_empty() {
-        if found.iter().any(|r| r.kind == EntityType::Edge) {
-            return Err(error("@opExtrude: extruding edges into sheets isn't supported yet"));
-        }
-        return Err(regen_error("EXTRUDE_NO_SELECTED_REGION"));
-    }
-    let direction = values::normalize(values::vec3(field(definition, "direction"), "opExtrude direction")?)
-        .ok_or_else(|| error("@opExtrude: zero direction"))?;
-    let depth = |bound: &str, depth: &str| -> R<Option<f64>> {
-        match field(definition, bound).as_str() {
-            None if bound == "startBound" => Ok(None),
-            Some("BLIND") => values::length(field(definition, depth), depth).map(Some),
-            other => Err(error(format!("@opExtrude: {bound} {other:?} isn't supported yet"))),
-        }
-    };
-    // Positions along `direction`: the end is at `endDepth`; the start is `startDepth` back from the profile, or
-    // forward when `isStartBoundOpposite` is false (std's symmetric extrude passes a negative depth that way).
-    let end = depth("endBound", "endDepth")?.unwrap_or(0.0);
-    let start_depth = depth("startBound", "startDepth")?.unwrap_or(0.0);
-    let start =
-        if values::opt_bool(definition, "isStartBoundOpposite")?.unwrap_or(true) { -start_depth } else { start_depth };
-    let length = end - start;
-    if length <= 1e-8 {
-        return Err(regen_error("EXTRUDE_FAILED"));
-    }
-
-    let profile =
-        if faces.len() == 1 { faces[0].clone() } else { occt::merge_faces(&faces).map_err(occt_error)?.shape() };
-    let profile = if start == 0.0 {
-        profile
-    } else {
-        occt::transform(&profile, &translation(scale(direction, start))).map_err(occt_error)?.shape()
-    };
-    let op = occt::prism(&profile, scale(direction, length)).map_err(|_| regen_error("EXTRUDE_FAILED"))?;
-    let (mut start_cap, mut end_cap) = (ShapeSet::default(), ShapeSet::default());
-    for face in op.first() {
-        start_cap.insert_all(&face);
-    }
-    for face in op.last() {
-        end_cap.insert_all(&face);
-    }
-    let created = Info::new(id.clone());
-    let start_info = Rc::new(Info { created_by: id.clone(), sketch_entity: None, cap: Some(Cap::Start) });
-    let end_info = Rc::new(Info { created_by: id.clone(), sketch_entity: None, cap: Some(Cap::End) });
-    let special = |s: &Shape| {
-        if end_cap.contains(s) {
-            Some(end_info.clone())
-        } else if start_cap.contains(s) {
-            Some(start_info.clone())
-        } else {
-            None
-        }
-    };
-    for solid in op.shape().sub_shapes(ShapeKind::Solid) {
-        model.add_body(NewBody::new(solid, BodyType::Solid, created.clone()), &Origins::default(), &created, &special);
-    }
-    Ok(Value::UNDEFINED)
 }
 
 fn boolean(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
