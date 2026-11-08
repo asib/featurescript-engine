@@ -333,20 +333,28 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   way the material lies from the definition sheet ((20, 15, 2) to (20, 15, 0) on a plate's top; a flipped form's
   from (20, 15, 0) to (20, 15, −2)).
 
+- **Tags** (batch 038): a standard content tag sets the body purpose attribute; a PCB hole tag sets a
+  `pcbStudioHole` attribute on each hole's faces (designator, purpose, owner, plating; its start and end faces as
+  queries). `getAttributes` without a name returns neither, in Onshape as in the engine.
 - **Section parts' leftovers** (batch 037): the first step of a section, deleting every body but its targets,
   leaves the default planes and sketches in place, in Onshape as in the engine; an aligned section's tracking
   query then takes them in, copying, rotating and cutting them with the parts. Their pieces are ordinary sheets:
   a construction plane cut by a boolean isn't construction any more, and a copy of a sketch's sheet is still a
   sketch's.
-- **Curves extended** (batch 036) come out as cubic B-splines, the extension more spans of the curve's. An arc is
-  first made the clamped cubic spline through points at equal angles along it, with its exact tangents (radius
-  long) at the ends, parametrized by the angle: as few spans, a power of two, as keep 5/384 r θ⁴ (the spline's
-  error bound, θ a span's angle) within 0.005 mm (r = 20 mm: 11.25° spans; r = 10: 22.5°; r = 7 through 120°:
-  15°). Straight on, a straight span follows a triple knot, as fast as the curve ends. Curving on, a blend comes
+- **Curves extended** (batch 036) come out as cubic B-splines, the extension more spans of the curve's. An arc or
+  an elliptical arc (batch 038) is first made the clamped cubic spline through points along it, with its exact
+  tangents at the ends, parametrized by the angle (an arc's from its start, an ellipse's its own, from the major
+  axis): its range is halved, and each half again, until for every span the curve's greatest distance from its
+  centre times the span's angle to the fourth is at most 0.365 mm (between 0.357 and 0.376, by the ellipses). An
+  arc's spans come out equal (r = 20 mm: 11.25°; r = 10: 22.5°; r = 7 through 120°: 15°); a 20 × 10 ellipse's
+  quarter has six of 11.25° and one of 22.5° at its flat end. Straight on, a straight span follows a triple knot, as fast as the curve ends. Curving on, a blend comes
   first: the last span's polynomial with a cubic term added, joining with matching curvature (one knot), ending
   with none and turned 3° from the curve's end (its parameter length the same whatever the distance); then the
   straight span, for what's left of the distance or up to the limit. A fit spline's natural end has no curvature,
-  so it goes straight on either way. A trimmed arc stays an arc; in a chain, only the end edge changes.
+  so it goes straight on either way. A trimmed arc stays an arc; in a chain, only the end edge changes. At
+  its start (batch 038), a curve is extended the same way, mirrored, its own parameters kept (the extension's
+  negative); a B-spline trimmed by a plane is the same B-spline restricted, its parameters kept; a straight limit
+  curve stands for the plane through it square to the curve's plane.
 - **Splines with derivatives at inner points** (batch 035, from routing curves): Onshape's knots are at the
   centripetal parameters, as without them, and each inner derivative adds one more knot a third of the way into
   the longer of the spans either side of its point, but never into the first span (through five points with the
