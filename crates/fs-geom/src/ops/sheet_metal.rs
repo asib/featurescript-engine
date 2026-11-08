@@ -55,6 +55,14 @@ struct Bend {
     radii: (f64, f64),
     /// From the axis towards where the bend meets each wall.
     toward: (Vec3, Vec3),
+    /// The two walls, the directions from the edge into each, and their normals there.
+    walls: (Shape, Shape),
+    into: (Vec3, Vec3),
+    normals: (Vec3, Vec3),
+    /// Its length flat: (inner radius + K-factor × thickness) × the angle it turns through.
+    flat_length: f64,
+    /// Laid flat (`sheetMetalUnfold`).
+    unfolded: bool,
 }
 
 fn normal_at(face: &Shape, p: Vec3) -> R<Vec3> {
@@ -71,7 +79,15 @@ fn into_face(face: &Shape, m: Vec3, along: Vec3) -> R<Vec3> {
     Ok(if inside { d } else { scale(d, -1.0) })
 }
 
-fn bend_of(def: &Body, edge_index: usize, radius: f64, front: f64, back: f64) -> R<Bend> {
+fn bend_of(
+    def: &Body,
+    edge_index: usize,
+    radius: f64,
+    front: f64,
+    back: f64,
+    k_factor: f64,
+    unfolded: bool,
+) -> R<Bend> {
     let thickness = front + back;
     let edge = def.edges[edge_index].shape.clone();
     let faces: Vec<&Shape> = def
@@ -85,6 +101,7 @@ fn bend_of(def: &Body, edge_index: usize, radius: f64, front: f64, back: f64) ->
     let (m, along) = (tangent.origin, tangent.direction);
     let (d1, d2) = (into_face(f1, m, along)?, into_face(f2, m, along)?);
     let n1 = normal_at(f1, m)?;
+    let n2 = normal_at(f2, m)?;
     // The inside of the bend is between the walls; the sheet is rounded there, at the inner radius plus however
     // much material lies on the inside.
     let inside = if dot(n1, d2) > 0.0 { front } else { back };
@@ -99,7 +116,23 @@ fn bend_of(def: &Body, edge_index: usize, radius: f64, front: f64, back: f64) ->
         leaves(d2).ok_or_else(|| regen_error("SHEET_METAL_REBUILD_ERROR"))?,
     );
     let radii = (sheet_radius - inside, sheet_radius - inside + thickness);
-    Ok(Bend { edge, sheet_radius, axis_origin, axis_direction: along, at: m, setback, radii, toward })
+    let angle = std::f64::consts::PI - alpha;
+    let flat_length = (radii.0 + k_factor * thickness) * angle;
+    Ok(Bend {
+        edge,
+        sheet_radius,
+        axis_origin,
+        axis_direction: along,
+        at: m,
+        setback,
+        radii,
+        toward,
+        walls: (f1.clone(), f2.clone()),
+        into: (d1, d2),
+        normals: (n1, n2),
+        flat_length,
+        unfolded,
+    })
 }
 
 fn distance_to_segment(p: Vec3, a: Vec3, b: Vec3) -> f64 {
@@ -263,6 +296,7 @@ fn regenerate(model: &mut Model, id: &FeatureId, def_index: usize) -> R<()> {
             return Err(error("@updateSheetMetalGeometry: walls other than planes and cylinders aren't supported yet"));
         }
     }
+    let model_k_factor = attribute_value(&model_attribute, "k-factor").and_then(Value::as_number).unwrap_or(0.45);
     let mut bends = Vec::new();
     let mut rips = Vec::new();
     for (i, edge) in def.edges.iter().enumerate() {
@@ -273,7 +307,12 @@ fn regenerate(model: &mut Model, id: &FeatureId, def_index: usize) -> R<()> {
                     attribute_value(joint, "radius").ok_or_else(|| regen_error("SHEET_METAL_REBUILD_ERROR"))?,
                     "bend radius",
                 )?;
-                bends.push(bend_of(&def, i, radius, front, back)?);
+                let k_factor = match attribute_value(joint, "k-factor").and_then(Value::as_number) {
+                    Some(k) => k,
+                    None => model_k_factor,
+                };
+                let unfolded = joint.get("unfolded").and_then(Value::as_bool) == Some(true);
+                bends.push(bend_of(&def, i, radius, front, back, k_factor, unfolded)?);
             }
             Some("RIP") => {
                 let style = attribute_value(joint, "jointStyle").and_then(Value::as_str).unwrap_or("EDGE");
@@ -449,6 +488,158 @@ fn cut_back(wall: &Shape, edges: &[Shape], distances: &[f64]) -> R<Shape> {
     Ok(op.shape())
 }
 
+/// A rigid motion: rotation rows and a translation.
+#[derive(Clone, Copy)]
+struct Rigid {
+    r: [[f64; 3]; 3],
+    t: Vec3,
+}
+
+impl Rigid {
+    const IDENTITY: Rigid =
+        Rigid { r: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], t: Vec3 { x: 0.0, y: 0.0, z: 0.0 } };
+
+    fn vec(&self, v: Vec3) -> Vec3 {
+        let r = &self.r;
+        Vec3::new(
+            r[0][0] * v.x + r[0][1] * v.y + r[0][2] * v.z,
+            r[1][0] * v.x + r[1][1] * v.y + r[1][2] * v.z,
+            r[2][0] * v.x + r[2][1] * v.y + r[2][2] * v.z,
+        )
+    }
+
+    fn point(&self, p: Vec3) -> Vec3 {
+        add(self.vec(p), self.t)
+    }
+
+    /// `self` after `other`.
+    fn then(&self, other: &Rigid) -> Rigid {
+        let mut r = [[0.0; 3]; 3];
+        for (i, row) in r.iter_mut().enumerate() {
+            for (j, x) in row.iter_mut().enumerate() {
+                *x = (0..3).map(|k| self.r[i][k] * other.r[k][j]).sum();
+            }
+        }
+        Rigid { r, t: self.point(other.t) }
+    }
+
+    /// The motion taking the frame (origin, x, z) to another.
+    fn between(from: (Vec3, Vec3, Vec3), to: (Vec3, Vec3, Vec3)) -> Rigid {
+        let axes = |x: Vec3, z: Vec3| [x, cross(z, x), z];
+        let (a, b) = (axes(from.1, from.2), axes(to.1, to.2));
+        let mut r = [[0.0; 3]; 3];
+        for (i, row) in r.iter_mut().enumerate() {
+            for (j, x) in row.iter_mut().enumerate() {
+                let get = |v: Vec3, k: usize| [v.x, v.y, v.z][k];
+                *x = (0..3).map(|k| get(b[k], i) * get(a[k], j)).sum();
+            }
+        }
+        let m = Rigid { r, t: Vec3::new(0.0, 0.0, 0.0) };
+        Rigid { r, t: sub(to.0, m.vec(from.0)) }
+    }
+
+    fn transform(&self) -> occt::Transform {
+        let r = &self.r;
+        occt::Transform {
+            m: [
+                r[0][0], r[0][1], r[0][2], self.t.x, r[1][0], r[1][1], r[1][2], self.t.y, r[2][0], r[2][1], r[2][2],
+                self.t.z,
+            ],
+        }
+    }
+}
+
+/// Where each wall goes when bends are unfolded: none for walls that stay put. Walls are reached from the held
+/// wall (`holdFaceForUnfold`, else the first) across bends; across an unfolded bend, the far wall turns into the
+/// near one's plane, a flat bend's length further on.
+struct Placement {
+    walls: Vec<Option<occt::Transform>>,
+    /// For each unfolded bend's edge, the wall it unfolds from.
+    from: Vec<(Shape, usize)>,
+}
+
+impl Placement {
+    fn unfolded_from(&self, bend: &Bend, wall_index: &dyn Fn(&Shape) -> usize) -> (usize, usize) {
+        let from = self
+            .from
+            .iter()
+            .find(|(e, _)| e.is_same(&bend.edge))
+            .map(|f| f.1)
+            .unwrap_or_else(|| wall_index(&bend.walls.0));
+        let other =
+            if from == wall_index(&bend.walls.0) { wall_index(&bend.walls.1) } else { wall_index(&bend.walls.0) };
+        (from, other)
+    }
+}
+
+fn placements(def: &Body, bends: &[Bend], wall_index: &dyn Fn(&Shape) -> usize) -> Placement {
+    let n = def.faces.len();
+    if !bends.iter().any(|b| b.unfolded) {
+        return Placement { walls: vec![None; n], from: Vec::new() };
+    }
+    let held = def
+        .faces
+        .iter()
+        .position(|f| {
+            sm_attribute(&f.attributes, "WALL").and_then(|w| w.get("holdFaceForUnfold")).and_then(Value::as_bool)
+                == Some(true)
+        })
+        .unwrap_or(0);
+    let mut motion: Vec<Option<Rigid>> = vec![None; n];
+    motion[held] = Some(Rigid::IDENTITY);
+    let mut from = Vec::new();
+    let mut queue = vec![held];
+    while let Some(w) = queue.pop() {
+        let here = motion[w].expect("placed");
+        for bend in bends {
+            let (a, b) = (wall_index(&bend.walls.0), wall_index(&bend.walls.1));
+            let (near, far, first) = if a == w {
+                (a, b, true)
+            } else if b == w {
+                (b, a, false)
+            } else {
+                continue;
+            };
+            if motion[far].is_some() {
+                continue;
+            }
+            let there = if bend.unfolded {
+                from.push((bend.edge.clone(), near));
+                let leaves = |toward: Vec3| add(bend.axis_origin, scale(toward, bend.sheet_radius));
+                let (t_near, d_near, n_near, t_far, d_far, n_far) = if first {
+                    (
+                        leaves(bend.toward.0),
+                        bend.into.0,
+                        bend.normals.0,
+                        leaves(bend.toward.1),
+                        bend.into.1,
+                        bend.normals.1,
+                    )
+                } else {
+                    (
+                        leaves(bend.toward.1),
+                        bend.into.1,
+                        bend.normals.1,
+                        leaves(bend.toward.0),
+                        bend.into.0,
+                        bend.normals.0,
+                    )
+                };
+                let target = add(t_near, scale(d_near, -bend.flat_length));
+                here.then(&Rigid::between((t_far, d_far, n_far), (target, scale(d_near, -1.0), n_near)))
+            } else {
+                here
+            };
+            motion[far] = Some(there);
+            queue.push(far);
+        }
+    }
+    let is_identity = |m: &Rigid| {
+        (0..3).all(|i| (0..3).all(|j| (m.r[i][j] - if i == j { 1.0 } else { 0.0 }).abs() < 1e-12)) && norm(m.t) < 1e-12
+    };
+    Placement { walls: motion.iter().map(|m| m.filter(|m| !is_identity(m)).map(|m| m.transform())).collect(), from }
+}
+
 /// The folded part, piece by piece: each wall cut back where it meets bends and rips and thickened, and each bend
 /// a ring sector along the stretch both its walls still reach; the pieces fused. Where bends meet at a corner,
 /// each stops where the other cuts its walls back, leaving the corner open (Onshape's simple corner).
@@ -460,9 +651,18 @@ fn build_part(def: &Body, bends: &[Bend], rips: &[usize], front: f64, back: f64,
             .filter(|f| f.sub_shapes(ShapeKind::Edge).iter().any(|e| e.is_same(edge)))
             .collect()
     };
+    let wall_index =
+        |shape: &Shape| def.faces.iter().position(|f| f.shape.is_same(shape)).expect("a wall of the model");
+    let placement = placements(def, bends, &wall_index);
+    let place = |piece: Shape, wall: usize| -> R<Shape> {
+        match &placement.walls[wall] {
+            Some(t) => occt::transform(&piece, t).map(|op| op.shape()).map_err(occt_error),
+            None => Ok(piece),
+        }
+    };
     let mut pieces: Vec<Shape> = Vec::new();
     let mut cut_walls: Vec<Shape> = Vec::new();
-    for wall in &def.faces {
+    for (w, wall) in def.faces.iter().enumerate() {
         let mut edges = Vec::new();
         let mut distances = Vec::new();
         for edge in wall.shape.sub_shapes(ShapeKind::Edge) {
@@ -486,7 +686,7 @@ fn build_part(def: &Body, bends: &[Bend], rips: &[usize], front: f64, back: f64,
         for face in cut.sub_shapes(ShapeKind::Face) {
             let solid =
                 occt::thicken(&face, front, back).map_err(|_| regen_error("SHEET_METAL_CANNOT_THICKEN"))?.shape();
-            pieces.push(solid);
+            pieces.push(place(solid, w)?);
         }
         cut_walls.push(cut);
     }
@@ -519,6 +719,26 @@ fn build_part(def: &Body, bends: &[Bend], rips: &[usize], front: f64, back: f64,
         if span.1 - span.0 <= 1e-9 {
             continue;
         }
+        if bend.unfolded {
+            // Laid flat: a strip as long as the bend is flat, in the plane of the wall it's unfolded from.
+            let (from, _) = placement.unfolded_from(bend, &wall_index);
+            let (toward, into, normal) = if from == wall_index(&bend.walls.0) {
+                (bend.toward.0, bend.into.0, bend.normals.0)
+            } else {
+                (bend.toward.1, bend.into.1, bend.normals.1)
+            };
+            let start =
+                add(add(bend.axis_origin, scale(toward, bend.sheet_radius)), scale(bend.axis_direction, span.0));
+            let away = scale(into, -1.0);
+            let v_axis = cross(normal, bend.axis_direction);
+            let (v0, v1) = if dot(v_axis, away) > 0.0 { (0.0, bend.flat_length) } else { (-bend.flat_length, 0.0) };
+            let frame = occt::Frame { origin: start, normal, x: bend.axis_direction };
+            let strip = occt::plane_face(frame, 0.0, span.1 - span.0, v0, v1).map_err(occt_error)?;
+            let solid =
+                occt::thicken(&strip, front, back).map_err(|_| regen_error("SHEET_METAL_CANNOT_THICKEN"))?.shape();
+            pieces.push(place(solid, from)?);
+            continue;
+        }
         let centre = add(bend.axis_origin, scale(bend.axis_direction, span.0));
         let (r_in, r_out) = bend.radii;
         let (u1, u2) = bend.toward;
@@ -532,7 +752,7 @@ fn build_part(def: &Body, bends: &[Bend], rips: &[usize], front: f64, back: f64,
         ];
         let section = occt::fill_edges(&edges).map_err(occt_error)?;
         let piece = occt::prism(&section, scale(bend.axis_direction, span.1 - span.0)).map_err(occt_error)?.shape();
-        pieces.push(piece);
+        pieces.push(place(piece, wall_index(&bend.walls.0))?);
     }
     let first = pieces.remove(0);
     let solid = if pieces.is_empty() {
@@ -779,4 +999,104 @@ pub fn corner_type(tags: &crate::values::Tags, model: &Model, definition: &Value
         ("primaryVertex", transient.clone()),
         ("allVertices", Value::array(vec![transient])),
     ]))
+}
+
+/// `@sheetMetalApplyInFlat`: a corner break (std's fillet or chamfer of sheet metal corners) applied to the model
+/// itself: each wall's corner at the definition vertices the picks are associated with is rounded or chamfered in
+/// the wall's plane. Faces, edges and vertices the change leaves alone keep their identities; the corner's walls and
+/// the edges it shortens are changed. Only circular fillets and equal-offset chamfers for now.
+pub fn apply_in_flat(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
+    let chamfer = field(definition, "crossSection").as_str() == Some("CHAMFER");
+    let size = if chamfer {
+        if field(definition, "chamferType").as_str().is_some_and(|t| t != "EQUAL_OFFSETS") {
+            return Err(error("@sheetMetalApplyInFlat: only equal-offset chamfers are supported yet"));
+        }
+        values::length(field(definition, "width"), "corner break width")?
+    } else {
+        if field(definition, "crossSection").as_str().is_some_and(|c| c != "CIRCULAR") {
+            return Err(error("@sheetMetalApplyInFlat: only circular fillets are supported yet"));
+        }
+        values::length(field(definition, "radius"), "corner break radius")?
+    };
+    // The definition vertices the picks are associated with, by body.
+    let mut corners: Vec<(usize, Shape)> = Vec::new();
+    for r in query::evaluate(model, field(definition, "entities"))? {
+        let Some(a) = association(model.attributes(r)).cloned() else { continue };
+        for (b, body) in model.bodies.iter().enumerate() {
+            if !body.is_sheet_metal_definition() {
+                continue;
+            }
+            for v in &body.vertices {
+                if association(&v.attributes) == Some(&a) && !corners.iter().any(|(_, s)| s.is_same(&v.shape)) {
+                    corners.push((b, v.shape.clone()));
+                }
+            }
+        }
+    }
+    if corners.is_empty() {
+        return Err(regen_error("SHEET_METAL_CORNER_BREAK_SELECT_ENTITIES"));
+    }
+    let mut bodies: Vec<usize> = corners.iter().map(|c| c.0).collect();
+    bodies.sort_unstable();
+    bodies.dedup();
+    let mut replacements = Vec::new();
+    for &b in &bodies {
+        let old = model.bodies[b].clone();
+        let mut faces: Vec<Shape> = old.faces.iter().map(|f| f.shape.clone()).collect();
+        let mut changed: Vec<usize> = Vec::new();
+        for (i, face) in old.faces.iter().enumerate() {
+            let at: Vec<Shape> = corners
+                .iter()
+                .filter(|(cb, v)| *cb == b && face.shape.sub_shapes(ShapeKind::Vertex).iter().any(|x| x.is_same(v)))
+                .map(|(_, v)| v.clone())
+                .collect();
+            if at.is_empty() {
+                continue;
+            }
+            faces[i] = occt::face_corners_2d(&face.shape, &at, size, chamfer)
+                .map_err(|_| regen_error("SHEET_METAL_CORNER_BREAK_FAILED"))?;
+            changed.push(i);
+        }
+        let shell = occt::sew_faces(&faces, 1e-7).map_err(occt_error)?;
+        let mut origins = Origins::default();
+        for (i, face) in old.faces.iter().enumerate() {
+            let image = shell.sub_shapes(ShapeKind::Face).into_iter().find(|f| {
+                let target = if changed.contains(&i) { &faces[i] } else { &face.shape };
+                lies_on(&samples(target), f) && lies_on(&samples(f), target)
+            });
+            if let Some(image) = image {
+                if changed.contains(&i) { origins.inherit(&image, face) } else { origins.same(&image, face) }
+            }
+        }
+        for edge in &old.edges {
+            for image in shell.sub_shapes(ShapeKind::Edge) {
+                let same = lies_on(&samples(&edge.shape), &image) && lies_on(&samples(&image), &edge.shape);
+                // Shortened by the corner: along the old edge, and not all of it.
+                let shortened = !same && lies_on(&samples(&image), &edge.shape);
+                if same {
+                    origins.same(&image, edge);
+                } else if shortened {
+                    origins.inherit(&image, edge);
+                }
+            }
+        }
+        for vertex in &old.vertices {
+            let Ok(p) = vertex.shape.vertex_point() else { continue };
+            if let Some(image) = shell
+                .sub_shapes(ShapeKind::Vertex)
+                .into_iter()
+                .find(|v| v.vertex_point().is_ok_and(|q| norm(sub(p, q)) < 1e-9))
+            {
+                origins.same(&image, vertex);
+            }
+        }
+        replacements.push((old, shell, origins));
+    }
+    model.remove_bodies(&bodies);
+    let info = Info::new(id);
+    // The changed model is a new body, tracked back to the old: std finds it by tracking the old one.
+    for (old, shell, origins) in replacements {
+        model.add_body(NewBody { tid: None, ..NewBody::replacing(&old, shell) }, &origins, &info, &|_| None);
+    }
+    Ok(Value::UNDEFINED)
 }
