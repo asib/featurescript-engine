@@ -38,6 +38,7 @@
 #include <BRepLib_FindSurface.hxx>
 #include <BRepOffsetAPI_MakeOffset.hxx>
 #include <BRepOffsetAPI_MakeOffsetShape.hxx>
+#include <BRepOffsetAPI_NormalProjection.hxx>
 #include <BRepProj_Projection.hxx>
 #include <BRepTools.hxx>
 #include <BRepTools_WireExplorer.hxx>
@@ -322,7 +323,16 @@ std::unique_ptr<ShapeList> project_edges(const ShapeList &edges, const ShapeList
   auto out = std::make_unique<ShapeList>();
   for (const TopoDS_Shape &e : edges.shapes) {
     gp_Vec d(direction.x, direction.y, direction.z);
-    if (d.Magnitude() < 1e-12) throw std::runtime_error("project: projection along normals isn't supported yet");
+    if (d.Magnitude() < 1e-12) {
+      // Along the faces' normals: each point of the edge to the nearest point on the faces.
+      BRepOffsetAPI_NormalProjection normal(targets);
+      normal.Add(e);
+      normal.SetParams(1e-7, 1e-7, GeomAbs_C2, 14, 64);
+      normal.Build();
+      if (!normal.IsDone()) throw std::runtime_error("normal projection failed");
+      for (TopExp_Explorer it(normal.Shape(), TopAbs_EDGE); it.More(); it.Next()) out->shapes.push_back(it.Current());
+      continue;
+    }
     BRepProj_Projection projection(e, targets, gp_Dir(d));
     if (!projection.IsDone()) throw std::runtime_error("projection failed");
     // OCCT projects both ways along the direction; keep only what lies ahead of the source edge.
