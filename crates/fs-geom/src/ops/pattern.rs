@@ -13,6 +13,19 @@ pub fn pattern(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
     let mut bodies: Vec<usize> =
         query::evaluate(model, entities)?.into_iter().filter(|r| r.kind == EntityType::Body).map(|r| r.body).collect();
     bodies.dedup();
+    // A composite part is copied with the bodies in it, the copies making a composite part of their own (std's cut
+    // list copies a frame's closed composite segment so, batch 035).
+    let composites: Vec<usize> = bodies.iter().copied().filter(|&b| model.bodies[b].composite.is_some()).collect();
+    bodies.retain(|&b| model.bodies[b].composite.is_none());
+    for &c in &composites {
+        if let Some((members, _)) = &model.bodies[c].composite {
+            for m in model.composite_members(members) {
+                if !bodies.contains(&m) {
+                    bodies.push(m);
+                }
+            }
+        }
+    }
     let mut face_groups = by_body(model, entities, EntityType::Face)?;
     // Faces of sheets (a plane, say) are copied as they are, each copy a sheet of its own instance.
     let sheet_faces: Vec<(usize, Vec<occt::Shape>)> = face_groups
@@ -35,7 +48,9 @@ pub fn pattern(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
     let holes = field(definition, "holePropagationType").as_str().map(String::from);
 
     let mut copies = Vec::new();
-    for (t, name) in transforms.iter().zip(names.iter()) {
+    // Which body each copy copies, by instance, for composite parts' copies.
+    let mut sources: Vec<(usize, Option<usize>)> = Vec::new();
+    for (instance, (t, name)) in transforms.iter().zip(names.iter()).enumerate() {
         let t = transform(t)?;
         let name = name.as_str().ok_or_else(|| error("@opPattern: instance names must be strings"))?;
         let mut instance_id: Vec<Rc<str>> = id.to_vec();
@@ -74,6 +89,7 @@ pub fn pattern(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
                 new.attributes = body.attributes.clone();
             }
             copies.push((new, info.clone(), origins));
+            sources.push((instance, Some(b)));
         }
     }
     for (t, name) in transforms.iter().zip(names.iter()) {
@@ -90,11 +106,39 @@ pub fn pattern(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
                 let mut new = NewBody::new(op.shape(), body.body_type, info.clone());
                 new.construction = body.construction;
                 copies.push((new, info.clone(), Origins::default()));
+                sources.push((usize::MAX, None));
             }
         }
     }
+    let mut added = Vec::new();
     for (new, info, origins) in copies {
-        model.add_body(new, &origins, &info, &|_| None);
+        added.push(model.add_body(new, &origins, &info, &|_| None));
+    }
+    for (instance, name) in names.iter().enumerate() {
+        let name = name.as_str().ok_or_else(|| error("@opPattern: instance names must be strings"))?;
+        let mut instance_id: Vec<Rc<str>> = id.to_vec();
+        instance_id.push(Rc::from(name));
+        let info = Info::new(instance_id.into());
+        for &c in &composites {
+            let composite = model.bodies[c].clone();
+            let Some((members, closed)) = &composite.composite else { continue };
+            let member_bodies = model.composite_members(members);
+            let copied: Vec<usize> = sources
+                .iter()
+                .zip(&added)
+                .filter(|((i, source), _)| *i == instance && source.is_some_and(|s| member_bodies.contains(&s)))
+                .map(|(_, &a)| a)
+                .collect();
+            let shapes: Vec<occt::Shape> = copied.iter().map(|&a| model.bodies[a].shape.clone()).collect();
+            let mut new = NewBody::new(occt::compound(&shapes), crate::model::BodyType::Composite, info.clone());
+            new.composite = Some((copied.iter().map(|&a| model.bodies[a].tid).collect(), *closed));
+            new.ancestry = crate::model::Ancestry::copy_of_body(&composite);
+            if copy_properties {
+                new.properties = composite.properties.clone();
+                new.attributes = composite.attributes.clone();
+            }
+            model.add_body(new, &Origins::default(), &info, &|_| None);
+        }
     }
     // Faces: the boss (or pocket) they make, capped where it meets the rest of the body, is added to (or cut from)
     // the body at each transform.
