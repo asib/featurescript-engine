@@ -221,8 +221,17 @@ pub fn register(m: &mut GeomBuiltins) {
     m.insert("opCreateCompositePart", |_, args| {
         run_op(&args, "opCreateCompositePart", |model, id, definition| {
             // A body holding other bodies: its shape is theirs together, its entities are theirs.
-            let bodies = owner_bodies(model, field(definition, "bodies"))?;
-            let bodies: Vec<usize> = bodies.into_iter().filter(|&b| model.bodies[b].composite.is_none()).collect();
+            // A composite part may hold another (a cut list's open composite holds a frame's closed composite
+            // segment, batch 035), unless the bodies in that are given too.
+            let given = owner_bodies(model, field(definition, "bodies"))?;
+            let bodies: Vec<usize> = given
+                .iter()
+                .copied()
+                .filter(|&b| match &model.bodies[b].composite {
+                    None => true,
+                    Some((members, _)) => !model.composite_members(members).iter().all(|m| given.contains(m)),
+                })
+                .collect();
             if bodies.is_empty() {
                 return Err(regen_error("COMPOSITE_PART_SELECT_BODIES"));
             }
