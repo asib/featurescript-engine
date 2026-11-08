@@ -644,7 +644,9 @@ fn boolean_bodies_with(
     }
     model.remove_bodies(&consumed);
     for (solid, body, tid, origins) in results {
-        let new = NewBody { body_type: BodyType::of(&solid), tid, ..NewBody::replacing(&body, solid) };
+        // A construction plane cut by a boolean is construction no longer (a default plane cut by an aligned
+        // section's cuts, batch 037); a sketch's sheet stays a sketch's.
+        let new = NewBody { body_type: BodyType::of(&solid), tid, construction: false, ..NewBody::replacing(&body, solid) };
         model.add_body(new, &origins, &default, &|_| None);
     }
     Ok(())
