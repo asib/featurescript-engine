@@ -202,6 +202,53 @@ pub fn thicken(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
     Ok(Value::UNDEFINED)
 }
 
+/// A whole cylindrical face offset by a tube added or taken away between its radius and the new one, along the
+/// length its circular edges bound: OCCT's offset carries on into neighbours on the same cylinder (an external
+/// thread's undercut, batch 031). `None` for anything but a single whole cylinder.
+fn cylinder_by_tube(body: &occt::Shape, faces: &[occt::Shape], distance: f64) -> R<Option<occt::Operation>> {
+    let [face] = faces else { return Ok(None) };
+    let Ok(s) = face.surface_definition() else { return Ok(None) };
+    if s.kind != 1 {
+        return Ok(None);
+    }
+    let (o, a, u, r) = (s.frame.origin, s.frame.normal, s.frame.x, s.radius1);
+    // Its ends: two whole circles round the axis.
+    let mut heights = Vec::new();
+    for edge in face.visible_sub_shapes(occt::ShapeKind::Edge) {
+        if edge.curve_type().ok() != Some(occt::CurveType::Circle) {
+            return Ok(None);
+        }
+        let Ok(c) = edge.edge_tangent(0.0, false) else { return Ok(None) };
+        heights.push(values::dot(values::sub(c.origin, o), a));
+    }
+    let [h0, h1] = heights[..] else { return Ok(None) };
+    let p = face.face_inner_point().map_err(occt_error)?;
+    let (fu, fv) = face.face_fraction(p).map_err(occt_error)?;
+    let n = face.face_tangent_plane(fu, fv).map_err(occt_error)?.normal;
+    let rel = values::sub(p, o);
+    let outward = values::dot(n, values::sub(rel, values::scale(a, values::dot(rel, a)))) > 0.0;
+    let new_radius = r + if outward { distance } else { -distance };
+    if new_radius <= 1e-9 {
+        return Err(regen_error("DIRECT_EDIT_OFFSET_FACE_FAILED"));
+    }
+    let (r0, r1) = (r.min(new_radius), r.max(new_radius));
+    let at = |radius: f64, h: f64| values::add(o, values::add(values::scale(u, radius), values::scale(a, h)));
+    let corners = [at(r0, h0), at(r1, h0), at(r1, h1), at(r0, h1)];
+    let edges = (0..4)
+        .map(|i| occt::line_edge(corners[i], corners[(i + 1) % 4]))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(occt_error)?;
+    let section = occt::fill_edges(&edges).map_err(occt_error)?;
+    let tube = occt::revolve(&section, occt::Axis { origin: o, direction: a }, std::f64::consts::TAU)
+        .map_err(occt_error)?
+        .shape();
+    // Taking material away where the face moves into the body, adding it where it moves out.
+    let kind = if (new_radius < r) == outward { occt::BooleanKind::Subtraction } else { occt::BooleanKind::Union };
+    let op = occt::boolean(kind, std::slice::from_ref(body), &[tube], true)
+        .map_err(|_| regen_error("DIRECT_EDIT_OFFSET_FACE_FAILED"))?;
+    Ok(Some(op))
+}
+
 pub fn offset_face(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
     let distance = values::length(field(definition, "offsetDistance"), "opOffsetFace offsetDistance")?;
     let groups = by_body(model, field(definition, "moveFaces"), EntityType::Face)?;
@@ -210,11 +257,21 @@ pub fn offset_face(model: &mut Model, id: FeatureId, definition: &Value) -> R<Va
     }
     let mut results = Vec::new();
     for (b, faces) in groups {
-        let op = occt::offset_faces(&model.bodies[b].shape, &faces, distance)
-            .map_err(|_| regen_error("DIRECT_EDIT_OFFSET_FACE_FAILED"))?;
+        let op = match cylinder_by_tube(&model.bodies[b].shape, &faces, distance)? {
+            Some(op) => op,
+            None => occt::offset_faces(&model.bodies[b].shape, &faces, distance)
+                .map_err(|_| regen_error("DIRECT_EDIT_OFFSET_FACE_FAILED"))?,
+        };
         results.push((b, op));
     }
-    replace_bodies(model, &id, results);
+    // The faces and edges the offset rebuilt without moving keep their identities, as in Onshape.
+    let info = crate::model::Info::new(id.clone());
+    for (b, op) in results.into_iter().rev() {
+        let old = model.bodies[b].clone();
+        let origins = crate::model::Origins::of_operation_by_geometry(&op, &[&old]);
+        model.remove_bodies(&[b]);
+        model.add_body(crate::model::NewBody::replacing(&old, op.shape()), &origins, &info, &|_| None);
+    }
     Ok(Value::UNDEFINED)
 }
 

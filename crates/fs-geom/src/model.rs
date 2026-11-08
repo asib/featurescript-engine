@@ -676,6 +676,50 @@ impl Origins {
         origins
     }
 
+    /// As `of_operation`, but an input entity that comes through geometrically unchanged keeps its transient id
+    /// and info even when the operation rebuilt it (an offset face's neighbours' far edges, batch 031).
+    pub fn of_operation_by_geometry(op: &occt::Operation, inputs: &[&Body]) -> Origins {
+        let result = op.shape();
+        let mut origins = Origins::default();
+        let mut twins: Vec<(Shape, Entity)> = Vec::new();
+        for body in inputs {
+            for entity in body.all_entities() {
+                let Some(kind) = entity.shape.kind() else { continue };
+                let candidates = result.sub_shapes(kind);
+                if candidates.iter().any(|c| c.is_same(&entity.shape)) {
+                    continue;
+                }
+                if let Some(twin) = candidates.iter().find(|c| same_geometry(c, &entity.shape)) {
+                    twins.push((twin.clone(), entity.clone()));
+                }
+            }
+        }
+        for (twin, entity) in &twins {
+            origins.same(twin, entity);
+        }
+        let twin_of = |s: &Shape| twins.iter().any(|(t, _)| t.is_same(s));
+        for body in inputs {
+            for entity in body.all_entities() {
+                origins.keep(entity);
+                for image in op.modified(&entity.shape) {
+                    if !twin_of(&image) {
+                        origins.inherit(&image, entity);
+                    }
+                }
+            }
+        }
+        for body in inputs {
+            for entity in body.all_entities() {
+                for image in op.generated(&entity.shape) {
+                    if !twin_of(&image) {
+                        origins.derive(&image, entity, false);
+                    }
+                }
+            }
+        }
+        origins
+    }
+
     /// Origins for an operation that makes new bodies from `inputs`: everything it made from an input entity is new,
     /// with the operation's info, but tracked back to it.
     pub fn derived(op: &occt::Operation, inputs: &[&Entity]) -> Origins {
@@ -746,5 +790,40 @@ impl ContextState for GeomState {
 
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
+    }
+}
+
+/// Whether two shapes of one kind lie in the same place: vertices at one point, edges on one kind of curve through
+/// the same ends and middle, faces on one kind of surface with the same area and centroid.
+fn same_geometry(a: &Shape, b: &Shape) -> bool {
+    use occt::ShapeKind;
+    let close = |p: occt::Vec3, q: occt::Vec3| crate::values::norm(crate::values::sub(p, q)) < 1e-9;
+    match (a.kind(), b.kind()) {
+        (Some(ShapeKind::Vertex), Some(ShapeKind::Vertex)) => match (a.vertex_point(), b.vertex_point()) {
+            (Ok(p), Ok(q)) => close(p, q),
+            _ => false,
+        },
+        (Some(ShapeKind::Edge), Some(ShapeKind::Edge)) => {
+            if a.curve_type().ok() != b.curve_type().ok() {
+                return false;
+            }
+            let at = |s: &Shape, t: f64| s.edge_tangent(t, true).ok().map(|l| l.origin);
+            match (at(a, 0.0), at(a, 0.5), at(a, 1.0), at(b, 0.0), at(b, 0.5), at(b, 1.0)) {
+                (Some(a0), Some(am), Some(a1), Some(b0), Some(bm), Some(b1)) => {
+                    close(am, bm) && ((close(a0, b0) && close(a1, b1)) || (close(a0, b1) && close(a1, b0)))
+                }
+                _ => false,
+            }
+        }
+        (Some(ShapeKind::Face), Some(ShapeKind::Face)) => {
+            if a.surface_type().ok() != b.surface_type().ok() {
+                return false;
+            }
+            match (a.area(), b.area(), a.centroid(), b.centroid()) {
+                (Ok(x), Ok(y), Ok(p), Ok(q)) => (x - y).abs() <= 1e-9 * x.abs().max(1e-12) && close(p, q),
+                _ => false,
+            }
+        }
+        _ => false,
     }
 }
