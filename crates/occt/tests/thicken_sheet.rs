@@ -71,3 +71,59 @@ fn union_of_sheets_reports_the_shared_edge() {
         op.is_deleted(&wall_edge)
     );
 }
+
+#[test]
+fn union_of_coplanar_sheets_merges_them() {
+    use occt::{BooleanKind, Frame};
+    let down = |x0: f64, x1: f64, y0: f64, y1: f64| {
+        occt::plane_face(
+            Frame {
+                origin: Vec3::new(0.0, 0.0, 0.002),
+                normal: Vec3::new(0.0, 0.0, -1.0),
+                x: Vec3::new(1.0, 0.0, 0.0),
+            },
+            x0,
+            x1,
+            y0,
+            y1,
+        )
+        .unwrap()
+    };
+    // In this frame y runs the other way (normal -z, x along +x).
+    let plate = down(0.0, 0.04, -0.03, 0.0);
+    let tab = down(0.04, 0.05, -0.02, -0.01);
+    let op = occt::boolean(BooleanKind::Union, std::slice::from_ref(&plate), std::slice::from_ref(&tab), true).unwrap();
+    let faces = op.shape().sub_shapes(ShapeKind::Face).len();
+    eprintln!("faces after union {faces}");
+    assert_eq!(faces, 1);
+}
+
+#[test]
+fn union_with_a_mirrored_coplanar_sheet_merges_them() {
+    use occt::{BooleanKind, Frame, Transform};
+    let plate = occt::plane_face(
+        Frame { origin: Vec3::new(0.0, 0.0, 0.002), normal: Vec3::new(0.0, 0.0, -1.0), x: Vec3::new(1.0, 0.0, 0.0) },
+        0.0,
+        0.04,
+        -0.03,
+        0.0,
+    )
+    .unwrap();
+    let up = occt::plane_face(
+        Frame { origin: Vec3::new(0.0, 0.0, 0.002), normal: Vec3::new(0.0, 0.0, 1.0), x: Vec3::new(1.0, 0.0, 0.0) },
+        0.04,
+        0.05,
+        0.01,
+        0.02,
+    )
+    .unwrap();
+    // Rows of [linear | translation]: z mirrored about z = 2 mm.
+    let mirror = Transform { m: [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, -1.0, 0.004] };
+    let tab = occt::transform(&up, &mirror).unwrap().shape();
+    let p = tab.face_plane().unwrap();
+    eprintln!("mirrored tab normal {:?}", p.normal);
+    let op = occt::boolean(BooleanKind::Union, std::slice::from_ref(&plate), std::slice::from_ref(&tab), true).unwrap();
+    let faces = op.shape().sub_shapes(ShapeKind::Face).len();
+    eprintln!("faces after union {faces}");
+    assert_eq!(faces, 1);
+}

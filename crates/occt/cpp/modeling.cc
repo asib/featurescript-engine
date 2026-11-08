@@ -63,6 +63,8 @@
 #include <BRepPrimAPI_MakeRevol.hxx>
 #include <BRepPrimAPI_MakeSphere.hxx>
 #include <BRepTools_History.hxx>
+#include <BRepTools_Modifier.hxx>
+#include <ShapeCustom_DirectModification.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
@@ -176,6 +178,22 @@ std::unique_ptr<Operation> transform_op(const Shape &s, const Transform &t) {
     check_done(maker, "transform");
     op->history = new BRepTools_History(arguments, maker);
     op->result = maker.Shape();
+    if (trsf.IsNegative()) {
+      // A mirror leaves surfaces with left-handed axes, which won't merge with coplanar neighbours (a sheet
+      // metal tab turned over onto its wall, batch 013): make them right-handed, keeping where everything went.
+      BRepTools_Modifier modifier(op->result, new ShapeCustom_DirectModification);
+      if (modifier.IsDone()) {
+        Handle(BRepTools_History) direct = new BRepTools_History;
+        TopTools_IndexedMapOfShape subs;
+        TopExp::MapShapes(op->result, subs);
+        for (int i = 1; i <= subs.Extent(); ++i) {
+          const TopoDS_Shape &image = modifier.ModifiedShape(subs(i));
+          if (!image.IsSame(subs(i))) direct->AddModified(subs(i), image);
+        }
+        op->history->Merge(direct);
+        op->result = modifier.ModifiedShape(op->result);
+      }
+    }
   } else {
     gp_GTrsf gtrsf;
     for (int i = 0; i < 3; ++i) {

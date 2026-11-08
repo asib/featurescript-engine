@@ -267,6 +267,15 @@ std::unique_ptr<Operation> boolean_op(int32_t kind, const ShapeList &objects, co
   op->history = new BRepTools_History(all, *algo);
   op->result = algo->Shape();
   if (unify) {
+    // Faces merge only within shells: a boolean of sheets gives loose faces, so join those that share edges first.
+    if (!TopExp_Explorer(op->result, TopAbs_SOLID).More() && TopExp_Explorer(op->result, TopAbs_FACE).More()) {
+      std::unique_ptr<ShapeList> shells = connected_shells(Shape(op->result));
+      BRep_Builder builder;
+      TopoDS_Compound compound;
+      builder.MakeCompound(compound);
+      for (const TopoDS_Shape &shell : shells->shapes) builder.Add(compound, shell);
+      op->result = compound;
+    }
     ShapeUpgrade_UnifySameDomain unifier(op->result, Standard_True, Standard_True, Standard_False);
     unifier.Build();
     op->history->Merge(unifier.History());
