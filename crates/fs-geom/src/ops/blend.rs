@@ -631,9 +631,9 @@ pub fn face_blend(model: &mut Model, id: FeatureId, definition: &Value) -> R<Val
 /// A face blend between two planar sides, meeting or not: the section runs round the line where their planes meet,
 /// from a point set back along each (as a fillet's, [`section_fillet`]: a radius, two radii — the centre `radius`
 /// from side 1 and `secondRadius` from side 2 — or a width, the chord between the two points, `widthRatio` the
-/// ratio of side 2's setback to side 1's), swept along that line over both sides. With `WALLS` trimming each side
-/// is cut back to where the blend meets it and all are sewn into one sheet; untrimmed or detached, the blend is a
-/// sheet of its own and the sides stay as they are.
+/// ratio of side 2's setback to side 1's), swept along that line over both sides (untrimmed, further). Each side
+/// is cut back to where the blend meets it and all are sewn into one sheet; detached, the blend is a sheet of its
+/// own and the sides stay as they are.
 fn planar_face_blend(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
     use crate::values::{add, cross, dot, normalize, scale, sub};
     let failed = || regen_error("FACE_BLEND_FAILED");
@@ -665,6 +665,16 @@ fn planar_face_blend(model: &mut Model, id: FeatureId, definition: &Value) -> R<
         Ok(if dot(sub(inner, c), u) >= 0.0 { u } else { scale(u, -1.0) })
     };
     let (u1, u2) = (into(&plane1, &face1)?, into(&plane2, &face2)?);
+    // Each side's sense (its normal, flipped if asked) must point to the side of it the blend is on, where the other
+    // side goes (batch 054: Onshape refuses sheets apart whose flips std works out wrongly).
+    let flipped = |key: &str| -> R<bool> { Ok(values::opt_bool(definition, key)?.unwrap_or(false)) };
+    let sense = |n: occt::Vec3, flip: bool| if flip { scale(n, -1.0) } else { n };
+    if dot(sense(n1, flipped("flipSide1Normal")?), u2) < 0.0 {
+        return Err(regen_error("FACE_BLEND_WRONG_LEFT_WALL_SENSE"));
+    }
+    if dot(sense(n2, flipped("flipSide2Normal")?), u1) < 0.0 {
+        return Err(regen_error("FACE_BLEND_WRONG_RIGHT_WALL_SENSE"));
+    }
     let angle = dot(u1, u2).clamp(-1.0, 1.0).acos();
     let asymmetric = values::opt_bool(definition, "asymmetric")?.unwrap_or(false);
     let (s1, s2) = if field(definition, "blendControlType").as_str() == Some("WIDTH") {
@@ -700,6 +710,11 @@ fn planar_face_blend(model: &mut Model, id: FeatureId, definition: &Value) -> R<
     };
     let along: Vec<f64> = extent(&face1).into_iter().chain(extent(&face2)).collect();
     let (lo, hi) = along.iter().fold((f64::MAX, f64::MIN), |(a, b), &x| (a.min(x), b.max(x)));
+    let trim = field(definition, "trim").as_str().unwrap_or("WALLS").to_string();
+    let detach = values::opt_bool(definition, "detach")?.unwrap_or(false);
+    // Untrimmed, the blend runs on past the sides' ends by a tenth of their length at each (3 mm of 30 in batch 054
+    // c007; a guess from that one case).
+    let (lo, hi) = if trim == "NO_TRIM" { (lo - 0.1 * (hi - lo), hi + 0.1 * (hi - lo)) } else { (lo, hi) };
     let corner = add(c, scale(t, lo));
     let (p1, p2) = (add(corner, scale(u1, s1)), add(corner, scale(u2, s2)));
     let curve = match section {
@@ -709,12 +724,10 @@ fn planar_face_blend(model: &mut Model, id: FeatureId, definition: &Value) -> R<
             let centre = add(corner, scale(bisector, radius / (angle / 2.0).sin()));
             occt::arc_through(p2, sub(centre, scale(bisector, radius)), p1).map_err(crate::occt_error)?
         }
-        Section::Circular => {
-            crate::curve_extend::Cubic::rational_quadratic(p2, corner, p1, (angle / 2.0).sin())?.edge()?
-        }
-        Section::Conic(rho) => {
-            crate::curve_extend::Cubic::rational_quadratic(p2, corner, p1, rho / (1.0 - rho))?.edge()?
-        }
+        // Onshape's face blends keep their conic sections exact (its areas are the exact conics', batch 054), unlike
+        // its fillets' cubic ones.
+        Section::Circular => conic_edge(p2, corner, p1, (angle / 2.0).sin())?,
+        Section::Conic(rho) => conic_edge(p2, corner, p1, rho / (1.0 - rho))?,
         Section::Curvature(m) => curvature_section(p2, corner, p1, m)?,
     };
     let swept = occt::prism(&curve, scale(t, hi - lo)).map_err(crate::occt_error)?.shape();
@@ -729,10 +742,8 @@ fn planar_face_blend(model: &mut Model, id: FeatureId, definition: &Value) -> R<
             .map_err(|_| failed())?;
         Ok(kept.shape().sub_shapes(ShapeKind::Face))
     };
-    let trim = field(definition, "trim").as_str().unwrap_or("WALLS").to_string();
-    let detach = values::opt_bool(definition, "detach")?.unwrap_or(false);
     let info = crate::model::Info::new(id);
-    if trim == "WALLS" && !detach {
+    if !detach {
         let mut faces = trimmed(&face1, u1, s1)?;
         faces.extend(trimmed(&face2, u2, s2)?);
         faces.extend(blend_faces);
@@ -756,6 +767,12 @@ fn planar_face_blend(model: &mut Model, id: FeatureId, definition: &Value) -> R<
         super::add_simple(model, sheet, crate::model::BodyType::Sheet, &info, false);
     }
     Ok(Value::UNDEFINED)
+}
+
+/// The rational quadratic from `p0` to `p2` with its middle pole `p1` weighted `w`: an exact conic.
+fn conic_edge(p0: occt::Vec3, p1: occt::Vec3, p2: occt::Vec3, w: f64) -> R<Shape> {
+    occt::bspline_edge(&[p0, p1, p2], &[1.0, w, 1.0], &[0.0, 0.0, 0.0, 1.0, 1.0, 1.0], 2, false)
+        .map_err(crate::occt_error)
 }
 
 /// A variable fillet: the radius at each end of each edge is set at its vertex (`vertexSettings`), the fillet's
