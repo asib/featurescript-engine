@@ -9,7 +9,7 @@
 use cxx::UniquePtr;
 use std::fmt;
 
-pub use ffi::{Axis, Box3, Conic, Distance, Frame, Transform, Vec3};
+pub use ffi::{Axis, BSplineData, Box3, Conic, Distance, Frame, Transform, Vec3};
 
 #[cxx::bridge(namespace = "occt")]
 mod ffi {
@@ -33,6 +33,19 @@ mod ffi {
         distance: f64,
         a: Vec3,
         b: Vec3,
+    }
+
+    /// A B-spline curve as std's `BSplineCurve` gives it.
+    #[derive(Clone, Debug, PartialEq)]
+    struct BSplineData {
+        degree: i32,
+        periodic: bool,
+        rational: bool,
+        poles: Vec<Vec3>,
+        /// Empty unless rational.
+        weights: Vec<f64>,
+        /// The full knot vector, knots repeated by their multiplicity; a periodic curve's has `poles + 2 degree + 1`.
+        knots: Vec<f64>,
     }
 
     /// The curve an edge lies on: `kind` 0 a line (origin at the edge's start, `frame.normal` its direction),
@@ -120,6 +133,15 @@ mod ffi {
             periodic: bool,
         ) -> Result<UniquePtr<Shape>>;
         fn make_conic_edge(a: Vec3, c: Vec3, b: Vec3, w: f64) -> Result<UniquePtr<Shape>>;
+        fn make_bspline_surface_face(
+            poles: &[Vec3],
+            nu: i32,
+            nv: i32,
+            knots_u: &[f64],
+            knots_v: &[f64],
+            degree_u: i32,
+            degree_v: i32,
+        ) -> Result<UniquePtr<Shape>>;
         fn connect_edges(edges: &ShapeList) -> Result<UniquePtr<ShapeList>>;
         fn offset_wire_region(wire: &Shape, normal: Vec3, o1: f64, o2: f64) -> Result<UniquePtr<Shape>>;
         #[allow(clippy::too_many_arguments)]
@@ -207,6 +229,7 @@ mod ffi {
         fn shape_area(s: &Shape) -> Result<f64>;
         fn shape_length(s: &Shape) -> Result<f64>;
         fn shape_centroid(s: &Shape) -> Result<Vec3>;
+        fn shape_principal_moments(s: &Shape) -> Result<Vec3>;
         fn vertex_point(s: &Shape) -> Result<Vec3>;
         fn surface_type(face: &Shape) -> Result<i32>;
         fn face_plane(face: &Shape) -> Result<Frame>;
@@ -251,6 +274,7 @@ mod ffi {
         fn split_faces_op(body: &Shape, faces: &ShapeList, tools: &ShapeList) -> Result<UniquePtr<Operation>>;
         fn point_in_solid(solid: &Shape, p: Vec3) -> Result<bool>;
         fn curve_definition(s: &Shape) -> Result<Conic>;
+        fn edge_bspline(s: &Shape, tolerance: f64, force_cubic: bool, force_non_rational: bool) -> Result<BSplineData>;
         fn surface_definition(s: &Shape) -> Result<Conic>;
         fn face_tangent_plane(s: &Shape, fu: f64, fv: f64) -> Result<Frame>;
         fn face_fraction(s: &Shape, p: Vec3) -> Result<Vec3>;
@@ -446,6 +470,12 @@ impl Shape {
         Ok(ffi::shape_centroid(&self.0)?)
     }
 
+    /// The principal moments of inertia about the centre of mass, smallest first (by volume, area or length as
+    /// for [`Shape::centroid`]).
+    pub fn principal_moments(&self) -> Result<Vec3> {
+        Ok(ffi::shape_principal_moments(&self.0)?)
+    }
+
     pub fn vertex_point(&self) -> Result<Vec3> {
         Ok(ffi::vertex_point(&self.0)?)
     }
@@ -540,6 +570,13 @@ impl Shape {
         Ok(ffi::curve_definition(&self.0)?)
     }
 
+    /// The curve under an edge, over the edge's range, as a B-spline: exactly where it can be (conics become
+    /// rational), otherwise within `tolerance`. `force_cubic` and `force_non_rational` approximate it as a cubic
+    /// or polynomial spline where it isn't one.
+    pub fn edge_bspline(&self, tolerance: f64, force_cubic: bool, force_non_rational: bool) -> Result<BSplineData> {
+        Ok(ffi::edge_bspline(&self.0, tolerance, force_cubic, force_non_rational)?)
+    }
+
     /// The surface a face lies on: kind 0 plane, 1 cylinder (`radius1`), 2 cone (`radius1` the half angle, frame at
     /// the apex), 3 sphere (`radius1`), 4 torus (`radius1` major, `radius2` minor), 5 other.
     pub fn surface_definition(&self) -> Result<Conic> {
@@ -619,6 +656,18 @@ pub fn interpolated_edge(points: &[Vec3], derivatives: &[Vec3], parameters: &[f6
 /// An edge on a B-spline: poles, weights (empty if not rational), the full knot vector, degree and periodicity.
 pub fn bspline_edge(poles: &[Vec3], weights: &[f64], knots: &[f64], degree: i32, periodic: bool) -> Result<Shape> {
     Ok(Shape::new(ffi::make_bspline_edge(poles, weights, knots, degree, periodic)?))
+}
+
+/// A face on a non-rational B-spline surface over its whole domain: `poles` row by row (`nu` rows of `nv`), with
+/// full knot vectors.
+pub fn bspline_surface_face(
+    poles: &[Vec3],
+    (nu, nv): (usize, usize),
+    knots_u: &[f64],
+    knots_v: &[f64],
+    (degree_u, degree_v): (i32, i32),
+) -> Result<Shape> {
+    Ok(Shape::new(ffi::make_bspline_surface_face(poles, nu as i32, nv as i32, knots_u, knots_v, degree_u, degree_v)?))
 }
 
 pub fn bezier_edge(points: &[Vec3]) -> Result<Shape> {

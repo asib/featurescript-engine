@@ -38,6 +38,12 @@
 #include <GProp_GProps.hxx>
 #include <Geom_Plane.hxx>
 #include <Geom_Surface.hxx>
+#include <Geom_BSplineSurface.hxx>
+#include <TColgp_Array2OfPnt.hxx>
+#include <TColStd_Array1OfInteger.hxx>
+#include <TColStd_Array1OfReal.hxx>
+#include <TColStd_HArray1OfReal.hxx>
+#include <TColStd_HArray1OfInteger.hxx>
 #include <ShapeAnalysis_FreeBounds.hxx>
 #include <ShapeFix_Face.hxx>
 #include <ShapeFix_Shell.hxx>
@@ -413,6 +419,43 @@ std::unique_ptr<ShapeList> wrap_onto_cylinder(const ShapeList &faces, Vec3 sourc
     out->shapes.push_back(built);
   }
   return out;
+}
+
+// A face on a non-rational B-spline surface over its whole domain: `poles` row by row (`nu` rows of `nv`), and
+// full knot vectors (knots repeated by their multiplicity) in each direction.
+std::unique_ptr<Shape> make_bspline_surface_face(rust::Slice<const Vec3> poles, int32_t nu, int32_t nv,
+                                                 rust::Slice<const double> knots_u, rust::Slice<const double> knots_v,
+                                                 int32_t degree_u, int32_t degree_v) {
+  if (nu < 2 || nv < 2 || static_cast<int>(poles.size()) != nu * nv) throw std::invalid_argument("bad pole grid");
+  TColgp_Array2OfPnt grid(1, nu, 1, nv);
+  for (int i = 0; i < nu; ++i)
+    for (int j = 0; j < nv; ++j) grid.SetValue(i + 1, j + 1, pnt(poles[i * nv + j]));
+  auto split = [](rust::Slice<const double> full, Handle(TColStd_HArray1OfReal) &knots,
+                  Handle(TColStd_HArray1OfInteger) &mults) {
+    std::vector<double> unique;
+    std::vector<int> counts;
+    for (double k : full) {
+      if (!unique.empty() && std::abs(k - unique.back()) < 1e-12) {
+        ++counts.back();
+      } else {
+        unique.push_back(k);
+        counts.push_back(1);
+      }
+    }
+    knots = new TColStd_HArray1OfReal(1, static_cast<int>(unique.size()));
+    mults = new TColStd_HArray1OfInteger(1, static_cast<int>(unique.size()));
+    for (size_t i = 0; i < unique.size(); ++i) {
+      knots->SetValue(static_cast<int>(i) + 1, unique[i]);
+      mults->SetValue(static_cast<int>(i) + 1, counts[i]);
+    }
+  };
+  Handle(TColStd_HArray1OfReal) ku, kv;
+  Handle(TColStd_HArray1OfInteger) mu, mv;
+  split(knots_u, ku, mu);
+  split(knots_v, kv, mv);
+  Handle(Geom_BSplineSurface) surface =
+      new Geom_BSplineSurface(grid, ku->Array1(), kv->Array1(), mu->Array1(), mv->Array1(), degree_u, degree_v);
+  return wrap(BRepBuilderAPI_MakeFace(surface, Precision::Confusion()).Face());
 }
 
 }  // namespace occt

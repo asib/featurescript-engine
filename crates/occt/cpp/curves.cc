@@ -44,7 +44,15 @@
 #include <gp_Elips.hxx>
 
 #include <cmath>
+#include <algorithm>
 #include <cstdio>
+#include <BSplCLib.hxx>
+#include <GeomConvert.hxx>
+#include <GeomConvert_ApproxCurve.hxx>
+#include <Geom_BSplineCurve.hxx>
+#include <Geom_TrimmedCurve.hxx>
+#include <TColStd_Array1OfInteger.hxx>
+#include <TColStd_Array1OfReal.hxx>
 
 #include "occt/src/lib.rs.h"
 #include "occt/cpp/internal.h"
@@ -359,6 +367,64 @@ std::unique_ptr<Shape> make_helix_edge(Vec3 origin, Vec3 direction, Vec3 start, 
   TopoDS_Edge edge = maker.Edge();
   BRepLib::BuildCurves3d(edge, 1e-9, GeomAbs_C2, 14, 400);
   return wrap(edge);
+}
+
+}  // namespace occt
+
+namespace occt {
+
+// The curve under an edge, over the edge's range, as a B-spline: a B-spline curve as it is (cut to the edge's
+// range), conics exactly as rational splines, anything else approximated within `tolerance`. `force_cubic` and
+// `force_non_rational` approximate it as a cubic or polynomial spline where it isn't one. The edge's orientation
+// is ignored, as everywhere else that measures curves.
+BSplineData edge_bspline(const Shape &s, double tolerance, bool force_cubic, bool force_non_rational) {
+  if (s.shape.ShapeType() != TopAbs_EDGE) throw std::invalid_argument("not an edge");
+  const TopoDS_Edge &edge = TopoDS::Edge(s.shape);
+  double first, last;
+  TopLoc_Location location;
+  Handle(Geom_Curve) curve = BRep_Tool::Curve(edge, location, first, last);
+  if (curve.IsNull()) throw std::runtime_error("the edge has no 3D curve");
+  if (!location.IsIdentity()) curve = Handle(Geom_Curve)::DownCast(curve->Transformed(location.Transformation()));
+  Handle(Geom_BSplineCurve) spline = Handle(Geom_BSplineCurve)::DownCast(curve);
+  const bool whole = std::abs(first - curve->FirstParameter()) < 1e-12 && std::abs(last - curve->LastParameter()) < 1e-12;
+  if (!spline.IsNull()) {
+    spline = Handle(Geom_BSplineCurve)::DownCast(spline->Copy());
+    if (!whole) spline->Segment(first, last);
+  } else {
+    Handle(Geom_TrimmedCurve) trimmed = new Geom_TrimmedCurve(curve, first, last);
+    try {
+      spline = GeomConvert::CurveToBSplineCurve(trimmed, Convert_TgtThetaOver2);
+    } catch (const Standard_Failure &) {
+      spline.Nullify();
+    }
+    if (spline.IsNull()) {
+      GeomConvert_ApproxCurve approx(trimmed, tolerance, GeomAbs_C2, 1000, 9);
+      if (!approx.HasResult()) throw std::runtime_error("can't approximate the curve as a B-spline");
+      spline = approx.Curve();
+    }
+  }
+  if ((force_non_rational && spline->IsRational()) || (force_cubic && spline->Degree() > 3)) {
+    GeomConvert_ApproxCurve approx(spline, tolerance, GeomAbs_C2, 1000, 3);
+    if (!approx.HasResult()) throw std::runtime_error("can't approximate the curve as a cubic B-spline");
+    spline = approx.Curve();
+  }
+  if (force_cubic && spline->Degree() < 3) spline->IncreaseDegree(3);
+  BSplineData out;
+  out.degree = spline->Degree();
+  out.periodic = spline->IsPeriodic();
+  out.rational = spline->IsRational();
+  for (int i = 1; i <= spline->NbPoles(); ++i) {
+    out.poles.push_back(vec3(spline->Pole(i).XYZ()));
+    if (out.rational) out.weights.push_back(spline->Weight(i));
+  }
+  TColStd_Array1OfReal knots(1, spline->NbKnots());
+  TColStd_Array1OfInteger mults(1, spline->NbKnots());
+  spline->Knots(knots);
+  spline->Multiplicities(mults);
+  TColStd_Array1OfReal sequence(1, BSplCLib::KnotSequenceLength(mults, spline->Degree(), spline->IsPeriodic()));
+  BSplCLib::KnotSequence(knots, mults, spline->Degree(), spline->IsPeriodic(), sequence);
+  for (int i = sequence.Lower(); i <= sequence.Upper(); ++i) out.knots.push_back(sequence(i));
+  return out;
 }
 
 }  // namespace occt

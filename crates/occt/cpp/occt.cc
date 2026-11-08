@@ -1,4 +1,6 @@
 #include "occt/cpp/occt.h"
+#include <GProp_PrincipalProps.hxx>
+#include <algorithm>
 
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
@@ -429,6 +431,23 @@ Vec3 shape_centroid(const Shape &s) {
     default: BRepGProp::VolumeProperties(s.shape, props); break;
   }
   return vec3(props.CentreOfMass().XYZ());
+}
+
+// The principal moments of inertia about the centre of mass, smallest first.
+Vec3 shape_principal_moments(const Shape &s) {
+  GProp_GProps props;
+  switch (s.shape.ShapeType()) {
+    case TopAbs_VERTEX: return Vec3{0, 0, 0};
+    case TopAbs_EDGE:
+    case TopAbs_WIRE: BRepGProp::LinearProperties(s.shape, props); break;
+    case TopAbs_FACE:
+    case TopAbs_SHELL: BRepGProp::SurfaceProperties(s.shape, props); break;
+    default: BRepGProp::VolumeProperties(prepared_for_integration(s.shape), props, GPROP_EPS, Standard_True); break;
+  }
+  double m[3];
+  props.PrincipalProperties().Moments(m[0], m[1], m[2]);
+  std::sort(m, m + 3);
+  return Vec3{m[0], m[1], m[2]};
 }
 
 Vec3 vertex_point(const Shape &s) { return vec3(BRep_Tool::Pnt(TopoDS::Vertex(s.shape)).XYZ()); }

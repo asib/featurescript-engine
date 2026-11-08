@@ -47,6 +47,7 @@ struct Transform;
 struct Axis;
 struct Distance;
 struct Conic;
+struct BSplineData;
 
 // A TopoDS_Shape. Copying one is cheap: the copy shares the underlying topology.
 class Shape {
@@ -95,6 +96,9 @@ std::unique_ptr<Shape> make_plane_face(Frame f, double umin, double umax, double
 std::unique_ptr<Shape> make_ellipse_edge(Frame f, double major, double minor, bool whole, double start, double end);
 std::unique_ptr<Shape> make_interpolated_edge(rust::Slice<const Vec3> points, rust::Slice<const Vec3> derivatives,
                                               rust::Slice<const double> parameters, bool closed);
+std::unique_ptr<Shape> make_bspline_surface_face(rust::Slice<const Vec3> poles, int32_t nu, int32_t nv,
+                                                 rust::Slice<const double> knots_u, rust::Slice<const double> knots_v,
+                                                 int32_t degree_u, int32_t degree_v);
 std::unique_ptr<Shape> make_bspline_edge(rust::Slice<const Vec3> poles, rust::Slice<const double> weights,
                                          rust::Slice<const double> knots, int32_t degree, bool periodic);
 std::unique_ptr<Shape> make_bezier_edge(rust::Slice<const Vec3> points);
@@ -155,6 +159,7 @@ double shape_volume(const Shape &s);
 double shape_area(const Shape &s);
 double shape_length(const Shape &s);
 Vec3 shape_centroid(const Shape &s);
+Vec3 shape_principal_moments(const Shape &s);
 Vec3 vertex_point(const Shape &s);
 int32_t surface_type(const Shape &face);
 Frame face_plane(const Shape &face);
@@ -183,6 +188,7 @@ std::unique_ptr<Operation> face_blend_op(const ShapeList &side1, bool reverse1, 
 std::unique_ptr<Operation> split_faces_op(const Shape &body, const ShapeList &faces, const ShapeList &tools);
 bool point_in_solid(const Shape &solid, Vec3 p);
 Conic curve_definition(const Shape &s);
+BSplineData edge_bspline(const Shape &s, double tolerance, bool force_cubic, bool force_non_rational);
 Conic surface_definition(const Shape &s);
 Frame face_tangent_plane(const Shape &s, double fu, double fv);
 Vec3 face_fraction(const Shape &s, Vec3 p);
