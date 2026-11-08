@@ -731,8 +731,11 @@ pub fn body_draft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Val
     let pull = values::normalize(values::vec3(field(definition, "pullDirection"), "opBodyDraft pullDirection")?)
         .ok_or_else(|| regen_error("BODY_DRAFT_BAD_PULL_DIRECTION"))?;
     let angle = values::angle(field(definition, "angle"), "opBodyDraft angle")?;
-    if values::opt_bool(definition, "bothSides")?.unwrap_or(false) {
-        return Err(error("@opBodyDraft: drafts on both sides aren't supported yet"));
+    // Symmetric: the part behind the parting plane is drafted too, against the pull (batch 050).
+    let both_sides = values::opt_bool(definition, "bothSides")?.unwrap_or(false);
+    let plane_corners = field(definition, "cornerType").as_str() == Some("PLANE");
+    if both_sides && field(definition, "selectionType").as_str() == Some("EDGES") {
+        return Err(error("@opBodyDraft: symmetric drafts by edges aren't supported yet"));
     }
     // A face is steep if it is closer to the pull direction than the draft angle.
     let normal = |face: &Shape| face.face_tangent_plane(0.5, 0.5).ok().map(|p| p.normal);
@@ -824,8 +827,26 @@ pub fn body_draft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Val
                     let in_front = piece.bounding_box_in(plane, true).is_ok_and(|bx| bx.min.z > -1e-8);
                     if in_front { front.push(piece) } else { back.push(piece) }
                 }
-                let mut drafted = Vec::new();
-                for piece in front {
+                // Each piece's selected steep faces turn about their edges farthest along the way they're pulled
+                // (shared with a face that isn't steep): the piece in front of the parting plane pulled along the
+                // pull, the one behind it against it (a symmetric draft keeps the top and bottom, widest at the
+                // parting plane, batch 050).
+                let draft_piece = |piece: Shape, toward: Vec3| -> R<Shape> {
+                    let farthest = |solid: &Shape, face: &Shape| -> Option<Shape> {
+                        let others: Vec<Shape> = solid
+                            .sub_shapes(ShapeKind::Face)
+                            .into_iter()
+                            .filter(|f| !f.is_same(face) && !steep(f))
+                            .collect();
+                        face.visible_sub_shapes(ShapeKind::Edge)
+                            .into_iter()
+                            .filter(|e| {
+                                others.iter().any(|o| o.sub_shapes(ShapeKind::Edge).iter().any(|x| x.is_same(e)))
+                            })
+                            .filter_map(|e| e.edge_tangent(0.5, false).ok().map(|a| (values::dot(a.origin, toward), e)))
+                            .max_by(|a, b| a.0.total_cmp(&b.0))
+                            .map(|(_, e)| e)
+                    };
                     let mut piece_faces = Vec::new();
                     let mut neutrals = Vec::new();
                     for face in piece.sub_shapes(ShapeKind::Face) {
@@ -836,19 +857,32 @@ pub fn body_draft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Val
                         if !(selected && steep(&face)) {
                             continue;
                         }
-                        let Some(edge) = reference(&piece, &face) else { continue };
+                        let Some(edge) = farthest(&piece, &face) else { continue };
                         let at = edge.edge_tangent(0.5, false).map_err(|_| regen_error("BODY_DRAFT_FAILED"))?.origin;
-                        neutrals.push(occt::Frame { origin: at, normal: pull, x: values::canonical_x(pull) });
+                        neutrals.push(occt::Frame { origin: at, normal: toward, x: values::canonical_x(toward) });
                         piece_faces.push(face);
                     }
-                    drafted.push(if piece_faces.is_empty() {
-                        piece
+                    if piece_faces.is_empty() {
+                        return Ok(piece);
+                    }
+                    let drafted = occt::draft_each(&piece, &piece_faces, toward, angle, &neutrals)
+                        .map_err(|_| regen_error("BODY_DRAFT_FAILED"))?
+                        .shape();
+                    if plane_corners {
+                        plane_cut_corners(&piece, &piece_faces, &neutrals, drafted, toward)
                     } else {
-                        occt::draft_each(&piece, &piece_faces, pull, angle, &neutrals)
-                            .map_err(|_| regen_error("BODY_DRAFT_FAILED"))?
-                            .shape()
-                    });
+                        Ok(drafted)
+                    }
+                };
+                let mut drafted = Vec::new();
+                for piece in front {
+                    drafted.push(draft_piece(piece, pull)?);
                 }
+                let back: Vec<Shape> = if both_sides {
+                    back.into_iter().map(|piece| draft_piece(piece, values::scale(pull, -1.0))).collect::<R<_>>()?
+                } else {
+                    back
+                };
                 let (first, rest) = drafted.split_first().ok_or_else(|| regen_error("BODY_DRAFT_FAILED"))?;
                 let tools: Vec<Shape> = rest.iter().cloned().chain(back).collect();
                 let op = occt::boolean(occt::BooleanKind::Union, std::slice::from_ref(first), &tools, true)
@@ -883,6 +917,83 @@ pub fn body_draft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Val
     }
     replace_bodies(model, &id, results);
     Ok(Value::UNDEFINED)
+}
+
+/// A drafted piece's corners made planes (`cornerType` `PLANE`, batch 050): where two drafted faces meet at a
+/// steep edge, each keeps its side in the other's original plane, and the plane through the edge's end at the
+/// reference and those two sides' far ends cuts away what extending the faces to meet left beyond it.
+fn plane_cut_corners(
+    piece: &Shape,
+    faces: &[Shape],
+    neutrals: &[occt::Frame],
+    drafted: Shape,
+    toward: Vec3,
+) -> R<Shape> {
+    use values::{add, cross, dot, norm, normalize, scale, sub};
+    let failed = || regen_error("BODY_DRAFT_FAILED");
+    // The point three planes (point, normal) share.
+    let meet = |a: (Vec3, Vec3), b: (Vec3, Vec3), c: (Vec3, Vec3)| -> Option<Vec3> {
+        let (n1, n2, n3) = (a.1, b.1, c.1);
+        let det = dot(n1, cross(n2, n3));
+        if det.abs() < 1e-12 {
+            return None;
+        }
+        let (d1, d2, d3) = (dot(n1, a.0), dot(n2, b.0), dot(n3, c.0));
+        Some(scale(add(add(scale(cross(n2, n3), d1), scale(cross(n3, n1), d2)), scale(cross(n1, n2), d3)), 1.0 / det))
+    };
+    let plane_of = |f: &Shape| f.face_plane().ok().map(|p| (p.origin, p.normal));
+    let mut cutters = Vec::new();
+    let bounds = piece.bounding_box(false).map_err(occt_error)?;
+    let size = norm(sub(bounds.max, bounds.min)) * 4.0 + 1e-3;
+    for i in 0..faces.len() {
+        for j in i + 1..faces.len() {
+            let (f1, f2) = (&faces[i], &faces[j]);
+            let e1 = f1.sub_shapes(ShapeKind::Edge);
+            let Some(edge) = f2.sub_shapes(ShapeKind::Edge).into_iter().find(|e| e1.iter().any(|x| x.is_same(e)))
+            else {
+                continue;
+            };
+            let (Ok(a), Ok(b)) = (edge.edge_tangent(0.0, false), edge.edge_tangent(1.0, false)) else { continue };
+            let (p_ref, p_far) = if dot(a.origin, toward) >= dot(b.origin, toward) {
+                (a.origin, b.origin)
+            } else {
+                (b.origin, a.origin)
+            };
+            let (Some(s1), Some(s2)) = (plane_of(f1), plane_of(f2)) else { continue };
+            // The drafted faces: those of the result through each face's reference edge.
+            let drafted_plane = |k: usize| -> Option<(Vec3, Vec3)> {
+                let at = neutrals[k].origin;
+                drafted.sub_shapes(ShapeKind::Face).into_iter().find_map(|g| {
+                    let on = occt::vertex(at).and_then(|v| v.distance(&g)).is_ok_and(|d| d.distance < 1e-8);
+                    let p = plane_of(&g)?;
+                    (on && norm(cross(p.1, toward)) > 1e-9 && dot(p.1, (if k == i { s1 } else { s2 }).1) > 0.5)
+                        .then_some(p)
+                })
+            };
+            let (Some(d1), Some(d2)) = (drafted_plane(i), drafted_plane(j)) else { continue };
+            let far = (p_far, toward);
+            let (Some(b1), Some(c1), Some(apex)) = (meet(d1, s2, far), meet(d2, s1, far), meet(d1, d2, far)) else {
+                continue;
+            };
+            let Some(mut n) = normalize(cross(sub(b1, p_ref), sub(c1, p_ref))) else { continue };
+            if dot(sub(apex, p_ref), n) < 0.0 {
+                n = scale(n, -1.0);
+            }
+            if dot(sub(apex, p_ref), n) < 1e-9 {
+                continue;
+            }
+            let x = normalize(sub(b1, p_ref)).ok_or_else(failed)?;
+            let face = occt::plane_face(occt::Frame { origin: p_ref, normal: n, x }, -size, size, -size, size)
+                .map_err(occt_error)?;
+            cutters.push(occt::prism(&face, scale(n, size)).map_err(occt_error)?.shape());
+        }
+    }
+    if cutters.is_empty() {
+        return Ok(drafted);
+    }
+    Ok(occt::boolean(occt::BooleanKind::Subtraction, std::slice::from_ref(&drafted), &cutters, true)
+        .map_err(|_| failed())?
+        .shape())
 }
 
 /// The plane of a body draft's parting object, if it is a planar face (or a sheet of one).
