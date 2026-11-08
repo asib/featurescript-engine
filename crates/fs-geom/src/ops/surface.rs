@@ -470,20 +470,59 @@ pub fn wrap(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
     };
     let (source_anchor, source_direction) = anchor(source, "opWrap source anchor")?;
     let (destination_anchor, destination_direction) = anchor(destination, "opWrap destination anchor")?;
-    let target = query::evaluate(model, field(destination, "face"))?
-        .into_iter()
-        .find(|r| r.kind == EntityType::Face)
-        .ok_or_else(|| error("@opWrap: the destination must be a face for now"))?;
+    // Distances round the destination taken at another radius (a sheet metal bend's allowance).
+    let arc_radius = match field(destination, "allowanceRadius") {
+        v if v.is_undefined() => None,
+        v => Some(values::length(v, "opWrap allowance radius")?),
+    };
+    // The destination: a face, or a cylinder given as std's `Cylinder` (a sheet metal bend's).
+    let target = match field(destination, "cylinder") {
+        cylinder if !cylinder.is_undefined() => {
+            let cs = field(cylinder, "coordSystem");
+            let frame = occt::Frame {
+                origin: values::vec3(field(cs, "origin"), "opWrap cylinder origin")?,
+                normal: values::normalize(values::vec3(field(cs, "zAxis"), "opWrap cylinder axis")?)
+                    .ok_or_else(|| error("zero axis"))?,
+                x: values::normalize(values::vec3(field(cs, "xAxis"), "opWrap cylinder x")?)
+                    .ok_or_else(|| error("zero x"))?,
+            };
+            let radius = values::length(field(cylinder, "radius"), "opWrap cylinder radius")?;
+            occt::cylinder_face(frame, radius, 1.0).map_err(occt_error)?
+        }
+        _ => {
+            let r = query::evaluate(model, field(destination, "face"))?
+                .into_iter()
+                .find(|r| r.kind == EntityType::Face)
+                .ok_or_else(|| error("@opWrap: the destination must be a face or a cylinder for now"))?;
+            model.shape(r).clone()
+        }
+    };
+    // The wrapped faces and edges are tracked back to those they were wrapped from.
+    let sources: Vec<crate::model::Entity> = model
+        .bodies
+        .iter()
+        .flat_map(|b| b.faces.iter().chain(b.edges.iter()))
+        .filter(|e| {
+            faces
+                .iter()
+                .any(|f| f.is_same(&e.shape) || f.sub_shapes(ShapeKind::Edge).iter().any(|x| x.is_same(&e.shape)))
+        })
+        .cloned()
+        .collect();
     let wrapped = occt::wrap_onto_cylinder(
         &faces,
         (source_anchor, source_direction, plane.normal),
-        model.shape(target),
+        &target,
         destination_anchor,
         destination_direction,
+        arc_radius,
     )
     .map_err(|_| regen_error("WRAP_FAILED"))?;
-    for face in wrapped {
-        add(model, &id, face, BodyType::Sheet);
+    let inputs: Vec<&crate::model::Entity> = sources.iter().collect();
+    let origins = Origins::derived(&wrapped, &inputs);
+    let info = Info::new(id.clone());
+    for face in wrapped.shape().sub_shapes(ShapeKind::Face) {
+        model.add_body(NewBody::new(face, BodyType::Sheet, info.clone()), &origins, &info, &|_| None);
     }
     Ok(Value::UNDEFINED)
 }
