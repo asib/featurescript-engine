@@ -19,6 +19,11 @@
 #include <BRepAlgoAPI_Defeaturing.hxx>
 #include <BRepAlgoAPI_Splitter.hxx>
 #include <BRepAdaptor_Surface.hxx>
+#include <TColgp_Array1OfPnt2d.hxx>
+#include <gp_Pnt2d.hxx>
+#include <GCPnts_AbscissaPoint.hxx>
+#include <Law_Linear.hxx>
+#include <Law_S.hxx>
 #include <BRepAlgoAPI_Common.hxx>
 #include <BRepPrimAPI_MakeHalfSpace.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
@@ -218,6 +223,31 @@ std::unique_ptr<Operation> fillet_op(const Shape &solid, const ShapeList &edges,
   for (const TopoDS_Shape &e : edges.shapes) maker.Add(radius, TopoDS::Edge(e));
   maker.Build();
   return finish(one(solid.shape), maker, "fillet");
+}
+
+// Rounds edges with a radius that varies from one end to the other: edge i goes from radius `r0[i]` at the end
+// nearest `p0[i]` to `r1[i]` at the other, smoothly (an S curve, level at both ends) or linearly.
+std::unique_ptr<Operation> variable_fillet_op(const Shape &solid, const ShapeList &edges, rust::Slice<const Vec3> p0,
+                                              rust::Slice<const double> r0, rust::Slice<const double> r1, bool smooth) {
+  BRepFilletAPI_MakeFillet maker(solid.shape);
+  for (size_t i = 0; i < edges.shapes.size(); ++i) {
+    const TopoDS_Edge &edge = TopoDS::Edge(edges.shapes[i]);
+    TopoDS_Vertex first = TopExp::FirstVertex(edge, Standard_True);
+    bool from_first = BRep_Tool::Pnt(first).Distance(pnt(p0[i])) < 1e-9;
+    double start = from_first ? r0[i] : r1[i], end = from_first ? r1[i] : r0[i];
+    // The radius along the spine (relative parameter 0 to 1), sampled from the law, which OCCT interpolates: giving
+    // it the law itself (Add with a Law_Function) fails.
+    const int n = smooth ? 129 : 2;
+    TColgp_Array1OfPnt2d radii(1, n);
+    for (int k = 0; k < n; ++k) {
+      double t = double(k) / (n - 1);
+      double f = smooth ? t * t * (3 - 2 * t) : t;
+      radii.SetValue(k + 1, gp_Pnt2d(t, start + (end - start) * f));
+    }
+    maker.Add(radii, edge);
+  }
+  maker.Build();
+  return finish(one(solid.shape), maker, "variable fillet");
 }
 
 // Chamfers edges: kind 0 equal distances `d1`; kind 1 distances `d1` on `faces[i]` and `d2` on the other face;
@@ -632,6 +662,43 @@ std::unique_ptr<Operation> full_round_op(const Shape &solid, const Shape &side1,
   op->result = unifier.Shape();
   TopExp_Explorer first(op->result, TopAbs_SOLID);
   if (first.More()) op->result = first.Current();
+  return op;
+}
+
+// A rolling ball blend between two sets of faces that meet along edges: the faces (each set reversed if asked, so
+// their normals point away from the blend) are sewn into one sheet and the edges where the sets meet are filleted.
+std::unique_ptr<Operation> face_blend_op(const ShapeList &side1, bool reverse1, const ShapeList &side2, bool reverse2,
+                                         double radius) {
+  BRepBuilderAPI_Sewing sewing(1e-6);
+  for (const TopoDS_Shape &f : side1.shapes) sewing.Add(reverse1 ? f.Reversed() : f);
+  for (const TopoDS_Shape &f : side2.shapes) sewing.Add(reverse2 ? f.Reversed() : f);
+  sewing.Perform();
+  TopoDS_Shape sewn = sewing.SewedShape();
+  // The edges shared by a face of each side.
+  TopTools_IndexedMapOfShape faces1, faces2;
+  for (const TopoDS_Shape &f : side1.shapes) faces1.Add(sewing.Modified(reverse1 ? f.Reversed() : f));
+  for (const TopoDS_Shape &f : side2.shapes) faces2.Add(sewing.Modified(reverse2 ? f.Reversed() : f));
+  TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
+  TopExp::MapShapesAndUniqueAncestors(sewn, TopAbs_EDGE, TopAbs_FACE, edge_faces);
+  BRepFilletAPI_MakeFillet fillet(sewn);
+  int added = 0;
+  for (int i = 1; i <= edge_faces.Extent(); ++i) {
+    bool in1 = false, in2 = false;
+    for (const TopoDS_Shape &f : edge_faces(i)) {
+      if (faces1.Contains(f)) in1 = true;
+      if (faces2.Contains(f)) in2 = true;
+    }
+    if (in1 && in2) {
+      fillet.Add(radius, TopoDS::Edge(edge_faces.FindKey(i)));
+      ++added;
+    }
+  }
+  if (added == 0) throw std::runtime_error("face blend: the sides don't meet");
+  fillet.Build();
+  if (!fillet.IsDone()) throw std::runtime_error("face blend failed");
+  auto op = std::make_unique<Operation>();
+  op->history = new BRepTools_History(one(sewn), fillet);
+  op->result = fillet.Shape();
   return op;
 }
 

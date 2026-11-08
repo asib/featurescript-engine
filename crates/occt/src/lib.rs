@@ -170,6 +170,14 @@ mod ffi {
             d1: f64,
             d2: f64,
         ) -> Result<UniquePtr<Operation>>;
+        fn variable_fillet_op(
+            solid: &Shape,
+            edges: &ShapeList,
+            p0: &[Vec3],
+            r0: &[f64],
+            r1: &[f64],
+            smooth: bool,
+        ) -> Result<UniquePtr<Operation>>;
         fn shell_op(solid: &Shape, faces: &ShapeList, thickness: f64) -> Result<UniquePtr<Operation>>;
         fn offset_shape(s: &Shape, distance: f64) -> Result<UniquePtr<Shape>>;
         fn draft_op(
@@ -224,6 +232,22 @@ mod ffi {
         fn edge_convexity(body: &Shape, edge: &Shape, by_curvature: bool) -> Result<i32>;
         fn face_feature_solid(faces: &ShapeList) -> Result<UniquePtr<Shape>>;
         fn connected_shells(s: &Shape) -> Result<UniquePtr<ShapeList>>;
+        fn wrap_onto_cylinder(
+            faces: &ShapeList,
+            source_anchor: Vec3,
+            source_direction: Vec3,
+            source_normal: Vec3,
+            destination: &Shape,
+            destination_anchor: Vec3,
+            destination_direction: Vec3,
+        ) -> Result<UniquePtr<ShapeList>>;
+        fn face_blend_op(
+            side1: &ShapeList,
+            reverse1: bool,
+            side2: &ShapeList,
+            reverse2: bool,
+            radius: f64,
+        ) -> Result<UniquePtr<Operation>>;
         fn split_faces_op(body: &Shape, faces: &ShapeList, tools: &ShapeList) -> Result<UniquePtr<Operation>>;
         fn point_in_solid(solid: &Shape, p: Vec3) -> Result<bool>;
         fn curve_definition(s: &Shape) -> Result<Conic>;
@@ -827,6 +851,19 @@ pub fn split(objects: &[Shape], tools: &[Shape]) -> Result<Operation> {
 }
 
 /// Rounds edges of a solid with a constant radius.
+/// Rounds edges with a radius varying from `r0[i]` at the end of edge i nearest `p0[i]` to `r1[i]` at the other,
+/// smoothly or linearly.
+pub fn variable_fillet(
+    solid: &Shape,
+    edges: &[Shape],
+    p0: &[Vec3],
+    r0: &[f64],
+    r1: &[f64],
+    smooth: bool,
+) -> Result<Operation> {
+    Ok(Operation(ffi::variable_fillet_op(&solid.0, &to_list(edges), p0, r0, r1, smooth)?))
+}
+
 pub fn fillet(solid: &Shape, edges: &[Shape], radius: f64) -> Result<Operation> {
     Ok(Operation(ffi::fillet_op(&solid.0, &to_list(edges), radius)?))
 }
@@ -898,6 +935,33 @@ pub fn replace_planar_face(solid: &Shape, face: &Shape, target: Frame) -> Result
 /// or a pocket's void.
 pub fn face_feature_solid(faces: &[Shape]) -> Result<Shape> {
     Ok(Shape::new(ffi::face_feature_solid(&to_list(faces))?))
+}
+
+/// A rolling ball blend of `radius` between two sets of faces meeting along edges, each set reversed if asked (so
+/// its normals point away from the blend).
+pub fn face_blend(side1: &[Shape], reverse1: bool, side2: &[Shape], reverse2: bool, radius: f64) -> Result<Operation> {
+    Ok(Operation(ffi::face_blend_op(&to_list(side1), reverse1, &to_list(side2), reverse2, radius)?))
+}
+
+/// Planar faces wrapped onto a cylinder face without stretching: the source frame (anchor, direction, plane
+/// normal) goes to the destination frame (anchor and direction on the cylinder, and the face's normal).
+pub fn wrap_onto_cylinder(
+    faces: &[Shape],
+    source: (Vec3, Vec3, Vec3),
+    destination: &Shape,
+    destination_anchor: Vec3,
+    destination_direction: Vec3,
+) -> Result<Vec<Shape>> {
+    let out = ffi::wrap_onto_cylinder(
+        &to_list(faces),
+        source.0,
+        source.1,
+        source.2,
+        &destination.0,
+        destination_anchor,
+        destination_direction,
+    )?;
+    Ok(from_list(&out))
 }
 
 /// The faces of a shape grouped into a shell for each set connected through shared edges.

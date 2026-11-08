@@ -1,6 +1,13 @@
 // Surface and curve operations: sections, fills, enclosures, sheet extension, iso curves, projections.
 
 #include "occt/cpp/occt.h"
+#include <Precision.hxx>
+#include <gp_Pnt2d.hxx>
+#include <Geom2d_TrimmedCurve.hxx>
+#include <Geom2d_BSplineCurve.hxx>
+#include <Geom2dConvert.hxx>
+#include <ElSLib.hxx>
+#include <Geom_CylindricalSurface.hxx>
 
 #include <BOPAlgo_MakerVolume.hxx>
 #include <BRepAdaptor_Curve.hxx>
@@ -325,6 +332,87 @@ std::unique_ptr<Shape> offset_edge_on_planar_face(const Shape &edge_shape, const
   gp_Pnt b = BRep_Tool::Pnt(TopExp::LastVertex(edge, Standard_True));
   gp_Vec inward = gp_Vec(normal).Crossed(gp_Vec(a, b)).Normalized() * distance;
   return wrap(BRepBuilderAPI_MakeEdge(a.Translated(inward), b.Translated(inward)).Edge());
+}
+
+// Wraps planar faces onto a cylinder face without stretching. The source frame (anchor, direction, normal) on the
+// plane goes to the destination frame on the cylinder (anchor, direction tangent there, and the face's normal), and
+// distances along the plane become distances along the cylinder: the map from the plane's parameters to the
+// cylinder's (angle, height) is affine, so each edge's curve on the plane, as a B-spline, maps exactly by its poles.
+std::unique_ptr<ShapeList> wrap_onto_cylinder(const ShapeList &faces, Vec3 source_anchor, Vec3 source_direction,
+                                              Vec3 source_normal, const Shape &destination, Vec3 destination_anchor,
+                                              Vec3 destination_direction) {
+  const TopoDS_Face &dest = TopoDS::Face(destination.shape);
+  Handle(Geom_Surface) dest_surface = BRep_Tool::Surface(dest);
+  Handle(Geom_CylindricalSurface) cylinder = Handle(Geom_CylindricalSurface)::DownCast(dest_surface);
+  if (cylinder.IsNull()) throw std::runtime_error("wrap: the destination isn't a cylinder");
+  const double r = cylinder->Radius();
+  const gp_Ax3 position = cylinder->Position();
+  double ta, za;
+  ElSLib::Parameters(cylinder->Cylinder(), pnt(destination_anchor), ta, za);
+  gp_Dir axis = position.Direction();
+  gp_Vec radial = gp_Vec(position.XDirection()) * std::cos(ta) + gp_Vec(position.YDirection()) * std::sin(ta);
+  gp_Vec around = gp_Vec(axis).Crossed(radial);  // direction of increasing angle (for a direct frame)
+  if (!position.Direct()) around.Reverse();
+  // The destination face's normal at the anchor.
+  gp_Vec n_dest = radial;
+  if (dest.Orientation() == TopAbs_REVERSED) n_dest.Reverse();
+  gp_Vec d = gp_Vec(dir(destination_direction));
+  gp_Vec d_perp = n_dest.Crossed(d);
+  // Source frame.
+  gp_Vec ds = gp_Vec(dir(source_direction));
+  gp_Vec ns = gp_Vec(dir(source_normal));
+  gp_Vec ds_perp = ns.Crossed(ds);
+  gp_Pnt as = pnt(source_anchor);
+  auto out = std::make_unique<ShapeList>();
+  for (const TopoDS_Shape &shape : faces.shapes) {
+    const TopoDS_Face &face = TopoDS::Face(shape);
+    Handle(Geom_Plane) plane = Handle(Geom_Plane)::DownCast(BRep_Tool::Surface(face));
+    if (plane.IsNull()) throw std::runtime_error("wrap: the source faces must be planar");
+    const gp_Ax3 &pp = plane->Position();
+    gp_Vec o(as, pp.Location());
+    gp_Vec xp(pp.XDirection()), yp(pp.YDirection());
+    // (u, v) in the source frame from the plane's (pu, pv): u = o.ds + pu xp.ds + pv yp.ds, likewise v.
+    double u0 = o.Dot(ds), uu = xp.Dot(ds), uv = yp.Dot(ds);
+    double v0 = o.Dot(ds_perp), vu = xp.Dot(ds_perp), vv = yp.Dot(ds_perp);
+    // (s, z) on the unrolled cylinder from (u, v), then angle = s / r.
+    double dt = d.Dot(around), dz = d.Dot(gp_Vec(axis)), pt = d_perp.Dot(around), pz = d_perp.Dot(gp_Vec(axis));
+    auto map = [&](const gp_Pnt2d &q) {
+      double u = u0 + q.X() * uu + q.Y() * uv, v = v0 + q.X() * vu + q.Y() * vv;
+      double s = u * dt + v * pt, z = u * dz + v * pz;
+      return gp_Pnt2d(ta + s / r, za + z);
+    };
+    BRepBuilderAPI_MakeFace maker(cylinder, Precision::Confusion());
+    bool first = true;
+    TopoDS_Face built;
+    for (TopExp_Explorer w(face, TopAbs_WIRE); w.More(); w.Next()) {
+      BRepBuilderAPI_MakeWire wire;
+      for (BRepTools_WireExplorer e(TopoDS::Wire(w.Current()), face); e.More(); e.Next()) {
+        double f, l;
+        Handle(Geom2d_Curve) pcurve = BRep_Tool::CurveOnSurface(e.Current(), face, f, l);
+        if (pcurve.IsNull()) throw std::runtime_error("wrap: an edge has no curve on its face");
+        Handle(Geom2d_BSplineCurve) spline = Geom2dConvert::CurveToBSplineCurve(new Geom2d_TrimmedCurve(pcurve, f, l));
+        for (int i = 1; i <= spline->NbPoles(); ++i) spline->SetPole(i, map(spline->Pole(i)));
+        TopoDS_Edge edge = BRepBuilderAPI_MakeEdge(spline, cylinder, spline->FirstParameter(), spline->LastParameter()).Edge();
+        BRepLib::BuildCurves3d(edge);
+        wire.Add(edge);
+      }
+      if (!wire.IsDone()) throw std::runtime_error("wrap: a wire couldn't be rebuilt");
+      if (first) {
+        maker = BRepBuilderAPI_MakeFace(cylinder, wire.Wire(), Standard_True);
+        first = false;
+      } else {
+        maker.Add(wire.Wire());
+      }
+    }
+    if (!maker.IsDone()) throw std::runtime_error("wrap: the face couldn't be rebuilt");
+    ShapeFix_Face fix(maker.Face());
+    fix.Perform();
+    built = fix.Face();
+    // The result's normal points the way the destination's does.
+    if (dest.Orientation() == TopAbs_REVERSED) built.Reverse();
+    out->shapes.push_back(built);
+  }
+  return out;
 }
 
 }  // namespace occt

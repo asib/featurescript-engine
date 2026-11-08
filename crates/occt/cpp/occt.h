@@ -126,6 +126,8 @@ std::unique_ptr<Operation> transform_op(const Shape &s, const Transform &t);
 std::unique_ptr<Operation> revolve(const Shape &profile, Axis axis, double angle);
 std::unique_ptr<Shape> make_sphere(Vec3 center, double radius);
 std::unique_ptr<Operation> split_op(const ShapeList &objects, const ShapeList &tools);
+std::unique_ptr<Operation> variable_fillet_op(const Shape &solid, const ShapeList &edges, rust::Slice<const Vec3> p0,
+                                              rust::Slice<const double> r0, rust::Slice<const double> r1, bool smooth);
 std::unique_ptr<Operation> fillet_op(const Shape &solid, const ShapeList &edges, double radius);
 std::unique_ptr<Operation> chamfer_op(const Shape &solid, const ShapeList &edges, const ShapeList &faces,
                                       int32_t kind, double d1, double d2);
@@ -173,6 +175,11 @@ std::unique_ptr<Operation> full_round_op(const Shape &solid, const Shape &side1,
 int32_t edge_convexity(const Shape &body, const Shape &edge, bool by_curvature);
 std::unique_ptr<Shape> face_feature_solid(const ShapeList &faces);
 std::unique_ptr<ShapeList> connected_shells(const Shape &s);
+std::unique_ptr<ShapeList> wrap_onto_cylinder(const ShapeList &faces, Vec3 source_anchor, Vec3 source_direction,
+                                              Vec3 source_normal, const Shape &destination, Vec3 destination_anchor,
+                                              Vec3 destination_direction);
+std::unique_ptr<Operation> face_blend_op(const ShapeList &side1, bool reverse1, const ShapeList &side2, bool reverse2,
+                                         double radius);
 std::unique_ptr<Operation> split_faces_op(const Shape &body, const ShapeList &faces, const ShapeList &tools);
 bool point_in_solid(const Shape &solid, Vec3 p);
 Conic curve_definition(const Shape &s);
