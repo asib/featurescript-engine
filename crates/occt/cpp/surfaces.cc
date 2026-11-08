@@ -17,6 +17,9 @@
 #include <ElSLib.hxx>
 #include <Geom_CylindricalSurface.hxx>
 #include <Geom_ConicalSurface.hxx>
+#include <BRepBuilderAPI_Transform.hxx>
+#include <gp_Cylinder.hxx>
+#include <gp_Lin.hxx>
 #include <Geom2dAPI_Interpolate.hxx>
 #include <TColgp_HArray1OfPnt2d.hxx>
 #include <gp_Cone.hxx>
@@ -362,7 +365,38 @@ std::unique_ptr<ShapeList> project_edges(const ShapeList &edges, const ShapeList
 std::unique_ptr<Shape> offset_edge_on_planar_face(const Shape &edge_shape, const Shape &face_shape, double distance) {
   const TopoDS_Face &face = TopoDS::Face(face_shape.shape);
   BRepAdaptor_Surface surface(face);
-  if (surface.GetType() != GeomAbs_Plane) throw std::runtime_error("offset curve: only planar faces are supported yet");
+  if (surface.GetType() == GeomAbs_Cylinder) {
+    // On a cylinder (batch 027): a circle round its axis moves along the axis, a line along it round the axis, each
+    // the way into the face, by the distance along the surface.
+    const gp_Cylinder cylinder = surface.Cylinder();
+    const gp_Ax1 axis = cylinder.Axis();
+    BRepAdaptor_Curve curve(TopoDS::Edge(edge_shape.shape));
+    const double mid = (curve.FirstParameter() + curve.LastParameter()) / 2;
+    const gp_Pnt p = curve.Value(mid);
+    auto inside = [&](const gp_Pnt &q) {
+      double u, v;
+      ElSLib::Parameters(cylinder, q, u, v);
+      BRepClass_FaceClassifier classifier(face, gp_Pnt2d(u, v), 1e-9);
+      return classifier.State() == TopAbs_IN;
+    };
+    gp_Trsf move;
+    if (curve.GetType() == GeomAbs_Circle && curve.Circle().Axis().Direction().IsParallel(axis.Direction(), 1e-9) &&
+        gp_Lin(axis).Distance(curve.Circle().Location()) < 1e-9) {
+      gp_Vec along(axis.Direction());
+      if (!inside(p.Translated(along * 1e-6))) along.Reverse();
+      move.SetTranslation(along * distance);
+    } else if (curve.GetType() == GeomAbs_Line && curve.Line().Direction().IsParallel(axis.Direction(), 1e-9)) {
+      double angle = distance / cylinder.Radius();
+      gp_Trsf probe;
+      probe.SetRotation(axis, 1e-6 / cylinder.Radius());
+      if (!inside(p.Transformed(probe))) angle = -angle;
+      move.SetRotation(axis, angle);
+    } else {
+      throw std::runtime_error("offset curve: only circles round a cylinder's axis and lines along it are supported yet");
+    }
+    return wrap(BRepBuilderAPI_Transform(edge_shape.shape, move, Standard_True).Shape());
+  }
+  if (surface.GetType() != GeomAbs_Plane) throw std::runtime_error("offset curve: only planar and cylindrical faces are supported yet");
   gp_Dir normal = surface.Plane().Axis().Direction();
   if (face.Orientation() == TopAbs_REVERSED) normal.Reverse();
   // The edge as the face uses it: the face is on its left.

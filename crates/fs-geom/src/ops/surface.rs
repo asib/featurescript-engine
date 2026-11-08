@@ -333,22 +333,73 @@ pub fn boundary_surface(model: &mut Model, id: FeatureId, definition: &Value) ->
 pub fn offset_curve_on_face(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
     let distance = values::length(field(definition, "distance"), "opOffsetCurveOnFace distance")?;
     let opposite = values::opt_bool(definition, "oppositeDirection")?.unwrap_or(false);
+    let extend = values::opt_bool(definition, "extend")?.unwrap_or(false);
+    let imprint = values::opt_bool(definition, "imprint")?.unwrap_or(false);
     let edges = shapes(model, field(definition, "edges"), EntityType::Edge)?;
-    let targets = shapes(model, field(definition, "targets"), EntityType::Face)?;
-    let mut made = Vec::new();
+    let target_refs: Vec<crate::model::EntityRef> =
+        query::evaluate(model, field(definition, "targets"))?.into_iter().filter(|r| r.kind == EntityType::Face).collect();
+    let mut made: Vec<(Shape, crate::model::EntityRef)> = Vec::new();
     for edge in &edges {
-        let face = targets
+        let face = target_refs
             .iter()
-            .find(|f| f.sub_shapes(ShapeKind::Edge).iter().any(|e| e.is_same(edge)))
+            .copied()
+            .find(|r| model.shape(*r).sub_shapes(ShapeKind::Edge).iter().any(|e| e.is_same(edge)))
             .ok_or_else(|| regen_error("OFFSET_CURVE_ON_FACE_INVALID_TARGETS"))?;
         let signed = if opposite { -distance } else { distance };
-        made.push(
-            occt::offset_edge_on_planar_face(edge, face, signed)
-                .map_err(|_| regen_error("OFFSET_CURVE_ON_FACE_FAILED"))?,
-        );
+        let offset = occt::offset_edge_on_planar_face(edge, model.shape(face), signed)
+            .map_err(|_| regen_error("OFFSET_CURVE_ON_FACE_FAILED"))?;
+        // Extended, a straight offset runs on to the face's boundary (batch 027).
+        let offset = if extend { extended_across(&offset, model.shape(face))? } else { offset };
+        made.push((offset, face));
     }
-    add_wires(model, &id, &made)?;
+    // Splitting, the face is cut along the curves instead (batch 027).
+    if imprint {
+        let mut by_body: Vec<(usize, crate::model::EntityRef, Vec<Shape>)> = Vec::new();
+        for (curve, face) in made {
+            match by_body.iter_mut().find(|(_, f, _)| *f == face) {
+                Some((_, _, curves)) => curves.push(curve),
+                None => by_body.push((face.body, face, vec![curve])),
+            }
+        }
+        let mut replacements = Vec::new();
+        for (body, face, curves) in by_body {
+            let op = occt::split_face_by_edges(&model.bodies[body].shape, model.shape(face), &curves)
+                .map_err(|_| regen_error("OFFSET_CURVE_ON_FACE_FAILED"))?;
+            replacements.push((body, op));
+        }
+        super::replace_bodies(model, &id, replacements);
+        return Ok(Value::UNDEFINED);
+    }
+    add_wires(model, &id, &made.into_iter().map(|(curve, _)| curve).collect::<Vec<_>>())?;
     Ok(Value::UNDEFINED)
+}
+
+/// A straight curve on a planar face carried on both ways to the face's boundary: the part of its line inside the
+/// face that holds it. Other curves are left as they are.
+fn extended_across(curve: &Shape, face: &Shape) -> R<Shape> {
+    if curve.curve_type().ok() != Some(occt::CurveType::Line) || face.face_plane().is_err() {
+        return Ok(curve.clone());
+    }
+    let (a, b) = (
+        curve.edge_tangent(0.0, false).map_err(occt_error)?.origin,
+        curve.edge_tangent(1.0, false).map_err(occt_error)?.origin,
+    );
+    let d = values::normalize(values::sub(b, a)).ok_or_else(|| regen_error("OFFSET_CURVE_ON_FACE_FAILED"))?;
+    let bb = face.bounding_box(false).map_err(occt_error)?;
+    let reach = values::norm(values::sub(bb.max, bb.min)) + values::norm(values::sub(a, bb.min));
+    let long = occt::line_edge(values::sub(a, values::scale(d, reach)), values::add(b, values::scale(d, reach)))
+        .map_err(occt_error)?;
+    let inside = occt::boolean(occt::BooleanKind::Intersection, &[long], std::slice::from_ref(face), false)
+        .map_err(|_| regen_error("OFFSET_CURVE_ON_FACE_FAILED"))?;
+    let mid = values::scale(values::add(a, b), 0.5);
+    let pieces = inside.shape().sub_shapes(ShapeKind::Edge);
+    let piece = pieces
+        .iter()
+        .find(|e| occt::vertex(mid).and_then(|v| v.distance(e)).is_ok_and(|d| d.distance < 1e-7))
+        .or(pieces.first())
+        .cloned()
+        .unwrap_or_else(|| curve.clone());
+    Ok(piece)
 }
 
 pub fn enclose(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
