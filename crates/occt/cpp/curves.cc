@@ -113,6 +113,11 @@ std::unique_ptr<Shape> make_interpolated_edge(rust::Slice<const Vec3> points, ru
   for (int i = 2; i < curve->NbKnots(); ++i) {
     if (!curve->RemoveKnot(i, 1, tolerance)) curve->RemoveKnot(i, 2, tolerance);
   }
+  // A closed spline is periodic, smooth across where it starts, as Onshape's are (batch 027).
+  if (closed) {
+    curve->SetPeriodic();
+    if (!curve->RemoveKnot(curve->FirstUKnotIndex(), 1, tolerance)) curve->RemoveKnot(curve->FirstUKnotIndex(), 2, tolerance);
+  }
   return wrap(BRepBuilderAPI_MakeEdge(curve).Edge());
 }
 
@@ -122,8 +127,17 @@ std::unique_ptr<Shape> make_interpolated_edge(rust::Slice<const Vec3> points, ru
 std::unique_ptr<Shape> make_bspline_edge(rust::Slice<const Vec3> poles, rust::Slice<const double> weights,
                                          rust::Slice<const double> knots, int32_t degree, bool periodic) {
   if (poles.size() < 2 || knots.empty()) throw std::invalid_argument("bspline: too few poles or knots");
-  TColgp_Array1OfPnt p(1, static_cast<int>(poles.size()));
-  for (size_t i = 0; i < poles.size(); ++i) p.SetValue(static_cast<int>(i) + 1, pnt(poles[i]));
+  // A periodic curve in std's form lists its first `degree` poles again at the end (its knots number one more
+  // than its poles and degree): OCCT wants them once.
+  size_t count = poles.size();
+  // Std can also hand a closed curve with clamped knots (its first knot `degree` + 1 times) flagged periodic, as
+  // its degree elevation does (batch 027): that is the clamped curve it describes.
+  bool clamped = knots.size() > static_cast<size_t>(degree) + 1;
+  for (int i = 1; clamped && i <= degree; ++i) clamped = std::abs(knots[i] - knots[0]) < 1e-12;
+  if (periodic && clamped) periodic = false;
+  if (periodic && knots.size() == poles.size() + degree + 1 && poles.size() > static_cast<size_t>(degree)) count -= degree;
+  TColgp_Array1OfPnt p(1, static_cast<int>(count));
+  for (size_t i = 0; i < count; ++i) p.SetValue(static_cast<int>(i) + 1, pnt(poles[i]));
   std::vector<double> unique;
   std::vector<int> mults;
   for (double k : knots) {
@@ -136,7 +150,7 @@ std::unique_ptr<Shape> make_bspline_edge(rust::Slice<const Vec3> poles, rust::Sl
   }
   if (periodic) {
     // OCCT wants the periodic knots with as many as there are poles, plus one; std gives the full vector.
-    int n = static_cast<int>(poles.size());
+    int n = static_cast<int>(count);
     int need = n + 1;
     int have = 0;
     for (int m : mults) have += m;
@@ -171,8 +185,9 @@ std::unique_ptr<Shape> make_bspline_edge(rust::Slice<const Vec3> poles, rust::Sl
   if (weights.empty()) {
     curve = new Geom_BSplineCurve(p, k, m, degree, periodic);
   } else {
-    TColStd_Array1OfReal w(1, static_cast<int>(weights.size()));
-    for (size_t i = 0; i < weights.size(); ++i) w.SetValue(static_cast<int>(i) + 1, weights[i]);
+    const size_t weight_count = std::min(count, weights.size());
+    TColStd_Array1OfReal w(1, static_cast<int>(weight_count));
+    for (size_t i = 0; i < weight_count; ++i) w.SetValue(static_cast<int>(i) + 1, weights[i]);
     // OCCT drops weights that are all equal, but a curve std made rational stays rational in Onshape, weights
     // and all (batch 011, c004): nudging the last weight by an ulp keeps it so without changing its shape.
     bool all_equal = true;
