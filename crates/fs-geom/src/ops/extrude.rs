@@ -90,8 +90,20 @@ fn profile_tids(model: &Model, definition: &Value) -> R<Vec<crate::model::Tid>> 
     Ok(chosen.into_iter().map(|r| model.tid(*r)).collect())
 }
 
-/// The faces or edges to extrude, as shapes, and whether they're faces.
+/// The faces or edges to extrude, as shapes, and whether they're faces. Moved first by the definition's `transform`,
+/// a feature pattern instance's (batch 026).
 fn profile(model: &Model, definition: &Value) -> R<(Vec<Shape>, bool)> {
+    let (shapes, solid) = untransformed_profile(model, definition)?;
+    match crate::pattern_stack::transform_of(definition)? {
+        None => Ok((shapes, solid)),
+        Some(t) => Ok((
+            shapes.iter().map(|s| occt::transform(s, &t).map(|op| op.shape())).collect::<Result<_, _>>().map_err(occt_error)?,
+            solid,
+        )),
+    }
+}
+
+fn untransformed_profile(model: &Model, definition: &Value) -> R<(Vec<Shape>, bool)> {
     let found = query::evaluate(model, field(definition, "entities"))?;
     let faces: Vec<Shape> =
         found.iter().filter(|r| r.kind == EntityType::Face).map(|r| model.shape(*r).clone()).collect();
