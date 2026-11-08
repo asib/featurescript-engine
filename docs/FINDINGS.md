@@ -135,6 +135,32 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
 - **Assumptions not yet checked against Onshape:** transient ids are strings (ours look like `"T12"`); the
   results of `@evaluateQuery` come in body order, then faces, edges and vertices.
 
+- **`qBodyType` folds into `qEverything`.** `qBodyType(qEverything(...), types)` doesn't wrap the query: it sets
+  `bodyType` on the `EVERYTHING` query itself, so an engine that ignores that field returns every body. (Batch
+  006, c017: the count of composite parts came out as every body in the context.)
+- **Holes** are revolved from their profiles, each placed along the axis from where the hole's cylinder enters
+  (`TARGET_START`) or leaves (`LAST_TARGET_END`) the targets; a through hole ends 2000 × the zero-length tolerance
+  past the last target. `tipAngle` only matters with `tipAngleStyle` `CUSTOM`. `hole` needs the sketch points'
+  vertices as `locations`: their point bodies make `opHole` fail. (Batch 006, c001–c006.)
+- **A subtraction that keeps its tools** gives the target new faces where the tools cut it, created by the boolean:
+  `rib` relies on `qCreatedBy(booleanId, EntityType.FACE)` finding them. (Batch 006, c007.)
+- **Thicken tracks back to the sheet.** `rib` tracks the edges of the sheet it extrudes (`startTracking`) and
+  finds the rib's top and side faces through `opThicken`: the walls are generated from the sheet's boundary edges.
+  `opThicken` of all of a sheet's faces makes one solid. (Batch 006, c008.)
+- **Body draft** turns each steep face about its top edge and adds material down to the parting object: the side
+  faces of a 40 × 30 × 12 block drafted 4° from its bottom make a frustum 0.839 mm wider each side at the bottom.
+  (Batch 006, c011.)
+- **Face patterns** add the boss the faces make (or cut the pocket) at each instance. A boss tangent to the
+  block's edge splits the block's edge there, one vertex on the boss's circle. (Batch 006, c012–c014.)
+- **A revolved sheet faces along tangent × sweep direction**, as an extruded one faces along tangent × direction;
+  thin revolve thickens it along that normal. (Batch 006, c018.)
+- **A cylinder extruded from z = 0 to 20 has its surface origin at z = 20** (`evSurfaceDefinition`, seen through a
+  tangent `cPlane`). (Batch 006, c016.)
+- **A closed composite part** owns its bodies' entities (`qOwnedByBody` of it finds them); the bodies stay in the
+  context as solids, but Onshape's STEP export writes them without their names. (Batch 006, c017.)
+- **Mutual trim** splits each sheet's faces with the other (`opSplitFace` with `mutualImprint`), keeps the pieces
+  behind the other sheet's normal (`qSplitBy`), and merges the sheets into one. (Batch 005, c023.)
+
 ## STEP export
 
 - **Part names** are written on each `MANIFOLD_SOLID_BREP` (`MANIFOLD_SOLID_BREP('c030.1', ...)`), as well as on
