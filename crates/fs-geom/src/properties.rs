@@ -1,5 +1,6 @@
 //! Body properties: `@setProperty` and `@getProperty`. The engine keeps every property as given; only `NAME`
-//! means anything to it, as the name written to STEP.
+//! means anything to it, as the name written to STEP. A material comes back with its quantities as plain SI
+//! numbers, which std's `getProperty` gives units again.
 
 use crate::model::Model;
 use crate::values::field;
@@ -35,6 +36,18 @@ fn bodies(model: &Model, query: &Value) -> R<Vec<usize>> {
     Ok(bodies)
 }
 
+/// A map with each quantity (a `ValueWithUnits`) in it replaced by its SI number.
+fn without_units(material: &Value) -> Value {
+    let Some(entries) = material.as_map() else { return material.clone() };
+    let mut out = entries.as_ref().clone();
+    for value in out.values_mut() {
+        if let (Some(number), Some(_)) = (value.get("value").and_then(Value::as_number), value.get("unit")) {
+            *value = Value::number(number);
+        }
+    }
+    Value::map(out).with_tag(material.tag)
+}
+
 pub fn register(m: &mut GeomBuiltins) {
     m.insert("setProperty", |_, args| {
         let definition = arg(&args, 1, "setProperty")?.clone();
@@ -65,7 +78,8 @@ pub fn register(m: &mut GeomBuiltins) {
         let key = key(&definition)?;
         model_mut(&args, "getProperty", |model| {
             let body = bodies(model, field(&definition, "entity"))?.first().copied();
-            Ok(body.and_then(|b| model.bodies[b].properties.get(&key).cloned()).unwrap_or(Value::UNDEFINED))
+            let value = body.and_then(|b| model.bodies[b].properties.get(&key).cloned()).unwrap_or(Value::UNDEFINED);
+            Ok(if &*key == "MATERIAL" { without_units(&value) } else { value })
         })
     });
 }
