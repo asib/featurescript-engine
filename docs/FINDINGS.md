@@ -333,6 +333,12 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   way the material lies from the definition sheet ((20, 15, 2) to (20, 15, 0) on a plate's top; a flipped form's
   from (20, 15, 0) to (20, 15, −2)).
 
+- **Thin lofts** (batch 028) loft a sheet facing outward from its loops (as extruded sheets face) and thicken it
+  with offset faces meeting where they intersect: sharp corners, 16 planar faces between two squares (OCCT's arc
+  joins round them). Without `trimEnds` the ends are square to the walls; with it they're cut to construction
+  planes through the profiles (`sideGeometryRule` SUPPLIED), which needs the walls extended first.
+- **Refilleting** (batch 028): changing upright fillets' radius with `reFillet` takes away the fillet round the top
+  that meets them and makes it again at its own radius.
 - **Fit splines matching curvature** (batch 027): with a first and second derivative at the start, Onshape's
   cubic has knots averaged from the centripetal parameters with the start's repeated once per condition: through
   three points, [0, 0, 0, 0, t₁/3, (t₁ + 1)/3, 1, 1, 1, 1], the far end natural. Closed fit splines are periodic
