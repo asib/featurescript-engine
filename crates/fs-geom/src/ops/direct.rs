@@ -416,6 +416,32 @@ pub fn replace_face(model: &mut Model, id: FeatureId, definition: &Value) -> R<V
     Ok(Value::UNDEFINED)
 }
 
+/// How far a cylindrical or spherical face moves along its normal to lie on a template coaxial or concentric with it,
+/// or `None` if the template isn't.
+fn parallel_offset(face: &occt::Shape, template: &occt::Shape) -> R<Option<f64>> {
+    let (Ok(a), Ok(b)) = (face.surface_definition(), template.surface_definition()) else { return Ok(None) };
+    let on_axis = |p: occt::Vec3| {
+        let d = values::sub(p, b.frame.origin);
+        values::norm(values::cross(d, b.frame.normal)) < 1e-9
+    };
+    let same = match (a.kind, b.kind) {
+        (1, 1) => values::norm(values::cross(a.frame.normal, b.frame.normal)) < 1e-9 && on_axis(a.frame.origin),
+        (3, 3) => values::norm(values::sub(a.frame.origin, b.frame.origin)) < 1e-9,
+        _ => false,
+    };
+    if !same {
+        return Ok(None);
+    }
+    // Whether the face's normal points away from its axis or centre.
+    let p = face.face_inner_point().map_err(occt_error)?;
+    let (u, v) = face.face_fraction(p).map_err(occt_error)?;
+    let normal = face.face_tangent_plane(u, v).map_err(occt_error)?.normal;
+    let from = values::sub(p, a.frame.origin);
+    let radial = if a.kind == 1 { values::sub(from, values::scale(a.frame.normal, values::dot(from, a.frame.normal))) } else { from };
+    let outward = values::dot(normal, radial) > 0.0;
+    Ok(Some((b.radius1 - a.radius1) * if outward { 1.0 } else { -1.0 }))
+}
+
 /// Planar faces replaced by a curved template face's surface (batch 020): see `occt::replace_face_with_surface`.
 fn replace_with_surface(model: &mut Model, id: FeatureId, definition: &Value, offset: f64) -> R<Value> {
     let template = query::evaluate(model, field(definition, "templateFace"))?
@@ -432,8 +458,13 @@ fn replace_with_surface(model: &mut Model, id: FeatureId, definition: &Value, of
         let mut shape = model.bodies[b].shape.clone();
         let mut last = None;
         for face in &faces {
-            let op = occt::replace_face_with_surface(&shape, face, &template, offset)
-                .map_err(|_| regen_error("DIRECT_EDIT_REPLACE_FACE_FAILED"))?;
+            // A cylinder replaced by a coaxial one (or a sphere by a concentric one) moves out or in by the
+            // difference of their radii (batch 028).
+            let op = match parallel_offset(face, &template)? {
+                Some(distance) => occt::offset_faces(&shape, std::slice::from_ref(face), distance + offset),
+                None => occt::replace_face_with_surface(&shape, face, &template, offset),
+            }
+            .map_err(|_| regen_error("DIRECT_EDIT_REPLACE_FACE_FAILED"))?;
             shape = op.shape();
             last = Some(op);
         }
