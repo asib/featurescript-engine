@@ -419,9 +419,8 @@ pub fn ruled_surface(model: &mut Model, id: FeatureId, definition: &Value) -> R<
         v if v.is_undefined() => Vec::new(),
         v => faces_of(model, v)?,
     };
-    let mut sheets = Vec::new();
-    for edge in &path {
-        let direction = match kind.as_str() {
+    let direction_of = |edge: &Shape, angle: f64| -> R<occt::Vec3> {
+        Ok(match kind.as_str() {
             "ALIGNED_WITH_VECTOR" => {
                 values::normalize(values::vec3(field(definition, "ruledDirection"), "ruledDirection")?)
                     .ok_or_else(|| error("@opRuledSurface: zero direction"))?
@@ -478,9 +477,76 @@ pub fn ruled_surface(model: &mut Model, id: FeatureId, definition: &Value) -> R<
                 }
             }
             other => return Err(error(format!("@opRuledSurface: {other} isn't supported yet"))),
+        })
+    };
+    let overrides = vertex_overrides(model, definition)?;
+    let cubic = values::opt_bool(definition, "useCubicInterpolation")?.unwrap_or(true);
+    let mut sheets = Vec::new();
+    for edge in &path {
+        let direction = direction_of(edge, angle)?;
+        let ruling = values::scale(direction, width);
+        // The ruling at each end: an override there (batch 024), or the default.
+        let ends = [0.0, 1.0].map(|t| edge.edge_tangent(t, false).map(|l| l.origin));
+        let (a, b) = (ends[0].clone().map_err(occt_error)?, ends[1].clone().map_err(occt_error)?);
+        let at = |p: occt::Vec3| -> R<Option<occt::Vec3>> {
+            let Some(o) = overrides.iter().find(|o| values::norm(values::sub(o.vertex, p)) < 1e-7) else { return Ok(None) };
+            Ok(Some(match (&o.up_to, o.direction, o.angle) {
+                (Some(q), _, _) => values::sub(*q, p),
+                (None, Some(d), _) => values::scale(d, o.width.unwrap_or(width)),
+                (None, None, Some(a)) => values::scale(direction_of(edge, a)?, o.width.unwrap_or(width)),
+                (None, None, None) => values::scale(direction, o.width.unwrap_or(width)),
+            }))
         };
-        let op = occt::prism(edge, values::scale(direction, width)).map_err(|_| regen_error("RULED_SURFACE_FAILED"))?;
-        sheets.extend(op.shape().sub_shapes(ShapeKind::Face).into_iter().map(|f| f.reversed()));
+        let (start, end) = (at(a)?, at(b)?);
+        if start.is_none() && end.is_none() {
+            let op = occt::prism(edge, ruling).map_err(|_| regen_error("RULED_SURFACE_FAILED"))?;
+            sheets.extend(op.shape().sub_shapes(ShapeKind::Face).into_iter().map(|f| f.reversed()));
+            continue;
+        }
+        if edge.curve_type().ok() != Some(occt::CurveType::Line) {
+            return Err(error("@opRuledSurface: vertex overrides are only supported on straight edges yet"));
+        }
+        // The rulings blend from one end to the other, smoothly (3t² − 2t³) or linearly: with the edge's points, a
+        // cubic in t, so the face is a B-spline surface cubic along the edge and straight across.
+        let (r0, r1) = (start.unwrap_or(ruling), end.unwrap_or(ruling));
+        let blend = if cubic { [0.0, 0.0, 1.0, 1.0] } else { [0.0, 1.0 / 3.0, 2.0 / 3.0, 1.0] };
+        let mut poles = Vec::new();
+        for (i, w) in blend.iter().enumerate() {
+            let p = values::add(a, values::scale(values::sub(b, a), i as f64 / 3.0));
+            let r = values::add(r0, values::scale(values::sub(r1, r0), *w));
+            poles.push(p);
+            poles.push(values::add(p, r));
+        }
+        // Facing the way the ruled sheet from the default ruling would.
+        let reference = occt::prism(edge, ruling).map_err(|_| regen_error("RULED_SURFACE_FAILED"))?.shape();
+        let reference = reference.sub_shapes(ShapeKind::Face).into_iter().next().ok_or_else(|| regen_error("RULED_SURFACE_FAILED"))?;
+        let facing = reference.reversed().face_plane().map_err(occt_error)?.normal;
+        let faces_along = |face: &Shape| -> R<bool> {
+            let mid = values::scale(values::add(a, b), 0.5);
+            let (u, v) = face.face_fraction(mid).map_err(occt_error)?;
+            Ok(values::dot(face.face_tangent_plane(u, v).map_err(occt_error)?.normal, facing) > 0.0)
+        };
+        // Rulings in one plane make a planar face, as in Onshape (batch 024).
+        let plane_normal = values::normalize(values::cross(r0, values::sub(b, a)))
+            .or_else(|| values::normalize(values::cross(r1, values::sub(b, a))));
+        if let Some(n) = plane_normal
+            && poles.iter().all(|p| values::dot(values::sub(*p, a), n).abs() < 1e-9)
+        {
+            let far: Vec<occt::Vec3> = poles.iter().skip(1).step_by(2).rev().copied().collect();
+            let edges = [
+                edge.clone(),
+                occt::line_edge(b, far[0]).map_err(occt_error)?,
+                occt::bezier_edge(&far).map_err(occt_error)?,
+                occt::line_edge(far[3], a).map_err(occt_error)?,
+            ];
+            let face = occt::fill_edges(&edges).map_err(|_| regen_error("RULED_SURFACE_FAILED"))?;
+            let normal = face.face_plane().map_err(occt_error)?.normal;
+            sheets.push(if values::dot(normal, facing) < 0.0 { face.reversed() } else { face });
+            continue;
+        }
+        let face = occt::bspline_surface_face(&poles, (4, 2), &[0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0], &[0.0, 0.0, 1.0, 1.0], (3, 1))
+            .map_err(|_| regen_error("RULED_SURFACE_FAILED"))?;
+        sheets.push(if faces_along(&face)? { face } else { face.reversed() });
     }
     let joined = occt::extract_faces(&sheets, 0.0).map_err(occt_error)?;
     for sheet in joined {
@@ -712,4 +778,49 @@ pub fn constrained_surface(model: &mut Model, id: FeatureId, definition: &Value)
         occt::bspline_surface_face(&fit.poles, fit.counts, &fit.knots_u, &fit.knots_v, (3, 3)).map_err(occt_error)?;
     add(model, &id, face, BodyType::Sheet);
     Ok(Value::UNDEFINED)
+}
+
+/// A ruled surface's override at a vertex of its path (std's `vertexOverrides`): its ruling's direction (or angle from
+/// the reference faces) and width, or a point it reaches to.
+struct VertexOverride {
+    vertex: occt::Vec3,
+    width: Option<f64>,
+    angle: Option<f64>,
+    direction: Option<occt::Vec3>,
+    up_to: Option<occt::Vec3>,
+}
+
+fn vertex_overrides(model: &Model, definition: &Value) -> R<Vec<VertexOverride>> {
+    let mut out = Vec::new();
+    let Some(list) = field(definition, "vertexOverrides").as_array() else { return Ok(out) };
+    let point_of = |q: &Value| -> R<Option<occt::Vec3>> {
+        let found = query::evaluate(model, q)?;
+        let Some(r) = found.first() else { return Ok(None) };
+        let vertices = model.shape(*r).sub_shapes(ShapeKind::Vertex);
+        if r.kind != EntityType::Vertex && r.kind != EntityType::Body {
+            return Err(error("@opRuledSurface: overrides up to faces or edges aren't supported yet"));
+        }
+        Ok(vertices.first().and_then(|v| v.vertex_point().ok()))
+    };
+    for o in list.iter() {
+        let Some(vertex) = point_of(field(o, "vertex"))? else { continue };
+        let width = match field(o, "width") {
+            v if v.is_undefined() => None,
+            v => Some(values::length(v, "vertex override width")?),
+        };
+        let angle = match field(o, "angle") {
+            v if v.is_undefined() => None,
+            v => Some(values::angle(v, "vertex override angle")?),
+        };
+        let direction = match field(o, "ruledDirection") {
+            v if v.is_undefined() => None,
+            v => values::normalize(values::vec3(v, "vertex override direction")?),
+        };
+        let up_to = match field(o, "upToEntity") {
+            v if v.is_undefined() => None,
+            v => point_of(v)?,
+        };
+        out.push(VertexOverride { vertex, width, angle, direction, up_to });
+    }
+    Ok(out)
 }
