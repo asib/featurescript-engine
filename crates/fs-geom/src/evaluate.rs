@@ -950,9 +950,49 @@ fn offset_group(model: &Model, b: usize) -> R<Option<Value>> {
             pairs.push((*i, j, d));
         }
     }
-    // The commonest thickness.
-    let Some(thickness) =
-        pairs.iter().map(|p| p.2).max_by_key(|t| pairs.iter().filter(|q| (q.2 - t).abs() < 1e-7).count())
+    // Coaxial cylinders a thickness apart, each the nearest to the other that it overlaps (a rounded bend's two
+    // sides, a rolled wall's, batch 042).
+    let cylinders: Vec<(usize, occt::Vec3, occt::Vec3, f64)> = body
+        .faces
+        .iter()
+        .enumerate()
+        .filter_map(|(i, f)| {
+            let s = f.shape.surface_definition().ok()?;
+            (s.kind == 1).then_some((i, s.frame.origin, s.frame.normal, s.radius1))
+        })
+        .collect();
+    let coaxial = |a: &(usize, occt::Vec3, occt::Vec3, f64), c: &(usize, occt::Vec3, occt::Vec3, f64)| {
+        let across = sub(c.1, a.1);
+        crate::values::norm(crate::values::cross(a.2, c.2)) < 1e-9
+            && crate::values::norm(crate::values::cross(across, a.2)) < 1e-9
+    };
+    // A point inside one cylinder face, moved radially to the other's radius, lands on it.
+    let overlaps = |a: &(usize, occt::Vec3, occt::Vec3, f64), c: &(usize, occt::Vec3, occt::Vec3, f64)| {
+        body.faces[a.0].shape.face_inner_point().ok().is_some_and(|p| {
+            let rel = sub(p, a.1);
+            let radial = sub(rel, scale(a.2, dot(rel, a.2)));
+            let Some(out) = crate::values::normalize(radial) else { return false };
+            let q = crate::values::add(p, scale(out, c.3 - a.3));
+            occt::vertex(q).and_then(|v| v.distance(&body.faces[c.0].shape)).is_ok_and(|d| d.distance < 1e-9)
+        })
+    };
+    let nearest = |a: &(usize, occt::Vec3, occt::Vec3, f64)| {
+        cylinders
+            .iter()
+            .filter(|c| c.0 != a.0 && (c.3 - a.3).abs() > 1e-9 && coaxial(a, c) && overlaps(a, c))
+            .min_by(|x, y| (x.3 - a.3).abs().total_cmp(&(y.3 - a.3).abs()))
+    };
+    for a in &cylinders {
+        let Some(c) = nearest(a) else { continue };
+        let mutual = nearest(c).is_some_and(|back| back.0 == a.0);
+        if mutual && !pairs.iter().any(|(x, y, _)| (*x, *y) == (c.0, a.0)) {
+            pairs.push((a.0, c.0, (c.3 - a.3).abs()));
+        }
+    }
+    // The commonest thickness, the thinnest of those as common (an L 2 mm thick at its base and 3 mm at its
+    // upright is recognized at 2 mm, batch 042).
+    let count = |t: f64| pairs.iter().filter(|q| (q.2 - t).abs() < 1e-7).count();
+    let Some(thickness) = pairs.iter().map(|p| p.2).min_by(|a, b| count(*b).cmp(&count(*a)).then(a.total_cmp(b)))
     else {
         return Ok(None);
     };
@@ -968,7 +1008,10 @@ fn offset_group(model: &Model, b: usize) -> R<Option<Value>> {
             .any(|e| theirs.iter().any(|f| f.is_same(e)))
     };
     let mut sides: Vec<Option<(usize, usize)>> = vec![None; pairs.len()];
-    sides[0] = Some(pairs[0]);
+    // The first pair's side0 is its larger face (the full base of an L whose upright sits on it, batch 042).
+    let area = |i: usize| body.faces[i].shape.area().unwrap_or(0.0);
+    let (a0, c0) = pairs[0];
+    sides[0] = Some(if area(c0) > area(a0) + 1e-12 { (c0, a0) } else { (a0, c0) });
     let mut changed = true;
     while changed {
         changed = false;
