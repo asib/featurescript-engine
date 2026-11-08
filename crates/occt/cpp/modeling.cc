@@ -329,7 +329,14 @@ std::unique_ptr<Operation> draft_op(const Shape &solid, const ShapeList &faces, 
     if (!maker.AddDone()) throw std::runtime_error("draft: a face can't be drafted");
   }
   maker.Build();
-  return finish(one(solid.shape), maker, "draft");
+  auto op = finish(one(solid.shape), maker, "draft");
+  // A face next to drafted ones comes out with a strip added round it on its own plane: one face, as in Onshape (a
+  // body draft's top, batch 050).
+  ShapeUpgrade_UnifySameDomain unifier(op->result, Standard_True, Standard_True, Standard_False);
+  unifier.Build();
+  op->history->Merge(unifier.History());
+  op->result = unifier.Shape();
+  return op;
 }
 
 // As draft_op, each face at its own angle (a symmetric or two sided parting line draft, batch 049).
@@ -363,6 +370,10 @@ std::unique_ptr<Operation> draft_angles_op(const Shape &solid, const ShapeList &
   op->history = new BRepTools_History(one(solid.shape), copier);
   op->history->Merge(one(copy), maker);
   op->result = maker.Shape();
+  ShapeUpgrade_UnifySameDomain unifier(op->result, Standard_True, Standard_True, Standard_False);
+  unifier.Build();
+  op->history->Merge(unifier.History());
+  op->result = unifier.Shape();
   return op;
 }
 
