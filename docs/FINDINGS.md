@@ -333,6 +333,10 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   way the material lies from the definition sheet ((20, 15, 2) to (20, 15, 0) on a plate's top; a flipped form's
   from (20, 15, 0) to (20, 15, −2)).
 
+- **Sheet metal lofts** (batch 044): a sketch's lines are wire bodies of their own, so a profile's edges chain
+  where their ends coincide. A quad between matched points that isn't planar splits along its shorter diagonal,
+  with a bend between the triangles. Where a bend meets the profiles' planes at a slant, Onshape ends it with
+  B-spline faces (not yet matched).
 - **Unfolding rolled walls** (batch 043): a rolled wall unrolls into the plane tangent to it along the held edge,
   as long as its arc at the neutral radius by the model's rolled k-factor (`kFactorRolled`, 0.5 by default): half a
   tube of radius 20 and 2 mm thick lies flat 21π mm long. A sketch line running on into a tangent arc makes a rip

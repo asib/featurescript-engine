@@ -91,7 +91,7 @@ Onshape.
 | `sheetMetalUnfold`, `sheetMetalRefold` (sheetMetalUnfold.fs) | matches: an L's bend unfolded holding a wall, and folded again; rolled walls unrolled (holding an edge), a U's bends all at once (043). Not yet: rolled walls with walls beyond them, refolding rolled walls | 015, 043 |
 | `sheetMetalMakeJoint` (sheetMetalMakeJoint.fs) | matches: two walls' free edges joined by a bend, and by a butt rip | 017 |
 | `sheetMetalBendRelief` (sheetMetalBendRelief.fs) | matches: a bend end given a sized rectangular or obround relief, a tear, an extended obround (no change from the plain one there) | 017, 019 |
-| `sheetMetalLoft` (sheetMetalLoft.fs) | matches: a wall between two parallel lines. Not yet: curved or unlike profiles, connections, adding to a model | 017 |
+| `sheetMetalLoft` (sheetMetalLoft.fs) | matches: a wall between two parallel lines. Known gaps (044): where a bend meets the profiles' planes at a slant (L profiles, a skew line split along its shorter diagonal), Onshape ends it with B-spline faces (within 1.3e-3 of the volume). Not yet: curved or unlike profiles, connections, adding to a model (044 holds Onshape's results) | 017, 044 |
 | `sheetMetalGeometryPattern` (sheetMetalPattern.fs) | matches, through linear patterns: a part pattern, a face pattern of a hole | 017 |
 | `pcbStart`, `pcbEnd` (pcbStart.fs, pcbEnd.fs) | matches: a flex PCB plate with a flange, finished without unfolding. Not yet: unfolding, the bend table | 017 |
 | `sheetMetalFormed` (sheetMetalFormed.fs) | matches: a boss and a cup (a part to add and one to remove) formed on a plate from form Part Studios given as build functions, at one and two places, flipped | 022 |
