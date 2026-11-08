@@ -1078,25 +1078,59 @@ std::unique_ptr<Operation> sweep_controlled_op(const Shape &profile, const Shape
       return op;
     }
   }
-  TopoDS_Wire section = solid ? BRepTools::OuterWire(TopoDS::Face(profile.shape)) : TopoDS::Wire(profile.shape);
-  BRepOffsetAPI_MakePipeShell maker(spine);
-  if (mode == 1) {
-    maker.SetMode(gp_Ax2(gp::Origin(), gp::DZ(), gp::DX()));
-  } else {
-    maker.SetMode(gp_Dir(direction.x, direction.y, direction.z));
-  }
-  maker.Add(section, Standard_False, Standard_False);
-  maker.Build();
-  if (!maker.IsDone()) throw std::runtime_error("sweep failed");
-  if (solid && !maker.MakeSolid()) throw std::runtime_error("sweep: no solid");
-  auto op = std::make_unique<Operation>();
-  op->history = new BRepTools_History(one(section), maker);
-  op->result = maker.Shape();
+  // Each of the profile's loops swept, the inner ones then cut from the outer (a square tube's profile, batch 030).
+  std::vector<TopoDS_Wire> sections;
   if (solid) {
-    TopoDS_Shape ends[2] = {maker.FirstShape(), maker.LastShape()};
+    const TopoDS_Face &face = TopoDS::Face(profile.shape);
+    const TopoDS_Wire outer = BRepTools::OuterWire(face);
+    sections.push_back(outer);
+    for (TopExp_Explorer it(face, TopAbs_WIRE); it.More(); it.Next())
+      if (!it.Current().IsSame(outer)) sections.push_back(TopoDS::Wire(it.Current()));
+  } else {
+    sections.push_back(TopoDS::Wire(profile.shape));
+  }
+  auto op = std::make_unique<Operation>();
+  TopoDS_Compound ends[2];
+  BRep_Builder builder;
+  builder.MakeCompound(ends[0]);
+  builder.MakeCompound(ends[1]);
+  TopoDS_Shape outer_shape;
+  TopTools_ListOfShape inner_shapes;
+  for (size_t i = 0; i < sections.size(); ++i) {
+    BRepOffsetAPI_MakePipeShell maker(spine);
+    if (mode == 1) {
+      maker.SetMode(gp_Ax2(gp::Origin(), gp::DZ(), gp::DX()));
+    } else {
+      maker.SetMode(gp_Dir(direction.x, direction.y, direction.z));
+    }
+    maker.Add(sections[i], Standard_False, Standard_False);
+    maker.Build();
+    if (!maker.IsDone()) throw std::runtime_error("sweep failed");
+    if (solid && !maker.MakeSolid()) throw std::runtime_error("sweep: no solid");
+    if (solid) {
+      builder.Add(ends[0], maker.FirstShape());
+      builder.Add(ends[1], maker.LastShape());
+    }
+    if (i == 0) {
+      op->history = new BRepTools_History(one(sections[i]), maker);
+      outer_shape = maker.Shape();
+    } else {
+      inner_shapes.Append(maker.Shape());
+    }
+  }
+  op->result = outer_shape;
+  if (!inner_shapes.IsEmpty()) {
+    BRepAlgoAPI_Cut cut;
+    cut.SetArguments(one(outer_shape));
+    cut.SetTools(inner_shapes);
+    cut.SetRunParallel(Standard_False);
+    cut.Build();
+    if (!cut.IsDone() || cut.HasErrors()) throw std::runtime_error("sweep: cutting the inner loops failed");
+    op->history->Merge(one(outer_shape), cut);
+    op->result = cut.Shape();
+  }
+  if (solid) {
     for (int k = 0; k < 2; ++k) {
-      TopTools_IndexedMapOfShape edges;
-      TopExp::MapShapes(ends[k], TopAbs_EDGE, edges);
       for (TopExp_Explorer it(op->result, TopAbs_FACE); it.More(); it.Next()) {
         bool on_section = true;
         for (TopExp_Explorer e(it.Current(), TopAbs_EDGE); e.More() && on_section; e.Next()) {
