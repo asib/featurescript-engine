@@ -578,7 +578,36 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   against the vector from side 1 to side 2 with the same sign, so with the upright sheet 2 mm above the level one
   it flips the level sheet's sense away from the blend, and Onshape refuses it with
   `FACE_BLEND_WRONG_RIGHT_WALL_SENSE`. The engine checks each side's sense (its normal, flipped if
-  `flipSideNNormal`) against the side of it the other side goes.
+  `flipSideNNormal`) against the side of it the other side goes. Batch 055: the untrimmed run-on is a tenth of the
+  sides' extent along the blend at each end (6 mm for 60 mm sheets, 3 mm with a 2 mm radius, 5 mm for sides
+  spanning 50 mm between them). A short trim blends only where both sides run (20 mm of sheets along x 0..30 and
+  10..50) and notches each side there; a long trim blends over both and cuts them back along their length.
+  Trimmed to the walls, sides of unequal extent give the blend slanted ends (on each side as long as that side):
+  OCCT's rolling ball does the same for circular blends; the engine's own sections don't yet. Sheets apart blend
+  as sheets that meet do once std's flip is made up for. A width-controlled blend at 120°, ratio 2, fails in
+  Onshape (`FACE_BLEND_FAILED`, c010); the engine builds it.
+- **Mass properties of rational surfaces** (batch 055): OCCT's adaptive integration can settle on a wrong value
+  over a whole rational face and report no error (an exact conic extruded 30 mm: 419.1726 mm² for 419.1589, and
+  418.62 or 419.22 at other tolerances). Over each of 4 × 4 pieces of every face it converges (to 1e-11, and on a
+  scaled sphere), so areas and volumes are integrated over faces split that way.
+- **Curvature fillets past magnitude 0.86** (batch 055 c016–c020) keep the quintic on knots 0⁶ 0.5² 1⁶ (Onshape's
+  STEP of batch 053 c004 re-approximates it as a cubic; `evSurfaceDefinition` gives the quintic), with P1 still at
+  1 − 0.3m and the middle through the shoulder (`0.125 α₂ + 0.375 (α₃ + β₃) = (1 − m)/2`), but β₃ is 0.0017 at
+  0.86 (with α₂ still 1 − 0.6m) and from 0.88 α₂ falls too (0.449283, 0.367067, 0.1615265, 0.010739 at 0.88, 0.9,
+  0.95, 0.99; β₃ 0.001744, 0.00139225, 0.0005127, 0.003103): no rule found; the curves stay convex.
+- **Spheres extended round** (batch 055 c012–c015): the new edge's top corner (radius 5) turns 0.200754,
+  0.406117 and 1.106271 rad for 1, 2 and 5 mm (d/r 0.2, 0.4, 1), the bottom (radius 10) exactly d/r; between,
+  within 1% of d/r for 1 mm, drifting further above as the distance grows (5% at latitude 47° for 5 mm). Onshape's
+  edge is a fit with dyadic knots (tolerance about 1e-5 m). 10 mm fails with `EXTEND_SELF_INTERSECTION`.
+- **Loft end conditions** (batch 055 c021–c026) make each side of a two-profile loft one cubic span across:
+  rows P0 (the first profile), P1 = P0 + D₀/3, P2 = P3 − D₁/3, P3 (the last), where an end left free has no second
+  derivative (P2 midway between P1 and P3, say). Normal to the profile, D is the magnitude times the plane's normal
+  (towards the other profile) times a length L = 0.9 h + 0.1 d, h how far apart the profiles' planes are and d
+  how far apart their corners (squares 20 apart, corners 21.2132: L = 20.12132; circles 30 apart, points 30.5941:
+  30.05941), the same for every point (Onshape's volumes to 2e-7). Tangent to the profile, the circles' P1 lies 2
+  mm in at the poles (the projected chord over 3), but the rows between aren't that ring (its tangent poles sit
+  further out): Onshape's volume is 0.27% over it. Onshape's profiles are cubic Hermite fits (64 spans for a
+  circle).
 
 ## STEP export
 
