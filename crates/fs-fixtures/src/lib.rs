@@ -556,6 +556,17 @@ pub fn check_batch(batch: &Path, step: Option<&Path>) -> Result<Report, String> 
 /// units, mm): approximations are only promised to within their own tolerance, so two kernels' fits of the same
 /// points can differ by that much.
 pub fn check_batch_with(batch: &Path, step: Option<&Path>, loose: &[(&str, f64)]) -> Result<Report, String> {
+    check_batch_bodies(batch, step, loose, &[])
+}
+
+/// [`check_batch_with`], comparing only the bodies of some cases' probe lines: the values they return (Onshape's
+/// own B-spline approximations, its faces in its own order) are there to study, not to match.
+pub fn check_batch_bodies(
+    batch: &Path,
+    step: Option<&Path>,
+    loose: &[(&str, f64)],
+    bodies_only: &[&str],
+) -> Result<Report, String> {
     let built = build(batch)?;
     let fixture = read_fixture(batch)?;
     let step_problems = match step {
@@ -581,11 +592,18 @@ pub fn check_batch_with(batch: &Path, step: Option<&Path>, loose: &[(&str, f64)]
         let ours = probe_lines(&report.output);
         report.probes_matched.1 = theirs.len();
         for (key, line) in &theirs {
+            let bodies = |l: &str| -> String {
+                if bodies_only.contains(&key.as_str()) {
+                    l.split(" , values :").next().unwrap_or(l).to_string()
+                } else {
+                    l.to_string()
+                }
+            };
             match ours.get(key) {
                 None => report.probe_problems.push(format!("{key}: no probe line from the engine")),
                 Some(our_line) => match compare_probe_within(
-                    our_line,
-                    line,
+                    &bodies(our_line),
+                    &bodies(line),
                     loose.iter().find(|(case, _)| case == key).map_or(PROBE_ABSOLUTE_TOLERANCE, |l| l.1),
                 ) {
                     None => report.probes_matched.0 += 1,
