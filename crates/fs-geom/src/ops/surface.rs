@@ -664,7 +664,7 @@ pub fn move_curve_boundary(model: &mut Model, id: FeatureId, definition: &Value)
         let single_line = matches!(edges.as_slice(), [e] if e.curve_type().ok() == Some(occt::CurveType::Line));
         if !single_line {
             let curving = field(definition, "extensionShape").as_str() == Some("CURVATURE");
-            let moved = curved_boundary_moved(&edges, trim, distance, limit, &limit_surface, limit_curve.is_some(), help.as_ref(), flip, curving)?;
+            let moved = curved_boundary_moved(&edges, trim, distance, limit, &limit_surface, limit_curve.as_ref(), help.as_ref(), flip, curving)?;
             results.push((b, moved));
             continue;
         }
@@ -752,15 +752,15 @@ fn curved_boundary_moved(
     distance: f64,
     limit: Option<occt::Frame>,
     limit_surface: &Option<Shape>,
-    limit_curve: bool,
+    limit_curve: Option<&Shape>,
     help: Option<&Shape>,
     flip: bool,
     curving: bool,
 ) -> R<Shape> {
     use crate::curve_extend::{Cubic, arc_frame};
-    use crate::values::{add, cross, dot, norm, scale, sub};
-    if limit_curve {
-        return Err(error("@opMoveCurveBoundary: curves other than lines up to curves aren't supported yet"));
+    use crate::values::{add, cross, dot, norm, normalize, scale, sub};
+    if limit_curve.is_some_and(|c| c.curve_type().ok() != Some(occt::CurveType::Line)) {
+        return Err(error("@opMoveCurveBoundary: curves other than lines up to curves other than lines aren't supported yet"));
     }
     // The chain's ends: points only one edge reaches.
     let points: Vec<(occt::Axis, occt::Axis)> = edges
@@ -792,11 +792,87 @@ fn curved_boundary_moved(
     let (start, end) = points[index];
     let circle = edge.curve_type().ok() == Some(occt::CurveType::Circle);
 
+    // The curve as Onshape extends or trims it: an arc (its exact frame for trimming) or a clamped cubic B-spline.
+    let as_cubic = |edge: &Shape, start: &occt::Axis, end: &occt::Axis| -> R<Cubic> {
+        if edge.curve_type().ok() == Some(occt::CurveType::Circle) {
+            let centre = edge.curve_definition().map_err(occt_error)?.frame.origin;
+            let (x, y, radius, angle) = arc_frame(centre, start.origin, start.direction, end.origin)?;
+            return Cubic::arc(centre, x, y, radius, angle);
+        }
+        // An elliptical arc keeps the ellipse's own angle, from its major axis (batch 038).
+        if edge.curve_type().ok() == Some(occt::CurveType::Ellipse) {
+            let conic = edge.curve_definition().map_err(occt_error)?;
+            let (centre, x, a, b) = (conic.frame.origin, conic.frame.x, conic.radius1, conic.radius2);
+            let mut y = cross(conic.frame.normal, x);
+            let angle_of = |p: occt::Vec3, y: occt::Vec3| {
+                let d = sub(p, centre);
+                (dot(d, y) / b).atan2(dot(d, x) / a)
+            };
+            let t0 = angle_of(start.origin, y);
+            let along = add(scale(x, -a * t0.sin()), scale(y, b * t0.cos()));
+            if dot(along, start.direction) < 0.0 {
+                y = scale(y, -1.0);
+            }
+            let t0 = angle_of(start.origin, y);
+            let mut t1 = angle_of(end.origin, y);
+            while t1 <= t0 + 1e-12 {
+                t1 += 2.0 * std::f64::consts::PI;
+            }
+            return Cubic::ellipse(centre, x, y, a, b, t0, t1);
+        }
+        let data = edge.edge_bspline(1e-7, false, false).map_err(occt_error)?;
+        let first = data.knots.first().copied().unwrap_or_default();
+        let last = data.knots.last().copied().unwrap_or_default();
+        let clamped = data.knots.len() == data.poles.len() + 4
+            && data.knots[..4].iter().all(|k| *k == first)
+            && data.knots[data.knots.len() - 4..].iter().all(|k| *k == last);
+        if data.degree != 3 || data.rational || data.periodic || !clamped {
+            return Err(error("@opMoveCurveBoundary: of curves other than lines, only arcs and clamped cubic B-splines are supported yet"));
+        }
+        let cubic = Cubic { knots: data.knots, poles: data.poles };
+        if norm(sub(*cubic.poles.last().expect("poles"), end.origin)) > 1e-9 || norm(sub(cubic.poles[0], start.origin)) > 1e-9 {
+            return Err(error("@opMoveCurveBoundary: B-splines running against their edge aren't supported yet"));
+        }
+        Ok(cubic)
+    };
+    // A straight limit curve stands for the plane through it square to the curve's plane (an arc trimmed by a line,
+    // batch 038).
+    let limit = match (limit, limit_curve) {
+        (Some(p), _) => Some(p),
+        (None, Some(line)) => {
+            let (a, b) = (
+                line.edge_tangent(0.0, false).map_err(occt_error)?.origin,
+                line.edge_tangent(1.0, false).map_err(occt_error)?.origin,
+            );
+            let along = normalize(sub(b, a)).ok_or_else(|| regen_error("TRIM_CURVE_FAILED"))?;
+            let curve_normal = if circle {
+                edge.curve_definition().map_err(occt_error)?.frame.normal
+            } else {
+                as_cubic(edge, &start, &end)?.plane_normal().ok_or_else(|| regen_error("TRIM_CURVE_FAILED"))?
+            };
+            let normal = normalize(cross(along, curve_normal)).ok_or_else(|| regen_error("TRIM_CURVE_FAILED"))?;
+            Some(occt::Frame { origin: a, normal, x: along })
+        }
+        (None, None) => None,
+    };
+
     if trim {
-        // An arc trimmed by a plane: cut where it crosses the plane, keeping the side the help point is on.
-        let (true, [_], Some(plane)) = (circle, edges, limit) else {
-            return Err(error("@opMoveCurveBoundary: of curves other than lines, only arcs trimmed by planes are supported yet"));
+        // A curve trimmed by a plane: cut where it crosses the plane, keeping the side the help point is on. An arc
+        // stays an arc; a B-spline becomes the same B-spline restricted (batch 038).
+        let ([_], Some(plane)) = (edges, limit) else {
+            return Err(error("@opMoveCurveBoundary: of curves other than lines, only single curves trimmed by planes or lines are supported yet"));
         };
+        if !circle {
+            let cubic = as_cubic(edge, &start, &end)?;
+            let (a, b) = (cubic.start(), cubic.end());
+            let cut = cubic
+                .plane_crossings(plane.origin, plane.normal)
+                .into_iter()
+                .find(|t| *t > a + 1e-9 && *t < b - 1e-9)
+                .ok_or_else(|| regen_error("TRIM_CURVE_FAILED"))?;
+            let kept = if at_end { cubic.segment(cut, b)? } else { cubic.segment(a, cut)? };
+            return kept.edge();
+        }
         let centre = edge.curve_definition().map_err(occt_error)?.frame.origin;
         let (x, y, radius, angle) = arc_frame(centre, start.origin, start.direction, end.origin)?;
         let k = dot(sub(centre, plane.origin), plane.normal);
@@ -850,29 +926,9 @@ fn curved_boundary_moved(
         let to = add(p, scale(d, straight(p, d, 0.0)?));
         if at_end { occt::line_edge(fixed, to) } else { occt::line_edge(to, fixed) }.map_err(occt_error)?
     } else {
-        if !at_end {
-            return Err(error("@opMoveCurveBoundary: extending a curve other than a line at its start isn't supported yet"));
-        }
-        let cubic = if circle {
-            let centre = edge.curve_definition().map_err(occt_error)?.frame.origin;
-            let (x, y, radius, angle) = arc_frame(centre, start.origin, start.direction, end.origin)?;
-            Cubic::arc(centre, x, y, radius, angle)?
-        } else {
-            let data = edge.edge_bspline(1e-7, false, false).map_err(occt_error)?;
-            let first = data.knots.first().copied().unwrap_or_default();
-            let last = data.knots.last().copied().unwrap_or_default();
-            let clamped = data.knots.len() == data.poles.len() + 4
-                && data.knots[..4].iter().all(|k| *k == first)
-                && data.knots[data.knots.len() - 4..].iter().all(|k| *k == last);
-            if data.degree != 3 || data.rational || data.periodic || !clamped {
-                return Err(error("@opMoveCurveBoundary: only arcs and clamped cubic B-splines are extended yet"));
-            }
-            let cubic = Cubic { knots: data.knots, poles: data.poles };
-            if norm(sub(*cubic.poles.last().expect("poles"), end.origin)) > 1e-9 {
-                return Err(error("@opMoveCurveBoundary: B-splines running against their edge aren't supported yet"));
-            }
-            cubic
-        };
+        // At its start, the curve is extended as its reverse is at its end, its own parameters kept (batch 038).
+        let forward = as_cubic(edge, &start, &end)?;
+        let cubic = if at_end { forward } else { forward.reversed() };
         let (base, already) = match if curving { cubic.blended()? } else { None } {
             Some(blended) => {
                 let length = blended.length(cubic.end(), blended.end());
@@ -881,7 +937,8 @@ fn curved_boundary_moved(
             None => (cubic, 0.0),
         };
         let (p, d) = base.end_ray()?;
-        base.straight_on(straight(p, d, already)?)?.edge()?
+        let extended = base.straight_on(straight(p, d, already)?)?;
+        if at_end { extended } else { extended.reversed() }.edge()?
     };
     if edges.len() == 1 {
         return Ok(moved);
