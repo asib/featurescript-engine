@@ -114,6 +114,13 @@ await sleep(1000);
 await chooseOption('#step-parasolid-preprocessing-on-read', 'None');
 await chooseOption('#step-export-version-dropdown', 'AP242');
 await chooseOption('#export-options-dropdown', 'Download');
+// One file for the whole Part Studio: Onshape sometimes offers each part as its own file (in a zip).
+await page.evaluate(`(() => {
+  const c = [...document.querySelectorAll('input[type=checkbox]')].find((c) => c.offsetParent !== null &&
+    (c.closest('label')?.innerText || c.parentElement?.innerText || '').includes('individual files'));
+  if (c && c.checked) c.click();
+})()`);
+await sleep(500);
 await page.evaluate(`(() => { const i = document.querySelector('#export-filename-input'); i.focus(); i.select(); })()`);
 await page.send('Input.insertText', { text: EXPORT_NAME });
 await page.clickElement(`[...document.querySelectorAll('button')].find((b) => b.offsetParent !== null && b.textContent.trim() === 'Export')`);
