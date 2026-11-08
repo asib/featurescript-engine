@@ -390,6 +390,7 @@ fn regenerate(model: &mut Model, id: &FeatureId, def_index: usize) -> R<()> {
         depth_scale: scale("defaultBendReliefDepthScale", 1.5),
         width_scale: scale("defaultBendReliefScale", 1.0625),
         thickness,
+        depth: 0.0,
     };
     let corner_defaults = CornerDefaults {
         two: model_attribute.get("defaultTwoCornerStyle").and_then(Value::as_str).unwrap_or("SIMPLE").to_string(),
@@ -830,12 +831,43 @@ fn corner_reliefs(def: &Body, bends: &[Bend], defaults: &CornerDefaults) -> R<Ve
     Ok(out)
 }
 
-/// How the ends of a bend shorter than its wall's edge are relieved (the model's defaults).
+/// How the ends of a bend shorter than its wall's edge are relieved (the model's defaults, or a bend end's own).
+#[derive(Clone)]
 struct BendRelief {
     style: String,
     depth_scale: f64,
     width_scale: f64,
     thickness: f64,
+    /// A sized relief's depth, in from where the wall is cut back for the bend.
+    depth: f64,
+}
+
+impl BendRelief {
+    /// The relief at a bend end: the one `sheetMetalBendRelief` set on the definition vertex there, if any.
+    fn at(&self, def: &Body, end: Vec3) -> R<BendRelief> {
+        let corner = def.vertices.iter().find_map(|v| {
+            let p = v.shape.vertex_point().ok()?;
+            if norm(sub(p, end)) > 1e-7 {
+                return None;
+            }
+            sm_attribute(&v.attributes, "CORNER").filter(|c| attribute_value(c, "cornerStyle").is_some())
+        });
+        let Some(corner) = corner else { return Ok(self.clone()) };
+        let mut out = self.clone();
+        if let Some(style) = attribute_value(corner, "cornerStyle").and_then(Value::as_str) {
+            out.style = style.to_string();
+        }
+        if let Some(k) = attribute_value(corner, "bendReliefDepthScale").and_then(Value::as_number) {
+            out.depth_scale = k;
+        }
+        if let Some(k) = attribute_value(corner, "bendReliefScale").and_then(Value::as_number) {
+            out.width_scale = k;
+        }
+        if let Some(d) = attribute_value(corner, "bendReliefDepth") {
+            out.depth = values::length(d, "bend relief depth")?;
+        }
+        Ok(out)
+    }
 }
 
 
@@ -886,11 +918,12 @@ fn break_corners(def: &Body, wall_attributes: &Attributes, wall: Shape) -> R<Sha
 /// The bend reliefs a wall needs where bends cover only part of its edges: the rest of each such edge is cut back
 /// as the bend is, and at each end of the bend a slot is cut, as wide as the width scale × the thickness, reaching
 /// the depth scale × the bend's radius in from the edge to the centre of an obround's round end (a rectangle goes
-/// half its width further; a tear cuts nothing more). Fitted to fixture batch 016.
+/// half its width further; a tear cuts nothing more). Fitted to fixture batch 016. A sized rectangle reaches its
+/// depth in from where the wall is cut back (batch 017); a sized obround is taken to reach as far.
 /// Edges to cut back (with how far), and slots to cut out.
 type Reliefs = (Vec<(Shape, f64)>, Vec<Shape>);
 
-fn bend_reliefs(wall: &Shape, bends: &[Bend], relief: &BendRelief) -> R<Reliefs> {
+fn bend_reliefs(def: &Body, wall: &Shape, bends: &[Bend], relief: &BendRelief) -> R<Reliefs> {
     let mut stubs = Vec::new();
     let mut slots = Vec::new();
     let edges = wall.sub_shapes(ShapeKind::Edge);
@@ -912,15 +945,21 @@ fn bend_reliefs(wall: &Shape, bends: &[Bend], relief: &BendRelief) -> R<Reliefs>
                 continue;
             }
             stubs.push((edge.clone(), bend.setback));
-            if relief.style == "TEAR" {
-                continue;
-            }
             // The end of the bend this stub carries on from, and the way out along it.
             let (end, out) =
                 if norm(sub(c, a)) < 1e-9 || norm(sub(d, a)) < 1e-9 { (a, scale(e, -1.0)) } else { (b, e) };
+            let relief = relief.at(def, end)?;
+            if relief.style == "TEAR" {
+                continue;
+            }
             let width = relief.width_scale * relief.thickness;
-            let depth = relief.depth_scale * bend.radii.0;
-            let reach = if relief.style == "RECTANGLE" { depth + width / 2.0 } else { depth };
+            // In from the edge to an obround's centre, or to the end of a rectangle.
+            let (depth, reach) = match relief.style.as_str() {
+                "SIZED_RECTANGLE" => (0.0, bend.setback + relief.depth),
+                "SIZED_OBROUND" => (bend.setback + relief.depth - width / 2.0, bend.setback + relief.depth - width / 2.0),
+                "RECTANGLE" => (0.0, relief.depth_scale * bend.radii.0 + width / 2.0),
+                _ => (relief.depth_scale * bend.radii.0, relief.depth_scale * bend.radii.0),
+            };
             let v_axis = cross(n, out);
             let far = norm(sub(b, a)) + 1.0;
             let (v0, v1) = if dot(v_axis, into) > 0.0 { (-far, reach) } else { (-reach, far) };
@@ -928,7 +967,7 @@ fn bend_reliefs(wall: &Shape, bends: &[Bend], relief: &BendRelief) -> R<Reliefs>
                 occt::plane_face(occt::Frame { origin: end, normal: n, x: out }, 0.0, width, v0, v1)
                     .map_err(occt_error)?,
             );
-            if relief.style == "OBROUND" {
+            if relief.style == "OBROUND" || relief.style == "SIZED_OBROUND" {
                 let centre = add(add(end, scale(out, width / 2.0)), scale(into, depth));
                 let circle = occt::circle_edge(occt::Frame { origin: centre, normal: n, x: out }, width / 2.0)
                     .map_err(occt_error)?;
@@ -986,7 +1025,7 @@ fn build_part(
         // A rolled wall, or a bend the model already rounds (std's bend wraps one in), is thickened as it is.
         let planar = wall.shape.surface_type().ok() == Some(occt::SurfaceType::Plane);
         let (stubs, mut slots) =
-            if planar { bend_reliefs(&wall.shape, bends, relief)? } else { (Vec::new(), Vec::new()) };
+            if planar { bend_reliefs(def, &wall.shape, bends, relief)? } else { (Vec::new(), Vec::new()) };
         // Corner reliefs: cut as they are from the base wall, and carried into the walls beyond the bends.
         for corner in corners {
             if wall.shape.is_same(&corner.base) {
