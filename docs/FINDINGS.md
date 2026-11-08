@@ -255,6 +255,12 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   relief. A rip across a plate from corner to corner leaves it whole. Mitred flanges (30°) fail in Onshape, and
   the plate their case leaves can't be deleted outside a sheet metal feature, so it keeps its default name.
 
+- **Corner breaks and unfolding** (batch 015). A corner break rounds or chamfers the wall's corner in the
+  definition itself (in the flat, `@sheetMetalApplyInFlat`), and std finds the changed model by tracking the old
+  one, so it's a new body. Unfolding marks bends `unfolded` and a wall `holdFaceForUnfold`; the part then has the
+  bend laid flat, (inner radius + K-factor × thickness) × angle long (2.9845 mm for a 90° bend of radius 1, 2 mm
+  thick, K 0.45), the far wall carried round into the held wall's plane. Refolding gives the folded part back.
+
 ## STEP export
 
 - **Part names** are written on each `MANIFOLD_SOLID_BREP` (`MANIFOLD_SOLID_BREP('c030.1', ...)`), as well as on
