@@ -1,0 +1,37 @@
+{
+  "batch": "029",
+  "title": "sheet metal tear drop hems",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "sheet-metal-hem",
+      "description": "a tear drop hem 10 mm wide round a 1 mm radius, closed to the minimal gap",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "sheet-metal-hem",
+      "description": "a tear drop hem 12 mm wide round a 2 mm radius, its tip 1 mm off the plate",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "sheet-metal-hem",
+      "description": "a tear drop hem 10 mm wide, aligned outside",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    }
+  ]
+}
