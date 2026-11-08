@@ -463,12 +463,28 @@ pub fn ruled_surface(model: &mut Model, id: FeatureId, definition: &Value) -> R<
 /// `@opMoveCurveBoundary`: extends straight wire bodies by a distance at the end nearer the help point (or the
 /// other end with `flipHeuristics`).
 pub fn move_curve_boundary(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
-    if field(definition, "moveBoundaryType").as_str() != Some("EXTEND")
-        || field(definition, "endCondition").as_str().is_some_and(|c| c != "BLIND")
-    {
-        return Err(error("@opMoveCurveBoundary: only extending by a distance is supported yet"));
-    }
-    let distance = values::length(field(definition, "extensionDistance"), "extensionDistance")?;
+    let trim = field(definition, "moveBoundaryType").as_str() == Some("TRIM");
+    let up_to = !trim && field(definition, "endCondition").as_str() == Some("UP_TO_ENTITY");
+    // The plane to trim or extend to (batch 018).
+    let limit = if trim || up_to {
+        let key = if trim { "trimTo" } else { "extendTo" };
+        let found = query::evaluate(model, field(definition, key))?;
+        let face = found
+            .iter()
+            .find_map(|r| match r.kind {
+                EntityType::Face => Some(model.shape(*r).clone()),
+                EntityType::Body => model.bodies[r.body].faces.first().map(|f| f.shape.clone()),
+                _ => None,
+            })
+            .ok_or_else(|| regen_error("CANNOT_RESOLVE_ENTITIES"))?;
+        Some(face.face_plane().map_err(|_| error("@opMoveCurveBoundary: only planar limits are supported yet"))?)
+    } else {
+        None
+    };
+    let distance = match limit {
+        Some(_) => 0.0,
+        None => values::length(field(definition, "extensionDistance"), "extensionDistance")?,
+    };
     let flip = values::opt_bool(definition, "flipHeuristics")?.unwrap_or(false);
     let help = query::evaluate(model, field(definition, "helpPoint"))?;
     let help = help.first().map(|r| model.shape(*r).clone());
@@ -494,7 +510,21 @@ pub fn move_curve_boundary(model: &mut Model, id: FeatureId, definition: &Value)
             }
             None => true,
         } != flip;
-        let (a, b2) = if near_end {
+        let (a, b2) = if let Some(plane) = limit {
+            // Where the line meets the plane.
+            let d = values::sub(end.origin, start.origin);
+            let rate = values::dot(d, plane.normal);
+            if rate.abs() < 1e-12 {
+                return Err(regen_error("TRIM_CURVE_FAILED"));
+            }
+            let t = values::dot(values::sub(plane.origin, start.origin), plane.normal) / rate;
+            let hit = values::add(start.origin, values::scale(d, t));
+            match (trim, near_end) {
+                // Trimming keeps the side the help point is on; extending moves the end nearest it.
+                (true, true) | (false, true) => (if trim { hit } else { start.origin }, if trim { end.origin } else { hit }),
+                (true, false) | (false, false) => (if trim { start.origin } else { hit }, if trim { hit } else { end.origin }),
+            }
+        } else if near_end {
             (start.origin, values::add(end.origin, values::scale(end.direction, distance)))
         } else {
             (values::sub(start.origin, values::scale(start.direction, distance)), end.origin)
