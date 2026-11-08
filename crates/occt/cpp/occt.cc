@@ -1,4 +1,7 @@
 #include "occt/cpp/occt.h"
+#include <ShapeFix_Edge.hxx>
+#include <Geom2d_Curve.hxx>
+#include <BRepBuilderAPI_Copy.hxx>
 #include <GProp_PrincipalProps.hxx>
 #include <algorithm>
 
@@ -372,7 +375,31 @@ Box3 bounding_box_in(const Shape &s, Frame frame, bool precise) {
 // OCCT integrates some free-form faces badly: extrusions and revolutions of B-splines by 6e-4, closed B-spline
 // faces (a scaled sphere) by 1e-5. Converting free-form faces to NURBS and splitting closed ones into open patches
 // first makes areas and volumes accurate to about 1e-8.
-TopoDS_Shape prepared_for_integration(const TopoDS_Shape &shape) {
+// GProp integrates over each face's curves on the face, which a boolean can leave less accurate than the edges'
+// 3D curves (edges 2e-5 tolerant where a boss meets a slanted plane, 0.2 mm³ off 430 mm from the origin, batch
+// 026). Those curves are projected again from the 3D ones, on a copy, as reading the shape back from STEP would.
+static TopoDS_Shape with_accurate_pcurves(const TopoDS_Shape &shape) {
+  bool tolerant = false;
+  for (TopExp_Explorer e(shape, TopAbs_EDGE); e.More() && !tolerant; e.Next())
+    tolerant = BRep_Tool::Tolerance(TopoDS::Edge(e.Current())) > 1e-6;
+  if (!tolerant) return shape;
+  TopoDS_Shape copy = BRepBuilderAPI_Copy(shape, Standard_True).Shape();
+  ShapeFix_Edge fix;
+  for (TopExp_Explorer f(copy, TopAbs_FACE); f.More(); f.Next()) {
+    const TopoDS_Face &face = TopoDS::Face(f.Current());
+    for (TopExp_Explorer e(face, TopAbs_EDGE); e.More(); e.Next()) {
+      const TopoDS_Edge &edge = TopoDS::Edge(e.Current());
+      if (BRep_Tool::Tolerance(edge) <= 1e-6 || BRep_Tool::IsClosed(edge, face) || BRep_Tool::Degenerated(edge)) continue;
+      // FixRemovePCurve only removes curves that miss the vertices.
+      BRep_Builder().UpdateEdge(edge, Handle(Geom2d_Curve)(), face, BRep_Tool::Tolerance(edge));
+      fix.FixAddPCurve(edge, face, Standard_False, 1e-9);
+    }
+  }
+  return copy;
+}
+
+TopoDS_Shape prepared_for_integration(const TopoDS_Shape &input) {
+  const TopoDS_Shape shape = with_accurate_pcurves(input);
   if (!has_free_form_faces(shape)) return shape;
   TopoDS_Shape result = shape;
   // Only swept and offset faces need converting; converting some imported B-spline shapes crashes OCCT.
