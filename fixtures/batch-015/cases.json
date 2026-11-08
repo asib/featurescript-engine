@@ -1,0 +1,77 @@
+{
+  "batch": "015",
+  "title": "sheet metal corner breaks, unfold and refold, partial flanges",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "sheet-metal-corner-break",
+      "description": "a plate corner rounded to 5 mm",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "sheet-metal-corner-break",
+      "description": "two plate corners chamfered 4 mm",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "sheet-metal-corner-break",
+      "description": "the top corner of a flange rounded to 3 mm",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "sheet-metal-unfold",
+      "description": "the bend of an L unfolded, holding the long wall",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "sheet-metal-unfold",
+      "description": "the L unfolded and folded again",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "sheet-metal-flange",
+      "description": "a flange on the middle 20 mm of an edge",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "sheet-metal-flange",
+      "description": "a flange stopping 10 mm short of one end of an edge",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    }
+  ]
+}
