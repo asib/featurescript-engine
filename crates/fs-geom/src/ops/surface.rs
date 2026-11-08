@@ -161,6 +161,9 @@ pub fn fill_surface(model: &mut Model, id: FeatureId, definition: &Value) -> R<V
 }
 
 pub fn extend_sheet(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
+    if field(definition, "extendMethod").as_str() == Some("EXTEND_TO_SURFACE") {
+        return super::sheet_metal::extend_to_plane(model, id, definition);
+    }
     match field(definition, "endCondition").as_str() {
         None | Some("EXTEND_BLIND") => {}
         Some(other) => return Err(error(format!("@opExtendSheetBody: {other} isn't supported yet"))),

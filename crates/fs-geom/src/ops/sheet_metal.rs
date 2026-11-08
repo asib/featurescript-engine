@@ -1202,8 +1202,13 @@ fn build_part(
 
 /// `@updateSheetMetalGeometry`: rebuilds the parts of the models whose definition entities changed.
 pub fn update(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
+    // The models of the entities changed, and of the associated changes (a joint make joint added, batch 017).
     let mut defs: Vec<u64> = Vec::new();
-    for r in query::evaluate(model, field(definition, "entities"))? {
+    let mut changed = query::evaluate(model, field(definition, "entities"))?;
+    if !field(definition, "associatedChanges").is_undefined() {
+        changed.extend(query::evaluate(model, field(definition, "associatedChanges"))?);
+    }
+    for r in changed {
         let body = &model.bodies[r.body];
         if body.is_sheet_metal_definition() && !defs.contains(&body.tid) {
             defs.push(body.tid);
@@ -1267,6 +1272,108 @@ fn cut_registered_tools(model: &mut Model, id: &FeatureId, index: usize) -> R<()
         }
     }
     Ok(())
+}
+
+/// `@opExtendSheetBody` in the form sheet metal uses (`extendMethod` EXTEND_TO_SURFACE, `limitEntity` a plane, at
+/// `offset` from it): free straight edges of planar faces moved within their faces' planes up to the plane, and
+/// the faces sewn where they then meet (make joint, batch 017). Faces keep their identities; an edge two faces now
+/// share is new, tracked back to the edges it joins.
+pub fn extend_to_plane(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
+    let limit = field(definition, "limitEntity");
+    let plane = if limit.get("normal").is_some() {
+        values::plane(limit, "opExtendSheetBody limitEntity")?
+    } else {
+        let found = query::evaluate(model, limit)?;
+        let r = found.first().ok_or_else(|| regen_error("EXTEND_SHEET_BODY_FAILED"))?;
+        model.shape(*r).face_plane().map_err(|_| error("@opExtendSheetBody: only planar limits are supported yet"))?
+    };
+    let offset = match field(definition, "offset") {
+        v if v.is_undefined() => 0.0,
+        v => values::length(v, "opExtendSheetBody offset")?,
+    };
+    let failed = || regen_error("EXTEND_SHEET_BODY_FAILED");
+    for (b, edges) in super::by_body(model, field(definition, "entities"), EntityType::Edge)? {
+        let old = model.bodies[b].clone();
+        let mut faces: Vec<Shape> = old.faces.iter().map(|f| f.shape.clone()).collect();
+        // Each moved edge and how far it moved.
+        let mut moved: Vec<(Shape, Vec3)> = Vec::new();
+        for (i, face) in old.faces.iter().enumerate() {
+            let own = face.shape.sub_shapes(ShapeKind::Edge);
+            let selected: Vec<Shape> = edges.iter().filter(|e| own.iter().any(|x| x.is_same(e))).cloned().collect();
+            if selected.is_empty() {
+                continue;
+            }
+            let mut distances = Vec::new();
+            for e in &selected {
+                let (a, z) = segment(e).ok_or_else(|| error("@opExtendSheetBody: only straight edges are supported yet"))?;
+                let m = scale(add(a, z), 0.5);
+                let out = scale(into_face(&face.shape, m, sub(z, a))?, -1.0);
+                let rate = dot(out, plane.normal);
+                if rate.abs() < 1e-9 || dot(normalize(sub(z, a)).ok_or_else(failed)?, plane.normal).abs() > 1e-9 {
+                    return Err(failed());
+                }
+                let s = (offset - dot(sub(m, plane.origin), plane.normal)) / rate;
+                distances.push(s);
+                moved.push((e.clone(), scale(out, s)));
+            }
+            faces[i] = occt::extend_planar_face(&face.shape, &selected, &distances).map_err(|_| failed())?;
+        }
+        let shell = occt::sew_faces(&faces, 1e-7).map_err(occt_error)?;
+        let shift_of = |shape: &Shape| moved.iter().find(|(e, _)| e.is_same(shape)).map(|(_, v)| *v);
+        let shifted = |points: Vec<Vec3>, v: Option<Vec3>| -> Vec<Vec3> {
+            points.into_iter().map(|p| v.map_or(p, |v| add(p, v))).collect()
+        };
+        let mut origins = Origins::default();
+        for (i, face) in old.faces.iter().enumerate() {
+            let target = &faces[i];
+            if let Some(image) = shell
+                .sub_shapes(ShapeKind::Face)
+                .into_iter()
+                .find(|f| lies_on(&samples(target), f) && lies_on(&samples(f), target))
+            {
+                origins.same(&image, face);
+            }
+        }
+        for image in shell.sub_shapes(ShapeKind::Edge) {
+            let image_points = samples(&image);
+            // The old edges it is (moved, if they were), and those it runs along (made longer).
+            let mut exact = Vec::new();
+            let mut along = Vec::new();
+            for edge in &old.edges {
+                let v = shift_of(&edge.shape);
+                let points = shifted(samples(&edge.shape), v);
+                if !lies_on(&points, &image) {
+                    continue;
+                }
+                let back: Vec<Vec3> = image_points.iter().map(|&p| v.map_or(p, |v| sub(p, v))).collect();
+                if lies_on(&back, &edge.shape) { exact.push((edge, v.is_some())) } else { along.push(edge) }
+            }
+            match (exact.as_slice(), along.is_empty()) {
+                ([(edge, false)], true) => origins.same(&image, edge),
+                _ => {
+                    for (edge, _) in &exact {
+                        origins.inherit(&image, edge);
+                    }
+                    for edge in &along {
+                        origins.inherit(&image, edge);
+                    }
+                }
+            }
+        }
+        for image in shell.sub_shapes(ShapeKind::Vertex) {
+            let Ok(p) = image.vertex_point() else { continue };
+            for vertex in &old.vertices {
+                let Ok(q) = vertex.shape.vertex_point() else { continue };
+                if norm(sub(p, q)) < 1e-7 {
+                    origins.same(&image, vertex);
+                }
+            }
+        }
+        model.remove_bodies(&[b]);
+        let info = Info::new(id.clone());
+        model.add_body(NewBody::replacing(&old, shell), &origins, &info, &|_| None);
+    }
+    Ok(Value::UNDEFINED)
 }
 
 /// Sample points of a face, edge or vertex.
