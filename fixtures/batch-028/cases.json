@@ -1,0 +1,77 @@
+{
+  "batch": "028",
+  "title": "more feature options: frame corner overrides, thin lofts, curved faces replaced, sphere isoclines, refilleting",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "frame",
+      "description": "a square tube L with a butt corner",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "frame",
+      "description": "a square tube L with a coped butt corner, flipped",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "frame",
+      "description": "a square tube L with no corner treatment",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "loft",
+      "description": "a thin loft 1 mm thick between a square and a smaller square, its ends left square to its walls",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "replace-face",
+      "description": "a cylinder's side replaced by a coaxial cylindrical sheet 4 mm out",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "isocline",
+      "description": "the 30 degree isoclines of a sphere, as curves",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "modify-fillet",
+      "description": "upright fillets changed to 5 mm, the top fillet refilleted",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    }
+  ]
+}
