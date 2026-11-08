@@ -300,6 +300,8 @@ fn solve(model: &mut Model, sketch: &Sketch) -> R<()> {
     let direction =
         |d: P2| values::add(values::scale(plane.x, d.0), values::scale(values::cross(plane.normal, plane.x), d.1));
     let mut edges: Vec<(Rc<str>, Shape, bool)> = Vec::new();
+    // Each open curve's ends, start then end (an arc's counterclockwise about the normal, as Onshape has them).
+    let mut ends: Vec<(Rc<str>, occt::Vec3, occt::Vec3)> = Vec::new();
     let mut points: Vec<(Rc<str>, occt::Vec3, bool)> = Vec::new();
     for entity in sketch.entities.borrow().iter() {
         let edge = match &entity.geometry {
@@ -309,7 +311,10 @@ fn solve(model: &mut Model, sketch: &Sketch) -> R<()> {
             }
             // A zero-length line, such as the tip of std's fCone with no top radius, adds nothing.
             Geometry::Line(a, b) if (a.0 - b.0).hypot(a.1 - b.1) < 1e-12 => continue,
-            Geometry::Line(a, b) => occt::line_edge(world(*a), world(*b)).map_err(occt_error)?,
+            Geometry::Line(a, b) => {
+                ends.push((entity.id.clone(), world(*a), world(*b)));
+                occt::line_edge(world(*a), world(*b)).map_err(occt_error)?
+            }
             Geometry::Circle { center, radius } => {
                 points.push((format!("{}.center", entity.id).into(), world(*center), entity.construction));
                 occt::circle_edge(circle_frame(&plane, *center), *radius).map_err(occt_error)?
@@ -322,6 +327,7 @@ fn solve(model: &mut Model, sketch: &Sketch) -> R<()> {
                 // (batch 010, c006).
                 let clockwise = (mid.0 - start.0) * (end.1 - mid.1) - (mid.1 - start.1) * (end.0 - mid.0) < 0.0;
                 let (a, b) = if clockwise { (*end, *start) } else { (*start, *end) };
+                ends.push((entity.id.clone(), world(a), world(b)));
                 occt::arc_through(world(a), world(*mid), world(b)).map_err(occt_error)?
             }
             Geometry::Ellipse { center, major_axis, major, minor, arc } => {
@@ -376,13 +382,32 @@ fn solve(model: &mut Model, sketch: &Sketch) -> R<()> {
     for (id, edge, _) in edges {
         let info = Rc::new(Info {
             created_by: sketch.id.clone(),
-            sketch_entity: Some(id),
+            sketch_entity: Some(id.clone()),
             cap: None,
             dependency: None,
             ..Default::default()
         });
         let new = NewBody { sketch_plane: Some(plane), ..NewBody::new(edge, BodyType::Wire, info.clone()) };
-        model.add_body(new, &none, &info, &|_| None);
+        // Its end vertices are "<id>.start" and "<id>.end".
+        let named_ends: Vec<(occt::Vec3, Rc<Info>)> = ends
+            .iter()
+            .filter(|(curve, _, _)| *curve == id)
+            .flat_map(|(curve, a, b)| {
+                let name = |suffix: &str| {
+                    Rc::new(Info {
+                        created_by: sketch.id.clone(),
+                        sketch_entity: Some(format!("{curve}.{suffix}").into()),
+                        ..Default::default()
+                    })
+                };
+                [(*a, name("start")), (*b, name("end"))]
+            })
+            .collect();
+        let special = |shape: &Shape| -> Option<Rc<Info>> {
+            let p = shape.vertex_point().ok()?;
+            named_ends.iter().find(|(q, _)| values::norm(values::sub(p, *q)) < 1e-12).map(|(_, info)| info.clone())
+        };
+        model.add_body(new, &none, &info, &special);
     }
     for (id, p, construction) in points {
         let info = Rc::new(Info {
