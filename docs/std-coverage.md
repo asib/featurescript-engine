@@ -14,9 +14,9 @@ Onshape.
 | `cube`, `fCuboid`, `fCylinder`, `fCone`, `fSphere`, `fEllipsoid` (primitives.fs) | matches | 002 |
 | `booleanBodies` (boolean.fs) | matches: union, subtraction (keep tools, several targets), intersection. Not yet: offset, sheet metal | 002 |
 | `transform`, `copyPart` (transformCopy.fs) | matches: translate (xyz, distance, line), rotate, copy, uniform and non-uniform scale, by mate connectors | 002, 005, 007 |
-| `mirror` (mirror.fs) | matches: part mirror, face mirror (a boss). Not yet: feature mirror | 002, 006 |
-| `linearPattern` (linearPattern.fs) | matches: part pattern, one and two directions, centred, skipped instances, add; face pattern (a boss). Not yet: feature patterns | 002, 006 |
-| `circularPattern` (circularPattern.fs) | matches: part pattern, equal spacing, centred, opposite, add; face pattern (a boss, touching the block's edges). Not yet: feature patterns | 002, 006 |
+| `mirror` (mirror.fs) | matches: part, face and feature mirrors (a boss) | 002, 006, 009 |
+| `linearPattern` (linearPattern.fs) | matches: part pattern, one and two directions, centred, skipped instances, add; face and feature patterns (a boss). Not yet: reapplying features in each instance | 002, 006, 009 |
+| `circularPattern` (circularPattern.fs) | matches: part pattern, equal spacing, centred, opposite, add; face and feature patterns (a boss, touching the block's edges). Not yet: reapplying features in each instance | 002, 006, 009 |
 | `splitPart` (splitpart.fs) | matches: split solids by a plane or face, keep both, front or back; splitting faces by sketch edges, a plane, and a face of another part. Not yet: sheet tools | 002, 006, 007 |
 | `deleteBodies` (deleteBodies.fs) | matches | 002 |
 | `cPlane` (cplane.fs) | matches: offset, plane and point, line and angle, line and point, three points, mid plane, curve point, tangent to a cylinder | 002, 006 |
@@ -65,7 +65,9 @@ Onshape.
 | `frameTrim` (frameTrim.fs) | matches: ordered groups, to a plane | 008 |
 | `gusset` (gusset.fs) | matches: triangle and chamfered rectangle, centred, in a mitred corner. Not yet: aligned, offset | 008 |
 | `endcap` (endcap.fs) | matches: matching the profile, filleted rectangle. Not yet: circle, internal, chamfered corners | 008 |
-| `cutlist`, the `sectionPart` family, `importDerived`, `derivedMirror`, `importForeign`, `tag` | not started | 009 (planned) |
+| `importDerived` (importDerived.fs) | matches: at the origin, at mate connectors, chosen parts with their mate connectors (from build functions). Not yet: sheet metal | 009 |
+| the `sectionPart` family (sectionpart.fs) | matches: `sectionPart`, `planeSectionPart`. Not yet: several planes, jogged sections | 009 |
+| `cutlist`, `derivedMirror`, `importForeign`, `tag` | not started (`derivedMirror` fails in a Part Studio feature; `importForeign` needs uploaded data) | later |
 | sheet metal: `sheetMetalStart`, `sheetMetalFlange`, `sheetMetalHem`, `sheetMetalTab`, `sheetMetalJoint`, `sheetMetalMakeJoint`, `sheetMetalCorner`, `sheetMetalCornerBreak`, `sheetMetalBendRelief`, `sheetMetalRip`, `sheetMetalJog`, `sheetMetalBend`, `sheetMetalUnfold`/`Refold`, `sheetMetalFormed`, `sheetMetalLoft`, `sheetMetalGeometryPattern`, `sheetMetalTransform`, `sheetMetalEnd`, `pcbStart`/`pcbEnd` | not started | 010+ (planned) |
 | tables (`cutlistTable`, `holeTable`, `routingCurveTable`), computed properties (`computeMass`) | not started | later |
 
@@ -106,7 +108,7 @@ Handled: `NOTHING`, `EVERYTHING`, `TRANSIENT`, `CREATED_BY`, `SKETCH_REGION`, `S
 `EDGE_ADJACENT`, `EDGE_VERTEX`, `TANGENT_CONNECTED_EDGES`, `TANGENT_CONNECTED_FACES`, `CLOSEST_TO`, `FARTHEST_ALONG`,
 `LARGEST`, `SMALLEST`, `TRACKING` (entities record what they were made from), `ATTRIBUTE_FILTER`, `OP_HOLE_FACE`,
 `OP_HOLE_PROFILE`, `EDGE_TOPOLOGY_FILTER`, `SPLIT` (split faces' sides), `CONTAINED_IN_COMPOSITE`,
-`COMPOSITE_CONTAINING`, `CONSUMED`, `NAMED`, `PLANE_PARALLEL_DIRECTION`, `FACE_PARALLEL_DIRECTION`,
+`COMPOSITE_CONTAINING`, `CONSUMED`, `NAMED`, `MATE_CONNECTOR`, `PLANE_PARALLEL_DIRECTION`, `FACE_PARALLEL_DIRECTION`,
 `INTERSECTS_PLANE`, the selection queries (`CONVEX_CONNECTED_FACES`, `CONCAVE_CONNECTED_FACES`,
 `HOLE_FACES`, `FILLET_FACES`, `LOOP_EDGES`, `PARALLEL_EDGES`, `LOOP_BOUNDED_FACES`, `FACE_OR_EDGE_BOUNDED_FACES`,
 `PATTERN`, `PLANE_NORMAL`, `IN_FRONT_OF_PLANE`, `EDGE_CONVEXITY_FILTER`), and the sheet metal, mesh and modifiable
