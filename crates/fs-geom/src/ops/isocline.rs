@@ -1,6 +1,7 @@
 //! Isoclines: the curves on faces where the tangent plane makes a given angle with a direction, like a draft
 //! angle (`@opCreateIsocline`, `@opSplitByIsocline`). Spheres, and tori about an axis along the direction, have
-//! them on planes square to the direction; other faces aren't supported yet. (Batch 007, c026–c027.)
+//! them on planes square to the direction (batch 007, c026–c027); cylinders across it along their length (batch
+//! 030); other faces aren't supported yet.
 
 use std::rc::Rc;
 
@@ -55,12 +56,48 @@ fn isocline_planes(face: &Shape, direction: Vec3, angle: f64) -> R<Vec<Frame>> {
     }
 }
 
+/// A cylinder across the direction has its isoclines along it: where its normal n(φ) = s(cos φ u + sin φ v) has
+/// n·d = sin a, at φ = φ₀ ± acos(s sin a / |d⊥|) round the axis (batch 030). Half planes from the axis through
+/// those lines cut them out.
+fn cylinder_cutters(face: &Shape, direction: Vec3, angle: f64, size: f64) -> R<Option<Vec<Shape>>> {
+    let s = face.surface_definition().map_err(occt_error)?;
+    if s.kind != 1 || norm(cross(s.frame.normal, direction)) < 1e-9 {
+        return Ok(None);
+    }
+    let (o, a, u) = (s.frame.origin, s.frame.normal, s.frame.x);
+    let v = cross(a, u);
+    let p = face.face_inner_point().map_err(occt_error)?;
+    let n = normal_at(face, p).ok_or_else(|| regen_error("ISOCLINE_NO_RESULT"))?;
+    let rel = sub(p, o);
+    let sign = if dot(n, sub(rel, scale(a, dot(rel, a)))) >= 0.0 { 1.0 } else { -1.0 };
+    let (du, dv) = (dot(direction, u), dot(direction, v));
+    let across = du.hypot(dv);
+    let c = sign * angle.sin() / across;
+    if c.abs() > 1.0 {
+        return Ok(Some(Vec::new()));
+    }
+    let base = dv.atan2(du);
+    let spread = c.acos();
+    let phis = if spread.abs() < 1e-12 { vec![base] } else { vec![base - spread, base + spread] };
+    let mut out = Vec::new();
+    for phi in phis {
+        let radial = add(scale(u, phi.cos()), scale(v, phi.sin()));
+        let frame = Frame { origin: o, normal: cross(a, radial), x: radial };
+        out.push(occt::plane_face(frame, 0.0, size, -size, size).map_err(occt_error)?);
+    }
+    Ok(Some(out))
+}
+
 /// Large planar faces standing in for the isocline planes of some faces.
 fn isocline_cutters(faces: &[Shape], direction: Vec3, angle: f64) -> R<Vec<Shape>> {
     let mut out = Vec::new();
     for face in faces {
         let bounds = face.bounding_box(false).map_err(occt_error)?;
         let size = norm(sub(bounds.max, bounds.min)) * 2.0 + 1e-3;
+        if let Some(cutters) = cylinder_cutters(face, direction, angle, size)? {
+            out.extend(cutters);
+            continue;
+        }
         for plane in isocline_planes(face, direction, angle)? {
             out.push(occt::plane_face(plane, -size, size, -size, size).map_err(occt_error)?);
         }
