@@ -1,0 +1,47 @@
+{
+  "batch": "050",
+  "title": "body drafts: both sides, matching at the parting plane, plane corners",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "body-draft",
+      "description": "a whole part drafted 3 degrees on both sides of a plane through its middle",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "body-draft",
+      "description": "the same, not matching faces at the parting plane",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "body-draft",
+      "description": "two faces drafted 3 degrees on both sides of the plane",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "body-draft",
+      "description": "a whole part drafted 3 degrees from a plane through its middle, its corners made planes",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    }
+  ]
+}
