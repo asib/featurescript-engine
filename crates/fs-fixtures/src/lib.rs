@@ -182,6 +182,31 @@ pub fn metrics(shape: &Shape) -> Result<Metrics, occt::Error> {
 }
 
 /// The volume inside one shape but not the other, both ways.
+/// Whether every face of each shape lies on the other, to within `close` metres: points sampled on each face (those
+/// inside it) are that close to the other shape.
+pub fn surfaces_coincide(a: &Shape, b: &Shape, close: f64) -> bool {
+    let one_way = |x: &Shape, y: &Shape| {
+        x.sub_shapes(ShapeKind::Face).iter().all(|face| {
+            let mut sampled = 0;
+            for i in 1..8 {
+                for j in 1..8 {
+                    let Ok(frame) = face.face_tangent_plane(i as f64 / 8.0, j as f64 / 8.0) else { continue };
+                    let Ok(vertex) = occt::vertex(frame.origin) else { continue };
+                    if !vertex.distance(face).is_ok_and(|d| d.distance < 1e-9) {
+                        continue;
+                    }
+                    sampled += 1;
+                    if !vertex.distance(y).is_ok_and(|d| d.distance < close) {
+                        return false;
+                    }
+                }
+            }
+            sampled > 0
+        })
+    };
+    one_way(a, b) && one_way(b, a)
+}
+
 pub fn difference_volume(a: &Shape, b: &Shape) -> Result<f64, occt::Error> {
     // Booleans between two kernels' B-splines can fail outright; a looser fuzzy value usually gets through.
     let one_way = |x: &Shape, y: &Shape| -> Result<f64, occt::Error> {
@@ -256,16 +281,18 @@ pub struct Strictness {
     /// Compare edge and vertex counts. Onshape's STEP export splits some closed edges, so a batch with probe lines
     /// takes its counts from them instead.
     pub topology: bool,
+    /// Where a boolean can't tell the shapes apart, how close their surfaces must lie (metres).
+    pub close: f64,
 }
 
 /// For batches without probe lines: everything from the STEP file, as tightly as it allows.
-pub const STEP_ONLY: Strictness = Strictness { relative: RELATIVE_TOLERANCE, topology: true };
+pub const STEP_ONLY: Strictness = Strictness { relative: RELATIVE_TOLERANCE, topology: true, close: 1e-7 };
 
 /// For batches with probe lines, which carry Onshape's own volumes, areas and entity counts to 1e-6: the STEP file
 /// still checks the shapes (bounding box, face types, and the volume where they differ to 1e-6), but volumes and
 /// areas OCCT measures on Onshape's STEP surfaces can be off by 1e-6 (trimmed cylinders), 2e-5 (a B-spline
 /// ellipsoid) or 1.3e-4 (a tube swept along an arc, batch 008 c009), so they only catch gross errors here.
-pub const WITH_PROBES: Strictness = Strictness { relative: 1e-3, topology: false };
+pub const WITH_PROBES: Strictness = Strictness { relative: 1e-3, topology: false, close: 1e-7 };
 
 /// Compares the engine's part with Onshape's.
 pub fn compare(name: &str, ours: &Shape, theirs: &Shape) -> PartResult {
@@ -337,6 +364,11 @@ pub fn compare_with(name: &str, ours: &Shape, theirs: &Shape, strictness: Strict
     match difference_volume(ours, theirs) {
         Ok(volume) => {
             result.difference = volume / theirs_m.volume;
+            // Booleans between two kernels' nearly coincident B-spline faces can give nonsense (a twisted sweep,
+            // batch 019); if the surfaces lie on each other, the shapes are the same.
+            if result.difference > RELATIVE_TOLERANCE && surfaces_coincide(ours, theirs, strictness.close) {
+                result.difference = 0.0;
+            }
             if result.difference > RELATIVE_TOLERANCE {
                 problems.push(format!("the shapes differ by {:.3e} of the volume", result.difference));
             }
@@ -554,6 +586,9 @@ pub fn check_batch_with(batch: &Path, step: Option<&Path>, loose: &[(&str, f64)]
             report.duplicated.push(name.clone());
             continue;
         }
+        // A case compared loosely may have surfaces a micrometre apart (Onshape's twisted sweep, batch 019).
+        let case = name.split('.').next().unwrap_or(name);
+        let strictness = if loose.iter().any(|(c, _)| *c == case) { Strictness { close: 1e-6, ..strictness } } else { strictness };
         report.parts.push(compare_with(name, our_shapes[0], shapes[0], strictness));
     }
     Ok(report)
