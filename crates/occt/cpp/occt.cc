@@ -9,6 +9,7 @@
 #include <BRepAlgoAPI_Splitter.hxx>
 #include <BRepBndLib.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
+#include <BRepBuilderAPI_NurbsConvert.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
@@ -351,27 +352,48 @@ Box3 bounding_box_in(const Shape &s, Frame frame, bool precise) {
   return bounding_box(Shape(s.shape.Moved(TopLoc_Location(to_local))), precise);
 }
 
+// OCCT integrates some free-form faces badly: extrusions and revolutions of B-splines by 6e-4, closed B-spline
+// faces (a scaled sphere) by 1e-5. Converting free-form faces to NURBS and splitting closed ones into open patches
+// first makes areas and volumes accurate to about 1e-8.
+TopoDS_Shape prepared_for_integration(const TopoDS_Shape &shape) {
+  if (!has_free_form_faces(shape)) return shape;
+  TopoDS_Shape result = shape;
+  // Only swept and offset faces need converting; converting some imported B-spline shapes crashes OCCT.
+  bool swept = false;
+  for (TopExp_Explorer it(shape, TopAbs_FACE); it.More() && !swept; it.Next()) {
+    switch (BRepAdaptor_Surface(TopoDS::Face(it.Current()), Standard_False).GetType()) {
+      case GeomAbs_SurfaceOfExtrusion:
+      case GeomAbs_SurfaceOfRevolution:
+      case GeomAbs_OffsetSurface:
+        swept = true;
+        break;
+      default:
+        break;
+    }
+  }
+  if (swept) {
+    BRepBuilderAPI_NurbsConvert converter(result, Standard_True);
+    if (converter.IsDone()) result = converter.Shape();
+  }
+  ShapeUpgrade_ShapeDivideClosed divider(result);
+  divider.SetNbSplitPoints(3);
+  if (divider.Perform()) result = divider.Result();
+  return result;
+}
+
 // Volumes and areas use adaptive integration: the default Gauss rule is off by 1e-4 on rational B-spline surfaces,
 // such as a scaled sphere.
 constexpr double GPROP_EPS = 1e-12;
 
 double shape_volume(const Shape &s) {
   GProp_GProps props;
-  BRepGProp::VolumeProperties(s.shape, props, GPROP_EPS, Standard_True);
+  BRepGProp::VolumeProperties(prepared_for_integration(s.shape), props, GPROP_EPS, Standard_True);
   return props.Mass();
 }
 
 double shape_area(const Shape &s) {
-  // Closed free-form faces (a scaled sphere) integrate badly in one piece: OCCT's adaptive rule wanders by 1e-5
-  // around the poles. Splitting closed faces into open patches first makes it accurate to about 1e-9.
-  TopoDS_Shape shape = s.shape;
-  if (has_free_form_faces(shape)) {
-    ShapeUpgrade_ShapeDivideClosed divider(shape);
-    divider.SetNbSplitPoints(3);
-    if (divider.Perform()) shape = divider.Result();
-  }
   GProp_GProps props;
-  BRepGProp::SurfaceProperties(shape, props, GPROP_EPS, Standard_True);
+  BRepGProp::SurfaceProperties(prepared_for_integration(s.shape), props, GPROP_EPS, Standard_True);
   return props.Mass();
 }
 

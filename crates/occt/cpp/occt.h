@@ -91,6 +91,11 @@ std::unique_ptr<Shape> make_circle_edge(Frame f, double radius);
 std::unique_ptr<Shape> make_arc_edge(Frame f, double radius, double start, double end);
 std::unique_ptr<Shape> make_arc_through(Vec3 a, Vec3 mid, Vec3 b);
 std::unique_ptr<Shape> make_plane_face(Frame f, double umin, double umax, double vmin, double vmax);
+std::unique_ptr<Shape> make_ellipse_edge(Frame f, double major, double minor, bool whole, double start, double end);
+std::unique_ptr<Shape> make_interpolated_edge(rust::Slice<const Vec3> points, rust::Slice<const Vec3> derivatives,
+                                              rust::Slice<const double> parameters, bool closed);
+std::unique_ptr<Shape> make_bezier_edge(rust::Slice<const Vec3> points);
+std::unique_ptr<Shape> make_conic_edge(Vec3 a, Vec3 c, Vec3 b, double w);
 
 std::unique_ptr<ShapeList> sketch_regions(const ShapeList &edges, Frame f);
 std::unique_ptr<Operation> merge_faces(const ShapeList &faces);

@@ -96,6 +96,22 @@ mod ffi {
         fn make_arc_edge(f: Frame, radius: f64, start: f64, end: f64) -> Result<UniquePtr<Shape>>;
         fn make_arc_through(a: Vec3, mid: Vec3, b: Vec3) -> Result<UniquePtr<Shape>>;
         fn make_plane_face(f: Frame, umin: f64, umax: f64, vmin: f64, vmax: f64) -> Result<UniquePtr<Shape>>;
+        fn make_ellipse_edge(
+            f: Frame,
+            major: f64,
+            minor: f64,
+            whole: bool,
+            start: f64,
+            end: f64,
+        ) -> Result<UniquePtr<Shape>>;
+        fn make_interpolated_edge(
+            points: &[Vec3],
+            derivatives: &[Vec3],
+            parameters: &[f64],
+            closed: bool,
+        ) -> Result<UniquePtr<Shape>>;
+        fn make_bezier_edge(points: &[Vec3]) -> Result<UniquePtr<Shape>>;
+        fn make_conic_edge(a: Vec3, c: Vec3, b: Vec3, w: f64) -> Result<UniquePtr<Shape>>;
 
         fn sketch_regions(edges: &ShapeList, f: Frame) -> Result<UniquePtr<ShapeList>>;
         fn merge_faces(faces: &ShapeList) -> Result<UniquePtr<Operation>>;
@@ -466,6 +482,29 @@ fn to_list(shapes: &[Shape]) -> UniquePtr<ffi::ShapeList> {
 
 fn from_list(list: &ffi::ShapeList) -> Vec<Shape> {
     (0..ffi::list_len(list)).map(|i| Shape::new(ffi::list_get(list, i))).collect()
+}
+
+/// A whole ellipse in a frame (x along the `major` axis), or an arc of it from `start` to `end` (radians from the
+/// major axis towards the minor).
+pub fn ellipse_edge(frame: Frame, major: f64, minor: f64, arc: Option<(f64, f64)>) -> Result<Shape> {
+    let (start, end) = arc.unwrap_or((0.0, 0.0));
+    Ok(Shape::new(ffi::make_ellipse_edge(frame, major, minor, arc.is_none(), start, end)?))
+}
+
+/// A cubic spline through points, each span the cubic Hermite segment fixed by the derivatives at its ends.
+/// `parameters` has one value per point, plus one more (for the span back to the start) if `closed`.
+pub fn interpolated_edge(points: &[Vec3], derivatives: &[Vec3], parameters: &[f64], closed: bool) -> Result<Shape> {
+    Ok(Shape::new(ffi::make_interpolated_edge(points, derivatives, parameters, closed)?))
+}
+
+/// A Bézier curve with these control points.
+pub fn bezier_edge(points: &[Vec3]) -> Result<Shape> {
+    Ok(Shape::new(ffi::make_bezier_edge(points)?))
+}
+
+/// A conic from `a` to `b` tangent at them to the lines through `control`, with weight `w` at the control point.
+pub fn conic_edge(a: Vec3, control: Vec3, b: Vec3, w: f64) -> Result<Shape> {
+    Ok(Shape::new(ffi::make_conic_edge(a, control, b, w)?))
 }
 
 pub fn compound(shapes: &[Shape]) -> Shape {
