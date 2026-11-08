@@ -333,6 +333,15 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   way the material lies from the definition sheet ((20, 15, 2) to (20, 15, 0) on a plate's top; a flipped form's
   from (20, 15, 0) to (20, 15, −2)).
 
+- **Fit splines matching curvature** (batch 027): with a first and second derivative at the start, Onshape's
+  cubic has knots averaged from the centripetal parameters with the start's repeated once per condition: through
+  three points, [0, 0, 0, 0, t₁/3, (t₁ + 1)/3, 1, 1, 1, 1], the far end natural. Closed fit splines are periodic
+  (std's form lists the first three poles again and its knots run a period past each end); raised in degree by edit
+  curve, std hands back Bézier spans (each inner knot as often as the degree) from the second point, with clamped
+  knots, still flagged periodic.
+- **Offset curves Onshape finds no result for** (batches 020 and 027) warn `OFFSET_CURVE_ON_FACE_CHAIN_YIELDED_NO_RESULT`
+  and make nothing: a cylinder's top edge across its top; a chamfer's edge on a block's top, extended. The same
+  chamfer edge offset without extending, and a cylinder's top edge down its side, work.
 - **Feature patterns that reapply the feature** (batch 026) run it once per instance with the instance's transform
   pushed (`setFeaturePatternInstanceData`); std's extrude moves its profile by the remainder transform (all of it
   when the profile isn't made inside the pattern), so a boss up to a slanted plane ends at its own height in each
