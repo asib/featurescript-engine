@@ -78,6 +78,7 @@ pub fn register(m: &mut GeomBuiltins) {
     m.insert("opModifyFillet", |_, args| run_op(&args, "opModifyFillet", blend::modify_fillet));
     m.insert("opShell", |_, args| run_op(&args, "opShell", direct::shell));
     m.insert("opDraft", |_, args| run_op(&args, "opDraft", direct::draft));
+    m.insert("opBodyDraft", |_, args| run_op(&args, "opBodyDraft", direct::body_draft));
     m.insert("opThicken", |_, args| run_op(&args, "opThicken", direct::thicken));
     m.insert("opOffsetFace", |_, args| run_op(&args, "opOffsetFace", direct::offset_face));
     m.insert("opDeleteFace", |_, args| run_op(&args, "opDeleteFace", direct::delete_face));

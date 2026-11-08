@@ -420,3 +420,106 @@ pub fn offset_wire(model: &mut Model, id: FeatureId, definition: &Value) -> R<Va
     }
     Ok(Value::UNDEFINED)
 }
+
+/// `@opBodyDraft`: tapers steep faces by adding material between reference edges and the parting object. Each face
+/// turns about its reference edge: the given top edges, or for faces (or whole parts), the edge farthest along the
+/// pull direction where the face meets a face that isn't steep.
+pub fn body_draft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
+    let pull = values::normalize(values::vec3(field(definition, "pullDirection"), "opBodyDraft pullDirection")?)
+        .ok_or_else(|| regen_error("BODY_DRAFT_BAD_PULL_DIRECTION"))?;
+    let angle = values::angle(field(definition, "angle"), "opBodyDraft angle")?;
+    if values::opt_bool(definition, "bothSides")?.unwrap_or(false) {
+        return Err(error("@opBodyDraft: drafts on both sides aren't supported yet"));
+    }
+    // A face is steep if it is closer to the pull direction than the draft angle.
+    let normal = |face: &Shape| face.face_tangent_plane(0.5, 0.5).ok().map(|p| p.normal);
+    let steep = |face: &Shape| normal(face).is_some_and(|n| values::dot(n, pull).abs() < angle.sin());
+    let height = |edge: &Shape| edge.edge_tangent(0.5, false).ok().map(|a| values::dot(a.origin, pull));
+    // (body, face, reference edge)
+    let mut pairs: Vec<(usize, Shape, Shape)> = Vec::new();
+    let selection = field(definition, "selectionType").as_str().unwrap_or("EDGES");
+    match selection {
+        "EDGES" => {
+            for r in query::evaluate(model, field(definition, "topEdges"))? {
+                if r.kind != EntityType::Edge {
+                    continue;
+                }
+                let edge = model.shape(r).clone();
+                let Some(top) = height(&edge) else { continue };
+                for face in &model.bodies[r.body].faces {
+                    let below = face.shape.bounding_box(false).is_ok_and(|b| {
+                        let centre = values::scale(values::add(b.min, b.max), 0.5);
+                        values::dot(centre, pull) < top
+                    });
+                    let has = face.shape.visible_sub_shapes(ShapeKind::Edge).iter().any(|e| e.is_same(&edge));
+                    if has && below && steep(&face.shape) {
+                        pairs.push((r.body, face.shape.clone(), edge.clone()));
+                    }
+                }
+            }
+        }
+        "FACES" | "PARTS" => {
+            let mut faces: Vec<(usize, Shape)> = Vec::new();
+            if selection == "FACES" {
+                for r in query::evaluate(model, field(definition, "faces"))? {
+                    if r.kind == EntityType::Face {
+                        faces.push((r.body, model.shape(r).clone()));
+                    }
+                }
+            } else {
+                let excluded: Vec<Shape> = match field(definition, "excludeFaces") {
+                    v if v.is_undefined() => Vec::new(),
+                    v => query::evaluate(model, v)?.into_iter().map(|r| model.shape(r).clone()).collect(),
+                };
+                for b in super::owner_bodies(model, field(definition, "bodies"))? {
+                    for face in &model.bodies[b].faces {
+                        if steep(&face.shape) && !excluded.iter().any(|e| e.is_same(&face.shape)) {
+                            faces.push((b, face.shape.clone()));
+                        }
+                    }
+                }
+            }
+            for (b, face) in faces {
+                let others: Vec<&Shape> =
+                    model.bodies[b].faces.iter().map(|f| &f.shape).filter(|f| !f.is_same(&face) && !steep(f)).collect();
+                let reference = face
+                    .visible_sub_shapes(ShapeKind::Edge)
+                    .into_iter()
+                    .filter(|e| {
+                        others.iter().any(|o| o.visible_sub_shapes(ShapeKind::Edge).iter().any(|x| x.is_same(e)))
+                    })
+                    .filter_map(|e| height(&e).map(|h| (h, e)))
+                    .max_by(|a, b| a.0.total_cmp(&b.0));
+                if let Some((_, edge)) = reference {
+                    pairs.push((b, face, edge));
+                }
+            }
+        }
+        other => return Err(error(format!("@opBodyDraft: selectionType {other} isn't supported"))),
+    }
+    let mut groups: Vec<(usize, Vec<Shape>, Vec<occt::Frame>)> = Vec::new();
+    for (b, face, edge) in pairs {
+        let at = edge.edge_tangent(0.5, false).map_err(|_| regen_error("BODY_DRAFT_FAILED"))?.origin;
+        let neutral = occt::Frame { origin: at, normal: pull, x: values::canonical_x(pull) };
+        match groups.iter_mut().find(|(g, _, _)| *g == b) {
+            Some((_, faces, frames)) => {
+                if !faces.iter().any(|f| f.is_same(&face)) {
+                    faces.push(face);
+                    frames.push(neutral);
+                }
+            }
+            None => groups.push((b, vec![face], vec![neutral])),
+        }
+    }
+    if groups.is_empty() {
+        return Err(regen_error("BODY_DRAFT_FAILED"));
+    }
+    let mut results = Vec::new();
+    for (b, faces, neutrals) in groups {
+        let op = occt::draft_each(&model.bodies[b].shape, &faces, pull, angle, &neutrals)
+            .map_err(|_| regen_error("BODY_DRAFT_FAILED"))?;
+        results.push((b, op));
+    }
+    replace_bodies(model, &id, results);
+    Ok(Value::UNDEFINED)
+}
