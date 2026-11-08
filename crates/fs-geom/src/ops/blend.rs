@@ -761,10 +761,12 @@ fn planar_face_blend(model: &mut Model, id: FeatureId, definition: &Value) -> R<
         let v_at = |x: f64| fv0 + (start + (x - lo) / (hi - lo) * (finish - start)) * (fv1 - fv0);
         let end = |x1: f64, x2: f64| -> Vec<(f64, f64)> {
             let chord = values::norm(sub(add(p1, scale(t, x1 - lo)), add(p2, scale(t, x2 - lo))));
+            // Each handle reaches at most across the whole section (batch 056 c009: 1.637 held at 1).
+            let handle = |speed: f64| (chord / (3.0 * speed)).min((ub - ua).abs());
             let poles = [
                 (ub, v_at(x1)),
-                (ub - toward * chord / (3.0 * speed1), v_at(x1)),
-                (ua + toward * chord / (3.0 * speed2), v_at(x2)),
+                (ub - toward * handle(speed1), v_at(x1)),
+                (ua + toward * handle(speed2), v_at(x2)),
                 (ua, v_at(x2)),
             ];
             (0..=32)
