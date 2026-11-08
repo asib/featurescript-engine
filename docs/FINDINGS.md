@@ -585,7 +585,12 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   Trimmed to the walls, sides of unequal extent give the blend slanted ends, the blend running along each side as
   far as that side does: in the blend's parameters (angle, distance along it) each end is a cubic Bézier leaving
   each corner along the section, as fast as the chord between the two corners is long (the poles' angle
-  √(2/3) = 12.247 / (3 × 5) in from each corner for c004; along the blend 3t² − 2t³ of the way). Sheets apart blend
+  √(2/3) = 12.247 / (3 × 5) in from each corner for c004; along the blend 3t² − 2t³ of the way), but no further
+  than across the whole section (batch 056 c009: 1.637 of the conic's parameter held at 1). `widthRatio` is the
+  ratio of the section's distances from side 1 and side 2 (as the two radii set them), not of the setbacks
+  (batch 056 c012: at 60°, ratio 2 sets the sides back 5.2372 and 6.5465 mm, the chord 6); the two agree at 90°.
+  At 120° a ratio of 2 or 0.5 leaves one side no setback, and Onshape fails (`FACE_BLEND_FAILED`, 055 c010, 056
+  c013). Sheets apart blend
   as sheets that meet do once std's flip is made up for. A width-controlled blend at 120°, ratio 2, fails in
   Onshape (`FACE_BLEND_FAILED`, c010); the engine builds it.
 - **Mass properties of rational surfaces** (batch 055): OCCT's adaptive integration can settle on a wrong value
@@ -594,25 +599,33 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   scaled sphere), so areas and volumes are integrated over faces split that way.
 - **Curvature fillets past magnitude 0.86** (batch 055 c016–c020) keep the quintic on knots 0⁶ 0.5² 1⁶ (Onshape's
   STEP of batch 053 c004 re-approximates it as a cubic; `evSurfaceDefinition` gives the quintic), with P1 still at
-  1 − 0.3m and the middle through the shoulder (`0.125 α₂ + 0.375 (α₃ + β₃) = (1 − m)/2`), but β₃ is 0.0017 at
-  0.86 (with α₂ still 1 − 0.6m) and from 0.88 α₂ falls too (0.449283, 0.367067, 0.1615265, 0.010739 at 0.88, 0.9,
-  0.95, 0.99; β₃ 0.001744, 0.00139225, 0.0005127, 0.003103): no rule found; the curves stay convex.
+  1 − 0.3m and the middle through the shoulder (`0.125 α₂ + 0.375 (α₃ + β₃) = (1 − m)/2`). Past m = 5/7, where
+  the formula's β₃ = 1/3 − 7m/15 goes negative, β₃ is a fortieth of it the other way, (7m − 5)/600 (batch 056: m
+  0.72, 0.76, 0.8, 0.82, 0.84, and 055's 0.86, exactly), with α₂ still 1 − 0.6m and α₃ through the shoulder. From
+  0.88, where that α₃ would fall below β₃ (the inner poles crossing the diagonal), α₂ falls too (0.449283,
+  0.367067, 0.1615265, 0.010739 at 0.88, 0.9, 0.95, 0.99; β₃ 0.001744, 0.00139225, 0.0005127, 0.003103): no rule
+  found; the curves stay convex. OCCT's boolean with the NURBS-converted cutting tool can come back unchanged
+  without an error (m 0.82): the engine checks the volume changed and cuts with the extrusion otherwise.
 - **Spheres extended round** (batch 055 c012–c015): the new edge's top corner (radius 5) turns 0.200754,
   0.406117 and 1.106271 rad for 1, 2 and 5 mm (d/r 0.2, 0.4, 1), the bottom (radius 10) exactly d/r; between,
   within 1% of d/r for 1 mm, drifting further above as the distance grows (5% at latitude 47° for 5 mm). Onshape's
   edge is a fit with dyadic knots (tolerance about 1e-5 m). 10 mm fails with `EXTEND_SELF_INTERSECTION`.
-- **Loft end conditions** (batch 055 c021–c026) make each side of a two-profile loft one cubic span across:
-  rows P0 (the first profile), P1 = P0 + D₀/3, P2 = P3 − D₁/3, P3 (the last), where an end left free has no second
-  derivative (P2 midway between P1 and P3, say). Normal to the profile, D is the magnitude times the plane's normal
-  (towards the other profile) times a length L = 0.9 h + 0.1 d, h how far apart the profiles' planes are and d
-  how far apart their corners (squares 20 apart, corners 21.2132: L = 20.12132; circles 30 apart, points 30.5941:
-  30.05941), the same for every point (Onshape's volumes to 2e-7). Tangent to the profile, the derivative field
-  isn't the projected chord at every point (radial, 6 mm long, for the circles): it is exactly that at 0°, 90°,
-  180° and 270° and between follows the periodic C² cubic spline through those four (5.83363 = 33√2/8 mm at
-  45°, turned ±0.0107 rad at 22.5°, within Onshape's fit), which puts Onshape's volume 0.27% over the exact
-  field's. Why four samples (and where they fall on other profiles) isn't known. Onshape's profiles are cubic
-  Hermite fits (64 spans for a circle), and a square's rows rise and fall along each edge by up to 0.0008 mm
-  about the exact construction's.
+- **Loft end conditions** (batches 055, 056) make each side of a two-profile loft one cubic span across: rows P0
+  (the first profile), P1 = P0 + D₀/3, P2 = P3 − D₁/3, P3 (the last), where an end left free has no second
+  derivative (P2 midway between P1 and P3, say). The chord c from a point of the first profile to the matching
+  point of the last gives the derivative: along a vector v (the profile's normal pointing at the other profile,
+  or a direction given), the magnitude times (0.9 c·v + 0.1 |c|) along v (squares 20 apart, corners 21.2132 apart:
+  20.12132; a direction at 45° to circles, c005, to 3e-7 of the volume); tangent to the profile's plane, the
+  magnitude times c's part in the plane. On a square the derivative takes its value at each corner and goes from
+  one to the next as 3t² − 2t³ (off axis, c001: the corners' 20.29129 and 20.06155 exactly, the side between two
+  equal corners flat where c's length dips). On a circle, along a vector, it is c's at each point (off axis, c002,
+  to 5e-7); tangent to the plane, the periodic C² cubic spline through its values at 0°, 90°, 180° and 270° (the
+  coaxial circles' radial 6 mm dips to 33√2/8 at 45°, which puts Onshape's volume 0.27% over the exact field's;
+  055 c026, 056 c004 to 1e-6). Tangent to a square's plane (056 c003) the derivative has the projected chord's
+  length at the thirds of each edge but turns from it (25.7° from the edge's normal at a third where the chord is
+  18.4°): no rule found. Normal to a direction (`NORMAL_DIRECTION`) fails in Onshape (`LOFT_INVALID`, c006).
+  Onshape's profiles are cubic Hermite fits (64 spans for a circle), and a square's rows rise and fall along each
+  edge by up to 0.0008 mm about the exact construction's (0.05 mm³ of volume).
 
 ## STEP export
 
