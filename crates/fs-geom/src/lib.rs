@@ -9,6 +9,7 @@
 
 pub mod attributes;
 pub mod bspline;
+pub mod curve_extend;
 pub mod evaluate;
 pub mod mate;
 pub mod model;
