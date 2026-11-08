@@ -3,18 +3,16 @@
 
 use std::path::PathBuf;
 
-/// Cases the engine can't build as Onshape does yet (see docs/std-coverage.md): a face blend 6 mm wide, ratio 2,
-/// at 120°, which Onshape refuses (c010); a sphere's band extended round it, whose new edge Onshape doesn't carry
+/// Cases the engine can't build as Onshape does yet (see docs/std-coverage.md): a sphere's band extended round it, whose new edge Onshape doesn't carry
 /// each point the distance round its circle (c012–c014), and refuses at 10 mm (c015); curvature fillets of
-/// magnitude 0.86 and up, whose quintic's inner poles Onshape places by no rule found yet (c016–c020); a loft
-/// tangent to its start profile (c026).
-const KNOWN_GAPS: &[&str] =
-    &["c010", "c012", "c013", "c014", "c015", "c016", "c017", "c018", "c019", "c020", "c026"];
+/// magnitude 0.88 and up, whose quintic's inner poles Onshape places by no rule found yet (c017–c020).
+const KNOWN_GAPS: &[&str] = &["c012", "c013", "c014", "c015", "c017", "c018", "c019", "c020"];
 
 /// Lofts from a square normal to the start profile only: Onshape's sides are fits whose rows rise and fall along
 /// each edge by up to 0.0008 mm about the exact construction's, so its volume is 0.05 mm³ over (0.1 at magnitude
-/// 2). Compared to 0.15.
-const LOOSE: &[(&str, f64)] = &[("c021", 0.15), ("c022", 0.15)];
+/// 2). Compared to 0.15. A curvature fillet of magnitude 0.86: Onshape's own area of its quintic strays, as in
+/// batch 053.
+const LOOSE: &[(&str, f64)] = &[("c016", 0.05), ("c021", 0.15), ("c022", 0.15)];
 
 /// Every case returns its faces' surfaces or points along its edges, to study: Onshape's B-spline approximations,
 /// its faces in its own order. Only the bodies are compared.
