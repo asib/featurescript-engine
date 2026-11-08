@@ -47,7 +47,9 @@ pub fn merge(model: &mut Model, id: FeatureId, definition: &Value, source: &Sour
             infos.entry(entity.shape.hash()).or_default().push((entity.shape.clone(), copy));
         }
         let special = |s: &Shape| {
-            infos.get(&s.hash()).and_then(|list| list.iter().find(|(shape, _)| shape.is_same(s)).map(|(_, i)| i.clone()))
+            infos
+                .get(&s.hash())
+                .and_then(|list| list.iter().find(|(shape, _)| shape.is_same(s)).map(|(_, i)| i.clone()))
         };
         let mut new = NewBody::new(body.shape.clone(), body.body_type, info.clone());
         new.construction = body.construction;
@@ -55,7 +57,13 @@ pub fn merge(model: &mut Model, id: FeatureId, definition: &Value, source: &Sour
         new.frame = body.frame;
         new.attributes = body.attributes.clone();
         new.properties = if clear_custom {
-            Rc::new(body.properties.iter().filter(|(k, _)| !k.starts_with("CUSTOM:")).map(|(k, v)| (k.clone(), v.clone())).collect())
+            Rc::new(
+                body.properties
+                    .iter()
+                    .filter(|(k, _)| !k.starts_with("CUSTOM:"))
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect(),
+            )
         } else {
             body.properties.clone()
         };
