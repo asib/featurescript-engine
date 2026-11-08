@@ -4,10 +4,11 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use crate::model::{Body, EntityRef, FeatureId, Info, Model, NewBody, Origins};
+use crate::model::{Body, EntityRef, EntityType, FeatureId, Info, Model, NewBody, Origins, Tid};
 use crate::query::{self, tid_string};
 use crate::values::{self, field};
 use fs_interp::Value;
+use fs_interp::value::Kind;
 use fs_interp::eval::R;
 use occt::Shape;
 
@@ -84,6 +85,37 @@ pub fn merge(model: &mut Model, id: FeatureId, definition: &Value, source: &Sour
             model.update_body(first + i, |b| b.owner = mapped);
         }
     }
+    // Sheet metal attributes name entities and bodies by transient id (the association between a model's definition
+    // and its parts, the tools registered on its walls): they name the copies now. Two copies of one source would
+    // otherwise share their association, and rebuilding one model would replace the other's parts (batch 023).
+    let mut renamed: HashMap<Tid, Tid> = HashMap::new();
+    for (i, body) in source.bodies.iter().enumerate() {
+        let copy = model.bodies[first + i].clone();
+        renamed.insert(body.tid, copy.tid);
+        for kind in [EntityType::Face, EntityType::Edge, EntityType::Vertex] {
+            for entity in body.entities(kind) {
+                if let Some(c) = copy.entities(kind).iter().find(|c| c.shape.is_same(&entity.shape)) {
+                    renamed.insert(entity.tid, c.tid);
+                }
+            }
+        }
+    }
+    for b in first..model.bodies.len() {
+        let body = model.bodies[b].clone();
+        let mut refs = vec![EntityRef { body: b, kind: EntityType::Body, index: 0 }];
+        for kind in [EntityType::Face, EntityType::Edge, EntityType::Vertex] {
+            refs.extend((0..body.entities(kind).len()).map(|index| EntityRef { body: b, kind, index }));
+        }
+        for r in refs {
+            if model.attributes(r).unnamed.iter().any(is_sheet_metal) {
+                model.update_attributes(r, |attributes| {
+                    for a in attributes.unnamed.iter_mut().filter(|a| is_sheet_metal(a)) {
+                        *a = rename_tids(a, &renamed);
+                    }
+                });
+            }
+        }
+    }
     let results = source
         .tracked
         .iter()
@@ -99,4 +131,32 @@ pub fn merge(model: &mut Model, id: FeatureId, definition: &Value, source: &Sour
         })
         .collect();
     Ok(Value::array(results))
+}
+
+fn is_sheet_metal(attribute: &Value) -> bool {
+    attribute.tag.is_some_and(|t| matches!(&*fs_interp::types::name(t), "SMAttribute" | "SMAssociationAttribute"))
+}
+
+/// A value with the transient ids in it (`T12`, or a transient query's string) renamed.
+fn rename_tids(value: &Value, renamed: &HashMap<Tid, Tid>) -> Value {
+    const QUERY: (&str, &str) = ("{ queryType : TRANSIENT , transientId : ", " }");
+    let rename = |s: &str| -> Option<String> {
+        if let Some(t) = query::parse_tid(s) {
+            return renamed.get(&t).map(|n| tid_string(*n));
+        }
+        let t = s.strip_prefix(QUERY.0)?.strip_suffix(QUERY.1).and_then(query::parse_tid)?;
+        renamed.get(&t).map(|n| format!("{}{}{}", QUERY.0, tid_string(*n), QUERY.1))
+    };
+    let kind = match &value.kind {
+        Kind::String(s) => match rename(s) {
+            Some(n) => Kind::String(n.into()),
+            None => return value.clone(),
+        },
+        Kind::Array(items) => Kind::Array(Rc::new(items.iter().map(|v| rename_tids(v, renamed)).collect())),
+        Kind::Map(entries) => {
+            Kind::Map(Rc::new(entries.iter().map(|(k, v)| (k.clone(), rename_tids(v, renamed))).collect()))
+        }
+        _ => return value.clone(),
+    };
+    Value { tag: value.tag, kind }
 }
