@@ -185,7 +185,11 @@ fn twisted_or_scaled(
         if ends.iter().any(|p| values::norm(values::cross(values::sub(*p, start), d)) > 1e-9) {
             return Err(not_straight());
         }
-        let steps = if twist.abs() > 1e-12 { ((twist.abs() / (std::f64::consts::PI / 64.0)).ceil() as usize).max(8) } else { 1 };
+        let steps = if twist.abs() > 1e-12 {
+            ((twist.abs() / (std::f64::consts::PI / 64.0)).ceil() as usize).max(8)
+        } else {
+            1
+        };
         let mut wires = Vec::new();
         for k in 0..=steps {
             let t = k as f64 / steps as f64;
@@ -202,9 +206,18 @@ fn twisted_or_scaled(
             // x goes to start + s R (x - start) + d L t.
             let shift = values::add(values::sub(start, linear(start)), values::scale(d, length * t));
             let m = [
-                s * r[0], s * r[1], s * r[2], shift.x,
-                s * r[4], s * r[5], s * r[6], shift.y,
-                s * r[8], s * r[9], s * r[10], shift.z,
+                s * r[0],
+                s * r[1],
+                s * r[2],
+                shift.x,
+                s * r[4],
+                s * r[5],
+                s * r[6],
+                shift.y,
+                s * r[8],
+                s * r[9],
+                s * r[10],
+                shift.z,
             ];
             wires.push(occt::transform(&wire, &occt::Transform { m }).map_err(occt_error)?.shape());
         }

@@ -176,7 +176,8 @@ pub fn pattern(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
                 edges.iter().all(|e| own.iter().any(|x| x.is_same(e)))
             })
             .ok_or_else(|| error("@opPattern: patterned edges must bound one face"))?;
-        let frame = face.shape.face_plane().map_err(|_| error("@opPattern: patterned edges must lie in a planar face"))?;
+        let frame =
+            face.shape.face_plane().map_err(|_| error("@opPattern: patterned edges must lie in a planar face"))?;
         let mut tools = Vec::new();
         for region in occt::sketch_regions(&edges, frame).map_err(occt_error)? {
             let below = occt::transform(&region, &super::translation(values::scale(frame.normal, -1.0)))

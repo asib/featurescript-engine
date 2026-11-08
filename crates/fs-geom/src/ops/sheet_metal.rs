@@ -70,7 +70,11 @@ fn wall_forms(attributes: &Attributes) -> Vec<Form> {
         .map(|forms| {
             forms
                 .iter()
-                .map(|f| Form { positive: id(f, "positiveBodyId"), negative: id(f, "negativeBodyId"), placement: id(f, "placementBodyId") })
+                .map(|f| Form {
+                    positive: id(f, "positiveBodyId"),
+                    negative: id(f, "negativeBodyId"),
+                    placement: id(f, "placementBodyId"),
+                })
                 .collect()
         })
         .unwrap_or_default()
@@ -86,7 +90,8 @@ pub fn cutting_tools(model: &Model) -> Vec<crate::model::Tid> {
         .filter(|b| b.is_sheet_metal_definition())
         .flat_map(|b| {
             b.faces.iter().flat_map(|f| {
-                let forms = wall_forms(&f.attributes).into_iter().flat_map(|form| [form.positive, form.negative]).flatten();
+                let forms =
+                    wall_forms(&f.attributes).into_iter().flat_map(|form| [form.positive, form.negative]).flatten();
                 wall_tool_tids(&f.attributes).into_iter().chain(forms)
             })
         })
@@ -279,7 +284,8 @@ fn associate(def: &Body, bends: &[Bend], front: f64, back: f64, kind: EntityType
                 if segment(e).is_some() {
                     continue;
                 }
-                let Some(wall) = def.faces.iter().find(|f| f.shape.sub_shapes(ShapeKind::Edge).iter().any(|x| x.is_same(e)))
+                let Some(wall) =
+                    def.faces.iter().find(|f| f.shape.sub_shapes(ShapeKind::Edge).iter().any(|x| x.is_same(e)))
                 else {
                     continue;
                 };
@@ -362,7 +368,10 @@ fn regenerate(model: &mut Model, id: &FeatureId, def_index: usize) -> R<()> {
     if association(&model.bodies[def_index].attributes).is_none()
         && let Some(tag) = fs_interp::types::find("SMAssociationAttribute")
     {
-        let name = format!("{{ queryType : TRANSIENT , transientId : {} }}", crate::query::tid_string(model.bodies[def_index].tid));
+        let name = format!(
+            "{{ queryType : TRANSIENT , transientId : {} }}",
+            crate::query::tid_string(model.bodies[def_index].tid)
+        );
         let mut attribute = values::map(vec![("attributeId", Value::string(name))]);
         attribute.tag = Some(tag);
         model.update_body(def_index, |body| Rc::make_mut(&mut body.attributes).unnamed.push(attribute));
@@ -456,13 +465,18 @@ fn regenerate(model: &mut Model, id: &FeatureId, def_index: usize) -> R<()> {
         })
         .collect();
     // The forms on each wall: what each removes, and what it adds (batch 022).
-    let body_of = |t: Option<crate::model::Tid>| t.and_then(|t| model.bodies.iter().find(|b| b.tid == t)).map(|b| b.shape.clone());
+    let body_of = |t: Option<crate::model::Tid>| {
+        t.and_then(|t| model.bodies.iter().find(|b| b.tid == t)).map(|b| b.shape.clone())
+    };
     let forms: Vec<(Vec<Shape>, Vec<Shape>)> = def
         .faces
         .iter()
         .map(|f| {
             let forms = wall_forms(&f.attributes);
-            (forms.iter().filter_map(|form| body_of(form.negative)).collect(), forms.iter().filter_map(|form| body_of(form.positive)).collect())
+            (
+                forms.iter().filter_map(|form| body_of(form.negative)).collect(),
+                forms.iter().filter_map(|form| body_of(form.positive)).collect(),
+            )
         })
         .collect();
     let solid = build_part(&def, &bends, &rips, front, back, clearance, &relief, &corners, &tools, &forms)?;
@@ -917,7 +931,19 @@ fn corner_reliefs(
             }
         };
         if style == "CLOSED" {
-            out.push(closed_corner(def, vertex, (i, j), base, (t1, away1), (t2, away2), n, bends, front, back, clearance)?);
+            out.push(closed_corner(
+                def,
+                vertex,
+                (i, j),
+                base,
+                (t1, away1),
+                (t2, away2),
+                n,
+                bends,
+                front,
+                back,
+                clearance,
+            )?);
             continue;
         }
         let frame = occt::Frame { origin: centre, normal: n, x: d1 };
@@ -1030,7 +1056,11 @@ fn closed_corner(
             params.push(f);
         }
         let derivative = |f: f64| add(scale(away, flat), scale(d, along * turn * (turn * f).cos()));
-        let curve = crate::splines::spline(&points, crate::splines::Ends::Clamped(derivative(0.0), derivative(1.0)), Some(params))?;
+        let curve = crate::splines::spline(
+            &points,
+            crate::splines::Ends::Clamped(derivative(0.0), derivative(1.0)),
+            Some(params),
+        )?;
         let (far_b, far_a) = (sub(b, scale(e, reach)), sub(a, scale(e, reach)));
         let edges = vec![
             curve,
@@ -1088,11 +1118,11 @@ impl BendRelief {
     }
 }
 
-
 /// Corner breaks std keeps on the definition's vertices (a fillet or chamfer of a sheet metal part's corner, batch
 /// 017): each rounds or chamfers its wall's corner at the vertex, in the wall's plane.
 fn break_corners(def: &Body, wall_attributes: &Attributes, wall: Shape) -> R<Shape> {
-    let Some(wall_id) = sm_attribute(wall_attributes, "WALL").and_then(|a| a.get("attributeId")).and_then(Value::as_str)
+    let Some(wall_id) =
+        sm_attribute(wall_attributes, "WALL").and_then(|a| a.get("attributeId")).and_then(Value::as_str)
     else {
         return Ok(wall);
     };
@@ -1174,7 +1204,9 @@ fn bend_reliefs(def: &Body, wall: &Shape, bends: &[Bend], relief: &BendRelief) -
             // In from the edge to an obround's centre, or to the end of a rectangle.
             let (depth, reach) = match relief.style.as_str() {
                 "SIZED_RECTANGLE" => (0.0, bend.setback + relief.depth),
-                "SIZED_OBROUND" => (bend.setback + relief.depth - width / 2.0, bend.setback + relief.depth - width / 2.0),
+                "SIZED_OBROUND" => {
+                    (bend.setback + relief.depth - width / 2.0, bend.setback + relief.depth - width / 2.0)
+                }
                 "RECTANGLE" => (0.0, relief.depth_scale * bend.radii.0 + width / 2.0),
                 _ => (relief.depth_scale * bend.radii.0, relief.depth_scale * bend.radii.0),
             };
@@ -1508,7 +1540,11 @@ pub fn update(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> 
         if is_active(&model.bodies[index]) {
             cut_registered_tools(model, &id, index)?;
             place_form_connectors(model, &id, index)?;
-            let index = model.bodies.iter().position(|b| b.tid == tid).ok_or_else(|| regen_error("SHEET_METAL_REBUILD_ERROR"))?;
+            let index = model
+                .bodies
+                .iter()
+                .position(|b| b.tid == tid)
+                .ok_or_else(|| regen_error("SHEET_METAL_REBUILD_ERROR"))?;
             regenerate(model, &id, index)?;
         } else {
             release_parts(model, index);
@@ -1524,7 +1560,10 @@ fn place_form_connectors(model: &mut Model, id: &FeatureId, index: usize) -> R<(
     let def = model.bodies[index].clone();
     let Some(model_attribute) = sm_attribute(&def.attributes, "MODEL").cloned() else { return Ok(()) };
     let side = |k: &str| -> R<f64> {
-        attribute_value(&model_attribute, k).map(|v| values::length(v, "thickness")).transpose().map(|t| t.unwrap_or(0.0))
+        attribute_value(&model_attribute, k)
+            .map(|v| values::length(v, "thickness"))
+            .transpose()
+            .map(|t| t.unwrap_or(0.0))
     };
     let (front, back) = (side("frontThickness")?, side("backThickness")?);
     let thickness = front + back;
@@ -1591,9 +1630,14 @@ fn cut_registered_tools(model: &mut Model, id: &FeatureId, index: usize) -> R<()
             };
             let inset = 1e-7;
             let (top, bottom) = (shifted(-(front - inset))?, shifted(back - inset)?);
-            let through = occt::boolean(occt::BooleanKind::Intersection, std::slice::from_ref(&top), std::slice::from_ref(&bottom), false)
-                .map_err(|_| regen_error("SHEET_METAL_REBUILD_ERROR"))?
-                .shape();
+            let through = occt::boolean(
+                occt::BooleanKind::Intersection,
+                std::slice::from_ref(&top),
+                std::slice::from_ref(&bottom),
+                false,
+            )
+            .map_err(|_| regen_error("SHEET_METAL_REBUILD_ERROR"))?
+            .shape();
             tool_bodies.push(b);
             tools.push(through);
             moved.push((b, vec![top, bottom]));
@@ -1615,11 +1659,8 @@ fn cut_registered_tools(model: &mut Model, id: &FeatureId, index: usize) -> R<()
     let mut tool_faces: Vec<(Shape, Vec<crate::model::Tid>)> = Vec::new();
     for (b, copies) in &moved {
         let body = &model.bodies[*b];
-        let tids: Vec<Vec<crate::model::Tid>> = body
-            .faces
-            .iter()
-            .map(|f| std::iter::once(f.tid).chain(f.ancestry.all.iter().copied()).collect())
-            .collect();
+        let tids: Vec<Vec<crate::model::Tid>> =
+            body.faces.iter().map(|f| std::iter::once(f.tid).chain(f.ancestry.all.iter().copied()).collect()).collect();
         for shape in std::iter::once(&body.shape).chain(copies.iter()) {
             for (face, t) in shape.sub_shapes(ShapeKind::Face).into_iter().zip(&tids) {
                 tool_faces.push((face, t.clone()));
@@ -1635,8 +1676,11 @@ fn cut_registered_tools(model: &mut Model, id: &FeatureId, index: usize) -> R<()
             continue;
         }
         let points = samples(&model.bodies[new].edges[i].shape);
-        let from: Vec<crate::model::Tid> =
-            tool_faces.iter().filter(|(face, _)| lies_on(&points, face)).flat_map(|(_, tids)| tids.iter().copied()).collect();
+        let from: Vec<crate::model::Tid> = tool_faces
+            .iter()
+            .filter(|(face, _)| lies_on(&points, face))
+            .flat_map(|(_, tids)| tids.iter().copied())
+            .collect();
         if !from.is_empty() {
             model.add_ancestors(r, &from);
         }
@@ -1652,7 +1696,9 @@ fn cut_registered_tools(model: &mut Model, id: &FeatureId, index: usize) -> R<()
             let name = format!("{{ queryType : TRANSIENT , transientId : {} }}", crate::query::tid_string(entity.tid));
             let mut attribute = values::map(vec![("attributeId", Value::string(name))]);
             attribute.tag = Some(tag);
-            model.update_attributes(EntityRef { body: new, kind, index: i }, |attributes| attributes.unnamed.push(attribute));
+            model.update_attributes(EntityRef { body: new, kind, index: i }, |attributes| {
+                attributes.unnamed.push(attribute)
+            });
         }
     }
     Ok(())
@@ -1699,7 +1745,8 @@ pub fn extend_to_plane_with(model: &mut Model, id: FeatureId, definition: &Value
             }
             let mut distances = Vec::new();
             for e in &selected {
-                let (a, z) = segment(e).ok_or_else(|| error("@opExtendSheetBody: only straight edges are supported yet"))?;
+                let (a, z) =
+                    segment(e).ok_or_else(|| error("@opExtendSheetBody: only straight edges are supported yet"))?;
                 let m = scale(add(a, z), 0.5);
                 let out = scale(into_face(&face.shape, m, sub(z, a))?, -1.0);
                 let rate = dot(out, plane.normal);
@@ -2066,7 +2113,8 @@ pub fn apply_in_flat(model: &mut Model, id: FeatureId, definition: &Value) -> R<
                 Break::Chamfer(d1, d2) => {
                     let mut f = face.shape.clone();
                     for v in &at {
-                        let corner = f.sub_shapes(ShapeKind::Vertex).into_iter().find(|x| x.is_same(v)).ok_or_else(failed)?;
+                        let corner =
+                            f.sub_shapes(ShapeKind::Vertex).into_iter().find(|x| x.is_same(v)).ok_or_else(failed)?;
                         f = occt::face_corner_chamfer_2d(&f, &corner, d1, d2).map_err(|_| failed())?;
                     }
                     f

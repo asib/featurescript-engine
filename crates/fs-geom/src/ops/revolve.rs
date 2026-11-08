@@ -124,9 +124,10 @@ pub fn revolve(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
                 for f in piece.sub_shapes(ShapeKind::Face) {
                     if f.distance(cutter).is_ok_and(|d| d.distance < 1e-7) && super::extrude::on_surface(&f, cutter) {
                         bound_cap.insert_all(&f);
-                    } else if end_faces.iter().any(|e| {
-                        f.distance(e).is_ok_and(|d| d.distance < 1e-7) && super::extrude::on_surface(&f, e)
-                    }) {
+                    } else if end_faces
+                        .iter()
+                        .any(|e| f.distance(e).is_ok_and(|d| d.distance < 1e-7) && super::extrude::on_surface(&f, e))
+                    {
                         first_cap.insert_all(&f);
                     }
                 }
@@ -197,8 +198,7 @@ fn up_to_bound(model: &Model, definition: &Value, axis: occt::Axis, which: &str)
     let cutter = match field(definition, &key("Bound")).as_str() {
         None | Some("BLIND") => return Ok(None),
         Some("UP_TO_SURFACE") => {
-            let face =
-                entity("BoundEntityFace")?.ok_or_else(|| regen_error("REVOLVE_SELECT_TERMINATING_SURFACE"))?;
+            let face = entity("BoundEntityFace")?.ok_or_else(|| regen_error("REVOLVE_SELECT_TERMINATING_SURFACE"))?;
             let face = model.shape(face).clone();
             match face.face_plane() {
                 Ok(plane) => {

@@ -336,8 +336,10 @@ pub fn offset_curve_on_face(model: &mut Model, id: FeatureId, definition: &Value
     let extend = values::opt_bool(definition, "extend")?.unwrap_or(false);
     let imprint = values::opt_bool(definition, "imprint")?.unwrap_or(false);
     let edges = shapes(model, field(definition, "edges"), EntityType::Edge)?;
-    let target_refs: Vec<crate::model::EntityRef> =
-        query::evaluate(model, field(definition, "targets"))?.into_iter().filter(|r| r.kind == EntityType::Face).collect();
+    let target_refs: Vec<crate::model::EntityRef> = query::evaluate(model, field(definition, "targets"))?
+        .into_iter()
+        .filter(|r| r.kind == EntityType::Face)
+        .collect();
     let mut made: Vec<(Shape, crate::model::EntityRef)> = Vec::new();
     for edge in &edges {
         let face = target_refs
@@ -540,7 +542,9 @@ pub fn ruled_surface(model: &mut Model, id: FeatureId, definition: &Value) -> R<
         let ends = [0.0, 1.0].map(|t| edge.edge_tangent(t, false).map(|l| l.origin));
         let (a, b) = (ends[0].clone().map_err(occt_error)?, ends[1].clone().map_err(occt_error)?);
         let at = |p: occt::Vec3| -> R<Option<occt::Vec3>> {
-            let Some(o) = overrides.iter().find(|o| values::norm(values::sub(o.vertex, p)) < 1e-7) else { return Ok(None) };
+            let Some(o) = overrides.iter().find(|o| values::norm(values::sub(o.vertex, p)) < 1e-7) else {
+                return Ok(None);
+            };
             Ok(Some(match (&o.up_to, o.direction, o.angle) {
                 (Some(q), _, _) => values::sub(*q, p),
                 (None, Some(d), _) => values::scale(d, o.width.unwrap_or(width)),
@@ -570,7 +574,11 @@ pub fn ruled_surface(model: &mut Model, id: FeatureId, definition: &Value) -> R<
         }
         // Facing the way the ruled sheet from the default ruling would.
         let reference = occt::prism(edge, ruling).map_err(|_| regen_error("RULED_SURFACE_FAILED"))?.shape();
-        let reference = reference.sub_shapes(ShapeKind::Face).into_iter().next().ok_or_else(|| regen_error("RULED_SURFACE_FAILED"))?;
+        let reference = reference
+            .sub_shapes(ShapeKind::Face)
+            .into_iter()
+            .next()
+            .ok_or_else(|| regen_error("RULED_SURFACE_FAILED"))?;
         let facing = reference.reversed().face_plane().map_err(occt_error)?.normal;
         let faces_along = |face: &Shape| -> R<bool> {
             let mid = values::scale(values::add(a, b), 0.5);
@@ -595,8 +603,14 @@ pub fn ruled_surface(model: &mut Model, id: FeatureId, definition: &Value) -> R<
             sheets.push(if values::dot(normal, facing) < 0.0 { face.reversed() } else { face });
             continue;
         }
-        let face = occt::bspline_surface_face(&poles, (4, 2), &[0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0], &[0.0, 0.0, 1.0, 1.0], (3, 1))
-            .map_err(|_| regen_error("RULED_SURFACE_FAILED"))?;
+        let face = occt::bspline_surface_face(
+            &poles,
+            (4, 2),
+            &[0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0],
+            &[0.0, 0.0, 1.0, 1.0],
+            (3, 1),
+        )
+        .map_err(|_| regen_error("RULED_SURFACE_FAILED"))?;
         sheets.push(if faces_along(&face)? { face } else { face.reversed() });
     }
     let joined = occt::extract_faces(&sheets, 0.0).map_err(occt_error)?;
@@ -664,7 +678,17 @@ pub fn move_curve_boundary(model: &mut Model, id: FeatureId, definition: &Value)
         let single_line = matches!(edges.as_slice(), [e] if e.curve_type().ok() == Some(occt::CurveType::Line));
         if !single_line {
             let curving = field(definition, "extensionShape").as_str() == Some("CURVATURE");
-            let moved = curved_boundary_moved(&edges, trim, distance, limit, &limit_surface, limit_curve.as_ref(), help.as_ref(), flip, curving)?;
+            let moved = curved_boundary_moved(
+                &edges,
+                trim,
+                distance,
+                limit,
+                &limit_surface,
+                limit_curve.as_ref(),
+                help.as_ref(),
+                flip,
+                curving,
+            )?;
             results.push((b, moved));
             continue;
         }
@@ -689,9 +713,11 @@ pub fn move_curve_boundary(model: &mut Model, id: FeatureId, definition: &Value)
                     curve.edge_tangent(1.0, false).map_err(occt_error)?.origin,
                 );
                 let along = values::normalize(values::sub(c1, c0)).ok_or_else(|| regen_error("TRIM_CURVE_FAILED"))?;
-                let d = values::normalize(values::sub(end.origin, start.origin)).ok_or_else(|| regen_error("TRIM_CURVE_FAILED"))?;
+                let d = values::normalize(values::sub(end.origin, start.origin))
+                    .ok_or_else(|| regen_error("TRIM_CURVE_FAILED"))?;
                 let shared = values::cross(along, d);
-                let normal = values::normalize(values::cross(shared, along)).ok_or_else(|| regen_error("TRIM_CURVE_FAILED"))?;
+                let normal =
+                    values::normalize(values::cross(shared, along)).ok_or_else(|| regen_error("TRIM_CURVE_FAILED"))?;
                 Some(occt::Frame { origin: c0, normal, x: along })
             }
             _ => None,
@@ -707,13 +733,22 @@ pub fn move_curve_boundary(model: &mut Model, id: FeatureId, definition: &Value)
             Some(values::add(start.origin, values::scale(d, t)))
         } else if let Some(surface) = &limit_surface {
             let length = values::norm(values::sub(end.origin, start.origin));
-            let d = values::normalize(values::sub(end.origin, start.origin)).ok_or_else(|| regen_error("TRIM_CURVE_FAILED"))?;
+            let d = values::normalize(values::sub(end.origin, start.origin))
+                .ok_or_else(|| regen_error("TRIM_CURVE_FAILED"))?;
             let crossings = surface.line_crossings(start.origin, d).map_err(occt_error)?;
             let moving = if near_end { length } else { 0.0 };
             let t = crossings
                 .iter()
                 .copied()
-                .filter(|t| if trim { *t > 1e-9 && *t < length - 1e-9 } else if near_end { *t > length } else { *t < 0.0 })
+                .filter(|t| {
+                    if trim {
+                        *t > 1e-9 && *t < length - 1e-9
+                    } else if near_end {
+                        *t > length
+                    } else {
+                        *t < 0.0
+                    }
+                })
                 .min_by(|a, b| (a - moving).abs().total_cmp(&(b - moving).abs()))
                 .ok_or_else(|| regen_error("TRIM_CURVE_FAILED"))?;
             Some(values::add(start.origin, values::scale(d, t)))
@@ -723,8 +758,12 @@ pub fn move_curve_boundary(model: &mut Model, id: FeatureId, definition: &Value)
         let (a, b2) = if let Some(hit) = hit {
             match (trim, near_end) {
                 // Trimming keeps the side the help point is on; extending moves the end nearest it.
-                (true, true) | (false, true) => (if trim { hit } else { start.origin }, if trim { end.origin } else { hit }),
-                (true, false) | (false, false) => (if trim { start.origin } else { hit }, if trim { hit } else { end.origin }),
+                (true, true) | (false, true) => {
+                    (if trim { hit } else { start.origin }, if trim { end.origin } else { hit })
+                }
+                (true, false) | (false, false) => {
+                    (if trim { start.origin } else { hit }, if trim { hit } else { end.origin })
+                }
             }
         } else if near_end {
             (start.origin, values::add(end.origin, values::scale(end.direction, distance)))
@@ -760,7 +799,9 @@ fn curved_boundary_moved(
     use crate::curve_extend::{Cubic, arc_frame};
     use crate::values::{add, cross, dot, norm, normalize, scale, sub};
     if limit_curve.is_some_and(|c| c.curve_type().ok() != Some(occt::CurveType::Line)) {
-        return Err(error("@opMoveCurveBoundary: curves other than lines up to curves other than lines aren't supported yet"));
+        return Err(error(
+            "@opMoveCurveBoundary: curves other than lines up to curves other than lines aren't supported yet",
+        ));
     }
     // The chain's ends: points only one edge reaches.
     let points: Vec<(occt::Axis, occt::Axis)> = edges
@@ -785,7 +826,9 @@ fn curved_boundary_moved(
     };
     // The end that moves is the one nearest the help point (or, flipped, the other).
     let away = |p: occt::Vec3| {
-        help.map_or(0.0, |h| occt::vertex(p).ok().and_then(|v| v.distance(h).ok()).map_or(f64::INFINITY, |d| d.distance))
+        help.map_or(0.0, |h| {
+            occt::vertex(p).ok().and_then(|v| v.distance(h).ok()).map_or(f64::INFINITY, |d| d.distance)
+        })
     };
     let (index, at_end, _) = if (away(second.2) <= away(first.2)) != flip { second } else { first };
     let edge = &edges[index];
@@ -827,10 +870,14 @@ fn curved_boundary_moved(
             && data.knots[..4].iter().all(|k| *k == first)
             && data.knots[data.knots.len() - 4..].iter().all(|k| *k == last);
         if data.degree != 3 || data.rational || data.periodic || !clamped {
-            return Err(error("@opMoveCurveBoundary: of curves other than lines, only arcs and clamped cubic B-splines are supported yet"));
+            return Err(error(
+                "@opMoveCurveBoundary: of curves other than lines, only arcs and clamped cubic B-splines are supported yet",
+            ));
         }
         let cubic = Cubic { knots: data.knots, poles: data.poles };
-        if norm(sub(*cubic.poles.last().expect("poles"), end.origin)) > 1e-9 || norm(sub(cubic.poles[0], start.origin)) > 1e-9 {
+        if norm(sub(*cubic.poles.last().expect("poles"), end.origin)) > 1e-9
+            || norm(sub(cubic.poles[0], start.origin)) > 1e-9
+        {
             return Err(error("@opMoveCurveBoundary: B-splines running against their edge aren't supported yet"));
         }
         Ok(cubic)
@@ -860,7 +907,9 @@ fn curved_boundary_moved(
         // A curve trimmed by a plane: cut where it crosses the plane, keeping the side the help point is on. An arc
         // stays an arc; a B-spline becomes the same B-spline restricted (batch 038).
         let ([_], Some(plane)) = (edges, limit) else {
-            return Err(error("@opMoveCurveBoundary: of curves other than lines, only single curves trimmed by planes or lines are supported yet"));
+            return Err(error(
+                "@opMoveCurveBoundary: of curves other than lines, only single curves trimmed by planes or lines are supported yet",
+            ));
         };
         if !circle {
             let cubic = as_cubic(edge, &start, &end)?;

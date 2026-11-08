@@ -500,11 +500,14 @@ mod constraints {
         Some(match (suffix, slot) {
             (None, Slot::Point(_)) => Part::Point(slot, "point"),
             (None, _) => Part::Entity(slot),
-            (Some(s), _) => Part::Point(slot, match s {
-                "start" => "start",
-                "end" => "end",
-                _ => "center",
-            }),
+            (Some(s), _) => Part::Point(
+                slot,
+                match s {
+                    "start" => "start",
+                    "end" => "end",
+                    _ => "center",
+                },
+            ),
         })
     }
 
@@ -546,13 +549,18 @@ mod constraints {
                 _ => vec![],
             },
             // A fixed arc keeps its centre and radius; its ends may still move round it.
-            ("FIX", Some(Part::Entity(Slot::Arc(i))), None) => vec![x[i] - x0[i], x[i + 1] - x0[i + 1], x[i + 2] - x0[i + 2]],
+            ("FIX", Some(Part::Entity(Slot::Arc(i))), None) => {
+                vec![x[i] - x0[i], x[i + 1] - x0[i + 1], x[i + 2] - x0[i + 2]]
+            }
             ("FIX", Some(Part::Entity(Slot::Line(i))), None) => (i..i + 4).map(|k| x[k] - x0[k]).collect(),
-            ("COINCIDENT", Some(Part::Point(s1, w1)), Some(Part::Point(s2, w2))) => match (point(x, s1, w1), point(x, s2, w2)) {
-                (Some(p), Some(q)) => vec![p.0 - q.0, p.1 - q.1],
-                _ => vec![],
-            },
-            ("COINCIDENT", Some(Part::Point(s, w)), Some(Part::Entity(e))) | ("COINCIDENT", Some(Part::Entity(e)), Some(Part::Point(s, w))) => {
+            ("COINCIDENT", Some(Part::Point(s1, w1)), Some(Part::Point(s2, w2))) => {
+                match (point(x, s1, w1), point(x, s2, w2)) {
+                    (Some(p), Some(q)) => vec![p.0 - q.0, p.1 - q.1],
+                    _ => vec![],
+                }
+            }
+            ("COINCIDENT", Some(Part::Point(s, w)), Some(Part::Entity(e)))
+            | ("COINCIDENT", Some(Part::Entity(e)), Some(Part::Point(s, w))) => {
                 let Some(p) = point(x, s, w) else { return vec![] };
                 match e {
                     Slot::Line(_) => line(x, e).map(|(a, b)| vec![to_line(p, a, b)]).unwrap_or_default(),
@@ -560,26 +568,35 @@ mod constraints {
                     Slot::Point(_) => vec![],
                 }
             }
-            ("TANGENT", Some(Part::Entity(Slot::Arc(i))), Some(Part::Entity(l))) | ("TANGENT", Some(Part::Entity(l)), Some(Part::Entity(Slot::Arc(i)))) => {
+            ("TANGENT", Some(Part::Entity(Slot::Arc(i))), Some(Part::Entity(l)))
+            | ("TANGENT", Some(Part::Entity(l)), Some(Part::Entity(Slot::Arc(i)))) => {
                 line(x, l).map(|(a, b)| vec![to_line((x[i], x[i + 1]), a, b).abs() - x[i + 2]]).unwrap_or_default()
             }
-            ("PERPENDICULAR" | "PARALLEL", Some(Part::Entity(l1)), Some(Part::Entity(l2))) => match (line(x, l1), line(x, l2)) {
-                (Some((a, b)), Some((p, q))) => {
-                    let (d1, d2) = ((b.0 - a.0, b.1 - a.1), (q.0 - p.0, q.1 - p.1));
-                    let n = d1.0.hypot(d1.1) * d2.0.hypot(d2.1);
-                    if n < 1e-300 {
-                        return vec![];
+            ("PERPENDICULAR" | "PARALLEL", Some(Part::Entity(l1)), Some(Part::Entity(l2))) => {
+                match (line(x, l1), line(x, l2)) {
+                    (Some((a, b)), Some((p, q))) => {
+                        let (d1, d2) = ((b.0 - a.0, b.1 - a.1), (q.0 - p.0, q.1 - p.1));
+                        let n = d1.0.hypot(d1.1) * d2.0.hypot(d2.1);
+                        if n < 1e-300 {
+                            return vec![];
+                        }
+                        vec![if kind == "PERPENDICULAR" {
+                            (d1.0 * d2.0 + d1.1 * d2.1) / n
+                        } else {
+                            (d1.0 * d2.1 - d1.1 * d2.0) / n
+                        }]
                     }
-                    vec![if kind == "PERPENDICULAR" { (d1.0 * d2.0 + d1.1 * d2.1) / n } else { (d1.0 * d2.1 - d1.1 * d2.0) / n }]
+                    _ => vec![],
                 }
-                _ => vec![],
-            },
+            }
             ("HORIZONTAL" | "VERTICAL", Some(Part::Entity(l)), None) => match line(x, l) {
                 Some((a, b)) => vec![if kind == "HORIZONTAL" { b.1 - a.1 } else { b.0 - a.0 }],
                 None => vec![],
             },
             ("DISTANCE", Some(Part::Point(s1, w1)), Some(Part::Point(s2, w2))) => {
-                let (Some(p), Some(q), Some(l)) = (point(x, s1, w1), point(x, s2, w2), length("length")) else { return vec![] };
+                let (Some(p), Some(q), Some(l)) = (point(x, s1, w1), point(x, s2, w2), length("length")) else {
+                    return vec![];
+                };
                 let aligned = field(c, "alignment").as_str();
                 let along = |d: f64| match aligned {
                     Some("ALIGNED") => d - l,
@@ -598,7 +615,13 @@ mod constraints {
         }
     }
 
-    fn all(entities: &[SketchEntity], slots: &[Option<Slot>], constraints: &[Value], x: &[f64], x0: &[f64]) -> Vec<f64> {
+    fn all(
+        entities: &[SketchEntity],
+        slots: &[Option<Slot>],
+        constraints: &[Value],
+        x: &[f64],
+        x0: &[f64],
+    ) -> Vec<f64> {
         constraints.iter().flat_map(|c| residuals(entities, slots, c, x, x0)).collect()
     }
 

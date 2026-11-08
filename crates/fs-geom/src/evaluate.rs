@@ -130,7 +130,9 @@ pub fn register(m: &mut GeomBuiltins) {
                 if r.kind != EntityType::Body || model.bodies[r.body].body_type != crate::model::BodyType::Solid {
                     return vec![r];
                 }
-                (0..model.bodies[r.body].faces.len()).map(|index| EntityRef { body: r.body, kind: EntityType::Face, index }).collect()
+                (0..model.bodies[r.body].faces.len())
+                    .map(|index| EntityRef { body: r.body, kind: EntityType::Face, index })
+                    .collect()
             };
             let mut out = Vec::new();
             let mut push = |kind: &str, tool: EntityRef, target: EntityRef| {
@@ -179,12 +181,18 @@ pub fn register(m: &mut GeomBuiltins) {
                 let mut total = 0.0;
                 let mut sum = Vec3::new(0.0, 0.0, 0.0);
                 for r in &found {
-                    let shape = if r.kind == EntityType::Body { model.bodies[r.body].shape.clone() } else { model.shape(*r).clone() };
+                    let shape = if r.kind == EntityType::Body {
+                        model.bodies[r.body].shape.clone()
+                    } else {
+                        model.shape(*r).clone()
+                    };
                     let weight = match r.kind {
                         EntityType::Face => shape.area().unwrap_or(0.0),
                         EntityType::Edge => shape.length().unwrap_or(0.0),
                         EntityType::Vertex => 1.0,
-                        EntityType::Body => shape.volume().ok().filter(|v| *v > 0.0).or(shape.area().ok()).unwrap_or(1.0),
+                        EntityType::Body => {
+                            shape.volume().ok().filter(|v| *v > 0.0).or(shape.area().ok()).unwrap_or(1.0)
+                        }
                     };
                     let c = match r.kind {
                         EntityType::Vertex => shape.vertex_point().map_err(occt_error)?,
@@ -216,7 +224,10 @@ pub fn register(m: &mut GeomBuiltins) {
                     (Some(r), Some(f)) => model.shape(*r).bounding_box_in(f, true).ok().map(|b| {
                         let y = values::cross(f.normal, f.x);
                         let (u, v) = ((b.min.x + b.max.x) / 2.0, (b.min.y + b.max.y) / 2.0);
-                        occt::Frame { origin: values::add(f.origin, values::add(values::scale(f.x, u), values::scale(y, v))), ..f }
+                        occt::Frame {
+                            origin: values::add(f.origin, values::add(values::scale(f.x, u), values::scale(y, v))),
+                            ..f
+                        }
                     }),
                     (_, f) => f,
                 };
@@ -539,7 +550,8 @@ pub fn register(m: &mut GeomBuiltins) {
     m.insert("evOffsetDetection", |_, args| {
         let definition = definition(&args, "evOffsetDetection")?;
         model_mut(&args, "evOffsetDetection", |model| {
-            let bodies: Vec<usize> = query::evaluate(model, field(&definition, "bodies"))?.iter().map(|r| r.body).collect();
+            let bodies: Vec<usize> =
+                query::evaluate(model, field(&definition, "bodies"))?.iter().map(|r| r.body).collect();
             let mut groups = Vec::new();
             for b in bodies {
                 if let Some(group) = offset_group(model, b)? {
@@ -892,24 +904,28 @@ fn offset_group(model: &Model, b: usize) -> R<Option<Value>> {
     let mut pairs: Vec<(usize, usize, f64)> = Vec::new();
     for (i, p) in &planes {
         let Some((j, d)) = partner(*i, p) else { continue };
-        let mutual = planes.iter().find(|(k, _)| *k == j).and_then(|(_, q)| partner(j, q)).is_some_and(|(k, _)| k == *i);
+        let mutual =
+            planes.iter().find(|(k, _)| *k == j).and_then(|(_, q)| partner(j, q)).is_some_and(|(k, _)| k == *i);
         if mutual && !pairs.iter().any(|(a, c, _)| (*a, *c) == (j, *i)) {
             pairs.push((*i, j, d));
         }
     }
     // The commonest thickness.
-    let Some(thickness) = pairs
-        .iter()
-        .map(|p| p.2)
-        .max_by_key(|t| pairs.iter().filter(|q| (q.2 - t).abs() < 1e-7).count())
+    let Some(thickness) =
+        pairs.iter().map(|p| p.2).max_by_key(|t| pairs.iter().filter(|q| (q.2 - t).abs() < 1e-7).count())
     else {
         return Ok(None);
     };
-    let pairs: Vec<(usize, usize)> = pairs.into_iter().filter(|p| (p.2 - thickness).abs() < 1e-7).map(|p| (p.0, p.1)).collect();
+    let pairs: Vec<(usize, usize)> =
+        pairs.into_iter().filter(|p| (p.2 - thickness).abs() < 1e-7).map(|p| (p.0, p.1)).collect();
     // Sides: from the first pair, a neighbour's side0 is its face sharing an edge with a side0 face.
     let touches = |a: usize, c: usize| {
         let theirs = body.faces[c].shape.visible_sub_shapes(occt::ShapeKind::Edge);
-        body.faces[a].shape.visible_sub_shapes(occt::ShapeKind::Edge).iter().any(|e| theirs.iter().any(|f| f.is_same(e)))
+        body.faces[a]
+            .shape
+            .visible_sub_shapes(occt::ShapeKind::Edge)
+            .iter()
+            .any(|e| theirs.iter().any(|f| f.is_same(e)))
     };
     let mut sides: Vec<Option<(usize, usize)>> = vec![None; pairs.len()];
     sides[0] = Some(pairs[0]);

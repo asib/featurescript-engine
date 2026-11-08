@@ -13,7 +13,8 @@ type Points = Vec<(Vec3, EntityRef)>;
 
 /// The points along a profile of straight edges, in order, each with its vertex; and whether it closes on itself.
 fn profile_points(model: &Model, profile: &Value) -> R<(Points, bool)> {
-    let edges: Vec<EntityRef> = query::evaluate(model, profile)?.into_iter().filter(|r| r.kind == EntityType::Edge).collect();
+    let edges: Vec<EntityRef> =
+        query::evaluate(model, profile)?.into_iter().filter(|r| r.kind == EntityType::Edge).collect();
     if edges.is_empty() {
         return Err(regen_error("TL_SELECT_PROFILES"));
     }
@@ -89,10 +90,7 @@ pub fn matches(tags: &Tags, model: &Model, definition: &Value) -> R<Value> {
         .iter()
         .zip(&second)
         .map(|(&a, &b)| {
-            values::map(vec![
-                ("match", Value::array(vec![item(a), item(b)])),
-                ("hideMatchFromUI", Value::bool(false)),
-            ])
+            values::map(vec![("match", Value::array(vec![item(a), item(b)])), ("hideMatchFromUI", Value::bool(false))])
         })
         .collect();
     Ok(values::map(vec![("matches", Value::array(list)), ("isClosed", Value::bool(closed))]))

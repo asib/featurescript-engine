@@ -8,8 +8,8 @@ use crate::model::{Body, EntityRef, EntityType, FeatureId, Info, Model, NewBody,
 use crate::query::{self, tid_string};
 use crate::values::{self, field};
 use fs_interp::Value;
-use fs_interp::value::Kind;
 use fs_interp::eval::R;
+use fs_interp::value::Kind;
 use occt::Shape;
 
 /// What the other context holds: its bodies, and what each tracked query finds there.

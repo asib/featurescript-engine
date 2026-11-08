@@ -494,7 +494,11 @@ fn parallel_offset(face: &occt::Shape, template: &occt::Shape) -> R<Option<f64>>
     let (u, v) = face.face_fraction(p).map_err(occt_error)?;
     let normal = face.face_tangent_plane(u, v).map_err(occt_error)?.normal;
     let from = values::sub(p, a.frame.origin);
-    let radial = if a.kind == 1 { values::sub(from, values::scale(a.frame.normal, values::dot(from, a.frame.normal))) } else { from };
+    let radial = if a.kind == 1 {
+        values::sub(from, values::scale(a.frame.normal, values::dot(from, a.frame.normal)))
+    } else {
+        from
+    };
     let outward = values::dot(normal, radial) > 0.0;
     Ok(Some((b.radius1 - a.radius1) * if outward { 1.0 } else { -1.0 }))
 }

@@ -160,7 +160,12 @@ pub fn spline_with_end_derivatives(points: &[Vec3], start: &[Vec3], end: &[Vec3]
 /// inner derivative adds one more a third of the way into the longer of the spans either side of its point, though
 /// never into the first span (a second point's knot goes after it even when the first span is 2.4 times as long):
 /// through four points with a derivative at the second, [0, 0, 0, 0, t₁, (2t₁ + t₂)/3, t₂, 1, 1, 1, 1].
-pub fn spline_with_point_derivatives(points: &[Vec3], start: Option<Vec3>, end: Option<Vec3>, inner: &[(usize, Vec3)]) -> R<Shape> {
+pub fn spline_with_point_derivatives(
+    points: &[Vec3],
+    start: Option<Vec3>,
+    end: Option<Vec3>,
+    inner: &[(usize, Vec3)],
+) -> R<Shape> {
     use crate::bspline::{basis_derivatives, find_span};
     let n = points.len();
     if n < 3 || inner.iter().any(|(i, _)| *i == 0 || *i >= n - 1) {

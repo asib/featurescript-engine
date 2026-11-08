@@ -131,9 +131,13 @@ pub fn register(m: &mut GeomBuiltins) {
         let entries = features.as_map().ok_or_else(|| error("@containsSketch: expected a map"))?;
         let ids = entries.keys().map(|k| values::feature_id(k, "feature id")).collect::<R<Vec<_>>>()?;
         state_mut(&args, "containsSketch", |state| {
-            Ok(Value::bool(state.model.bodies.iter().any(|b| {
-                b.sketch_plane.is_some() && ids.iter().any(|id| starts_with(&b.info.created_by, id))
-            })))
+            Ok(Value::bool(
+                state
+                    .model
+                    .bodies
+                    .iter()
+                    .any(|b| b.sketch_plane.is_some() && ids.iter().any(|id| starts_with(&b.info.created_by, id))),
+            ))
         })
     });
 }

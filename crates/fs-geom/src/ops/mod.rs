@@ -11,10 +11,10 @@ mod merge;
 mod pattern;
 mod revolve;
 pub mod sheet_metal;
-mod tessellated;
 mod split;
 mod surface;
 mod sweep;
+mod tessellated;
 
 pub use revolve::rotation;
 
@@ -88,10 +88,11 @@ pub fn register(m: &mut GeomBuiltins) {
     m.insert("evSheetMetalHoleToolBodies", |_, args| {
         let definition = fs_interp::builtins::arg(&args, 1, "evSheetMetalHoleToolBodies")?.clone();
         model_mut(&args, "evSheetMetalHoleToolBodies", |model| {
-            let found: Vec<crate::model::EntityRef> = query::evaluate(model, field(&definition, "sheetMetalHoleFaces"))?
-                .into_iter()
-                .filter(|r| r.kind == EntityType::Face)
-                .collect();
+            let found: Vec<crate::model::EntityRef> =
+                query::evaluate(model, field(&definition, "sheetMetalHoleFaces"))?
+                    .into_iter()
+                    .filter(|r| r.kind == EntityType::Face)
+                    .collect();
             let faces: Vec<Shape> = found.iter().map(|r| model.shape(*r).clone()).collect();
             // Only the models the faces' parts belong to.
             let models: Vec<crate::model::Tid> = found
@@ -101,7 +102,8 @@ pub fn register(m: &mut GeomBuiltins) {
                 .collect();
             let points: Vec<occt::Vec3> = faces.iter().filter_map(|f| f.face_inner_point().ok()).collect();
             let identity = || {
-                let row = |i: usize| Value::array((0..3).map(|j| Value::number(if i == j { 1.0 } else { 0.0 })).collect());
+                let row =
+                    |i: usize| Value::array((0..3).map(|j| Value::number(if i == j { 1.0 } else { 0.0 })).collect());
                 crate::values::map(vec![
                     ("linear", Value::array((0..3).map(row).collect())),
                     ("translation", Value::array(vec![Value::number(0.0); 3])),
@@ -137,17 +139,20 @@ pub fn register(m: &mut GeomBuiltins) {
         let tags = crate::tags(interp)?;
         let definition = fs_interp::builtins::arg(&args, 1, "evSheetMetalFormToolBodies")?.clone();
         model_mut(&args, "evSheetMetalFormToolBodies", |model| {
-            let found: Vec<crate::model::EntityRef> = query::evaluate(model, field(&definition, "sheetMetalFormFaces"))?
-                .into_iter()
-                .filter(|r| r.kind == EntityType::Face)
-                .collect();
-            let points: Vec<occt::Vec3> = found.iter().filter_map(|r| model.shape(*r).face_inner_point().ok()).collect();
+            let found: Vec<crate::model::EntityRef> =
+                query::evaluate(model, field(&definition, "sheetMetalFormFaces"))?
+                    .into_iter()
+                    .filter(|r| r.kind == EntityType::Face)
+                    .collect();
+            let points: Vec<occt::Vec3> =
+                found.iter().filter_map(|r| model.shape(*r).face_inner_point().ok()).collect();
             let models: Vec<crate::model::Tid> = found
                 .iter()
                 .filter_map(|r| sheet_metal::definition_of_part(model, r.body))
                 .map(|d| model.bodies[d].tid)
                 .collect();
-            let identity = tags.transform([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], occt::Vec3::new(0.0, 0.0, 0.0));
+            let identity =
+                tags.transform([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], occt::Vec3::new(0.0, 0.0, 0.0));
             let mut out: Vec<(&str, Value)> = Vec::new();
             let mut keys: Vec<String> = Vec::new();
             let mut values: Vec<Value> = Vec::new();
@@ -158,7 +163,9 @@ pub fn register(m: &mut GeomBuiltins) {
                         let touches = |t: Option<crate::model::Tid>| {
                             t.and_then(|t| model.bodies.iter().find(|b| b.tid == t)).is_some_and(|body| {
                                 points.iter().any(|p| {
-                                    occt::vertex(*p).and_then(|v| v.distance(&body.shape)).is_ok_and(|d| d.distance < 1e-7)
+                                    occt::vertex(*p)
+                                        .and_then(|v| v.distance(&body.shape))
+                                        .is_ok_and(|d| d.distance < 1e-7)
                                 })
                             })
                         };
@@ -577,8 +584,8 @@ fn boolean_bodies_with(
                 }
             }
         }
-        let op =
-            occt::boolean(kind, &shapes(objects), &tool_shapes, unify).map_err(|e| error(format!("@opBoolean: {e}")))?;
+        let op = occt::boolean(kind, &shapes(objects), &tool_shapes, unify)
+            .map_err(|e| error(format!("@opBoolean: {e}")))?;
         let input_bodies: Vec<_> = inputs.iter().map(|&b| model.bodies[b].clone()).collect();
         // Faces a tool leaves in the result, such as a pocket's walls, keep the tool's creator, unless the tool is
         // kept: then they are new, made by this operation.
@@ -646,7 +653,8 @@ fn boolean_bodies_with(
     for (solid, body, tid, origins) in results {
         // A construction plane cut by a boolean is construction no longer (a default plane cut by an aligned
         // section's cuts, batch 037); a sketch's sheet stays a sketch's.
-        let new = NewBody { body_type: BodyType::of(&solid), tid, construction: false, ..NewBody::replacing(&body, solid) };
+        let new =
+            NewBody { body_type: BodyType::of(&solid), tid, construction: false, ..NewBody::replacing(&body, solid) };
         model.add_body(new, &origins, &default, &|_| None);
     }
     Ok(())

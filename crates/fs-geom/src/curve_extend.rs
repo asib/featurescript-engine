@@ -51,7 +51,8 @@ fn fit(knots: &[f64], conditions: &[(f64, usize, Vec3)]) -> R<Vec<Vec3>> {
     }
     let a: Vec<Vec<f64>> = conditions.iter().map(|(u, order, _)| row(knots, count, *u, *order)).collect();
     let component = |f: fn(&Vec3) -> f64| -> R<Vec<f64>> {
-        solve(a.clone(), conditions.iter().map(|(_, _, v)| f(v)).collect()).ok_or_else(|| error("curve extension: singular system"))
+        solve(a.clone(), conditions.iter().map(|(_, _, v)| f(v)).collect())
+            .ok_or_else(|| error("curve extension: singular system"))
     };
     let (x, y, z) = (component(|v| v.x)?, component(|v| v.y)?, component(|v| v.z)?);
     Ok((0..count).map(|i| Vec3::new(x[i], y[i], z[i])).collect())
@@ -138,7 +139,8 @@ impl Cubic {
     /// This curve with the blend a curving extension starts with, or `None` if the curve ends without curvature.
     pub fn blended(&self) -> R<Option<Cubic>> {
         let u = self.end();
-        let (p0, p1, p2, p3) = (self.derivative(u, 0), self.derivative(u, 1), self.derivative(u, 2), self.derivative(u, 3));
+        let (p0, p1, p2, p3) =
+            (self.derivative(u, 0), self.derivative(u, 1), self.derivative(u, 2), self.derivative(u, 3));
         let t = normalize(p1).ok_or_else(|| error("curve extension: the curve stops at its end"))?;
         let s = dot(p2, t);
         let bend = norm(sub(p2, scale(t, s)));
@@ -153,7 +155,10 @@ impl Cubic {
         }
         let c = scale(add(p2, scale(p3, delta)), -1.0 / (6.0 * delta));
         let blend = |t: f64| {
-            add(add(add(add(p0, scale(p1, t)), scale(p2, t * t / 2.0)), scale(p3, t * t * t / 6.0)), scale(c, t * t * t))
+            add(
+                add(add(add(p0, scale(p1, t)), scale(p2, t * t / 2.0)), scale(p3, t * t * t / 6.0)),
+                scale(c, t * t * t),
+            )
         };
         let mut knots = self.knots[..self.knots.len() - 3].to_vec();
         knots.extend(std::iter::repeat_n(u + delta, 4));
@@ -172,7 +177,8 @@ impl Cubic {
     /// The length of the curve from parameter `a` to `b`.
     pub fn length(&self, a: f64, b: f64) -> f64 {
         const X: [f64; 5] = [0.0, -0.5384693101056831, 0.5384693101056831, -0.906179845938664, 0.906179845938664];
-        const W: [f64; 5] = [0.5688888888888889, 0.47862867049936647, 0.47862867049936647, 0.23692688505618908, 0.23692688505618908];
+        const W: [f64; 5] =
+            [0.5688888888888889, 0.47862867049936647, 0.47862867049936647, 0.23692688505618908, 0.23692688505618908];
         let pieces = 64;
         let h = (b - a) / pieces as f64;
         (0..pieces)
@@ -195,7 +201,10 @@ impl Cubic {
     /// The same curve run the other way, its parameter negated (so that extending it at its end and reversing back
     /// extends this one at its start, its own parameters kept, as Onshape does, batch 038).
     pub fn reversed(&self) -> Cubic {
-        Cubic { knots: self.knots.iter().rev().map(|k| -k).collect(), poles: self.poles.iter().rev().copied().collect() }
+        Cubic {
+            knots: self.knots.iter().rev().map(|k| -k).collect(),
+            poles: self.poles.iter().rev().copied().collect(),
+        }
     }
 
     /// The part of this curve between parameters `a` and `b`, as the same B-spline restricted (its parameters kept).

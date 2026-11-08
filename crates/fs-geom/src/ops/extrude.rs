@@ -97,7 +97,11 @@ fn profile(model: &Model, definition: &Value) -> R<(Vec<Shape>, bool)> {
     match crate::pattern_stack::transform_of(definition)? {
         None => Ok((shapes, solid)),
         Some(t) => Ok((
-            shapes.iter().map(|s| occt::transform(s, &t).map(|op| op.shape())).collect::<Result<_, _>>().map_err(occt_error)?,
+            shapes
+                .iter()
+                .map(|s| occt::transform(s, &t).map(|op| op.shape()))
+                .collect::<Result<_, _>>()
+                .map_err(occt_error)?,
             solid,
         )),
     }
@@ -290,17 +294,21 @@ pub fn extrude(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
             Some(Bound::Surface(face, offset)) => {
                 let mut plane = face.face_plane().map_err(occt_error)?;
                 plane.origin = add(plane.origin, scale(direction, *offset));
-                let cutter =
-                    occt::plane_face(plane, -2.0 * reach, 2.0 * reach, -2.0 * reach, 2.0 * reach).map_err(occt_error)?;
-                let split = occt::split(&result, std::slice::from_ref(&cutter)).map_err(|_| regen_error("EXTRUDE_FAILED"))?;
+                let cutter = occt::plane_face(plane, -2.0 * reach, 2.0 * reach, -2.0 * reach, 2.0 * reach)
+                    .map_err(occt_error)?;
+                let split =
+                    occt::split(&result, std::slice::from_ref(&cutter)).map_err(|_| regen_error("EXTRUDE_FAILED"))?;
                 let is_ahead = |piece: &Shape| {
-                    piece.centroid().is_ok_and(|c| dot(sub(c, plane.origin), plane.normal) * dot(direction, plane.normal) > 0.0)
+                    piece
+                        .centroid()
+                        .is_ok_and(|c| dot(sub(c, plane.origin), plane.normal) * dot(direction, plane.normal) > 0.0)
                 };
                 // Sheets come back as loose faces: those ahead, sewn together again.
                 let ahead: Vec<Shape> = if solid {
                     split.shape().sub_shapes(kind).into_iter().filter(|p| is_ahead(p)).collect()
                 } else {
-                    let faces: Vec<Shape> = split.shape().sub_shapes(ShapeKind::Face).into_iter().filter(|f| is_ahead(f)).collect();
+                    let faces: Vec<Shape> =
+                        split.shape().sub_shapes(ShapeKind::Face).into_iter().filter(|f| is_ahead(f)).collect();
                     if faces.is_empty() {
                         Vec::new()
                     } else {
