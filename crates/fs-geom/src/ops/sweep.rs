@@ -6,7 +6,7 @@ use crate::values::{self, field};
 use crate::{occt_error, query, regen_error};
 use fs_interp::Value;
 use fs_interp::eval::{R, error};
-use occt::{Shape, ShapeKind};
+use occt::{Shape, ShapeKind, Vec3};
 use std::rc::Rc;
 
 /// Adds an operation's solids (or, for sheets, shells) with start and end cap infos.
@@ -82,9 +82,96 @@ pub fn sweep(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
     if profiles.is_empty() {
         return Err(regen_error("SWEEP_SELECT_PROFILE"));
     }
+    let twist = if values::opt_bool(definition, "hasTwist")?.unwrap_or(false) {
+        values::angle(field(definition, "angle"), "opSweep twist angle")?
+    } else {
+        0.0
+    };
+    let scale = if values::opt_bool(definition, "hasScale")?.unwrap_or(false) {
+        field(definition, "scaleFactor").as_number().ok_or_else(|| error("@opSweep: scaleFactor must be a number"))?
+    } else {
+        1.0
+    };
+    if twist.abs() > 1e-12 || (scale - 1.0).abs() > 1e-12 {
+        return twisted_or_scaled(model, &id, &profiles, &path_edges, twist, scale, solid);
+    }
     for profile in &profiles {
         let op = occt::sweep(profile, path).map_err(|_| regen_error("SWEEP_FAILED"))?;
         add_with_caps(model, &id, &op, solid)?;
+    }
+    Ok(Value::UNDEFINED)
+}
+
+/// A sweep along a straight path whose profile turns about the path (by `twist` over its length) and grows (to
+/// `scale` times its size), both in proportion to the distance along it (batch 019): a loft through copies of the
+/// profile, ruled between the two ends when it only grows (a circle makes a cone), through a copy every 2.8° when
+/// it turns.
+fn twisted_or_scaled(
+    model: &mut Model,
+    id: &FeatureId,
+    profiles: &[Shape],
+    path_edges: &[Shape],
+    twist: f64,
+    scale: f64,
+    solid: bool,
+) -> R<Value> {
+    let not_straight = || error("@opSweep: twist and scale are only supported along straight paths yet");
+    let mut ends: Vec<Vec3> = Vec::new();
+    for e in path_edges {
+        if e.curve_type().ok() != Some(occt::CurveType::Line) {
+            return Err(not_straight());
+        }
+        for t in [0.0, 1.0] {
+            ends.push(e.edge_tangent(t, false).map_err(occt_error)?.origin);
+        }
+    }
+    for profile in profiles {
+        let wire = if profile.kind() == Some(ShapeKind::Face) {
+            occt::outer_wire(profile).map_err(occt_error)?
+        } else {
+            profile.clone()
+        };
+        let centre = profile.centroid().map_err(occt_error)?;
+        // The path's end at the profile, and its far end.
+        let start = *ends
+            .iter()
+            .min_by(|a, b| values::norm(values::sub(**a, centre)).total_cmp(&values::norm(values::sub(**b, centre))))
+            .ok_or_else(not_straight)?;
+        let end = *ends
+            .iter()
+            .max_by(|a, b| values::norm(values::sub(**a, start)).total_cmp(&values::norm(values::sub(**b, start))))
+            .ok_or_else(not_straight)?;
+        let run = values::sub(end, start);
+        let length = values::norm(run);
+        let d = values::normalize(run).ok_or_else(not_straight)?;
+        if ends.iter().any(|p| values::norm(values::cross(values::sub(*p, start), d)) > 1e-9) {
+            return Err(not_straight());
+        }
+        let steps = if twist.abs() > 1e-12 { ((twist.abs() / (std::f64::consts::PI / 64.0)).ceil() as usize).max(8) } else { 1 };
+        let mut wires = Vec::new();
+        for k in 0..=steps {
+            let t = k as f64 / steps as f64;
+            // A positive (counterclockwise) twist turns right-handed about the path's direction (batch 019).
+            let r = super::rotation(occt::Axis { origin: Vec3::new(0.0, 0.0, 0.0), direction: d }, twist * t).m;
+            let s = 1.0 + (scale - 1.0) * t;
+            let linear = |v: Vec3| {
+                Vec3::new(
+                    s * (r[0] * v.x + r[1] * v.y + r[2] * v.z),
+                    s * (r[4] * v.x + r[5] * v.y + r[6] * v.z),
+                    s * (r[8] * v.x + r[9] * v.y + r[10] * v.z),
+                )
+            };
+            // x goes to start + s R (x - start) + d L t.
+            let shift = values::add(values::sub(start, linear(start)), values::scale(d, length * t));
+            let m = [
+                s * r[0], s * r[1], s * r[2], shift.x,
+                s * r[4], s * r[5], s * r[6], shift.y,
+                s * r[8], s * r[9], s * r[10], shift.z,
+            ];
+            wires.push(occt::transform(&wire, &occt::Transform { m }).map_err(occt_error)?.shape());
+        }
+        let op = occt::loft(&wires, solid).map_err(|_| regen_error("SWEEP_FAILED"))?;
+        add_with_caps(model, id, &op, solid)?;
     }
     Ok(Value::UNDEFINED)
 }
