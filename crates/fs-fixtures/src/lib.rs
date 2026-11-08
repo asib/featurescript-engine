@@ -457,6 +457,14 @@ pub fn probe_lines(text: &str) -> BTreeMap<String, String> {
 /// Compares two probe lines token by token: numbers to [`PROBE_ABSOLUTE_TOLERANCE`] plus [`RELATIVE_TOLERANCE`]
 /// of their size, everything else exactly. Returns the first difference, naming the body it's in.
 pub fn compare_probe(ours: &str, theirs: &str) -> Option<String> {
+    compare_probe_within(ours, theirs, PROBE_ABSOLUTE_TOLERANCE)
+}
+
+/// [`compare_probe`] with another absolute tolerance for numbers.
+pub fn compare_probe_within(ours: &str, theirs: &str, absolute: f64) -> Option<String> {
+    // Onshape prints vectors as `(1, 2, 3)`: their brackets and commas are tokens of their own.
+    let spaced = |line: &str| line.replace('(', " ( ").replace(')', " ) ").replace(',', " , ");
+    let (ours, theirs) = (spaced(ours), spaced(theirs));
     let (a, b): (Vec<&str>, Vec<&str>) = (ours.split_whitespace().collect(), theirs.split_whitespace().collect());
     let mut body = "";
     let mut key = "";
@@ -469,7 +477,7 @@ pub fn compare_probe(ours: &str, theirs: &str) -> Option<String> {
             key = y;
         }
         let same = match (x.parse::<f64>(), y.parse::<f64>()) {
-            (Ok(p), Ok(q)) => (p - q).abs() <= PROBE_ABSOLUTE_TOLERANCE + RELATIVE_TOLERANCE * p.abs().max(q.abs()),
+            (Ok(p), Ok(q)) => (p - q).abs() <= absolute + RELATIVE_TOLERANCE * p.abs().max(q.abs()),
             _ => x == y,
         };
         if !same {
@@ -494,6 +502,13 @@ fn index(parts: &[Part]) -> BTreeMap<String, Vec<&Shape>> {
 /// Builds a batch on the engine and compares it with Onshape's model. With `step`, also writes the engine's
 /// model there as STEP.
 pub fn check_batch(batch: &Path, step: Option<&Path>) -> Result<Report, String> {
+    check_batch_with(batch, step, &[])
+}
+
+/// [`check_batch`], comparing the probe lines of some cases with a looser absolute tolerance (in the probes'
+/// units, mm): approximations are only promised to within their own tolerance, so two kernels' fits of the same
+/// points can differ by that much.
+pub fn check_batch_with(batch: &Path, step: Option<&Path>, loose: &[(&str, f64)]) -> Result<Report, String> {
     let built = build(batch)?;
     let fixture = read_fixture(batch)?;
     let step_problems = match step {
@@ -521,7 +536,11 @@ pub fn check_batch(batch: &Path, step: Option<&Path>) -> Result<Report, String> 
         for (key, line) in &theirs {
             match ours.get(key) {
                 None => report.probe_problems.push(format!("{key}: no probe line from the engine")),
-                Some(our_line) => match compare_probe(our_line, line) {
+                Some(our_line) => match compare_probe_within(
+                    our_line,
+                    line,
+                    loose.iter().find(|(case, _)| case == key).map_or(PROBE_ABSOLUTE_TOLERANCE, |l| l.1),
+                ) {
                     None => report.probes_matched.0 += 1,
                     Some(problem) => report.probe_problems.push(format!("{key} probe: {problem}")),
                 },
