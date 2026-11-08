@@ -1,0 +1,147 @@
+{
+  "batch": "011",
+  "title": "edit curve, path deviation, routing curves, computed mass, decals, form tags, cut lists, hole tables",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "edit-curve",
+      "description": "a quarter circle as a B-spline, raised to degree 4",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "edit-curve",
+      "description": "a spline through points in space, flattened onto the XY plane",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "edit-curve",
+      "description": "a line and a tangent arc approximated by one cubic, showing its deviation",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "edit-curve",
+      "description": "a line raised to degree 3 and its second control point moved",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "path-deviation",
+      "description": "between a line and an arc with the same ends",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "constrained-surface",
+      "description": "through nine points with a bump in the middle",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "routing-curve",
+      "description": "a polyline through four points with 5 mm bends, and its table",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c008",
+      "kind": "routing-curve",
+      "description": "a spline through three points, and its table",
+      "slotMeters": [
+        2.8000000000000003,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c009",
+      "kind": "mass",
+      "description": "a steel block's computed mass",
+      "slotMeters": [
+        3.2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c010",
+      "kind": "decal",
+      "description": "an image on the top of a block, turned 30 degrees and shifted",
+      "slotMeters": [
+        3.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c011",
+      "kind": "decal",
+      "description": "an image wrapped on a cylinder",
+      "slotMeters": [
+        0,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c012",
+      "kind": "tag",
+      "description": "a block tagged as a form's positive part",
+      "slotMeters": [
+        0.4,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c013",
+      "kind": "cutlist",
+      "description": "the two tubes of a mitred L, and its table",
+      "slotMeters": [
+        0.8,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c014",
+      "kind": "hole-table",
+      "description": "two simple holes and a counterbored one in a block",
+      "slotMeters": [
+        1.2000000000000002,
+        0.4,
+        0
+      ]
+    }
+  ]
+}
