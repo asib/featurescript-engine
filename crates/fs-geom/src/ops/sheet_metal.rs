@@ -491,10 +491,25 @@ fn regenerate(model: &mut Model, id: &FeatureId, def_index: usize) -> R<()> {
         .find(|b| b.tid == def.tid)
         .cloned()
         .ok_or_else(|| regen_error("SHEET_METAL_REBUILD_ERROR"))?;
+    // The registered tools' faces, whose info the part's faces they cut take (a countersunk hole's cone and
+    // cylinder, which std finds by the names `@opHole` gave them, batch 032).
+    let tool_faces: Vec<(Shape, Rc<Info>)> = def
+        .faces
+        .iter()
+        .flat_map(|f| wall_tool_tids(&f.attributes))
+        .filter_map(|t| model.bodies.iter().find(|b| b.tid == t))
+        .flat_map(|b| b.faces.iter().map(|f| (f.shape.clone(), f.info.clone())))
+        .collect();
     for index in indices {
         for kind in [EntityType::Face, EntityType::Edge, EntityType::Vertex] {
             for i in 0..model.bodies[index].entities(kind).len() {
                 let shape = model.bodies[index].entities(kind)[i].shape.clone();
+                if kind == EntityType::Face
+                    && let Some(info) = tool_face_info(&tool_faces, &shape)
+                {
+                    model.update_body(index, |body| body.faces[i].info = info);
+                    continue;
+                }
                 let Some(from) = associate(&def, &bends, front, back, kind, &shape) else { continue };
                 let source = &def.entities(from.kind)[from.index];
                 // The part's entities are made by what made the definition's (a hole's wall by the cut that made
@@ -538,6 +553,16 @@ pub fn in_active_model(model: &Model, body: usize) -> bool {
     }
     let Some(a) = association(&b.attributes) else { return false };
     model.bodies.iter().any(|d| d.is_sheet_metal_definition() && association(&d.attributes) == Some(a) && is_active(d))
+}
+
+/// The definition sheet of a sheet metal part, if it is one.
+pub fn definition_of_part(model: &Model, body: usize) -> Option<usize> {
+    let b = &model.bodies[body];
+    if b.is_sheet_metal_definition() {
+        return None;
+    }
+    let a = association(&b.attributes)?;
+    model.bodies.iter().position(|d| d.is_sheet_metal_definition() && association(&d.attributes) == Some(a))
 }
 
 /// A model made inactive leaves its parts as ordinary parts, without association attributes.
@@ -1434,6 +1459,20 @@ fn build_part(
     };
     let solids = solid.sub_shapes(ShapeKind::Solid);
     Ok(if solids.len() == 1 { solids.into_iter().next().expect("one solid") } else { solid })
+}
+
+/// The info of the tool face a part's face lies on, if it lies on one: same kind of surface, a point inside it on
+/// the tool face.
+fn tool_face_info(tool_faces: &[(Shape, Rc<Info>)], face: &Shape) -> Option<Rc<Info>> {
+    let p = face.face_inner_point().ok()?;
+    let kind = face.surface_type().ok()?;
+    tool_faces
+        .iter()
+        .find(|(t, _)| {
+            t.surface_type().ok() == Some(kind)
+                && occt::vertex(p).and_then(|v| v.distance(t)).is_ok_and(|d| d.distance < 1e-8)
+        })
+        .map(|(_, info)| info.clone())
 }
 
 /// `@updateSheetMetalGeometry`: rebuilds the parts of the models whose definition entities changed.
