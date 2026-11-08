@@ -333,6 +333,10 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   way the material lies from the definition sheet ((20, 15, 2) to (20, 15, 0) on a plate's top; a flipped form's
   from (20, 15, 0) to (20, 15, −2)).
 
+- **Unfolding rolled walls** (batch 043): a rolled wall unrolls into the plane tangent to it along the held edge,
+  as long as its arc at the neutral radius by the model's rolled k-factor (`kFactorRolled`, 0.5 by default): half a
+  tube of radius 20 and 2 mm thick lies flat 21π mm long. A sketch line running on into a tangent arc makes a rip
+  between the flat and rolled walls (two parts), each cut back by half the clearance.
 - **Recognizing rounded and rolled sheet metal** (batch 042): `evOffsetDetection` pairs coaxial cylinders a
   thickness apart as well as planes; of several thicknesses the commonest is used, the thinnest of those as common
   (an L 2 mm thick at its base and 3 mm at its upright keeps only its base); side0 starts from the first pair's
