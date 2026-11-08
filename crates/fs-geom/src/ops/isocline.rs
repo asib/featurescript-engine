@@ -1,7 +1,7 @@
 //! Isoclines: the curves on faces where the tangent plane makes a given angle with a direction, like a draft
 //! angle (`@opCreateIsocline`, `@opSplitByIsocline`). Spheres, and tori about an axis along the direction, have
-//! them on planes square to the direction (batch 007, c026–c027); cylinders across it along their length (batch
-//! 030); other faces aren't supported yet.
+//! them on planes square to the direction (batch 007, c026–c027); cylinders and cones across it along their length
+//! (batches 030 and 034); other faces aren't supported yet.
 
 use std::rc::Rc;
 
@@ -88,6 +88,43 @@ fn cylinder_cutters(face: &Shape, direction: Vec3, angle: f64, size: f64) -> R<O
     Ok(Some(out))
 }
 
+/// A cone across the direction has its isoclines along generators: with the cone opening along a from its apex at
+/// half angle α, its outward normal at φ round the axis is cos α r(φ) − sin α a, so (signed by the face's side)
+/// r(φ)·d = (s sin θ + sin α (a·d)) / cos α picks φ = φ₀ ± acos of that over |d⊥| (batch 034).
+fn cone_cutters(face: &Shape, direction: Vec3, angle: f64, size: f64) -> R<Option<Vec<Shape>>> {
+    let s = face.surface_definition().map_err(occt_error)?;
+    if s.kind != 2 || norm(cross(s.frame.normal, direction)) < 1e-9 {
+        return Ok(None);
+    }
+    let (apex, half) = (s.frame.origin, s.radius1);
+    let p = face.face_inner_point().map_err(occt_error)?;
+    let n = normal_at(face, p).ok_or_else(|| regen_error("ISOCLINE_NO_RESULT"))?;
+    // The way the cone opens from its apex, and the frame round its axis.
+    let a = if dot(sub(p, apex), s.frame.normal) >= 0.0 { s.frame.normal } else { scale(s.frame.normal, -1.0) };
+    let u = normalize(sub(s.frame.x, scale(a, dot(s.frame.x, a)))).ok_or_else(|| regen_error("ISOCLINE_NO_RESULT"))?;
+    let v = cross(a, u);
+    let rel = sub(p, apex);
+    let radial = normalize(sub(rel, scale(a, dot(rel, a)))).ok_or_else(|| regen_error("ISOCLINE_NO_RESULT"))?;
+    let outward = add(scale(radial, half.cos()), scale(a, -half.sin()));
+    let sign = if dot(n, outward) >= 0.0 { 1.0 } else { -1.0 };
+    let (du, dv) = (dot(direction, u), dot(direction, v));
+    let across = du.hypot(dv);
+    let c = (sign * angle.sin() + half.sin() * dot(a, direction)) / half.cos() / across;
+    if c.abs() > 1.0 {
+        return Ok(Some(Vec::new()));
+    }
+    let base = dv.atan2(du);
+    let spread = c.acos();
+    let phis = if spread.abs() < 1e-12 { vec![base] } else { vec![base - spread, base + spread] };
+    let mut out = Vec::new();
+    for phi in phis {
+        let r = add(scale(u, phi.cos()), scale(v, phi.sin()));
+        let frame = Frame { origin: apex, normal: cross(a, r), x: r };
+        out.push(occt::plane_face(frame, 0.0, size, -size, size).map_err(occt_error)?);
+    }
+    Ok(Some(out))
+}
+
 /// Large planar faces standing in for the isocline planes of some faces.
 fn isocline_cutters(faces: &[Shape], direction: Vec3, angle: f64) -> R<Vec<Shape>> {
     let mut out = Vec::new();
@@ -95,6 +132,10 @@ fn isocline_cutters(faces: &[Shape], direction: Vec3, angle: f64) -> R<Vec<Shape
         let bounds = face.bounding_box(false).map_err(occt_error)?;
         let size = norm(sub(bounds.max, bounds.min)) * 2.0 + 1e-3;
         if let Some(cutters) = cylinder_cutters(face, direction, angle, size)? {
+            out.extend(cutters);
+            continue;
+        }
+        if let Some(cutters) = cone_cutters(face, direction, angle, size + norm(sub(bounds.max, bounds.min)) * 4.0)? {
             out.extend(cutters);
             continue;
         }
