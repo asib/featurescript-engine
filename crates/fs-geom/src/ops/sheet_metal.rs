@@ -215,6 +215,20 @@ fn associate(def: &Body, bends: &[Bend], thickness: f64, kind: EntityType, shape
             }
             None
         }
+        // A vertex: the definition vertex nearest it, within reach of the material and bends around that vertex
+        // (a corner or rip is picked by a vertex of the part).
+        EntityType::Vertex => {
+            let p = shape.vertex_point().ok()?;
+            let around = bends.iter().map(|b| b.setback + b.radii.1).fold(0.0, f64::max);
+            let limit = reach + around + 1e-4;
+            def.vertices
+                .iter()
+                .enumerate()
+                .filter_map(|(i, v)| Some((norm(sub(v.shape.vertex_point().ok()?, p)), i)))
+                .filter(|(d, _)| *d <= limit)
+                .min_by(|a, b| a.0.total_cmp(&b.0))
+                .and_then(|(_, i)| def_ref(EntityType::Vertex, i))
+        }
         _ => None,
     }
 }
@@ -274,6 +288,14 @@ fn regenerate(model: &mut Model, id: &FeatureId, def_index: usize) -> R<()> {
             }
         }
     }
+    for vertex in &def.vertices {
+        let style = sm_attribute(&vertex.attributes, "CORNER")
+            .and_then(|c| attribute_value(c, "cornerStyle"))
+            .and_then(Value::as_str);
+        if let Some(style) = style.filter(|s| *s != "SIMPLE") {
+            return Err(error(format!("@updateSheetMetalGeometry: {style} corner reliefs aren't supported yet")));
+        }
+    }
     let clearance = match attribute_value(&model_attribute, "minimalClearance") {
         Some(v) => values::length(v, "minimal clearance")?,
         None => 2e-5,
@@ -315,7 +337,7 @@ fn regenerate(model: &mut Model, id: &FeatureId, def_index: usize) -> R<()> {
         .cloned()
         .ok_or_else(|| regen_error("SHEET_METAL_REBUILD_ERROR"))?;
     for index in indices {
-        for kind in [EntityType::Face, EntityType::Edge] {
+        for kind in [EntityType::Face, EntityType::Edge, EntityType::Vertex] {
             for i in 0..model.bodies[index].entities(kind).len() {
                 let shape = model.bodies[index].entities(kind)[i].shape.clone();
                 let Some(from) = associate(&def, &bends, thickness, kind, &shape) else { continue };
@@ -386,6 +408,47 @@ fn rip_setback(wall: &Shape, other: &Shape, edge: &Shape, front: f64, back: f64,
     Ok(reach + clearance)
 }
 
+/// A planar wall cut back from some of its straight edges, each by its own distance: a strip that deep is taken
+/// off along each edge, running on past corners but not into a straight continuation of the edge (a bend covering
+/// part of an edge leaves the rest, such as the stubs a converted part's rips leave at its ends, batch 014).
+fn cut_back(wall: &Shape, edges: &[Shape], distances: &[f64]) -> R<Shape> {
+    let plane = wall.face_plane().map_err(occt_error)?;
+    let n = plane.normal;
+    let bounds = wall.bounding_box(false).map_err(occt_error)?;
+    let far = norm(sub(bounds.max, bounds.min)) * 2.0 + 1e-3;
+    let all_edges = wall.sub_shapes(ShapeKind::Edge);
+    let mut strips = Vec::new();
+    for (edge, &distance) in edges.iter().zip(distances) {
+        let depth = -distance;
+        let (Some((a, b)), Ok(tangent)) = (segment(edge), edge.edge_tangent(0.5, true)) else { continue };
+        let Some(e) = normalize(sub(b, a)) else { continue };
+        let into = into_face(wall, tangent.origin, e)?;
+        // Run on past an end unless another edge carries straight on from it.
+        let carries_on = |end: Vec3| {
+            all_edges.iter().any(|other| {
+                !other.is_same(edge)
+                    && segment(other).is_some_and(|(c, d)| {
+                        let touches = norm(sub(c, end)) < 1e-9 || norm(sub(d, end)) < 1e-9;
+                        let off = |q: Vec3| norm(sub(sub(q, a), scale(e, dot(sub(q, a), e))));
+                        touches && off(c) < 1e-9 && off(d) < 1e-9
+                    })
+            })
+        };
+        let length = norm(sub(b, a));
+        let (u0, u1) = (if carries_on(a) { 0.0 } else { -far }, if carries_on(b) { length } else { length + far });
+        let v_axis = cross(n, e);
+        let (v0, v1) = if dot(v_axis, into) > 0.0 { (-far, depth) } else { (-depth, far) };
+        let frame = occt::Frame { origin: a, normal: n, x: e };
+        strips.push(occt::plane_face(frame, u0, u1, v0, v1).map_err(occt_error)?);
+    }
+    if strips.is_empty() {
+        return Ok(wall.clone());
+    }
+    let op = occt::boolean(occt::BooleanKind::Subtraction, std::slice::from_ref(wall), &strips, true)
+        .map_err(|_| regen_error("SHEET_METAL_REBUILD_ERROR"))?;
+    Ok(op.shape())
+}
+
 /// The folded part, piece by piece: each wall cut back where it meets bends and rips and thickened, and each bend
 /// a ring sector along the stretch both its walls still reach; the pieces fused. Where bends meet at a corner,
 /// each stops where the other cuts its walls back, leaving the corner open (Onshape's simple corner).
@@ -418,11 +481,13 @@ fn build_part(def: &Body, bends: &[Bend], rips: &[usize], front: f64, back: f64,
         let cut = if edges.is_empty() || wall.shape.surface_type().ok() != Some(occt::SurfaceType::Plane) {
             wall.shape.clone()
         } else {
-            occt::extend_planar_face(&wall.shape, &edges, &distances)
-                .map_err(|_| regen_error("SHEET_METAL_REBUILD_ERROR"))?
+            cut_back(&wall.shape, &edges, &distances)?
         };
-        let solid = occt::thicken(&cut, front, back).map_err(|_| regen_error("SHEET_METAL_CANNOT_THICKEN"))?.shape();
-        pieces.push(solid);
+        for face in cut.sub_shapes(ShapeKind::Face) {
+            let solid =
+                occt::thicken(&face, front, back).map_err(|_| regen_error("SHEET_METAL_CANNOT_THICKEN"))?.shape();
+            pieces.push(solid);
+        }
         cut_walls.push(cut);
     }
     for bend in bends {
@@ -675,4 +740,43 @@ pub fn edge_change(model: &mut Model, id: FeatureId, definition: &Value) -> R<Va
         model.add_body(NewBody::replacing(&old, shell), &origins, &info, &|_| None);
     }
     Ok(Value::UNDEFINED)
+}
+
+/// `@evCornerType`: what kind of corner a definition vertex is. One bend ending there is a bend end; two or more
+/// bends meeting there with a rip between their walls make a closed corner, without one an open corner.
+pub fn corner_type(tags: &crate::values::Tags, model: &Model, definition: &Value) -> R<Value> {
+    let found = query::evaluate(model, field(definition, "vertex"))?;
+    let [r] = found[..] else { return Err(regen_error("BAD_GEOMETRY")) };
+    if r.kind != EntityType::Vertex {
+        return Err(regen_error("BAD_GEOMETRY"));
+    }
+    let body = &model.bodies[r.body];
+    let vertex = &body.vertices[r.index].shape;
+    let joint_at = |kind: &str| {
+        body.edges
+            .iter()
+            .filter(|e| e.shape.sub_shapes(ShapeKind::Vertex).iter().any(|v| v.is_same(vertex)))
+            .filter(|e| {
+                sm_attribute(&e.attributes, "JOINT")
+                    .and_then(|j| attribute_value(j, "jointType"))
+                    .and_then(Value::as_str)
+                    == Some(kind)
+            })
+            .count()
+    };
+    let (bends, rips) = (joint_at("BEND"), joint_at("RIP"));
+    let corner = match (bends, rips) {
+        (0, _) => "NOT_A_CORNER",
+        (1, 0) => "BEND_END",
+        (_, 0) => "OPEN_CORNER",
+        _ => "CLOSED_CORNER",
+    };
+    let tag = fs_interp::types::find("SMCornerType").ok_or_else(|| error("std type SMCornerType isn't loaded"))?;
+    // Transient ids, which std's evCornerType turns into queries.
+    let transient = Value::string(query::tid_string(body.vertices[r.index].tid));
+    Ok(crate::values::map(vec![
+        ("cornerType", tags.enum_value(tag, corner)),
+        ("primaryVertex", transient.clone()),
+        ("allVertices", Value::array(vec![transient])),
+    ]))
 }

@@ -66,6 +66,11 @@ pub fn register(m: &mut GeomBuiltins) {
     m.insert("opTransform", |_, args| run_op(&args, "opTransform", transform_bodies));
     m.insert("updateSheetMetalGeometry", |_, args| run_op(&args, "updateSheetMetalGeometry", sheet_metal::update));
     m.insert("opEdgeChange", |_, args| run_op(&args, "opEdgeChange", sheet_metal::edge_change));
+    m.insert("evCornerType", |interp, args| {
+        let tags = crate::tags(interp)?;
+        let definition = fs_interp::builtins::arg(&args, 1, "evCornerType")?.clone();
+        model_mut(&args, "evCornerType", |model| sheet_metal::corner_type(&tags, model, &definition))
+    });
     m.insert("opRevolve", |_, args| run_op(&args, "opRevolve", revolve::revolve));
     m.insert("opSphere", |_, args| {
         run_op(&args, "opSphere", |model, id, definition| {
