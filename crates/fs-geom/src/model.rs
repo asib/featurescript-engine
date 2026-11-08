@@ -201,6 +201,12 @@ impl Ancestry {
         Ancestry { all, identity }
     }
 
+    /// The ancestry of a copy of the body `parent` (a pattern instance): made from it, without its identity.
+    pub fn copy_of_body(parent: &Body) -> Ancestry {
+        let all = std::iter::once(parent.tid).chain(parent.ancestry.all.iter().copied()).collect();
+        Ancestry { all, identity: Rc::default() }
+    }
+
     /// The ancestry of a body made from `parent`, carrying on its identity.
     fn of_body(parent: &Body) -> Ancestry {
         let all = std::iter::once(parent.tid).chain(parent.ancestry.all.iter().copied()).collect();
