@@ -71,14 +71,18 @@ fn union_box(boxes: impl Iterator<Item = Box3>) -> Option<Box3> {
     })
 }
 
-/// The farthest any body, or the profile, reaches along `direction` from `origin`, plus a margin.
-fn reach(model: &Model, profile: &Shape, direction: Vec3) -> f64 {
-    let frame = occt::Frame { origin: Vec3::new(0.0, 0.0, 0.0), normal: direction, x: values::canonical_x(direction) };
-    let profile_box = profile.bounding_box_in(frame, false).ok();
-    let all =
-        union_box(model.bodies.iter().filter_map(|b| b.shape.bounding_box_in(frame, false).ok()).chain(profile_box));
-    let (Some(all), Some(p)) = (all, profile_box) else { return 1.0 };
-    (all.max.z - p.min.z).max(p.max.z - all.min.z).abs() + 1.0
+/// How far a through-all extrude goes: as Onshape, the diagonal of the box round the parts (not construction or
+/// sketch bodies: batch 007's sketched 100 mm axis line doesn't count) and the profile, plus 0.01 mm (batch 007
+/// c007: a hole's cylinder has its origin at the far end, 2100.98596 mm from its profile, the box round the batch's
+/// parts so far being 2100.97596 across). From anywhere in the box, that reaches past it.
+fn reach(model: &Model, profile: &Shape) -> f64 {
+    let parts = model
+        .bodies
+        .iter()
+        .filter(|b| !b.construction && b.sketch_plane.is_none() && b.frame.is_none())
+        .filter_map(|b| b.shape.bounding_box(true).ok());
+    let Some(all) = union_box(parts.chain(profile.bounding_box(true).ok())) else { return 1.0 };
+    values::norm(values::sub(all.max, all.min)) + 1e-5
 }
 
 /// The transient ids of the faces or edges an extrude sweeps.
@@ -157,7 +161,7 @@ pub fn extrude(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
         .ok_or_else(|| error("@opExtrude: zero direction"))?;
     let end = bound(model, definition, "end", &id)?.expect("an end bound");
     let start = bound(model, definition, "start", &id)?;
-    let reach = reach(model, &profiles[0], direction);
+    let reach = reach(model, &profiles[0]);
 
     // Where the sweep starts and how far it goes before any trimming to a bound. The start is `startDepth` behind
     // the profile, or forward when `isStartBoundOpposite` is false (std's symmetric extrude passes a negative

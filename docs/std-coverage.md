@@ -9,7 +9,7 @@ Onshape.
 
 | feature (file) | status | batch |
 |---|---|---|
-| `extrude` (extrude.fs) | matches: blind, symmetric, two directions; new, add, remove, intersect; surfaces from edges; thin walls; up to a face (with offset), body, vertex, the next part; through all; drafts | 001, 004 |
+| `extrude` (extrude.fs) | matches: blind, symmetric, two directions; new, add, remove, intersect; surfaces from edges; thin walls; up to a face (with offset), body, vertex, the next part; through all (as far as Onshape: the parts' box diagonal plus 0.01 mm, 007); drafts | 001, 004, 007 |
 | `revolve` (revolve.fs) | matches: full, blind, opposite, symmetric, two directions; new, add, remove, intersect; surfaces; thin; up to a face (with offset), a part, a vertex; a second direction up to a face or a vertex (with offset) | 002, 004, 006, 007, 024 |
 | `cube`, `fCuboid`, `fCylinder`, `fCone`, `fSphere`, `fEllipsoid` (primitives.fs) | matches | 002 |
 | `booleanBodies` (boolean.fs) | matches: union, subtraction (keep tools, several targets), intersection; extrudes cut through sheet metal plates, flanges and bends; a subtraction with the tool's faces offset | 002, 017, 021 |
@@ -167,10 +167,6 @@ What fixtures show Onshape doing that the engine can't yet:
   (16.142, 12.142). For faces symmetric in their box the two agree.
 - **Lofts between unlike profiles** (c038, square to circle: 3% of the volume) **and through three profiles**
   (c039: 3e-4; Onshape splits the side into four patches): the surfaces come from each kernel's own lofting.
-- **Coordinate systems of fillets and holes cut through all** (batch 007, c007): a 4 mm fillet on the vertical
-  edge of a block has its origin at the edge's top end with x pointing away from the corner; one case isn't enough
-  for the rule. A cylinder cut through all has its origin at the far end of Onshape's own through-all depth
-  (2108.986 mm from the profile in that case), which the engine doesn't reproduce.
 - **Relieved bends** (batch 013 c006; batch 016 c007–c011, c013). Corner reliefs and closed corners leave Onshape's
   bends B-spline faces; the engine wraps its flat bend onto the cylinder, which gives areas and volumes within
   0.01 mm² and mm³ (2e-6 of them). Those cases are compared to 0.01.

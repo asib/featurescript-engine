@@ -199,6 +199,10 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   bridging curve's direction at an arc depends on it. (Batch 010, c006.)
 - **Variable fillets with a smooth transition** vary the radius as 3t² − 2t³ between the vertices (level at both
   ends): the volume matches that law exactly. (Batch 010, c002.)
+- **Through all** (batch 007, c007) goes as far as the diagonal of the box round the Part Studio's parts (not
+  construction or sketch bodies: a sketched 100 mm axis line in an earlier case doesn't count) plus 0.01 mm: a
+  hole cut down through all from z = 12 makes a cylinder whose coordinate system sits at the far end, z =
+  −2088.98596, with the parts so far 2100.97596 across.
 - **Conic and asymmetric fillets** (batch 003, c013 and c014; batch 052) have a rational quadratic cross section
   from a point set back along one face to one along the other, the edge its middle control point. Its setbacks
   are the feet on the faces of a centre `d1` from face 1 and `d2` from face 2: `s1 = (d2 + d1 cos α) / sin α`
