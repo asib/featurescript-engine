@@ -319,6 +319,13 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
 - **Hems at a closed corner** (batch 021) extrude their pieces from mitre planes (up-to start bounds) and leave the
   plate whole, with two small cylindrical pieces where the hem arcs meet.
 
+- **Closed corners** (batch 016, c013): each bend runs on to the corner, its end where a plane parallel to the base
+  wall's normal cuts the sheet. The plane passes through a point on the bend's tangent line on the base wall, just
+  short of where the two tangent lines meet, and through the point where the wall beyond stops (its rip setback,
+  y = 29.98). The part's end face runs radially across the thickness from there (a B-spline in Onshape): both bend
+  cylinders are 29.6194 mm long on average, as a sine law gives. The base wall's corner is cut square to the
+  diagonal, 0.01 mm in, so the bends stay the minimal clearance (0.02 mm) apart.
+
 - **Bend reliefs** (batch 016). Where a bend covers only part of its base wall's edge, the rest of the edge is
   cut back as the bend is, and each end of the bend gets a slot in the base wall: as wide as the width scale ×
   the thickness, reaching from the edge to the depth scale × the bend's inner radius at the centre of an

@@ -4,8 +4,8 @@
 use std::path::PathBuf;
 
 /// The round corner relief folds into B-spline faces, which each kernel approximates its own way: its area and
-/// volume are compared to 0.05 (mm² and mm³, about 1e-5 of them) (c006).
-const LOOSE: &[(&str, f64)] = &[("c006", 0.05)];
+/// volume are compared to 0.01 (mm² and mm³, about 2e-6 of them) (c006).
+const LOOSE: &[(&str, f64)] = &[("c006", 0.01)];
 
 #[test]
 fn batch_013_matches_onshape() {
