@@ -111,9 +111,7 @@ fn axis_direction(model: &Model, query: &Value) -> R<Vec3> {
 }
 
 fn coord_system_for(model: &Model, definition: &Value) -> R<Frame> {
-    if values::opt_bool(definition, "specifyNormal")?.unwrap_or(false) {
-        return Err(error("@evMateConnectorCoordSystem: specifying the normal isn't supported yet"));
-    }
+    // A given normal is for connectors placed on meshes; on other entities Onshape ignores it (batch 020).
     let mut f = inferred(model, definition)?;
     // Between entities: halfway from the inferred origin to the other face, turned as the inferred frame is
     // (batch 018).
