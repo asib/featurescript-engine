@@ -500,13 +500,12 @@ pub struct Origin {
 impl Origins {
     /// An input entity: if it comes through unchanged it keeps its transient id and info.
     pub fn keep(&mut self, entity: &Entity) {
-        let origin =
-            Origin {
-                tid: Some(entity.tid),
-                info: Some(entity.info.clone()),
-                ancestry: entity.ancestry.clone(),
-                attributes: entity.attributes.clone(),
-            };
+        let origin = Origin {
+            tid: Some(entity.tid),
+            info: Some(entity.info.clone()),
+            ancestry: entity.ancestry.clone(),
+            attributes: entity.attributes.clone(),
+        };
         self.insert(&entity.shape, origin);
     }
 
@@ -568,15 +567,26 @@ impl Origins {
     /// with the operation's info, but tracked back to it.
     pub fn derived(op: &occt::Operation, inputs: &[&Entity]) -> Origins {
         let mut origins = Origins::default();
+        origins.add_derived(op, inputs);
+        origins
+    }
+
+    /// Adds `inputs` whose images are new entities, with the operation's info, tracked back to them: what the
+    /// operation modified or generated from each, and each that came through unchanged (as a copy, since the input
+    /// stays, such as a boolean's kept tools).
+    pub fn add_derived(&mut self, op: &occt::Operation, inputs: &[&Entity]) {
         for entity in inputs {
-            for image in op.modified(&entity.shape) {
-                origins.derive(&image, entity, true);
+            let modified = op.modified(&entity.shape);
+            if modified.is_empty() && !op.is_deleted(&entity.shape) {
+                self.derive(&entity.shape, entity, true);
+            }
+            for image in modified {
+                self.derive(&image, entity, true);
             }
             for image in op.generated(&entity.shape) {
-                origins.derive(&image, entity, false);
+                self.derive(&image, entity, false);
             }
         }
-        origins
     }
 
     pub fn lookup(&self, shape: &Shape) -> Option<Origin> {

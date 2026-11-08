@@ -346,10 +346,19 @@ pub(crate) fn boolean_bodies(
         let op = occt::boolean(kind, &shapes(objects), &shapes(group_tools), true)
             .map_err(|e| error(format!("@opBoolean: {e}")))?;
         let input_bodies: Vec<_> = inputs.iter().map(|&b| model.bodies[b].clone()).collect();
-        // Faces a tool leaves in the result, such as a pocket's walls, keep the tool's creator.
+        // Faces a tool leaves in the result, such as a pocket's walls, keep the tool's creator, unless the tool is
+        // kept: then they are new, made by this operation.
         let mut history_bodies: Vec<&crate::model::Body> = input_bodies.iter().map(|b| &**b).collect();
-        history_bodies.extend(group_tools.iter().filter(|t| !inputs.contains(t)).map(|&t| &*model.bodies[t]));
-        let origins = Rc::new(Origins::of_operation(&op, &history_bodies));
+        let other_tools = group_tools.iter().filter(|t| !inputs.contains(t)).map(|&t| &*model.bodies[t]);
+        let mut kept_tool_entities = Vec::new();
+        if keep_tools && per_target {
+            kept_tool_entities.extend(other_tools.flat_map(|b| b.all_entities()));
+        } else {
+            history_bodies.extend(other_tools);
+        }
+        let mut origins = Origins::of_operation(&op, &history_bodies);
+        origins.add_derived(&op, &kept_tool_entities);
+        let origins = Rc::new(origins);
         let mut claimed = Vec::new();
         for solid in op.shape().sub_shapes(ShapeKind::Solid) {
             // The result takes the identity of the first input with a face in it.

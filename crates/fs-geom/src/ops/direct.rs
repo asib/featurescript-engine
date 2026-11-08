@@ -8,7 +8,7 @@ use crate::values::{self, field};
 use crate::{occt_error, query, regen_error};
 use fs_interp::Value;
 use fs_interp::eval::{R, error};
-use occt::{Shape, ShapeKind};
+use occt::{Shape, ShapeKind, Vec3};
 
 pub fn shell(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
     let thickness = values::length(field(definition, "thickness"), "opShell thickness")?;
@@ -47,14 +47,15 @@ pub fn shell(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
 
 pub fn draft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
     // NEUTRAL_PLANE is the older form of a reference surface draft, with the face in `neutralPlane`.
-    let reference_key = match field(definition, "draftType").as_str() {
-        None | Some("REFERENCE_SURFACE") => "referenceSurface",
-        Some("NEUTRAL_PLANE") => "neutralPlane",
-        Some(other) => return Err(error(format!("@opDraft: {other} drafts aren't supported yet"))),
-    };
     let pull = values::normalize(values::vec3(field(definition, "pullVec"), "opDraft pullVec")?)
         .ok_or_else(|| error("@opDraft: zero pull direction"))?;
     let angle = values::angle(field(definition, "angle"), "opDraft angle")?;
+    let reference_key = match field(definition, "draftType").as_str() {
+        None | Some("REFERENCE_SURFACE") => "referenceSurface",
+        Some("NEUTRAL_PLANE") => "neutralPlane",
+        Some("REFERENCE_ENTITY") => return draft_about_entities(model, id, definition, pull, angle),
+        Some(other) => return Err(error(format!("@opDraft: {other} drafts aren't supported yet"))),
+    };
     let reference = field(definition, reference_key);
     let neutral = if reference.get("normal").is_some() {
         values::plane(reference, "opDraft referenceSurface")?
@@ -78,6 +79,39 @@ pub fn draft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
     Ok(Value::UNDEFINED)
 }
 
+/// A draft of faces each about its own reference edges: each face turns about the plane through its first
+/// reference edge square to the pull direction.
+fn draft_about_entities(model: &mut Model, id: FeatureId, definition: &Value, pull: Vec3, angle: f64) -> R<Value> {
+    let mut groups: Vec<(usize, Vec<Shape>, Vec<occt::Frame>)> = Vec::new();
+    for option in field(definition, "referenceEntityDraftOptions").as_array().map(|a| a.to_vec()).unwrap_or_default() {
+        let faces = query::evaluate(model, field(&option, "face"))?;
+        let Some(face) = faces.into_iter().find(|r| r.kind == EntityType::Face) else { continue };
+        let references = query::evaluate(model, field(&option, "references"))?;
+        let edge = references.iter().find(|r| r.kind == EntityType::Edge).ok_or_else(|| regen_error("DRAFT_FAILED"))?;
+        let at = model.shape(*edge).edge_tangent(0.5, false).map_err(|_| regen_error("DRAFT_FAILED"))?.origin;
+        let neutral = occt::Frame { origin: at, normal: pull, x: values::canonical_x(pull) };
+        let shape = model.shape(face).clone();
+        match groups.iter_mut().find(|(b, _, _)| *b == face.body) {
+            Some((_, shapes, frames)) => {
+                shapes.push(shape);
+                frames.push(neutral);
+            }
+            None => groups.push((face.body, vec![shape], vec![neutral])),
+        }
+    }
+    if groups.is_empty() {
+        return Err(regen_error("DRAFT_SELECT_FACES"));
+    }
+    let mut results = Vec::new();
+    for (b, faces, neutrals) in groups {
+        let op = occt::draft_each(&model.bodies[b].shape, &faces, pull, angle, &neutrals)
+            .map_err(|_| regen_error("DRAFT_FAILED"))?;
+        results.push((b, op));
+    }
+    replace_bodies(model, &id, results);
+    Ok(Value::UNDEFINED)
+}
+
 pub fn thicken(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
     let t1 = values::length(field(definition, "thickness1"), "opThicken thickness1")?;
     let t2 = values::length(field(definition, "thickness2"), "opThicken thickness2")?;
@@ -88,17 +122,36 @@ pub fn thicken(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
     }
     // Faces (of solids or sheets) and whole sheet bodies, each thickened on its own. What each makes is tracked back
     // to the entities of the body it came from.
+    // Faces of one body are thickened together: all of a sheet's faces as the sheet itself.
     let mut inputs: Vec<(Shape, usize)> = Vec::new();
     let mut whole_sheets = Vec::new();
+    let mut faces_by_body: Vec<(usize, Vec<Shape>)> = Vec::new();
     for r in &found {
         match r.kind {
-            EntityType::Face => inputs.push((model.shape(*r).clone(), r.body)),
+            EntityType::Face => match faces_by_body.iter_mut().find(|(b, _)| *b == r.body) {
+                Some((_, faces)) => faces.push(model.shape(*r).clone()),
+                None => faces_by_body.push((r.body, vec![model.shape(*r).clone()])),
+            },
             EntityType::Body if model.body(*r).body_type == BodyType::Sheet => {
                 inputs.push((model.body(*r).shape.clone(), r.body));
                 whole_sheets.push(r.body);
             }
             _ => {}
         }
+    }
+    for (b, faces) in faces_by_body {
+        if whole_sheets.contains(&b) {
+            continue;
+        }
+        let body = &model.bodies[b];
+        let input = if body.body_type == BodyType::Sheet && faces.len() == body.faces.len() {
+            body.shape.clone()
+        } else if faces.len() == 1 {
+            faces[0].clone()
+        } else {
+            occt::compound(&faces)
+        };
+        inputs.push((input, b));
     }
     let info = Info::new(id.clone());
     let start_info = Rc::new(Info {

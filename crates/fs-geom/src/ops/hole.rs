@@ -6,8 +6,8 @@ use std::rc::Rc;
 use super::{boolean_bodies, owner_bodies};
 use crate::model::{BodyType, FeatureId, Info, Model, NewBody, Origins, Tid};
 use crate::query::{self, tid_string};
-use crate::values::{self, add, cross, dot, field, map, norm, normalize, scale, sub};
 use crate::regen_error;
+use crate::values::{self, add, cross, dot, field, map, norm, normalize, scale, sub};
 use fs_interp::Value;
 use fs_interp::eval::{R, error};
 use occt::{Axis, BooleanKind, Frame, Shape, ShapeKind, Vec3};
@@ -64,16 +64,18 @@ pub fn hole(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
         None => return Err(error("@opHole: axes must be an array of lines")),
     };
     let identities: Vec<Option<Tid>> = match field(definition, "identities").as_array() {
-        Some(items) => items
-            .iter()
-            .map(|q| Ok(query::evaluate(model, q)?.first().map(|r| model.tid(*r))))
-            .collect::<R<_>>()?,
+        Some(items) => {
+            items.iter().map(|q| Ok(query::evaluate(model, q)?.first().map(|r| model.tid(*r)))).collect::<R<_>>()?
+        }
         None => vec![None; axes.len()],
     };
     let bodies = |key: &str| -> R<Vec<usize>> {
         match field(definition, key) {
             v if v.is_undefined() => Ok(Vec::new()),
-            v => Ok(owner_bodies(model, v)?.into_iter().filter(|&b| model.bodies[b].body_type == BodyType::Solid).collect()),
+            v => Ok(owner_bodies(model, v)?
+                .into_iter()
+                .filter(|&b| model.bodies[b].body_type == BodyType::Solid)
+                .collect()),
         }
     };
     let targets = bodies("targets")?;
@@ -115,7 +117,12 @@ pub fn hole(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
                 })
             })
         };
-        let body = model.add_body(NewBody::new(tool, BodyType::Solid, created.clone()), &Origins::default(), &created, &special);
+        let body = model.add_body(
+            NewBody::new(tool, BodyType::Solid, created.clone()),
+            &Origins::default(),
+            &created,
+            &special,
+        );
         tools.push(body);
 
         let first = extremes.iter().map(|(_, e)| e.first_entrance).fold(f64::INFINITY, f64::min);
@@ -136,7 +143,8 @@ pub fn hole(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
                 continue;
             }
             if let Some(r) = reference(&p.reference, &extremes)? {
-                let target = r.target.map(|t| Value::string(tid_string(model.bodies[t].tid))).unwrap_or(Value::UNDEFINED);
+                let target =
+                    r.target.map(|t| Value::string(tid_string(model.bodies[t].tid))).unwrap_or(Value::UNDEFINED);
                 let info = map(vec![
                     ("referenceRootStart", Value::number(r.start)),
                     ("referenceRootEnd", Value::number(r.end)),
@@ -145,9 +153,7 @@ pub fn hole(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
                 references.push((p.reference.clone(), info));
             }
         }
-        let keyed = |entries: Vec<(String, Value)>| {
-            map(entries.iter().map(|(k, v)| (k.as_str(), v.clone())).collect())
-        };
+        let keyed = |entries: Vec<(String, Value)>| map(entries.iter().map(|(k, v)| (k.as_str(), v.clone())).collect());
         results.push(map(vec![
             ("success", Value::bool(true)),
             ("holeDepth", Value::number(if first.is_finite() { deepest - first } else { deepest })),
@@ -218,13 +224,21 @@ fn reference(name: &str, extremes: &[(usize, Extremes)]) -> R<Option<Reference>>
     };
     Ok(match name {
         "AXIS_POINT" => Some(Reference { start: 0.0, end: 0.0, target: None }),
-        "TARGET_START" => pick(|e| e.first_entrance, false)
-            .map(|(t, e)| Reference { start: e.first_entrance, end: e.full_entrance, target: Some(t) }),
-        "LAST_TARGET_START" => pick(|e| e.first_entrance, true)
-            .map(|(t, e)| Reference { start: e.first_entrance, end: e.full_entrance, target: Some(t) }),
-        "LAST_TARGET_END" => {
-            pick(|e| e.full_exit, true).map(|(t, e)| Reference { start: e.first_exit, end: e.full_exit, target: Some(t) })
-        }
+        "TARGET_START" => pick(|e| e.first_entrance, false).map(|(t, e)| Reference {
+            start: e.first_entrance,
+            end: e.full_entrance,
+            target: Some(t),
+        }),
+        "LAST_TARGET_START" => pick(|e| e.first_entrance, true).map(|(t, e)| Reference {
+            start: e.first_entrance,
+            end: e.full_entrance,
+            target: Some(t),
+        }),
+        "LAST_TARGET_END" => pick(|e| e.full_exit, true).map(|(t, e)| Reference {
+            start: e.first_exit,
+            end: e.full_exit,
+            target: Some(t),
+        }),
         other => return Err(error(format!("@opHole: HolePositionReference.{other} isn't supported yet"))),
     })
 }

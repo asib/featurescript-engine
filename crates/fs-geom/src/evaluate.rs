@@ -31,7 +31,63 @@ fn sum(model: &Model, found: &[EntityRef], f: impl Fn(&occt::Shape) -> occt::Res
     found.iter().map(|r| f(model.shape(*r)).map_err(occt_error)).sum()
 }
 
+/// How a tool and a target meet (`ClashType`), or `None` if they don't.
+fn clash(tool: &Shape, target: &Shape) -> Option<&'static str> {
+    if tool.distance(target).ok()?.distance > 1e-8 {
+        return None;
+    }
+    let solid = |s: &Shape| !s.sub_shapes(ShapeKind::Solid).is_empty();
+    if !(solid(tool) && solid(target)) {
+        return Some("INTERFERE");
+    }
+    let common =
+        occt::boolean(occt::BooleanKind::Intersection, std::slice::from_ref(target), std::slice::from_ref(tool), false)
+            .ok()
+            .and_then(|op| op.shape().volume().ok())
+            .unwrap_or(0.0);
+    let (tool_volume, target_volume) = (tool.volume().unwrap_or(0.0), target.volume().unwrap_or(0.0));
+    let same = |a: f64, b: f64| (a - b).abs() <= 1e-9 * b.abs().max(1e-12);
+    Some(if common <= 1e-15 {
+        "ABUT_NO_CLASS"
+    } else if same(common, target_volume) {
+        "TARGET_IN_TOOL"
+    } else if same(common, tool_volume) {
+        "TOOL_IN_TARGET"
+    } else {
+        "INTERFERE"
+    })
+}
+
 pub fn register(m: &mut GeomBuiltins) {
+    m.insert("evCollisionDetection", |interp, args| {
+        let tags = tags(interp)?;
+        let definition = definition(&args, "evCollisionDetection")?;
+        let clash_type = fs_interp::types::find("ClashType").ok_or_else(|| error("std type ClashType isn't loaded"))?;
+        model_mut(&args, "evCollisionDetection", |model| {
+            let tools = query::evaluate(model, field(&definition, "tools"))?;
+            let targets = query::evaluate(model, field(&definition, "targets"))?;
+            let shape = |r: EntityRef| {
+                if r.kind == EntityType::Body { model.bodies[r.body].shape.clone() } else { model.shape(r).clone() }
+            };
+            let transient = |r: EntityRef| tags.transient_query(&query::tid_string(model.tid(r)));
+            let owner = |r: EntityRef| tags.transient_query(&query::tid_string(model.bodies[r.body].tid));
+            let mut out = Vec::new();
+            for &tool in &tools {
+                for &target in &targets {
+                    if let Some(kind) = clash(&shape(tool), &shape(target)) {
+                        out.push(map(vec![
+                            ("type", tags.enum_value(clash_type, kind)),
+                            ("tool", transient(tool)),
+                            ("toolBody", owner(tool)),
+                            ("target", transient(target)),
+                            ("targetBody", owner(target)),
+                        ]));
+                    }
+                }
+            }
+            Ok(Value::array(out))
+        })
+    });
     m.insert("evPlane", |interp, args| {
         let tags = tags(interp)?;
         measure(
