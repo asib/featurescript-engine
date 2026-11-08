@@ -223,7 +223,6 @@ pub fn register(m: &mut GeomBuiltins) {
         let arc_length = values::opt_bool(&definition, "arcLengthParameterization")?.unwrap_or(true);
         model_mut(&args, "evDistance", |model| distance(&tags, model, &definition, arc_length))
     });
-    m.insert("evMateConnector", |_, _| Err(regen_error("CANNOT_RESOLVE_ENTITIES")));
     m.insert("evCurveDefinition", |interp, args| {
         let tags = tags(interp)?;
         measure(
@@ -381,10 +380,10 @@ fn side(model: &Model, v: &Value, what: &str, extend: bool) -> R<(Side, Vec<Shap
         }
         return Ok((Side::Entities(entities, extend), shapes));
     }
+    // An array of points, lines or planes; a point is itself an array, of lengths (maps with a value and unit).
+    let is_item = |x: &Value| x.as_array().is_some() || x.get("origin").is_some();
     let items: Vec<Value> = match v.as_array() {
-        Some(items) if items.first().is_some_and(|x| x.as_array().is_some() || x.as_map().is_some()) => {
-            items.iter().cloned().collect()
-        }
+        Some(items) if items.first().is_some_and(is_item) => items.iter().cloned().collect(),
         _ => vec![v.clone()],
     };
     let mut shapes = Vec::new();

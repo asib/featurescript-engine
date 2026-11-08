@@ -137,6 +137,8 @@ pub struct Body {
     /// For bodies a sketch made, the sketch's plane.
     pub sketch_plane: Option<Frame>,
     pub properties: Rc<Properties>,
+    /// A mate connector's coordinate system.
+    pub frame: Option<Frame>,
     pub faces: Vec<Entity>,
     pub edges: Vec<Entity>,
     pub vertices: Vec<Entity>,
@@ -180,6 +182,8 @@ impl EntityRef {
 pub struct Model {
     pub bodies: Vec<Rc<Body>>,
     next_tid: Tid,
+    /// The id of the last operation that ran (`@lastOperationId`).
+    pub last_operation: Option<FeatureId>,
 }
 
 /// A new body: its shape and what it is. [`Model::add_body`] fills in the entities.
@@ -192,6 +196,8 @@ pub struct NewBody {
     pub construction: bool,
     pub sketch_plane: Option<Frame>,
     pub properties: Rc<Properties>,
+    /// For a mate connector, its coordinate system.
+    pub frame: Option<Frame>,
 }
 
 impl NewBody {
@@ -205,6 +211,7 @@ impl NewBody {
             construction: false,
             sketch_plane: None,
             properties: Rc::default(),
+            frame: None,
         }
     }
 
@@ -218,6 +225,7 @@ impl NewBody {
             construction: old.construction,
             sketch_plane: old.sketch_plane,
             properties: old.properties.clone(),
+            frame: old.frame,
         }
     }
 }
@@ -264,6 +272,7 @@ impl Model {
             construction: new.construction,
             sketch_plane: new.sketch_plane,
             properties: new.properties,
+            frame: new.frame,
             faces,
             edges,
             vertices,

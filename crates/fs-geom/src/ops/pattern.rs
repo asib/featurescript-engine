@@ -36,6 +36,7 @@ pub fn pattern(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
             let op = occt::transform(&body.shape, &t).map_err(occt_error)?;
             let mut new = NewBody::new(op.shape(), body.body_type, info.clone());
             new.construction = body.construction;
+            new.frame = body.frame.map(|f| super::transform_frame(&f, &t));
             if copy_properties {
                 new.properties = body.properties.clone();
             }

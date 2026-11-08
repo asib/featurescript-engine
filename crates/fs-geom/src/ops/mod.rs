@@ -7,6 +7,7 @@ mod extrude;
 mod pattern;
 mod revolve;
 mod split;
+mod surface;
 mod sweep;
 
 pub use revolve::rotation;
@@ -84,6 +85,19 @@ pub fn register(m: &mut GeomBuiltins) {
     m.insert("opLoft", |_, args| run_op(&args, "opLoft", sweep::loft));
     m.insert("opHelix", |_, args| run_op(&args, "opHelix", curve::helix));
     m.insert("opFitSpline", |_, args| run_op(&args, "opFitSpline", curve::fit_spline));
+    m.insert("opMateConnector", |_, args| run_op(&args, "opMateConnector", crate::mate::make_connector));
+    m.insert("opExtractWires", |_, args| run_op(&args, "opExtractWires", surface::extract_wires));
+    m.insert("opExtractSurface", |_, args| run_op(&args, "opExtractSurface", surface::extract_surface));
+    m.insert("opIntersectFaces", |_, args| run_op(&args, "opIntersectFaces", surface::intersect_faces));
+    m.insert("opFillSurface", |_, args| run_op(&args, "opFillSurface", surface::fill_surface));
+    m.insert("opExtendSheetBody", |_, args| run_op(&args, "opExtendSheetBody", surface::extend_sheet));
+    m.insert("opCreateCurvesOnFace", |_, args| run_op(&args, "opCreateCurvesOnFace", surface::curves_on_face));
+    m.insert("opBoundarySurface", |_, args| run_op(&args, "opBoundarySurface", surface::boundary_surface));
+    m.insert("opOffsetCurveOnFace", |_, args| run_op(&args, "opOffsetCurveOnFace", surface::offset_curve_on_face));
+    m.insert("opEnclose", |_, args| run_op(&args, "opEnclose", surface::enclose));
+    m.insert("opDropCurve", |_, args| run_op(&args, "opDropCurve", surface::drop_curve));
+    m.insert("opRuledSurface", |_, args| run_op(&args, "opRuledSurface", surface::ruled_surface));
+    m.insert("opMoveCurveBoundary", |_, args| run_op(&args, "opMoveCurveBoundary", surface::move_curve_boundary));
 }
 
 /// The shapes of the entities a query finds, grouped by the body that owns them, in model order.
@@ -128,7 +142,10 @@ pub(crate) fn replace_bodies(model: &mut Model, id: &FeatureId, results: Vec<(us
 /// it was given before throwing: std sometimes calls operations inside `try` and then reads that status.
 fn run_op(args: &[Value], name: &str, f: impl FnOnce(&mut Model, FeatureId, &Value) -> R<Value>) -> R<Value> {
     let (id, definition) = id_and_definition(args, name)?;
-    let result = model_mut(args, name, |model| f(model, id, &definition));
+    let result = model_mut(args, name, |model| {
+        model.last_operation = Some(id.clone());
+        f(model, id, &definition)
+    });
     if let Err(Flow::Throw(error)) = &result {
         let status = error.get("message").and_then(Value::as_str).unwrap_or("REGEN_ERROR");
         context_arg(args, 0, name)?.report_status(&args[1], "ERROR", status);
@@ -149,7 +166,8 @@ fn transform_bodies(model: &mut Model, id: FeatureId, definition: &Value) -> R<V
     model.remove_bodies(&bodies);
     let default = Info::new(id);
     for (shape, body, origins) in replacements {
-        model.add_body(NewBody::replacing(&body, shape), &origins, &default, &|_| None);
+        let frame = body.frame.map(|f| transform_frame(&f, &transform));
+        model.add_body(NewBody { frame, ..NewBody::replacing(&body, shape) }, &origins, &default, &|_| None);
     }
     Ok(Value::UNDEFINED)
 }
@@ -199,6 +217,21 @@ pub(crate) fn transform(v: &Value) -> R<Transform> {
     Ok(Transform { m })
 }
 
+/// A coordinate system moved by a transform: its origin moved, its axes turned (and scaled back to unit length).
+pub(crate) fn transform_frame(f: &occt::Frame, t: &Transform) -> occt::Frame {
+    let m = &t.m;
+    let linear = |v: Vec3| {
+        Vec3::new(
+            m[0] * v.x + m[1] * v.y + m[2] * v.z,
+            m[4] * v.x + m[5] * v.y + m[6] * v.z,
+            m[8] * v.x + m[9] * v.y + m[10] * v.z,
+        )
+    };
+    let origin = values::add(linear(f.origin), Vec3::new(m[3], m[7], m[11]));
+    let unit = |v: Vec3| values::normalize(v).unwrap_or(v);
+    occt::Frame { origin, normal: unit(linear(f.normal)), x: unit(linear(f.x)) }
+}
+
 pub(crate) fn translation(v: Vec3) -> Transform {
     Transform { m: [1.0, 0.0, 0.0, v.x, 0.0, 1.0, 0.0, v.y, 0.0, 0.0, 1.0, v.z] }
 }
@@ -245,6 +278,23 @@ fn boolean(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
         v if v.is_undefined() => Vec::new(),
         v => owner_bodies(model, v)?,
     };
+    // Sheets intersected with each other make the curves where they meet.
+    let all: Vec<usize> = targets.iter().chain(tools.iter()).copied().collect();
+    if matches!(kind, BooleanKind::Intersection)
+        && !per_target
+        && all.iter().all(|&b| model.bodies[b].body_type == BodyType::Sheet)
+        && all.len() >= 2
+    {
+        let first = vec![model.bodies[all[0]].shape.clone()];
+        let rest: Vec<Shape> = all[1..].iter().map(|&b| model.bodies[b].shape.clone()).collect();
+        let edges = occt::section_edges(&first, &rest).map_err(|e| error(format!("@opBoolean: {e}")))?;
+        model.remove_bodies(&all);
+        let info = Info::new(id);
+        for wire in occt::connect_edges(&edges).map_err(occt_error)? {
+            model.add_body(NewBody::new(wire, BodyType::Wire, info.clone()), &Origins::default(), &info, &|_| None);
+        }
+        return Ok(Value::UNDEFINED);
+    }
     let keep_tools = values::opt_bool(definition, "keepTools")?.unwrap_or(false);
     let default = Info::new(id);
     let shapes = |bodies: &[usize]| -> Vec<Shape> { bodies.iter().map(|&b| model.bodies[b].shape.clone()).collect() };

@@ -8,8 +8,10 @@
 #![allow(clippy::mutable_key_type)]
 
 pub mod evaluate;
+pub mod mate;
 pub mod model;
 pub mod ops;
+pub mod paths;
 pub mod patterns;
 pub mod properties;
 pub mod query;
@@ -44,6 +46,8 @@ pub fn install(interp: &mut Interp) {
     unmodelled::register(&mut builtins);
     variables::register(&mut builtins);
     patterns::register(&mut builtins);
+    mate::register(&mut builtins);
+    paths::register(&mut builtins);
     interp.builtins.extend(builtins);
 }
 
