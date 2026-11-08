@@ -245,9 +245,9 @@ pub const STEP_ONLY: Strictness = Strictness { relative: RELATIVE_TOLERANCE, top
 
 /// For batches with probe lines, which carry Onshape's own volumes, areas and entity counts to 1e-6: the STEP file
 /// still checks the shapes (bounding box, face types, and the volume where they differ to 1e-6), but volumes and
-/// areas OCCT measures on Onshape's STEP surfaces can be off by 1e-6 (trimmed cylinders) to 2e-5 (a B-spline
-/// ellipsoid), so they only catch gross errors here.
-pub const WITH_PROBES: Strictness = Strictness { relative: 1e-4, topology: false };
+/// areas OCCT measures on Onshape's STEP surfaces can be off by 1e-6 (trimmed cylinders), 2e-5 (a B-spline
+/// ellipsoid) or 1.3e-4 (a tube swept along an arc, batch 008 c009), so they only catch gross errors here.
+pub const WITH_PROBES: Strictness = Strictness { relative: 1e-3, topology: false };
 
 /// Compares the engine's part with Onshape's.
 pub fn compare(name: &str, ours: &Shape, theirs: &Shape) -> PartResult {
