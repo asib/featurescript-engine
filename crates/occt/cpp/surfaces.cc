@@ -467,7 +467,9 @@ std::unique_ptr<Operation> wrap_onto_cylinder(const ShapeList &faces, Vec3 sourc
           if (p2 < p1) edge.Reverse();
         } else {
           edge = BRepBuilderAPI_MakeEdge(spline, cylinder, spline->FirstParameter(), spline->LastParameter()).Edge();
-          BRepLib::BuildCurves3d(edge);
+          // Tightly: the default 1e-5 leaves vertices that tolerant, and a sheet metal closed corner's bends end
+          // only 2e-5 apart.
+          BRepLib::BuildCurves3d(edge, 1e-7, GeomAbs_C1, 14, 200);
         }
         wire.Add(edge);
         edge_images.emplace_back(e.Current(), wire.Edge());
