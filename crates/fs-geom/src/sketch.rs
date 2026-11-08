@@ -355,10 +355,17 @@ fn solve(model: &mut Model, sketch: &Sketch) -> R<()> {
 
     let created = Info::new(sketch.id.clone());
     let none = Origins::default();
-    // Regions, from the edges that aren't construction: a sheet body each.
+    // Regions, from the edges that aren't construction: a sheet body for each set of regions joined by shared edges
+    // (a ring and the square inside it are one sheet; frame relies on it).
     let shapes: Vec<Shape> = edges.iter().filter(|(_, _, c)| !c).map(|(_, e, _)| e.clone()).collect();
-    for region in occt::sketch_regions(&shapes, plane).map_err(occt_error)? {
-        let new = NewBody { sketch_plane: Some(plane), ..NewBody::new(region, BodyType::Sheet, created.clone()) };
+    let regions = occt::sketch_regions(&shapes, plane).map_err(occt_error)?;
+    let sheets = if regions.len() > 1 {
+        occt::connected_shells(&occt::compound(&regions)).map_err(occt_error)?
+    } else {
+        regions
+    };
+    for sheet in sheets {
+        let new = NewBody { sketch_plane: Some(plane), ..NewBody::new(sheet, BodyType::Sheet, created.clone()) };
         model.add_body(new, &none, &created, &|_| None);
     }
     // Curves: a wire body each.
