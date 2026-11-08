@@ -168,19 +168,6 @@ fn resolve(model: &Model, query: &Value) -> R<Vec<EntityRef>> {
         "SM_FORM_FILTER" => keep_if(sub(model, query, "subquery")?, !yes_no(query, "formFilter")?),
         "ACTIVE_SM_FILTER" => keep_if(sub(model, query, "subquery")?, !yes_no(query, "activeSheetMetal")?),
         "SM_APPLICATION_TYPE_FILTER" => Vec::new(),
-        "ATTRIBUTE_FILTER" => {
-            let found = match field(query, "subquery") {
-                v if v.is_undefined() => model.everything(None),
-                v => resolve(model, v)?,
-            };
-            crate::attributes::filter(model, found, &crate::attributes::Wanted::of(query))
-        }
-        // The faces and profile edges `@opHole` made, by the name it gave them and the hole they belong to.
-        "OP_HOLE_FACE" | "OP_HOLE_PROFILE" => {
-            let feature = values::feature_id(field(query, "featureId"), "hole query featureId")?;
-            let name = field(query, "name").as_str();
-            let identity = match field(query, "identity") {
-                v if v.is_undefined() => None,
         // The faces a split put in front of (or behind) its tool.
         "SPLIT" => {
             let feature = values::feature_id(field(query, "operationId"), "qSplitBy operationId")?;
@@ -228,6 +215,19 @@ fn resolve(model: &Model, query: &Value) -> R<Vec<EntityRef>> {
                         && name.is_none_or(|n| info.label.as_deref() == Some(n))
                         && identity.is_none_or(|i| i.is_some() && info.identity == i)
                 })
+        "ATTRIBUTE_FILTER" => {
+            let found = match field(query, "subquery") {
+                v if v.is_undefined() => model.everything(None),
+                v => resolve(model, v)?,
+            };
+            crate::attributes::filter(model, found, &crate::attributes::Wanted::of(query))
+        }
+        // The faces and profile edges `@opHole` made, by the name it gave them and the hole they belong to.
+        "OP_HOLE_FACE" | "OP_HOLE_PROFILE" => {
+            let feature = values::feature_id(field(query, "featureId"), "hole query featureId")?;
+            let name = field(query, "name").as_str();
+            let identity = match field(query, "identity") {
+                v if v.is_undefined() => None,
                 .collect()
         }
         "TRACKING" => tracking(model, query)?,
@@ -356,8 +356,34 @@ fn resolve(model: &Model, query: &Value) -> R<Vec<EntityRef>> {
                 })
                 .collect()
         }
-        // Composite parts aren't modelled yet, so no body is in one.
-        "CONTAINED_IN_COMPOSITE" | "COMPOSITE_CONTAINING" => Vec::new(),
+        // The bodies in composite parts, and the composite parts containing bodies.
+        "CONTAINED_IN_COMPOSITE" => {
+            let mut out = Vec::new();
+            for r in sub(model, query, "compositeParts")? {
+                if let Some((members, _)) = &model.bodies[r.body].composite {
+                    out.extend(model.composite_members(members).into_iter().map(EntityRef::body));
+                }
+            }
+            out.dedup();
+            out
+        }
+        "COMPOSITE_CONTAINING" => {
+            let wanted_closed = match field(query, "compositePartType").as_str() {
+                Some("CLOSED") => Some(true),
+                Some("OPEN") => Some(false),
+                _ => None,
+            };
+            let mut out: Vec<EntityRef> = Vec::new();
+            for r in sub(model, query, "bodies")? {
+                for c in model.composites_containing(r.body) {
+                    let closed = model.bodies[c].composite.as_ref().is_some_and(|(_, closed)| *closed);
+                    if wanted_closed.is_none_or(|w| w == closed) && !out.contains(&EntityRef::body(c)) {
+                        out.push(EntityRef::body(c));
+                    }
+                }
+            }
+            out
+        }
         // Nothing is locked in a context the engine builds itself.
         "MODIFIABLE_ENTITY_FILTER" => sub(model, query, "subquery")?,
         "OWNED_BY_PART" => {

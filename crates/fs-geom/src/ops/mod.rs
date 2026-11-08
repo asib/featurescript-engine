@@ -71,6 +71,24 @@ pub fn register(m: &mut GeomBuiltins) {
         })
     });
     m.insert("opHole", |_, args| run_op(&args, "opHole", hole::hole));
+    m.insert("opCreateCompositePart", |_, args| {
+        run_op(&args, "opCreateCompositePart", |model, id, definition| {
+            // A body holding other bodies: its shape is theirs together, its entities are theirs.
+            let bodies = owner_bodies(model, field(definition, "bodies"))?;
+            let bodies: Vec<usize> = bodies.into_iter().filter(|&b| model.bodies[b].composite.is_none()).collect();
+            if bodies.is_empty() {
+                return Err(regen_error("COMPOSITE_PART_SELECT_BODIES"));
+            }
+            let closed = values::opt_bool(definition, "closed")?.unwrap_or(false);
+            let shapes: Vec<Shape> = bodies.iter().map(|&b| model.bodies[b].shape.clone()).collect();
+            let members: Rc<[crate::model::Tid]> = bodies.iter().map(|&b| model.bodies[b].tid).collect();
+            let info = Info::new(id);
+            let mut new = NewBody::new(occt::compound(&shapes), BodyType::Composite, info.clone());
+            new.composite = Some((members, closed));
+            model.add_body(new, &Origins::default(), &info, &|_| None);
+            Ok(Value::UNDEFINED)
+        })
+    });
     m.insert("opPattern", |_, args| run_op(&args, "opPattern", pattern::pattern));
     m.insert("opSplitPart", |_, args| run_op(&args, "opSplitPart", split::split_part));
     m.insert("opFillet", |_, args| run_op(&args, "opFillet", blend::fillet));

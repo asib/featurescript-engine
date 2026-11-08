@@ -90,10 +90,17 @@ pub fn build(batch: &Path) -> Result<Build, String> {
         ));
     }
     let parts = fs_geom::with_model(&context, |model| {
+        // A closed composite part's bodies are its own; Onshape doesn't export them under their names.
+        let consumed: Vec<_> = model
+            .bodies
+            .iter()
+            .filter_map(|body| body.composite.as_ref().filter(|(_, closed)| *closed))
+            .flat_map(|(members, _)| members.iter().copied())
+            .collect();
         model
             .bodies
             .iter()
-            .filter(|body| body.body_type == BodyType::Solid)
+            .filter(|body| body.body_type == BodyType::Solid && !consumed.contains(&body.tid))
             .filter_map(|body| Some(Part { name: body.name()?.to_string(), shape: body.shape.clone() }))
             .collect()
     })
@@ -127,7 +134,8 @@ fn only_cases(generator: &str, only: &[&str]) -> String {
 pub fn read_fixture(batch: &Path) -> Result<Vec<Part>, String> {
     let path = batch.join("onshape.step");
     let parts = occt::read_step(&path.to_string_lossy()).map_err(|e| format!("{}: {e}", path.display()))?;
-    Ok(parts.into_iter().map(|(name, shape)| Part { name, shape }).collect())
+    // Solids without a name, such as those of a closed composite part, aren't any case's.
+    Ok(parts.into_iter().filter(|(name, _)| !name.is_empty()).map(|(name, shape)| Part { name, shape }).collect())
 }
 
 /// What the comparison measures about a part.

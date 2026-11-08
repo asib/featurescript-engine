@@ -55,11 +55,14 @@ pub enum BodyType {
     Wire,
     Point,
     MateConnector,
+    /// A composite part: a body made of other bodies, whose entities are theirs.
+    Composite,
 }
 
 impl BodyType {
     pub fn name(self) -> &'static str {
         match self {
+            BodyType::Composite => "COMPOSITE",
             BodyType::Solid => "SOLID",
             BodyType::Sheet => "SHEET",
             BodyType::Wire => "WIRE",
@@ -221,6 +224,8 @@ pub struct Body {
     pub attributes: Rc<Attributes>,
     /// A mate connector's coordinate system.
     pub frame: Option<Frame>,
+    /// For a composite part, the transient ids of the bodies in it, and whether it is closed (consumes them).
+    pub composite: Option<(Rc<[Tid]>, bool)>,
     pub faces: Vec<Entity>,
     pub edges: Vec<Entity>,
     pub vertices: Vec<Entity>,
@@ -266,14 +271,14 @@ pub struct Model {
     next_tid: Tid,
     /// The id of the last operation that ran (`@lastOperationId`).
     pub last_operation: Option<FeatureId>,
+    /// For each face a split made, the split's id, the face's transient id, and whether it is behind the tool (on
+    /// the side opposite its normal): `qSplitBy`.
+    pub splits: Rc<Vec<(FeatureId, Tid, bool)>>,
 }
 
 /// A new body: its shape and what it is. [`Model::add_body`] fills in the entities.
 pub struct NewBody {
     pub shape: Shape,
-    /// For each face a split made, the split's id, the face's transient id, and whether it is behind the tool (on
-    /// the side opposite its normal): `qSplitBy`.
-    pub splits: Rc<Vec<(FeatureId, Tid, bool)>>,
     pub body_type: BodyType,
     pub info: Rc<Info>,
     /// Keep this transient id, for a body an operation changed.
@@ -284,6 +289,8 @@ pub struct NewBody {
     pub attributes: Rc<Attributes>,
     /// For a mate connector, its coordinate system.
     pub frame: Option<Frame>,
+    /// For a composite part, the bodies in it and whether it is closed.
+    pub composite: Option<(Rc<[Tid]>, bool)>,
 }
 
 impl NewBody {
@@ -299,6 +306,7 @@ impl NewBody {
             properties: Rc::default(),
             attributes: Rc::default(),
             frame: None,
+            composite: None,
         }
     }
 
@@ -314,6 +322,7 @@ impl NewBody {
             properties: old.properties.clone(),
             attributes: old.attributes.clone(),
             frame: old.frame,
+            composite: old.composite.clone(),
         }
     }
 }
@@ -351,9 +360,11 @@ impl Model {
                 })
                 .collect()
         };
-        let faces = entities(ShapeKind::Face);
-        let edges = entities(ShapeKind::Edge);
-        let vertices = entities(ShapeKind::Vertex);
+        // A composite part's entities are its bodies'.
+        let composite = new.body_type == BodyType::Composite;
+        let faces = if composite { Vec::new() } else { entities(ShapeKind::Face) };
+        let edges = if composite { Vec::new() } else { entities(ShapeKind::Edge) };
+        let vertices = if composite { Vec::new() } else { entities(ShapeKind::Vertex) };
         let tid = new.tid.unwrap_or_else(|| self.new_tid());
         self.bodies.push(Rc::new(Body {
             tid,
@@ -365,6 +376,7 @@ impl Model {
             properties: new.properties,
             attributes: new.attributes,
             frame: new.frame,
+            composite: new.composite,
             faces,
             edges,
             vertices,
@@ -472,6 +484,9 @@ impl Model {
 
     /// The bodies and entities of `body`, of one type or all.
     pub fn owned_by(&self, body: usize, kind: Option<EntityType>) -> Vec<EntityRef> {
+        if let Some((members, _)) = &self.bodies[body].composite {
+            return self.composite_members(members).into_iter().flat_map(|b| self.owned_by(b, kind)).collect();
+        }
         let mut out = Vec::new();
         for k in [EntityType::Face, EntityType::Edge, EntityType::Vertex] {
             if kind.is_none_or(|kind| kind == k) {
@@ -479,6 +494,21 @@ impl Model {
             }
         }
         out
+    }
+}
+
+impl Model {
+    /// The bodies of a composite part that are still in the model.
+    pub fn composite_members(&self, members: &[Tid]) -> Vec<usize> {
+        (0..self.bodies.len()).filter(|&b| members.contains(&self.bodies[b].tid)).collect()
+    }
+
+    /// The composite parts containing a body.
+    pub fn composites_containing(&self, body: usize) -> Vec<usize> {
+        let tid = self.bodies[body].tid;
+        (0..self.bodies.len())
+            .filter(|&c| self.bodies[c].composite.as_ref().is_some_and(|(members, _)| members.contains(&tid)))
+            .collect()
     }
 }
 
