@@ -107,6 +107,12 @@ std::unique_ptr<Shape> make_interpolated_edge(rust::Slice<const Vec3> points, ru
     multiplicities.SetValue(i + 1, i == 0 || i == spans ? 4 : 3);
   }
   Handle(Geom_BSplineCurve) curve = new Geom_BSplineCurve(poles, knots, multiplicities, 3);
+  // Each span is built on its own; where the spans meet with matching second derivatives (as they do unless a
+  // point's derivative was given) the knot is simple, as in Onshape's splines (batch 011, c002).
+  const double tolerance = 1e-9 * std::max(1.0, curve->Pole(1).Distance(curve->Pole(curve->NbPoles())));
+  for (int i = 2; i < curve->NbKnots(); ++i) {
+    if (!curve->RemoveKnot(i, 1, tolerance)) curve->RemoveKnot(i, 2, tolerance);
+  }
   return wrap(BRepBuilderAPI_MakeEdge(curve).Edge());
 }
 
@@ -167,6 +173,11 @@ std::unique_ptr<Shape> make_bspline_edge(rust::Slice<const Vec3> poles, rust::Sl
   } else {
     TColStd_Array1OfReal w(1, static_cast<int>(weights.size()));
     for (size_t i = 0; i < weights.size(); ++i) w.SetValue(static_cast<int>(i) + 1, weights[i]);
+    // OCCT drops weights that are all equal, but a curve std made rational stays rational in Onshape, weights
+    // and all (batch 011, c004): nudging the last weight by an ulp keeps it so without changing its shape.
+    bool all_equal = true;
+    for (int i = w.Lower() + 1; i <= w.Upper(); ++i) all_equal = all_equal && w(i) == w(w.Lower());
+    if (all_equal && w.Length() > 1) w.SetValue(w.Upper(), std::nextafter(w(w.Upper()), 2 * w(w.Upper())));
     curve = new Geom_BSplineCurve(p, w, k, m, degree, periodic);
   }
   return wrap(BRepBuilderAPI_MakeEdge(curve).Edge());
