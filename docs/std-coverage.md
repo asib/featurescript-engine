@@ -36,9 +36,24 @@ Onshape.
 | `loft` (loft.fs) | matches: lofts between squares and between two circles. Known gaps: lofts between unlike profiles or through three profiles, whose surfaces come from each kernel's own lofting (c038, c039). Not yet: guides, connections, end conditions, sections, thin | 004 |
 | `helix` (helix.fs) | matches: around a cylinder by turns and pitch, both hands; about an axis; tapering | 004 |
 | `fitSpline` (fitSpline.fs) | matches: through vertices, open and closed. Not yet: through edges, end directions | 004 |
-| `curvePattern`, `compositeCurve`, `projectCurves`, `intersectionCurve`, `isoparametricCurve`, `bridgingCurve`, `offsetCurveOnFace`, `trimCurve`, `editCurve`, `routingCurve` | not started | 005 (planned) |
-| `fill`, `boundarySurface`, `ruledSurface`, `offsetSurface`, `extendSurface`, `enclose`, `mutualTrim`, `constrainedSurface`, `isocline`, `wrap`, `decal` | not started | 005 (planned) |
-| `mateConnector`, `frame`, `frameTrim`, `gusset`, `endcap`, `cutlist`, `compositePart`, the `sectionPart` family, `importDerived`, `derivedMirror`, `importForeign`, `nameEntity`, `tag`, `queryVariable` | not started | 006 (planned) |
+| `compositeCurve` (compositeCurve.fs) | matches | 005 |
+| `projectCurves` (projectCurves.fs) | matches: two sketches; a curve onto a face along a direction. Not yet: along the face's normals | 005 |
+| `intersectionCurve` (faceIntersection.fs) | matches: a cylinder and a plane. Known gap: Onshape splits the closed curves where two cylinders cross into two edges each (c006) | 005 |
+| `isoparametricCurve` (isoparametricCurve.fs) | matches: equally spaced both ways. Not yet: curves at given parameters or points | 005 |
+| `offsetCurveOnFace` (offsetCurveOnFace.fs) | matches: a straight edge across a planar face. Not yet: curved edges and faces, extending, splitting | 005 |
+| `trimCurve` (moveCurveBoundary.fs) | matches: extending a straight curve by a distance. Not yet: trimming, extending up to an entity, curved extensions | 005 |
+| `curvePattern` (curvePattern.fs) | matches: equal spacing along an arc. Not yet: distance spacing, locked faces, keeping orientation | 005 |
+| `offsetSurface` (offsetSurface.fs) | matches: faces of solids and sheets, both ways | 005 |
+| `extendSurface` (extend.fs) | matches: planar sheets extended by a distance, all or some edges. Not yet: curved sheets, up-to bounds | 005 |
+| `fill` (fillSurface.fs) | matches: planar loops. Not yet: non-planar fills, tangency and curvature conditions, guides | 005 |
+| `boundarySurface` (bsurf.fs) | Known gap: two u profiles give a surface 4e-6 off Onshape's (c019). Not yet: v profiles, end conditions | 005 |
+| `ruledSurface` (ruledSurface.fs) | matches: normal to a face, aligned with a direction. Not yet: tangent, angles, vertex overrides | 005 |
+| `enclose` (enclose.fs) | Known gap: a tube closed by a slanted plane is 3e-6 off in area, because OCCT's curve where the plane cuts the cylinder is an approximation (c022) | 005 |
+| `mutualTrim` (mutualTrim.fs) | not yet: needs face splitting (c023) | 005 |
+| `mateConnector` (mateConnector.fs) | matches: on faces (centroid), vertices, circular edges (centre), edge mid points; moved, turned, flipped, secondary axis. Not yet: between entities, realigning, specifying the normal | 005 |
+| `transform` by mate connectors | matches | 005 |
+| `bridgingCurve`, `editCurve`, `routingCurve`, `constrainedSurface`, `isocline`, `wrap`, `decal` | not started | later |
+| `frame`, `frameTrim`, `gusset`, `endcap`, `cutlist`, `compositePart`, the `sectionPart` family, `importDerived`, `derivedMirror`, `importForeign`, `nameEntity`, `tag`, `queryVariable` | not started | 006 (planned) |
 | sheet metal: `sheetMetalStart`, `sheetMetalFlange`, `sheetMetalHem`, `sheetMetalTab`, `sheetMetalJoint`, `sheetMetalMakeJoint`, `sheetMetalCorner`, `sheetMetalCornerBreak`, `sheetMetalBendRelief`, `sheetMetalRip`, `sheetMetalJog`, `sheetMetalBend`, `sheetMetalUnfold`/`Refold`, `sheetMetalFormed`, `sheetMetalLoft`, `sheetMetalGeometryPattern`, `sheetMetalTransform`, `sheetMetalEnd`, `pcbStart`/`pcbEnd` | not started | 007+ (planned) |
 | tables (`cutlistTable`, `holeTable`, `routingCurveTable`), computed properties (`computeMass`) | not started | later |
 

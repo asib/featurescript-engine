@@ -122,6 +122,16 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
 - **A helix with `clockwise: false` turns left-handed about its direction.** (Batch 004, c043.)
 - **A loft between parallel squares has planar sides**, and sweeps merge faces that continue onto one surface
   along the path. (Batch 004, c032, c035, c036.)
+- **Mate connector frames:** a face's connector is at its centroid with z along its normal; a circle's at its
+  centre with z along its axis; an edge's mid point has z along the edge; a vertex has the world frame. When z
+  comes from geometry, x is the canonical x for it. Flipping turns the frame half a turn about y; the secondary axis
+  picks ±x or ±y as x; offsets are along those axes and the rotation comes last. Moving a part by mate connectors
+  leaves the connectors where they were. (Batch 005, c024–c029.)
+- **Equally spaced iso curves:** across an open parameter range at i / (n − 1), ends included and dropped where
+  they lie on the face's boundary (so three curves round a cylinder's height leave one circle); round a periodic
+  range at (i + ½) / n. U-direction curves on a cylinder run along it. (Batch 005, c007 and c008.)
+- **A projection or intersection that closes on itself is one edge** with no vertices (but Onshape splits the
+  curves where two cylinders cross into two edges each). (Batch 005, c004 and c006.)
 - **Assumptions not yet checked against Onshape:** transient ids are strings (ours look like `"T12"`); the
   results of `@evaluateQuery` come in body order, then faces, edges and vertices.
 
