@@ -39,13 +39,18 @@ pub fn fillet(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> 
         }
         Some(other) => return Err(error(format!("@opFillet: {other} cross sections aren't supported yet"))),
     }
-    if values::opt_bool(definition, "isAsymmetric")?.unwrap_or(false)
-        && !values::opt_bool(definition, "isVariable")?.unwrap_or(false)
-    {
+    // Asymmetric with equal radii is a plain circular fillet: Onshape's is a cylinder (batch 052, c017).
+    let length = |key: &str| values::length(field(definition, key), key).ok();
+    let asymmetric = values::opt_bool(definition, "isAsymmetric")?.unwrap_or(false)
+        && !matches!((length("radius"), length("otherRadius")), (Some(a), Some(b)) if (a - b).abs() < 1e-12);
+    if asymmetric && !values::opt_bool(definition, "isVariable")?.unwrap_or(false) {
         return section_fillet(model, id, definition, false);
     }
-    for key in ["isAsymmetric", "createDetachedSurface"] {
-        if values::opt_bool(definition, key)?.unwrap_or(false) {
+    for (key, on) in [
+        ("isAsymmetric", asymmetric),
+        ("createDetachedSurface", values::opt_bool(definition, "createDetachedSurface")?.unwrap_or(false)),
+    ] {
+        if on {
             return Err(error(format!("@opFillet: {key} isn't supported yet")));
         }
     }
@@ -117,10 +122,10 @@ fn section_fillet(model: &mut Model, id: FeatureId, definition: &Value, conic: b
     let asymmetric = values::opt_bool(definition, "isAsymmetric")?.unwrap_or(false);
     let other =
         if asymmetric { values::length(field(definition, "otherRadius"), "opFillet otherRadius")? } else { radius };
-    let (first, second) = if values::opt_bool(definition, "flipAsymmetric")?.unwrap_or(false) {
-        (radius, other)
-    } else {
+    let (radius, other) = if values::opt_bool(definition, "flipAsymmetric")?.unwrap_or(false) {
         (other, radius)
+    } else {
+        (radius, other)
     };
     let rho = if conic {
         field(definition, "rho").as_number().ok_or_else(|| error("@opFillet: rho must be a number"))?
@@ -155,13 +160,12 @@ fn section_fillet(model: &mut Model, id: FeatureId, definition: &Value, conic: b
             );
             let (start, length, t) = (a.origin, norm(sub(e.origin, a.origin)), a.direction);
             let mid = add(start, scale(t, length / 2.0));
-            // Into each face from the edge, square to it: the face the edge runs forward along first.
-            let left = left_face(&body, edge);
+            // Into each face from the edge, square to it: the leading face first.
             let mut faces = body.ancestors(edge, ShapeKind::Face);
             if faces.len() != 2 {
                 return Err(failed());
             }
-            if left.as_ref().is_some_and(|l| l.is_same(&faces[1])) {
+            if leading_face(&body, edge).is_some_and(|l| l.is_same(&faces[1])) {
                 faces.swap(0, 1);
             }
             let mut into = Vec::new();
@@ -182,9 +186,19 @@ fn section_fillet(model: &mut Model, id: FeatureId, definition: &Value, conic: b
             }
             let [u1, u2] = into[..] else { return Err(failed()) };
             let angle = dot(u1, u2).clamp(-1.0, 1.0).acos();
-            let (half_tan, weight) = ((angle / 2.0).tan(), if conic { rho / (1.0 - rho) } else { (angle / 2.0).sin() });
-            let (p1, p2) = (add(start, scale(u1, first / half_tan)), add(start, scale(u2, second / half_tan)));
-            // From the second face to the first, as Onshape runs it; a circular fillet's the exact arc.
+            // Just inside the corner, halfway along the edge (its ends lie on the part's other faces).
+            let inside = body.contains_point(add(mid, scale(add(u1, u2), radius.min(other) * 0.05))).unwrap_or(true);
+            // How far the section's centre lies from each face: `radius` from the leading face at a convex edge,
+            // from the other at a concave one; then where its feet on the faces are (none, past the edge, at an
+            // obtuse corner with radii too uneven: c014).
+            let (d1, d2) = if inside { (radius, other) } else { (other, radius) };
+            let (s1, s2) = ((d2 + d1 * angle.cos()) / angle.sin(), (d1 + d2 * angle.cos()) / angle.sin());
+            if !(s1 > 1e-9 && s2 > 1e-9) {
+                return Err(failed());
+            }
+            let (p1, p2) = (add(start, scale(u1, s1)), add(start, scale(u2, s2)));
+            let weight = if conic { rho / (1.0 - rho) } else { (angle / 2.0).sin() };
+            // From the second face to the first; a circular fillet's the exact arc.
             let curve = if conic || asymmetric {
                 crate::curve_extend::Cubic::rational_quadratic(p2, start, p1, weight)?.edge()?
             } else {
@@ -198,8 +212,6 @@ fn section_fillet(model: &mut Model, id: FeatureId, definition: &Value, conic: b
                 occt::line_edge(start, p2).map_err(crate::occt_error)?,
             ])
             .map_err(|_| failed())?;
-            // Just inside the corner, halfway along the edge (its ends lie on the part's other faces).
-            let inside = body.contains_point(add(mid, scale(add(u1, u2), first.min(second) * 0.05))).unwrap_or(true);
             // Swept along the edge: to cut, a length further each way so its ends lie outside the part; to fill a
             // concave edge, just its length.
             let tool = if inside {
@@ -249,18 +261,11 @@ fn fillet_frame(body: &Shape, edge: &Shape, face: &Shape, line_origin: Option<oc
         let (u, v) = f.face_fraction(m).ok()?;
         f.face_tangent_plane(u, v).ok().map(|p| p.normal)
     };
-    let neighbours: Vec<(Shape, occt::Vec3)> =
-        body.ancestors(edge, ShapeKind::Face).into_iter().filter_map(|f| normal_of(&f).map(|n| (f, n))).collect();
-    let key = |n: occt::Vec3| [n.x.abs(), n.y.abs(), n.z.abs()];
-    let (chosen, n) = neighbours.iter().max_by(|(_, a), (_, b)| {
-        let (ka, kb) = (key(*a), key(*b));
-        (0..3)
-            .map(|i| if (ka[i] - kb[i]).abs() < 1e-9 { std::cmp::Ordering::Equal } else { ka[i].total_cmp(&kb[i]) })
-            .find(|o| *o != std::cmp::Ordering::Equal)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    })?;
+    let chosen = leading_face(body, edge)?;
+    let n = normal_of(&chosen)?;
+    let chosen = &chosen;
     // Walking the face's loop (anticlockwise about its normal), the face is on the left.
-    let left = cross(*n, t);
+    let left = cross(n, t);
     let inside =
         occt::vertex(add(m, scale(left, 1e-6))).and_then(|v| v.distance(chosen)).is_ok_and(|d| d.distance < 1e-7);
     let along = if inside { t } else { scale(t, -1.0) };
@@ -274,6 +279,29 @@ fn fillet_frame(body: &Shape, edge: &Shape, face: &Shape, line_origin: Option<oc
     let p = line_origin.unwrap_or(m);
     let origin = add(s.frame.origin, scale(z, dot(sub(p, s.frame.origin), z)));
     Some(occt::Frame { origin, normal: z, x })
+}
+
+/// Of the two faces next to an edge, the one whose normal (at the edge's middle) leans most along x, then y, then
+/// z. Onshape runs a fillet cylinder's axis along the edge as it runs in this face's loop (batch 047) and measures
+/// an asymmetric fillet's `radius` from it at a convex edge (batch 052).
+fn leading_face(body: &Shape, edge: &Shape) -> Option<Shape> {
+    let m = edge.edge_tangent(0.5, false).ok()?.origin;
+    let normal_of = |f: &Shape| -> Option<occt::Vec3> {
+        let (u, v) = f.face_fraction(m).ok()?;
+        f.face_tangent_plane(u, v).ok().map(|p| p.normal)
+    };
+    let key = |n: occt::Vec3| [n.x.abs(), n.y.abs(), n.z.abs()];
+    body.ancestors(edge, ShapeKind::Face)
+        .into_iter()
+        .filter_map(|f| normal_of(&f).map(|n| (f, n)))
+        .max_by(|(_, a), (_, b)| {
+            let (ka, kb) = (key(*a), key(*b));
+            (0..3)
+                .map(|i| if (ka[i] - kb[i]).abs() < 1e-9 { std::cmp::Ordering::Equal } else { ka[i].total_cmp(&kb[i]) })
+                .find(|o| *o != std::cmp::Ordering::Equal)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .map(|(f, _)| f)
 }
 
 /// The face next to an edge that the edge runs forward along: walking along the edge with that face's normal up,
