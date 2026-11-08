@@ -1710,17 +1710,37 @@ pub fn corner_type(tags: &crate::values::Tags, model: &Model, definition: &Value
 /// the wall's plane. Faces, edges and vertices the change leaves alone keep their identities; the corner's walls and
 /// the edges it shortens are changed. Only circular fillets and equal-offset chamfers for now.
 pub fn apply_in_flat(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
-    let chamfer = field(definition, "crossSection").as_str() == Some("CHAMFER");
-    let size = if chamfer {
-        if field(definition, "chamferType").as_str().is_some_and(|t| t != "EQUAL_OFFSETS") {
-            return Err(error("@sheetMetalApplyInFlat: only equal-offset chamfers are supported yet"));
+    // A circular fillet, an equal-offset chamfer, a two-offset chamfer (the first width along the edge leaving the
+    // corner as the wall's loop runs, batch 020), or a conic set back by the radius.
+    enum Break {
+        Round(f64),
+        Chamfer(f64, f64),
+        Conic(f64, f64),
+    }
+    let length = |key: &str| values::length(field(definition, key), key);
+    let corner_break = match (field(definition, "crossSection").as_str(), field(definition, "chamferType").as_str()) {
+        (Some("CHAMFER"), None | Some("EQUAL_OFFSETS")) => {
+            let w = length("width")?;
+            Break::Chamfer(w, w)
         }
-        values::length(field(definition, "width"), "corner break width")?
-    } else {
-        if field(definition, "crossSection").as_str().is_some_and(|c| c != "CIRCULAR") {
-            return Err(error("@sheetMetalApplyInFlat: only circular fillets are supported yet"));
+        (Some("CHAMFER"), Some("TWO_OFFSETS")) => {
+            let (w1, w2) = (length("width1")?, length("width2")?);
+            // Kept as (along the edge coming in, along the edge leaving).
+            if values::opt_bool(definition, "oppositeDirection")?.unwrap_or(false) {
+                Break::Chamfer(w1, w2)
+            } else {
+                Break::Chamfer(w2, w1)
+            }
         }
-        values::length(field(definition, "radius"), "corner break radius")?
+        (Some("CHAMFER"), Some(other)) => {
+            return Err(error(format!("@sheetMetalApplyInFlat: {other} chamfers aren't supported yet")));
+        }
+        (Some("CONIC"), _) => {
+            let rho = field(definition, "rho").as_number().ok_or_else(|| error("@sheetMetalApplyInFlat: no rho"))?;
+            Break::Conic(length("radius")?, rho)
+        }
+        (None | Some("CIRCULAR"), _) => Break::Round(length("radius")?),
+        (Some(other), _) => return Err(error(format!("@sheetMetalApplyInFlat: {other} fillets aren't supported yet"))),
     };
     // The definition vertices the picks are associated with, by body.
     let mut corners: Vec<(usize, Shape)> = Vec::new();
@@ -1757,8 +1777,34 @@ pub fn apply_in_flat(model: &mut Model, id: FeatureId, definition: &Value) -> R<
             if at.is_empty() {
                 continue;
             }
-            faces[i] = occt::face_corners_2d(&face.shape, &at, size, chamfer)
-                .map_err(|_| regen_error("SHEET_METAL_CORNER_BREAK_FAILED"))?;
+            let failed = || regen_error("SHEET_METAL_CORNER_BREAK_FAILED");
+            faces[i] = match corner_break {
+                Break::Round(r) => occt::face_corners_2d(&face.shape, &at, r, false).map_err(|_| failed())?,
+                Break::Chamfer(d1, d2) if (d1 - d2).abs() < 1e-12 => {
+                    occt::face_corners_2d(&face.shape, &at, d1, true).map_err(|_| failed())?
+                }
+                Break::Chamfer(d1, d2) => {
+                    let mut f = face.shape.clone();
+                    for v in &at {
+                        let corner = f.sub_shapes(ShapeKind::Vertex).into_iter().find(|x| x.is_same(v)).ok_or_else(failed)?;
+                        f = occt::face_corner_chamfer_2d(&f, &corner, d1, d2).map_err(|_| failed())?;
+                    }
+                    f
+                }
+                Break::Conic(r, rho) => {
+                    let mut f = face.shape.clone();
+                    for v in &at {
+                        let p = v.vertex_point().map_err(occt_error)?;
+                        let corner = f
+                            .sub_shapes(ShapeKind::Vertex)
+                            .into_iter()
+                            .find(|x| x.vertex_point().is_ok_and(|q| norm(sub(q, p)) < 1e-9))
+                            .ok_or_else(failed)?;
+                        f = occt::face_corner_conic_2d(&f, &corner, r, rho).map_err(|_| failed())?;
+                    }
+                    f
+                }
+            };
             changed.push(i);
         }
         let shell = occt::sew_faces(&faces, 1e-7).map_err(occt_error)?;

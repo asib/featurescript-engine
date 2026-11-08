@@ -172,6 +172,7 @@ mod ffi {
         fn cylinder_face(frame: Frame, radius: f64, half_height: f64) -> Result<UniquePtr<Shape>>;
         fn surface_patch(face: &Shape, u0: f64, u1: f64, v0: f64, v1: f64) -> Result<UniquePtr<Shape>>;
         fn face_corners_2d(face: &Shape, vertices: &ShapeList, size: f64, chamfer: bool) -> Result<UniquePtr<Shape>>;
+        fn face_corner_2d(face: &Shape, vertex: &Shape, kind: i32, d1: f64, d2: f64, rho: f64) -> Result<UniquePtr<Shape>>;
         fn iso_curves(face: &Shape, along_u: bool, t: f64) -> Result<UniquePtr<ShapeList>>;
         fn face_periodic(face: &Shape, along_u: bool) -> Result<bool>;
         fn join_edges(wire: &Shape) -> Result<UniquePtr<Shape>>;
@@ -777,6 +778,18 @@ pub fn cylinder_face(frame: Frame, radius: f64, half_height: f64) -> Result<Shap
 }
 
 /// A planar face with corners at some vertices rounded to `size`, or (`chamfer`) cut back `size` along both edges.
+/// A planar face with one corner chamfered (`d1` along the edge coming into the corner in the face's loop order,
+/// `d2` along the one leaving it).
+pub fn face_corner_chamfer_2d(face: &Shape, vertex: &Shape, d1: f64, d2: f64) -> Result<Shape> {
+    Ok(Shape::new(ffi::face_corner_2d(&face.0, &vertex.0, 1, d1, d2, 0.0)?))
+}
+
+/// A planar face with one corner rounded by a conic set back `setback` along both edges, its shoulder at `rho` of
+/// the way from the chord's middle to the corner.
+pub fn face_corner_conic_2d(face: &Shape, vertex: &Shape, setback: f64, rho: f64) -> Result<Shape> {
+    Ok(Shape::new(ffi::face_corner_2d(&face.0, &vertex.0, 2, setback, setback, rho)?))
+}
+
 pub fn face_corners_2d(face: &Shape, vertices: &[Shape], size: f64, chamfer: bool) -> Result<Shape> {
     Ok(Shape::new(ffi::face_corners_2d(&face.0, &to_list(vertices), size, chamfer)?))
 }

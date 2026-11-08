@@ -122,6 +122,7 @@ std::unique_ptr<Shape> sew_faces(const ShapeList &faces, double tolerance);
 std::unique_ptr<Shape> cylinder_face(Frame frame, double radius, double half_height);
 std::unique_ptr<Shape> surface_patch(const Shape &face, double u0, double u1, double v0, double v1);
 std::unique_ptr<Shape> face_corners_2d(const Shape &face_shape, const ShapeList &vertices, double size, bool chamfer);
+std::unique_ptr<Shape> face_corner_2d(const Shape &face, const Shape &vertex, int kind, double d1, double d2, double rho);
 std::unique_ptr<ShapeList> iso_curves(const Shape &face, bool along_u, double t);
 bool face_periodic(const Shape &face, bool along_u);
 std::unique_ptr<Shape> join_edges(const Shape &wire);

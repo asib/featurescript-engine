@@ -25,6 +25,11 @@
 #include <BRepBuilderAPI_Copy.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
 #include <BRepExtrema_DistShapeShape.hxx>
+#include <Geom_BSplineCurve.hxx>
+#include <BRepAlgoAPI_Cut.hxx>
+#include <TColgp_Array1OfPnt.hxx>
+#include <BRepClass_FaceClassifier.hxx>
+#include <Geom_Circle.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
@@ -586,6 +591,64 @@ std::unique_ptr<Shape> face_corners_2d(const Shape &face_shape, const ShapeList 
   maker.Build();
   if (!maker.IsDone()) throw std::runtime_error("corner: the 2D fillet failed");
   return wrap(maker.Shape());
+}
+
+// A planar face with the corner at `vertex_shape` broken: `kind` 1 a chamfer `d1` along the edge coming into the
+// corner (in the face's own loop order) and `d2` along the one leaving it; 2 a conic set back `d1` along both edges,
+// its shoulder at `rho` of the way from the chord's middle to the corner.
+std::unique_ptr<Shape> face_corner_2d(const Shape &face_shape, const Shape &vertex_shape, int kind, double d1, double d2, double rho) {
+  const TopoDS_Face &face = TopoDS::Face(face_shape.shape);
+  const TopoDS_Vertex &vertex = TopoDS::Vertex(vertex_shape.shape);
+  TopoDS_Edge incoming, outgoing;
+  for (BRepTools_WireExplorer it(BRepTools::OuterWire(face), face); it.More(); it.Next()) {
+    const TopoDS_Edge &e = it.Current();
+    if (TopExp::LastVertex(e, Standard_True).IsSame(vertex)) incoming = e;
+    if (TopExp::FirstVertex(e, Standard_True).IsSame(vertex)) outgoing = e;
+  }
+  if (incoming.IsNull() || outgoing.IsNull()) throw std::runtime_error("corner: the vertex isn't a corner of the face");
+  if (kind == 1) {
+    BRepFilletAPI_MakeFillet2d maker(face);
+    maker.AddChamfer(incoming, outgoing, d1, d2);
+    maker.Build();
+    if (!maker.IsDone()) throw std::runtime_error("corner: the 2D chamfer failed");
+    return wrap(maker.Shape());
+  }
+  gp_Pnt v = BRep_Tool::Pnt(vertex);
+  auto toward = [&](const TopoDS_Edge &e, bool from_end) {
+    gp_Pnt other = BRep_Tool::Pnt(from_end ? TopExp::FirstVertex(e, Standard_True) : TopExp::LastVertex(e, Standard_True));
+    gp_Vec d(v, other);
+    if (d.Magnitude() < 1e-12) throw std::runtime_error("corner: a degenerate edge");
+    return v.Translated(d.Normalized() * d1);
+  };
+  gp_Pnt p0 = toward(incoming, true), p2 = toward(outgoing, false);
+  TColgp_Array1OfPnt poles(1, 3);
+  poles(1) = p0;
+  poles(2) = v;
+  poles(3) = p2;
+  TColStd_Array1OfReal weights(1, 3);
+  weights(1) = 1;
+  weights(2) = rho / (1 - rho);
+  weights(3) = 1;
+  TColStd_Array1OfReal knots(1, 2);
+  knots(1) = 0;
+  knots(2) = 1;
+  TColStd_Array1OfInteger mults(1, 2);
+  mults(1) = 3;
+  mults(2) = 3;
+  Handle(Geom_BSplineCurve) conic = new Geom_BSplineCurve(poles, weights, knots, mults, 2);
+  BRepBuilderAPI_MakeWire wire;
+  wire.Add(BRepBuilderAPI_MakeEdge(p0, v).Edge());
+  wire.Add(BRepBuilderAPI_MakeEdge(v, p2).Edge());
+  wire.Add(BRepBuilderAPI_MakeEdge(conic).Edge());
+  if (!wire.IsDone()) throw std::runtime_error("corner: the conic's region failed");
+  BRepBuilderAPI_MakeFace region(wire.Wire(), Standard_True);
+  if (!region.IsDone()) throw std::runtime_error("corner: the conic's region failed");
+  BRepAlgoAPI_Cut cut(face, region.Face());
+  cut.Build();
+  if (!cut.IsDone()) throw std::runtime_error("corner: cutting the conic corner failed");
+  TopExp_Explorer first(cut.Shape(), TopAbs_FACE);
+  if (!first.More()) throw std::runtime_error("corner: nothing left");
+  return wrap(first.Current());
 }
 
 }  // namespace occt
