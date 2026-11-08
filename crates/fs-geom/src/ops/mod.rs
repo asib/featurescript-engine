@@ -364,6 +364,17 @@ fn boolean(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
 
 /// A boolean of bodies: all of them together, or (`per_target`) the tools with each target separately. The results
 /// replace the bodies used.
+/// Whether a sheet has a planar face lying in the plane of one of these faces but facing the other way.
+fn faces_against(faces: &[Shape], sheet: &Shape) -> bool {
+    let planes: Vec<occt::Frame> = faces.iter().filter_map(|f| f.face_plane().ok()).collect();
+    sheet.sub_shapes(ShapeKind::Face).iter().filter_map(|f| f.face_plane().ok()).any(|p| {
+        planes.iter().any(|q| {
+            let n = crate::values::dot(p.normal, q.normal);
+            n < -1.0 + 1e-9 && crate::values::dot(crate::values::sub(p.origin, q.origin), q.normal).abs() < 1e-9
+        })
+    })
+}
+
 pub(crate) fn boolean_bodies(
     model: &mut Model,
     id: FeatureId,
@@ -403,8 +414,20 @@ pub(crate) fn boolean_bodies(
 
     let mut results = Vec::new();
     for (inputs, objects, group_tools) in &groups {
-        let op = occt::boolean(kind, &shapes(objects), &shapes(group_tools), true)
-            .map_err(|e| error(format!("@opBoolean: {e}")))?;
+        // Sheets joined face to face must face the same way to merge: turn over a tool sheet facing against a
+        // target it lies on (a sheet metal tab).
+        let mut tool_shapes = shapes(group_tools);
+        if kind == BooleanKind::Union {
+            let object_faces: Vec<Shape> =
+                objects.iter().flat_map(|&b| model.bodies[b].shape.sub_shapes(ShapeKind::Face)).collect();
+            for tool in tool_shapes.iter_mut() {
+                if tool.sub_shapes(ShapeKind::Solid).is_empty() && faces_against(&object_faces, tool) {
+                    *tool = tool.reversed();
+                }
+            }
+        }
+        let op =
+            occt::boolean(kind, &shapes(objects), &tool_shapes, true).map_err(|e| error(format!("@opBoolean: {e}")))?;
         let input_bodies: Vec<_> = inputs.iter().map(|&b| model.bodies[b].clone()).collect();
         // Faces a tool leaves in the result, such as a pocket's walls, keep the tool's creator, unless the tool is
         // kept: then they are new, made by this operation.
