@@ -3,6 +3,12 @@
 #include "occt/cpp/occt.h"
 
 #include <BRepAdaptor_Curve.hxx>
+#include <BRepLib.hxx>
+#include <Geom2d_Line.hxx>
+#include <Geom_ConicalSurface.hxx>
+#include <Geom_CylindricalSurface.hxx>
+#include <gp_Ax3.hxx>
+#include <gp_Lin2d.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
@@ -247,6 +253,50 @@ std::unique_ptr<Shape> offset_wire_region(const Shape &wire_shape, Vec3 normal, 
   ShapeFix_Face fix(face.Face());
   fix.Perform();
   return wrap(fix.Face());
+}
+
+// A helix about an axis through `origin` along `direction`, starting at `start` (off the axis) and turning from
+// revolution `t0` to `t1`, `pitch` along the axis and `spiral` outwards per revolution, clockwise or not (looking
+// along the direction). Exact: a straight line on a cylinder, or on a cone when the radius changes.
+std::unique_ptr<Shape> make_helix_edge(Vec3 origin, Vec3 direction, Vec3 start, double t0, double t1, bool clockwise,
+                                       double pitch, double spiral) {
+  gp_Dir z = dir(direction);
+  gp_Pnt o = pnt(origin), s = pnt(start);
+  gp_Vec radial(o, s);
+  radial -= gp_Vec(z) * radial.Dot(gp_Vec(z));
+  double r0 = radial.Magnitude();
+  if (r0 < 1e-12) throw std::runtime_error("helix: the start point is on the axis");
+  gp_Pnt base = o.Translated(gp_Vec(o, s).Dot(gp_Vec(z)) * gp_Vec(z));
+  Handle(Geom_Surface) surface;
+  gp_Lin2d line;
+  if (std::abs(spiral) < 1e-15) {
+    // Clockwise looking along the direction is a left-handed frame about it.
+    gp_Ax3 frame(base, clockwise ? z.Reversed() : z, gp_Dir(radial));
+    double rise = clockwise ? -pitch : pitch;
+    surface = new Geom_CylindricalSurface(frame, r0);
+    // u is the angle, v the height: v = rise * u / 2π.
+    line = gp_Lin2d(gp_Pnt2d(0, 0), gp_Dir2d(2 * M_PI, rise));
+  } else {
+    // A cone's radius grows along its axis: r0 + v sin(a), height v cos(a), with tan(a) = |spiral| / pitch. A
+    // shrinking helix uses a cone pointing back along the direction and runs down its slant (v decreasing), and
+    // turns the other way in u, since that frame's y is reversed.
+    bool shrinking = spiral < 0;
+    gp_Ax3 frame(base, shrinking ? z.Reversed() : z, gp_Dir(radial));
+    double a = std::atan2(std::abs(spiral), std::abs(pitch));
+    surface = new Geom_ConicalSurface(frame, a, r0);
+    double slant_per_turn = std::hypot(spiral, pitch);
+    double du = (clockwise != shrinking) ? -2 * M_PI : 2 * M_PI;
+    double dv = shrinking ? -slant_per_turn : slant_per_turn;
+    line = gp_Lin2d(gp_Pnt2d(0, 0), gp_Dir2d(du, dv));
+  }
+  Handle(Geom2d_Line) curve = new Geom2d_Line(line);
+  // The line's parameter is its length in (u, v): per turn, |(2π, dv)|.
+  double length_per_turn = 2 * M_PI / std::abs(line.Direction().X());
+  BRepBuilderAPI_MakeEdge maker(curve, surface, t0 * length_per_turn, t1 * length_per_turn);
+  if (!maker.IsDone()) throw std::runtime_error("helix failed");
+  TopoDS_Edge edge = maker.Edge();
+  BRepLib::BuildCurves3d(edge, 1e-9, GeomAbs_C2, 14, 400);
+  return wrap(edge);
 }
 
 }  // namespace occt

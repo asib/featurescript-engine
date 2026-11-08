@@ -99,6 +99,11 @@ std::unique_ptr<Shape> make_bezier_edge(rust::Slice<const Vec3> points);
 std::unique_ptr<Shape> make_conic_edge(Vec3 a, Vec3 c, Vec3 b, double w);
 std::unique_ptr<ShapeList> connect_edges(const ShapeList &edges);
 std::unique_ptr<Shape> offset_wire_region(const Shape &wire, Vec3 normal, double o1, double o2);
+std::unique_ptr<Shape> make_helix_edge(Vec3 origin, Vec3 direction, Vec3 start, double t0, double t1, bool clockwise,
+                                       double pitch, double spiral);
+std::unique_ptr<Operation> sweep_op(const Shape &profile, const Shape &path);
+std::unique_ptr<Operation> loft_op(const ShapeList &wires, bool solid);
+std::unique_ptr<Shape> outer_wire(const Shape &face);
 
 std::unique_ptr<ShapeList> sketch_regions(const ShapeList &edges, Frame f);
 std::unique_ptr<Operation> merge_faces(const ShapeList &faces);
@@ -149,6 +154,7 @@ double edge_fraction(const Shape &s, Vec3 p, bool arc_length);
 double edge_fraction_extended(const Shape &s, Vec3 p);
 Distance shape_distance(const Shape &a, const Shape &b);
 Conic curve_definition(const Shape &s);
+Conic surface_definition(const Shape &s);
 Frame face_tangent_plane(const Shape &s, double fu, double fv);
 Vec3 face_fraction(const Shape &s, Vec3 p);
 Box3 face_uv_bounds(const Shape &s);

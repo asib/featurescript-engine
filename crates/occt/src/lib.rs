@@ -115,6 +115,20 @@ mod ffi {
         fn make_conic_edge(a: Vec3, c: Vec3, b: Vec3, w: f64) -> Result<UniquePtr<Shape>>;
         fn connect_edges(edges: &ShapeList) -> Result<UniquePtr<ShapeList>>;
         fn offset_wire_region(wire: &Shape, normal: Vec3, o1: f64, o2: f64) -> Result<UniquePtr<Shape>>;
+        #[allow(clippy::too_many_arguments)]
+        fn make_helix_edge(
+            origin: Vec3,
+            direction: Vec3,
+            start: Vec3,
+            t0: f64,
+            t1: f64,
+            clockwise: bool,
+            pitch: f64,
+            spiral: f64,
+        ) -> Result<UniquePtr<Shape>>;
+        fn sweep_op(profile: &Shape, path: &Shape) -> Result<UniquePtr<Operation>>;
+        fn loft_op(wires: &ShapeList, solid: bool) -> Result<UniquePtr<Operation>>;
+        fn outer_wire(face: &Shape) -> Result<UniquePtr<Shape>>;
 
         fn sketch_regions(edges: &ShapeList, f: Frame) -> Result<UniquePtr<ShapeList>>;
         fn merge_faces(faces: &ShapeList) -> Result<UniquePtr<Operation>>;
@@ -181,6 +195,7 @@ mod ffi {
         fn edge_fraction_extended(s: &Shape, p: Vec3) -> Result<f64>;
         fn shape_distance(a: &Shape, b: &Shape) -> Result<Distance>;
         fn curve_definition(s: &Shape) -> Result<Conic>;
+        fn surface_definition(s: &Shape) -> Result<Conic>;
         fn face_tangent_plane(s: &Shape, fu: f64, fv: f64) -> Result<Frame>;
         fn face_fraction(s: &Shape, p: Vec3) -> Result<Vec3>;
         fn face_uv_bounds(s: &Shape) -> Result<Box3>;
@@ -436,6 +451,12 @@ impl Shape {
         Ok(ffi::curve_definition(&self.0)?)
     }
 
+    /// The surface a face lies on: kind 0 plane, 1 cylinder (`radius1`), 2 cone (`radius1` the half angle, frame at
+    /// the apex), 3 sphere (`radius1`), 4 torus (`radius1` major, `radius2` minor), 5 other.
+    pub fn surface_definition(&self) -> Result<Conic> {
+        Ok(ffi::surface_definition(&self.0)?)
+    }
+
     /// The plane tangent to a face at fractions of its parameter-space bounding box.
     pub fn face_tangent_plane(&self, fu: f64, fv: f64) -> Result<Frame> {
         Ok(ffi::face_tangent_plane(&self.0, fu, fv)?)
@@ -525,6 +546,37 @@ pub fn connect_edges(edges: &[Shape]) -> Result<Vec<Shape>> {
 /// first edge (direction × normal) for an open wire, outward for a closed one.
 pub fn offset_wire_region(wire: &Shape, normal: Vec3, o1: f64, o2: f64) -> Result<Shape> {
     Ok(Shape::new(ffi::offset_wire_region(&wire.0, normal, o1, o2)?))
+}
+
+/// A helix about an axis, starting at `start` and turning from revolution `t0` to `t1`, `pitch` along the axis and
+/// `spiral` outwards per revolution.
+#[allow(clippy::too_many_arguments)]
+pub fn helix_edge(
+    origin: Vec3,
+    direction: Vec3,
+    start: Vec3,
+    t0: f64,
+    t1: f64,
+    clockwise: bool,
+    pitch: f64,
+    spiral: f64,
+) -> Result<Shape> {
+    Ok(Shape::new(ffi::make_helix_edge(origin, direction, start, t0, t1, clockwise, pitch, spiral)?))
+}
+
+/// Sweeps a face or wire along a path wire.
+pub fn sweep(profile: &Shape, path: &Shape) -> Result<Operation> {
+    Ok(Operation(ffi::sweep_op(&profile.0, &path.0)?))
+}
+
+/// Lofts through wires in order, into a solid or a sheet.
+pub fn loft(wires: &[Shape], solid: bool) -> Result<Operation> {
+    Ok(Operation(ffi::loft_op(&to_list(wires), solid)?))
+}
+
+/// A face's outer wire.
+pub fn outer_wire(face: &Shape) -> Result<Shape> {
+    Ok(Shape::new(ffi::outer_wire(&face.0)?))
 }
 
 pub fn compound(shapes: &[Shape]) -> Shape {

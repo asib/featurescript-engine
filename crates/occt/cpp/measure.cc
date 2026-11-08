@@ -328,4 +328,28 @@ bool faces_tangent_along(const Shape &edge, const Shape &a, const Shape &b, doub
   return true;
 }
 
+// What surface a face lies on: kind 0 a plane, 1 a cylinder (`radius1`), 2 a cone (`radius1` its half angle,
+// with the frame at its apex), 3 a sphere (`radius1`), 4 a torus (`radius1` major, `radius2` minor), 5 anything else.
+Conic surface_definition(const Shape &s) {
+  if (s.shape.ShapeType() != TopAbs_FACE) throw std::runtime_error("not a face");
+  BRepAdaptor_Surface surface(TopoDS::Face(s.shape));
+  auto frame = [](const gp_Ax3 &a) {
+    return Frame{vec3(a.Location().XYZ()), vec3(a.Direction().XYZ()), vec3(a.XDirection().XYZ())};
+  };
+  switch (surface.GetType()) {
+    case GeomAbs_Plane: return Conic{0, frame(surface.Plane().Position()), 0, 0};
+    case GeomAbs_Cylinder: return Conic{1, frame(surface.Cylinder().Position()), surface.Cylinder().Radius(), 0};
+    case GeomAbs_Cone: {
+      gp_Cone cone = surface.Cone();
+      gp_Ax3 position = cone.Position();
+      position.SetLocation(cone.Apex());
+      return Conic{2, frame(position), std::abs(cone.SemiAngle()), 0};
+    }
+    case GeomAbs_Sphere: return Conic{3, frame(surface.Sphere().Position()), surface.Sphere().Radius(), 0};
+    case GeomAbs_Torus:
+      return Conic{4, frame(surface.Torus().Position()), surface.Torus().MajorRadius(), surface.Torus().MinorRadius()};
+    default: return Conic{5, Frame{}, 0, 0};
+  }
+}
+
 }  // namespace occt

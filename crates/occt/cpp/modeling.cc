@@ -10,6 +10,11 @@
 #include <ShapeUpgrade_UnifySameDomain.hxx>
 #include <TopoDS_Compound.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
+#include <BRepOffsetAPI_MakePipe.hxx>
+#include <BRepOffsetAPI_ThruSections.hxx>
+#include <BRepTools_WireExplorer.hxx>
+#include <BRepTools_ReShape.hxx>
+#include <ShapeAnalysis_CanonicalRecognition.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Defeaturing.hxx>
 #include <BRepAlgoAPI_Splitter.hxx>
@@ -433,6 +438,83 @@ std::unique_ptr<Shape> remove_faces_open(const Shape &solid, const ShapeList &fa
     if (!remove.Contains(it.Current())) builder.Add(shell, it.Current());
   shell.Closed(Standard_False);
   return wrap(shell);
+}
+
+// Sweeps a profile (a face or a wire) along a path wire. `first` and `last` hold the faces at each end for a face
+// profile.
+std::unique_ptr<Operation> sweep_op(const Shape &profile, const Shape &path) {
+  BRepOffsetAPI_MakePipe maker(TopoDS::Wire(path.shape), profile.shape);
+  maker.Build();
+  auto op = finish(one(profile.shape), maker, "sweep");
+  if (profile.shape.ShapeType() == TopAbs_FACE) {
+    op->first.push_back(maker.FirstShape());
+    op->last.push_back(maker.LastShape());
+  }
+  // Faces swept along consecutive path edges onto one surface (the top of a rectangle swept along a line, an arc
+  // and a line) are one face in Onshape.
+  ShapeUpgrade_UnifySameDomain unifier(op->result, Standard_True, Standard_True, Standard_False);
+  unifier.Build();
+  op->history->Merge(unifier.History());
+  op->result = unifier.Shape();
+  for (auto &cap : op->first) {
+    const TopTools_ListOfShape &images = unifier.History()->Modified(cap);
+    if (!images.IsEmpty()) cap = images.First();
+  }
+  for (auto &cap : op->last) {
+    const TopTools_ListOfShape &images = unifier.History()->Modified(cap);
+    if (!images.IsEmpty()) cap = images.First();
+  }
+  return op;
+}
+
+namespace {
+
+// Faces on B-spline surfaces that are planes to within 1e-9 m, rebuilt on planes, as Parasolid makes them (a loft
+// between parallel squares has planar sides).
+TopoDS_Shape planes_recognized(const TopoDS_Shape &shape, const Handle(BRepTools_History) &history) {
+  Handle(BRepTools_ReShape) reshape = new BRepTools_ReShape();
+  bool changed = false;
+  for (TopExp_Explorer it(shape, TopAbs_FACE); it.More(); it.Next()) {
+    const TopoDS_Face &face = TopoDS::Face(it.Current());
+    GeomAbs_SurfaceType type = BRepAdaptor_Surface(face, Standard_False).GetType();
+    if (type != GeomAbs_BSplineSurface && type != GeomAbs_BezierSurface) continue;
+    ShapeAnalysis_CanonicalRecognition recognition(face);
+    gp_Pln plane;
+    if (!recognition.IsPlane(1e-9, plane)) continue;
+    // Keep the face's normal.
+    gp_Dir before = face_normal(face);
+    BRepBuilderAPI_MakeFace maker(plane, BRepTools::OuterWire(face), Standard_True);
+    for (TopExp_Explorer w(face, TopAbs_WIRE); w.More(); w.Next())
+      if (!w.Current().IsSame(BRepTools::OuterWire(face))) maker.Add(TopoDS::Wire(w.Current()));
+    if (!maker.IsDone()) continue;
+    TopoDS_Face rebuilt = maker.Face();
+    if (face_normal(rebuilt).Dot(before) < 0) rebuilt.Reverse();
+    reshape->Replace(face, rebuilt);
+    history->AddModified(face, rebuilt);
+    changed = true;
+  }
+  return changed ? reshape->Apply(shape) : shape;
+}
+
+}  // namespace
+
+// Lofts through wires in order: a solid through closed wires if `solid`, else a sheet.
+std::unique_ptr<Operation> loft_op(const ShapeList &wires, bool solid) {
+  BRepOffsetAPI_ThruSections maker(solid ? Standard_True : Standard_False, Standard_False, 1e-7);
+  maker.CheckCompatibility(Standard_True);
+  for (const TopoDS_Shape &w : wires.shapes) maker.AddWire(TopoDS::Wire(w));
+  maker.Build();
+  auto op = finish(to_list(wires), maker, "loft");
+  op->result = planes_recognized(op->result, op->history);
+  TopoDS_Shape first = maker.FirstShape(), last = maker.LastShape();
+  if (!first.IsNull()) op->first.push_back(first);
+  if (!last.IsNull()) op->last.push_back(last);
+  return op;
+}
+
+// The outer wire of a face.
+std::unique_ptr<Shape> outer_wire(const Shape &face) {
+  return wrap(BRepTools::OuterWire(TopoDS::Face(face.shape)));
 }
 
 }  // namespace occt
