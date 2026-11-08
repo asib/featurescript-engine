@@ -304,6 +304,14 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
 - **Sized obround bend reliefs** (batch 019) reach their depth in from where the wall is cut back, as sized
   rectangles do; an extended relief changed nothing on a partial flange's end.
 
+- **Two-offset sheet metal chamfers** (batch 020): the first width runs along the edge leaving the corner as the
+  wall's loop goes (on a 40 × 30 plate's corner at (40, 30): 6 mm along y = 30, 3 mm along x = 40, for widths 3 and
+  6). **Conic corner breaks** are set back by the radius along both edges; Onshape's B-spline puts the shoulder at
+  0.69971 for rho 0.7.
+- **A mate connector's given normal** (`specifyNormal`) is for meshes: on a face, Onshape ignores it.
+- **Offsetting a cylinder's top edge across its top** (batch 020, c008) made no curve in Onshape, without an error.
+- **Section parts by several planes**, like `sectionPart`, delete the parts of a Part Studio they don't section.
+
 - **Bend reliefs** (batch 016). Where a bend covers only part of its base wall's edge, the rest of the edge is
   cut back as the bend is, and each end of the bend gets a slot in the base wall: as wide as the width scale ×
   the thickness, reaching from the edge to the depth scale × the bend's inner radius at the centre of an
