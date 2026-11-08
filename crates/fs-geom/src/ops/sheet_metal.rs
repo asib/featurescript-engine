@@ -157,6 +157,19 @@ fn associate(def: &Body, bends: &[Bend], thickness: f64, kind: EntityType, shape
             }
             let s = shape.surface_definition().ok()?;
             if s.kind == 1 {
+                // Round a cylindrical face of the definition (a rolled wall or rounded bend): the same axis.
+                for (i, wall) in def.faces.iter().enumerate() {
+                    let Ok(w) = wall.shape.surface_definition() else { continue };
+                    if w.kind != 1 {
+                        continue;
+                    }
+                    let parallel = norm(cross(s.frame.normal, w.frame.normal)) < 1e-9;
+                    let offset = sub(s.frame.origin, w.frame.origin);
+                    let apart = norm(sub(offset, scale(w.frame.normal, dot(offset, w.frame.normal))));
+                    if parallel && apart < 1e-6 {
+                        return def_ref(EntityType::Face, i);
+                    }
+                }
                 for bend in bends {
                     let parallel = norm(cross(s.frame.normal, bend.axis_direction)) < 1e-9;
                     let offset = sub(s.frame.origin, bend.axis_origin);
@@ -229,8 +242,11 @@ fn regenerate(model: &mut Model, id: &FeatureId, def_index: usize) -> R<()> {
     let (front, back) = (thickness_of("frontThickness")?, thickness_of("backThickness")?);
     let thickness = front + back;
     for face in &def.faces {
-        if face.shape.surface_type().map_err(occt_error)? != occt::SurfaceType::Plane {
-            return Err(error("@updateSheetMetalGeometry: rolled walls aren't supported yet"));
+        if !matches!(
+            face.shape.surface_type().map_err(occt_error)?,
+            occt::SurfaceType::Plane | occt::SurfaceType::Cylinder
+        ) {
+            return Err(error("@updateSheetMetalGeometry: walls other than planes and cylinders aren't supported yet"));
         }
     }
     let mut bends = Vec::new();
@@ -398,7 +414,8 @@ fn build_part(def: &Body, bends: &[Bend], rips: &[usize], front: f64, back: f64,
                 distances.push(-setback);
             }
         }
-        let cut = if edges.is_empty() {
+        // A rolled wall, or a bend the model already rounds (std's bend wraps one in), is thickened as it is.
+        let cut = if edges.is_empty() || wall.shape.surface_type().ok() != Some(occt::SurfaceType::Plane) {
             wall.shape.clone()
         } else {
             occt::extend_planar_face(&wall.shape, &edges, &distances)
