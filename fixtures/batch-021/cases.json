@@ -1,0 +1,127 @@
+{
+  "batch": "021",
+  "title": "more feature options: offset booleans, holes from planes, up-to entities, curve trims, sweep profile control, ribs, gussets, tables, sheet metal holes and hems",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "boolean",
+      "description": "a cylinder taken out of a block, its faces offset 1 mm",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "hole",
+      "description": "a 6 mm deep hole started from a plane 3 mm below the top",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "move-face",
+      "description": "a block's top translated up to a vertex of another block",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "extend-surface",
+      "description": "a sheet extended up to a vertex",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "trim-curve",
+      "description": "a curve trimmed by another curve crossing it",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "sweep",
+      "description": "a rectangle along an arc, keeping its orientation",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "sweep",
+      "description": "a rectangle along an arc, locked square to z",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c008",
+      "kind": "rib",
+      "description": "two crossing ribs on a plate, merged",
+      "slotMeters": [
+        2.8000000000000003,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c009",
+      "kind": "gusset",
+      "description": "a triangle in a mitred corner, 2 mm off centre",
+      "slotMeters": [
+        3.2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c010",
+      "kind": "variable",
+      "description": "a value read from a table by row label and column index",
+      "slotMeters": [
+        3.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c011",
+      "kind": "sheet-metal-hole",
+      "description": "a countersunk hole through a plate",
+      "slotMeters": [
+        0,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c012",
+      "kind": "sheet-metal-hem",
+      "description": "straight hems on two edges meeting at a closed corner",
+      "slotMeters": [
+        0.4,
+        0.4,
+        0
+      ]
+    }
+  ]
+}
