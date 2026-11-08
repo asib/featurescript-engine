@@ -13,7 +13,14 @@ pub fn pattern(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
     let mut bodies: Vec<usize> =
         query::evaluate(model, entities)?.into_iter().filter(|r| r.kind == EntityType::Body).map(|r| r.body).collect();
     bodies.dedup();
-    let face_groups = by_body(model, entities, EntityType::Face)?;
+    let mut face_groups = by_body(model, entities, EntityType::Face)?;
+    // Faces of sheets (a plane, say) are copied as they are, each copy a sheet of its own instance.
+    let sheet_faces: Vec<(usize, Vec<occt::Shape>)> = face_groups
+        .iter()
+        .filter(|(b, _)| model.bodies[*b].body_type == crate::model::BodyType::Sheet)
+        .cloned()
+        .collect();
+    face_groups.retain(|(b, _)| model.bodies[*b].body_type != crate::model::BodyType::Sheet);
     let transforms =
         field(definition, "transforms").as_array().ok_or_else(|| error("@opPattern: transforms must be an array"))?;
     let names = field(definition, "instanceNames")
@@ -53,6 +60,23 @@ pub fn pattern(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
                 new.attributes = body.attributes.clone();
             }
             copies.push((new, info.clone(), origins));
+        }
+    }
+    for (t, name) in transforms.iter().zip(names.iter()) {
+        let t = transform(t)?;
+        let name = name.as_str().ok_or_else(|| error("@opPattern: instance names must be strings"))?;
+        let mut instance_id: Vec<Rc<str>> = id.to_vec();
+        instance_id.push(Rc::from(name));
+        let info = Info::new(instance_id.into());
+        for (b, faces) in &sheet_faces {
+            let body = model.bodies[*b].clone();
+            let sheet = occt::extract_faces(faces, 0.0).map_err(occt_error)?;
+            for piece in sheet {
+                let op = occt::transform(&piece, &t).map_err(occt_error)?;
+                let mut new = NewBody::new(op.shape(), body.body_type, info.clone());
+                new.construction = body.construction;
+                copies.push((new, info.clone(), Origins::default()));
+            }
         }
     }
     for (new, info, origins) in copies {
