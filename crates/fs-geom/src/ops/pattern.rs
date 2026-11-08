@@ -37,14 +37,26 @@ pub fn pattern(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
             let mut new = NewBody::new(op.shape(), body.body_type, info.clone());
             new.construction = body.construction;
             new.frame = body.frame.map(|f| super::transform_frame(&f, &t));
+            // Each copy is tracked back to what it copies, and takes its attributes too unless told not to.
+            let mut origins = Origins::default();
+            for entity in body.all_entities() {
+                for image in op.modified(&entity.shape) {
+                    if copy_properties {
+                        origins.copy(&image, entity);
+                    } else {
+                        origins.derive(&image, entity, true);
+                    }
+                }
+            }
             if copy_properties {
                 new.properties = body.properties.clone();
+                new.attributes = body.attributes.clone();
             }
-            copies.push((new, info.clone()));
+            copies.push((new, info.clone(), origins));
         }
     }
-    for (new, info) in copies {
-        model.add_body(new, &Origins::default(), &info, &|_| None);
+    for (new, info, origins) in copies {
+        model.add_body(new, &origins, &info, &|_| None);
     }
     // Faces: the boss (or pocket) they make, capped where it meets the rest of the body, is added to (or cut from)
     // the body at each transform.
