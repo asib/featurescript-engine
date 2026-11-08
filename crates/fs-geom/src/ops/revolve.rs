@@ -174,7 +174,7 @@ fn up_to_bound(model: &Model, definition: &Value, axis: occt::Axis) -> R<Option<
     };
     let offset = if values::opt_bool(definition, "endBoundHasOffset")?.unwrap_or(false) {
         let a = values::angle(field(definition, "endBoundOffset"), "opRevolve endBoundOffset")?;
-        if values::opt_bool(definition, "endBoundOffsetFlip")?.unwrap_or(false) { a } else { -a }
+        if values::opt_bool(definition, "endBoundOffsetFlip")?.unwrap_or(false) { -a } else { a }
     } else {
         0.0
     };
