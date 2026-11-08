@@ -714,11 +714,13 @@ pub struct Variable {
     pub query: bool,
 }
 
-/// The state kept in each context: its geometry and its variables.
+/// The state kept in each context: its geometry, its variables, and the feature pattern instances being built (each
+/// instance's id and transform, outermost first).
 #[derive(Clone, Default)]
 pub struct GeomState {
     pub model: Model,
     pub variables: Rc<BTreeMap<Rc<str>, Variable>>,
+    pub pattern: Rc<Vec<(FeatureId, occt::Transform)>>,
 }
 
 impl ContextState for GeomState {

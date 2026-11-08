@@ -14,6 +14,7 @@ pub mod mate;
 pub mod model;
 pub mod ops;
 pub mod paths;
+pub mod pattern_stack;
 pub mod patterns;
 pub mod properties;
 pub mod query;
@@ -49,6 +50,7 @@ pub fn install(interp: &mut Interp) {
     evaluate::register(&mut builtins);
     bspline::register(&mut builtins);
     unmodelled::register(&mut builtins);
+    pattern_stack::register(&mut builtins);
     variables::register(&mut builtins);
     patterns::register(&mut builtins);
     mate::register(&mut builtins);
