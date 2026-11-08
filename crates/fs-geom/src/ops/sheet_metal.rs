@@ -368,7 +368,7 @@ fn regenerate(model: &mut Model, id: &FeatureId, def_index: usize) -> R<()> {
             }
             Some("RIP") => {
                 let style = attribute_value(joint, "jointStyle").and_then(Value::as_str).unwrap_or("EDGE");
-                if style != "EDGE" {
+                if !matches!(style, "EDGE" | "BUTT" | "BUTT2") {
                     return Err(error(format!("@updateSheetMetalGeometry: {style} rips aren't supported yet")));
                 }
                 rips.push(i);
@@ -523,6 +523,20 @@ fn rip_setback(wall: &Shape, other: &Shape, edge: &Shape, front: f64, back: f64,
     }
     let reach = (front / c).max(-back / c).max(0.0);
     Ok(reach + clearance)
+}
+
+/// How far a wall runs on past a butt joint's edge to cover the other wall's material (negative: a setback the
+/// other way).
+fn overlap_setback(wall: &Shape, other: &Shape, edge: &Shape, front: f64, back: f64) -> R<f64> {
+    let tangent = edge.edge_tangent(0.5, true).map_err(occt_error)?;
+    let (m, along) = (tangent.origin, tangent.direction);
+    let into = into_face(wall, m, along)?;
+    let n = normal_at(other, m)?;
+    let c = dot(into, n);
+    if c.abs() < 1e-12 {
+        return Ok(0.0);
+    }
+    Ok((front / c).min(-back / c).min(0.0))
 }
 
 /// A planar wall cut back from some of its straight edges, each by its own distance: a strip that deep is taken
@@ -1014,10 +1028,23 @@ fn build_part(
             if let Some(bend) = bends.iter().find(|b| b.edge.is_same(&edge)) {
                 edges.push(edge);
                 distances.push(-bend.setback);
-            } else if rips.iter().any(|&r| def.edges[r].shape.is_same(&edge)) {
-                let other = faces_of_edge(&edge).into_iter().find(|f| !f.is_same(&wall.shape));
-                let Some(other) = other else { continue };
-                let setback = rip_setback(&wall.shape, other, &edge, front, back, clearance)?;
+            } else if let Some(&r) = rips.iter().find(|&&r| def.edges[r].shape.is_same(&edge)) {
+                let walls = faces_of_edge(&edge);
+                let Some(other) = walls.iter().find(|f| !f.is_same(&wall.shape)) else { continue };
+                // A butt joint runs one wall on over the other's edge (the first of the two in the sheet's order
+                // for direction 1, the second for direction 2: fits batch 017's one case); the other stops short
+                // as at an edge joint.
+                let style = sm_attribute(&def.edges[r].attributes, "JOINT")
+                    .and_then(|j| attribute_value(j, "jointStyle"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("EDGE");
+                let first = walls.first().is_some_and(|f| f.is_same(&wall.shape));
+                let overlaps = (style == "BUTT" && first) || (style == "BUTT2" && !first);
+                let setback = if overlaps {
+                    overlap_setback(&wall.shape, other, &edge, front, back)?
+                } else {
+                    rip_setback(&wall.shape, other, &edge, front, back, clearance)?
+                };
                 edges.push(edge);
                 distances.push(-setback);
             }
@@ -1048,10 +1075,21 @@ fn build_part(
                 distances.push(-setback);
             }
         }
+        // Edges run on (a butt joint's overlapping wall) are extended first; the rest are cut back.
+        let mut base = wall.shape.clone();
+        if planar && distances.iter().any(|&d| d > 0.0) {
+            let (grow, grow_by): (Vec<Shape>, Vec<f64>) =
+                edges.iter().zip(&distances).filter(|(_, d)| **d > 0.0).map(|(e, d)| (e.clone(), *d)).unzip();
+            base = occt::extend_planar_face(&base, &grow, &grow_by).map_err(occt_error)?;
+            let keep: Vec<(Shape, f64)> =
+                edges.iter().zip(&distances).filter(|(_, d)| **d <= 0.0).map(|(e, d)| (e.clone(), *d)).collect();
+            edges = keep.iter().map(|(e, _)| e.clone()).collect();
+            distances = keep.iter().map(|(_, d)| *d).collect();
+        }
         let mut cut = if (edges.is_empty() && slots.is_empty()) || !planar {
-            wall.shape.clone()
+            base
         } else {
-            cut_back(&wall.shape, &edges, &distances, &slots)?
+            cut_back(&base, &edges, &distances, &slots)?
         };
         if planar {
             cut = break_corners(def, &wall.attributes, cut)?;
