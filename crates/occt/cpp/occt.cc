@@ -38,6 +38,7 @@
 #include <STEPCAFControl_Writer.hxx>
 #include <STEPControl_Reader.hxx>
 #include <StepData_StepModel.hxx>
+#include <ShapeUpgrade_ShapeDivideArea.hxx>
 #include <ShapeUpgrade_ShapeDivideClosed.hxx>
 #include <ShapeUpgrade_UnifySameDomain.hxx>
 #include <StepShape_ManifoldSolidBrep.hxx>
@@ -422,6 +423,14 @@ TopoDS_Shape prepared_for_integration(const TopoDS_Shape &input) {
   ShapeUpgrade_ShapeDivideClosed divider(result);
   divider.SetNbSplitPoints(3);
   if (divider.Perform()) result = divider.Result();
+  // Adaptive integration can settle on a wrong value over a whole rational face, reporting no error: a conic
+  // extruded 30 mm comes out 3.3e-5 over (batch 055 c011). Over each quarter of it in u and v it converges (to
+  // 1e-11, and on a scaled sphere too).
+  ShapeUpgrade_ShapeDivideArea quarters(result);
+  quarters.SetSplittingByNumber(Standard_True);
+  quarters.NbParts() = 16;
+  quarters.SetNumbersUVSplits(4, 4);
+  if (quarters.Perform()) result = quarters.Result();
   return result;
 }
 
