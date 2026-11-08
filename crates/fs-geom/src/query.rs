@@ -181,6 +181,48 @@ fn resolve(model: &Model, query: &Value) -> R<Vec<EntityRef>> {
         "SM_FORM_FILTER" => keep_if(sub(model, query, "subquery")?, !yes_no(query, "formFilter")?),
         "ACTIVE_SM_FILTER" => keep_if(sub(model, query, "subquery")?, !yes_no(query, "activeSheetMetal")?),
         "SM_APPLICATION_TYPE_FILTER" => Vec::new(),
+        "CONVEX_CONNECTED_FACES" => crate::selection::connected_faces(model, &sub(model, query, "subquery")?, "CONVEX"),
+        "CONCAVE_CONNECTED_FACES" => {
+            crate::selection::connected_faces(model, &sub(model, query, "subquery")?, "CONCAVE")
+        }
+        "HOLE_FACES" => crate::selection::hole_faces(model, &sub(model, query, "subquery")?),
+        "FILLET_FACES" => {
+            let compare = field(query, "compareType").as_str().unwrap_or("EQUAL");
+            crate::selection::fillet_faces(model, &sub(model, query, "subquery")?, compare)
+        }
+        "LOOP_EDGES" => crate::selection::loop_edges(model, &sub(model, query, "subquery")?),
+        "PARALLEL_EDGES" => {
+            if !field(query, "subquery").is_undefined() {
+                let (directions, all) = crate::selection::edge_directions(model, &sub(model, query, "subquery")?);
+                crate::selection::parallel_edges(model, &all, &directions)
+            } else {
+                let candidates = sub(model, query, "queryToFilter")?;
+                let directions = match field(query, "direction") {
+                    v if v.is_undefined() => crate::selection::edge_directions(model, &sub(model, query, "edges")?).0,
+                    v => vec![values::vec3(v, "qParallelEdges direction")?],
+                };
+                crate::selection::parallel_edges(model, &candidates, &directions)
+            }
+        }
+        "LOOP_BOUNDED_FACES" => crate::selection::loop_bounded_faces(model, &sub(model, query, "subquery")?),
+        "FACE_OR_EDGE_BOUNDED_FACES" => crate::selection::bounded_faces(model, &sub(model, query, "subquery")?),
+        "PATTERN" => crate::selection::matching(model, &sub(model, query, "subquery")?),
+        "PLANE_NORMAL" => {
+            let normal = values::vec3(field(query, "normal"), "qParallelPlanes normal")?;
+            let antiparallel = field(query, "allowAntiparallel").as_bool() != Some(false);
+            crate::selection::planes_with_normal(model, &sub(model, query, "subquery")?, normal, antiparallel)
+        }
+        "IN_FRONT_OF_PLANE" => {
+            let plane = values::plane(field(query, "plane"), "qInFrontOfPlane plane")?;
+            crate::selection::in_front_of(model, &sub(model, query, "subquery")?, plane)?
+        }
+        "EDGE_CONVEXITY_FILTER" => {
+            let wanted = field(query, "convexityType").as_str().unwrap_or("CONVEX");
+            sub(model, query, "subquery")?
+                .into_iter()
+                .filter(|r| r.kind == EntityType::Edge && crate::selection::convexity(model, *r, false) == Some(wanted))
+                .collect()
+        }
         // The faces a split put in front of (or behind) its tool.
         "SPLIT" => {
             let feature = values::feature_id(field(query, "operationId"), "qSplitBy operationId")?;

@@ -297,6 +297,27 @@ pub fn register(m: &mut GeomBuiltins) {
             &tags,
         )
     });
+    m.insert("evEdgeConvexity", |interp, args| {
+        let tags = tags(interp)?;
+        let convexity = fs_interp::types::find("EdgeConvexityType")
+            .ok_or_else(|| error("std type EdgeConvexityType isn't loaded"))?;
+        measure(
+            args,
+            "evEdgeConvexity",
+            "edge",
+            |tags, model, found| {
+                let edge = match found[..] {
+                    [r] if r.kind == EntityType::Edge => r,
+                    [_, _, ..] => return Err(regen_error("TOO_MANY_ENTITIES_SELECTED")),
+                    _ => return Err(regen_error("BAD_GEOMETRY")),
+                };
+                let kind =
+                    crate::selection::convexity(model, edge, false).ok_or_else(|| regen_error("BAD_GEOMETRY"))?;
+                Ok(tags.enum_value(convexity, kind))
+            },
+            &tags,
+        )
+    });
     m.insert("evFaceTangentPlanesAtEdge", |interp, args| {
         let tags = tags(interp)?;
         let definition = definition(&args, "evFaceTangentPlanesAtEdge")?;

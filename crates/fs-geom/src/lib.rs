@@ -16,6 +16,7 @@ pub mod paths;
 pub mod patterns;
 pub mod properties;
 pub mod query;
+pub mod selection;
 pub mod sketch;
 pub mod splines;
 pub mod topology;
