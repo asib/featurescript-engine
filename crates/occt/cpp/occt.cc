@@ -549,6 +549,17 @@ std::unique_ptr<ShapeList> visible_sub_shapes(const Shape &s, int32_t kind) {
     for (const TopoDS_Shape &e : vertex_edges(i))
       if (visible_edge(TopoDS::Edge(e))) visible.push_back(TopoDS::Edge(e));
     if (visible.size() != 2 || visible[0].IsSame(visible[1])) continue;
+    // Only where a seam meets them, or where the two close the curve between them (a whole circle in two): two
+    // pieces of one circle meeting elsewhere are Onshape's two edges too (a sphere's meridian where an extension
+    // met the old edge, batch 039 c004).
+    bool seam = false;
+    for (const TopoDS_Shape &e : vertex_edges(i))
+      if (!visible_edge(TopoDS::Edge(e)) && !BRep_Tool::Degenerated(TopoDS::Edge(e))) seam = true;
+    TopoDS_Vertex a0, a1, b0, b1;
+    TopExp::Vertices(visible[0], a0, a1);
+    TopExp::Vertices(visible[1], b0, b1);
+    const bool closes = (a0.IsSame(b0) && a1.IsSame(b1)) || (a0.IsSame(b1) && a1.IsSame(b0));
+    if (!seam && !closes) continue;
     auto a = curve_of(visible[0]), b = curve_of(visible[1]);
     if (a.first.IsNull() || b.first.IsNull()) continue;
     bool same = a.first == b.first && a.second.IsEqual(b.second) && a.first->IsPeriodic();
