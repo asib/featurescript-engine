@@ -19,7 +19,16 @@ fn add_with_caps(model: &mut Model, id: &FeatureId, op: &occt::Operation, solid:
         end_cap.insert_all(&face);
     }
     let created = Info::new(id.clone());
-    let cap = |c| Rc::new(Info { created_by: id.clone(), sketch_entity: None, cap: Some(c), dependency: None });
+    let cap = |c| {
+        Rc::new(Info {
+            created_by: id.clone(),
+            sketch_entity: None,
+            cap: Some(c),
+            dependency: None,
+            label: None,
+            identity: None,
+        })
+    };
     let (start_info, end_info) = (cap(Cap::Start), cap(Cap::End));
     let special = |s: &Shape| {
         if end_cap.contains(s) {

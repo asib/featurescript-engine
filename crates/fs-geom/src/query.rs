@@ -167,6 +167,36 @@ fn resolve(model: &Model, query: &Value) -> R<Vec<EntityRef>> {
         "SM_FLAT_FILTER" => keep_if(sub(model, query, "subquery")?, !yes_no(query, "flatFilter")?),
         "SM_FORM_FILTER" => keep_if(sub(model, query, "subquery")?, !yes_no(query, "formFilter")?),
         "ACTIVE_SM_FILTER" => keep_if(sub(model, query, "subquery")?, !yes_no(query, "activeSheetMetal")?),
+        "SM_APPLICATION_TYPE_FILTER" => Vec::new(),
+        "ATTRIBUTE_FILTER" => {
+            let found = match field(query, "subquery") {
+                v if v.is_undefined() => model.everything(None),
+                v => resolve(model, v)?,
+            };
+            crate::attributes::filter(model, found, &crate::attributes::Wanted::of(query))
+        }
+        // The faces and profile edges `@opHole` made, by the name it gave them and the hole they belong to.
+        "OP_HOLE_FACE" | "OP_HOLE_PROFILE" => {
+            let feature = values::feature_id(field(query, "featureId"), "hole query featureId")?;
+            let name = field(query, "name").as_str();
+            let identity = match field(query, "identity") {
+                v if v.is_undefined() => None,
+                v => Some(resolve(model, v)?.first().map(|r| model.tid(*r))),
+            };
+            let kind = if kind == "OP_HOLE_FACE" { EntityType::Face } else { EntityType::Edge };
+            model
+                .everything(Some(kind))
+                .into_iter()
+                .filter(|r| {
+                    let info = model.info(*r);
+                    info.is_created_by(&feature)
+                        && info.label.is_some()
+                        && name.is_none_or(|n| info.label.as_deref() == Some(n))
+                        && identity.is_none_or(|i| i.is_some() && info.identity == i)
+                })
+                .collect()
+        }
+        "TRACKING" => tracking(model, query)?,
         // Meshes aren't modelled, so nothing is mesh geometry.
         "MESH_GEOMETRY_FILTER" => keep_if(sub(model, query, "subquery")?, !yes_no(query, "meshGeometryFilter")?),
         "CONTAINS_POINT" => {
@@ -341,6 +371,42 @@ fn resolve(model: &Model, query: &Value) -> R<Vec<EntityRef>> {
         }
         other => return Err(error(format!("evaluateQuery: QueryType.{other} isn't supported yet"))),
     })
+}
+
+/// A tracking query (`startTracking`): the entities made, since tracking started, from the entities it tracks (and
+/// from the secondary ones too, if given). The tracked entities themselves aren't included.
+fn tracking(model: &Model, query: &Value) -> R<Vec<EntityRef>> {
+    let tids = |key: &str| -> R<Option<Vec<crate::model::Tid>>> {
+        let list = field(query, key);
+        if list.is_undefined() {
+            return Ok(None);
+        }
+        let mut out = Vec::new();
+        for item in list.as_array().map(|items| items.iter()).into_iter().flatten() {
+            let tid = field(item, "transientId").as_str().and_then(parse_tid);
+            out.extend(tid);
+        }
+        Ok(Some(out))
+    };
+    let first = tids("subquery1")?.unwrap_or_default();
+    let second = tids("subquery2")?;
+    let identity_only = field(query, "identityPreservingOnly").as_bool() == Some(true);
+    let mut out = Vec::new();
+    for (b, body) in model.bodies.iter().enumerate() {
+        for kind in [EntityType::Face, EntityType::Edge, EntityType::Vertex] {
+            for (index, entity) in body.entities(kind).iter().enumerate() {
+                if first.contains(&entity.tid) {
+                    continue;
+                }
+                let ancestors = if identity_only { &entity.ancestry.identity } else { &entity.ancestry.all };
+                let from = |tids: &[crate::model::Tid]| tids.iter().any(|t| ancestors.contains(t));
+                if from(&first) && second.as_deref().is_none_or(from) {
+                    out.push(EntityRef { body: b, kind, index });
+                }
+            }
+        }
+    }
+    Ok(out)
 }
 
 fn keep_if(found: Vec<EntityRef>, keep: bool) -> Vec<EntityRef> {

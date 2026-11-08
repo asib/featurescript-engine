@@ -166,6 +166,21 @@ pub fn register(m: &mut GeomBuiltins) {
             "evAxis",
             "axis",
             |tags, model, found| {
+                // A sketch point's axis runs through it along its sketch's normal, and a mate connector's along its z
+                // axis.
+                if let [r] = found[..] {
+                    let body = model.body(r);
+                    let point = r.kind == EntityType::Vertex || body.body_type == crate::model::BodyType::Point;
+                    if let (true, Some(plane)) = (point, body.sketch_plane) {
+                        let at = model.shape(r).sub_shapes(occt::ShapeKind::Vertex);
+                        let at = at.first().and_then(|v| v.vertex_point().ok());
+                        let at = at.ok_or_else(|| regen_error("CANNOT_RESOLVE_ENTITIES"))?;
+                        return Ok(tags.line(at, plane.normal));
+                    }
+                    if let (EntityType::Body, Some(frame)) = (r.kind, body.frame) {
+                        return Ok(tags.line(frame.origin, frame.normal));
+                    }
+                }
                 let shape = single_entity(model, &found).ok_or_else(|| regen_error("CANNOT_RESOLVE_ENTITIES"))?;
                 let axis = shape.axis().map_err(|_| regen_error("CANNOT_RESOLVE_ENTITIES"))?;
                 Ok(tags.line(axis.origin, axis.direction))

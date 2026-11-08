@@ -151,15 +151,30 @@ pub fn extrude(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
     }
 
     let dependency: Option<Rc<[crate::model::Tid]>> = Some(profile_tids(model, definition)?.into());
-    let created =
-        Rc::new(Info { created_by: id.clone(), sketch_entity: None, cap: None, dependency: dependency.clone() });
+    let created = Rc::new(Info {
+        created_by: id.clone(),
+        sketch_entity: None,
+        cap: None,
+        dependency: dependency.clone(),
+        label: None,
+        identity: None,
+    });
     let start_info = Rc::new(Info {
         created_by: id.clone(),
         sketch_entity: None,
         cap: Some(Cap::Start),
         dependency: dependency.clone(),
+        label: None,
+        identity: None,
     });
-    let end_info = Rc::new(Info { created_by: id.clone(), sketch_entity: None, cap: Some(Cap::End), dependency });
+    let end_info = Rc::new(Info {
+        created_by: id.clone(),
+        sketch_entity: None,
+        cap: Some(Cap::End),
+        dependency,
+        label: None,
+        identity: None,
+    });
     let mut made: Vec<(Shape, BodyType)> = Vec::new();
     let (mut start_cap, mut end_cap) = (ShapeSet::default(), ShapeSet::default());
     for profile in &profiles {

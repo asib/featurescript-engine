@@ -52,9 +52,22 @@ pub fn revolve(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
         end_cap.insert_all(&face);
     }
     let created = Info::new(id.clone());
-    let start_info =
-        Rc::new(Info { created_by: id.clone(), sketch_entity: None, cap: Some(Cap::Start), dependency: None });
-    let end_info = Rc::new(Info { created_by: id.clone(), sketch_entity: None, cap: Some(Cap::End), dependency: None });
+    let start_info = Rc::new(Info {
+        created_by: id.clone(),
+        sketch_entity: None,
+        cap: Some(Cap::Start),
+        dependency: None,
+        label: None,
+        identity: None,
+    });
+    let end_info = Rc::new(Info {
+        created_by: id.clone(),
+        sketch_entity: None,
+        cap: Some(Cap::End),
+        dependency: None,
+        label: None,
+        identity: None,
+    });
     let special = |s: &Shape| {
         if end_cap.contains(s) {
             Some(end_info.clone())

@@ -4,6 +4,7 @@ mod blend;
 mod curve;
 mod direct;
 mod extrude;
+mod hole;
 mod pattern;
 mod revolve;
 mod split;
@@ -69,6 +70,7 @@ pub fn register(m: &mut GeomBuiltins) {
             Ok(Value::UNDEFINED)
         })
     });
+    m.insert("opHole", |_, args| run_op(&args, "opHole", hole::hole));
     m.insert("opPattern", |_, args| run_op(&args, "opPattern", pattern::pattern));
     m.insert("opSplitPart", |_, args| run_op(&args, "opSplitPart", split::split_part));
     m.insert("opFillet", |_, args| run_op(&args, "opFillet", blend::fillet));
@@ -296,6 +298,21 @@ fn boolean(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
         return Ok(Value::UNDEFINED);
     }
     let keep_tools = values::opt_bool(definition, "keepTools")?.unwrap_or(false);
+    boolean_bodies(model, id, kind, per_target, targets, tools, keep_tools)?;
+    Ok(Value::UNDEFINED)
+}
+
+/// A boolean of bodies: all of them together, or (`per_target`) the tools with each target separately. The results
+/// replace the bodies used.
+pub(crate) fn boolean_bodies(
+    model: &mut Model,
+    id: FeatureId,
+    kind: BooleanKind,
+    per_target: bool,
+    targets: Vec<usize>,
+    tools: Vec<usize>,
+    keep_tools: bool,
+) -> R<()> {
     let default = Info::new(id);
     let shapes = |bodies: &[usize]| -> Vec<Shape> { bodies.iter().map(|&b| model.bodies[b].shape.clone()).collect() };
 
@@ -318,7 +335,7 @@ fn boolean(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
         let mut inputs = targets.clone();
         inputs.extend(tools.iter().filter(|t| !targets.contains(t)));
         if inputs.len() < 2 {
-            return Ok(Value::UNDEFINED);
+            return Ok(());
         }
         groups.push((inputs.clone(), vec![inputs[0]], inputs[1..].to_vec()));
         consumed.extend(&inputs);
@@ -355,5 +372,5 @@ fn boolean(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
         let new = NewBody { body_type: BodyType::Solid, tid, ..NewBody::replacing(&body, solid) };
         model.add_body(new, &origins, &default, &|_| None);
     }
-    Ok(Value::UNDEFINED)
+    Ok(())
 }

@@ -363,14 +363,26 @@ fn solve(model: &mut Model, sketch: &Sketch) -> R<()> {
     }
     // Curves: a wire body each.
     for (id, edge, _) in edges {
-        let info =
-            Rc::new(Info { created_by: sketch.id.clone(), sketch_entity: Some(id), cap: None, dependency: None });
+        let info = Rc::new(Info {
+            created_by: sketch.id.clone(),
+            sketch_entity: Some(id),
+            cap: None,
+            dependency: None,
+            label: None,
+            identity: None,
+        });
         let new = NewBody { sketch_plane: Some(plane), ..NewBody::new(edge, BodyType::Wire, info.clone()) };
         model.add_body(new, &none, &info, &|_| None);
     }
     for (id, p, construction) in points {
-        let info =
-            Rc::new(Info { created_by: sketch.id.clone(), sketch_entity: Some(id), cap: None, dependency: None });
+        let info = Rc::new(Info {
+            created_by: sketch.id.clone(),
+            sketch_entity: Some(id),
+            cap: None,
+            dependency: None,
+            label: None,
+            identity: None,
+        });
         let shape = occt::vertex(p).map_err(occt_error)?;
         let new =
             NewBody { construction, sketch_plane: Some(plane), ..NewBody::new(shape, BodyType::Point, info.clone()) };

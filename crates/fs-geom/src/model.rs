@@ -99,16 +99,27 @@ pub struct Info {
     pub cap: Option<Cap>,
     /// What it was made from, as transient ids (`qDependency`): an extrude's profile, say.
     pub dependency: Option<Rc<[Tid]>>,
+    /// A name an operation gave it, such as the names `@opHole` gives its faces and profile edges (`qOpHoleFace`).
+    pub label: Option<Rc<str>>,
+    /// The entity whose identity it was made for, such as the sketch point a hole was placed at (`qOpHoleFace`).
+    pub identity: Option<Tid>,
 }
 
 impl Info {
     pub fn new(created_by: FeatureId) -> Rc<Info> {
-        Rc::new(Info { created_by, sketch_entity: None, cap: None, dependency: None })
+        Rc::new(Info { created_by, sketch_entity: None, cap: None, dependency: None, label: None, identity: None })
     }
 
     /// Info for entities `created_by` made from the entities `dependency`.
     pub fn depending(created_by: FeatureId, dependency: Vec<Tid>) -> Rc<Info> {
-        Rc::new(Info { created_by, sketch_entity: None, cap: None, dependency: Some(dependency.into()) })
+        Rc::new(Info {
+            created_by,
+            sketch_entity: None,
+            cap: None,
+            dependency: Some(dependency.into()),
+            label: None,
+            identity: None,
+        })
     }
 
     pub fn is_created_by(&self, feature: &[Rc<str>]) -> bool {
@@ -121,6 +132,76 @@ pub struct Entity {
     pub tid: Tid,
     pub shape: Shape,
     pub info: Rc<Info>,
+    /// Where it came from: the transient ids of every entity it was made from, directly or not (tracking queries).
+    pub ancestry: Ancestry,
+    pub attributes: Rc<Attributes>,
+}
+
+/// Attributes set on an entity or body (`@setAttribute`). They stay with it, and its images, as the model changes.
+#[derive(Clone, Debug, Default)]
+pub struct Attributes {
+    pub named: BTreeMap<Rc<str>, Value>,
+    /// Legacy unnamed attributes: at most one of each type.
+    pub unnamed: Vec<Value>,
+}
+
+impl Attributes {
+    pub fn is_empty(&self) -> bool {
+        self.named.is_empty() && self.unnamed.is_empty()
+    }
+
+    /// Adds another entity's attributes, keeping these where both have one of the same name (or type).
+    pub fn merge(&mut self, other: &Attributes) {
+        for (name, value) in &other.named {
+            self.named.entry(name.clone()).or_insert_with(|| value.clone());
+        }
+        for value in &other.unnamed {
+            if !self.unnamed.iter().any(|v| same_type(v, value)) {
+                self.unnamed.push(value.clone());
+            }
+        }
+    }
+}
+
+/// Whether two values have the same type: the same type tag, or with no tags, the same standard type.
+pub fn same_type(a: &Value, b: &Value) -> bool {
+    match (a.tag, b.tag) {
+        (None, None) => a.standard_type() == b.standard_type(),
+        (x, y) => x == y,
+    }
+}
+
+/// The entities an entity was made from, for tracking queries (`startTracking`).
+#[derive(Clone, Debug, Default)]
+pub struct Ancestry {
+    /// Every entity it was derived from, by modification or generation, directly or through other entities.
+    pub all: Rc<[Tid]>,
+    /// Only the entities whose identity it carries on: those it is a modified image of (`startTrackingIdentity`).
+    pub identity: Rc<[Tid]>,
+}
+
+impl Ancestry {
+    /// The ancestry of an image of `parent`: `parent` and everything it came from. A modified image carries on its
+    /// identity; a generated one doesn't.
+    fn child_of(parent: &Entity, modified: bool) -> Ancestry {
+        let all = std::iter::once(parent.tid).chain(parent.ancestry.all.iter().copied()).collect();
+        let identity = if modified {
+            std::iter::once(parent.tid).chain(parent.ancestry.identity.iter().copied()).collect()
+        } else {
+            Rc::default()
+        };
+        Ancestry { all, identity }
+    }
+
+    fn merge(&mut self, other: &Ancestry) {
+        let join = |a: &Rc<[Tid]>, b: &Rc<[Tid]>| -> Rc<[Tid]> {
+            let mut out: Vec<Tid> = a.to_vec();
+            out.extend(b.iter().filter(|t| !a.contains(t)));
+            out.into()
+        };
+        self.all = join(&self.all, &other.all);
+        self.identity = join(&self.identity, &other.identity);
+    }
 }
 
 /// A body's properties (`@setProperty`), by property type, or `CUSTOM:<id>` for custom properties.
@@ -137,6 +218,7 @@ pub struct Body {
     /// For bodies a sketch made, the sketch's plane.
     pub sketch_plane: Option<Frame>,
     pub properties: Rc<Properties>,
+    pub attributes: Rc<Attributes>,
     /// A mate connector's coordinate system.
     pub frame: Option<Frame>,
     pub faces: Vec<Entity>,
@@ -196,6 +278,7 @@ pub struct NewBody {
     pub construction: bool,
     pub sketch_plane: Option<Frame>,
     pub properties: Rc<Properties>,
+    pub attributes: Rc<Attributes>,
     /// For a mate connector, its coordinate system.
     pub frame: Option<Frame>,
 }
@@ -211,6 +294,7 @@ impl NewBody {
             construction: false,
             sketch_plane: None,
             properties: Rc::default(),
+            attributes: Rc::default(),
             frame: None,
         }
     }
@@ -225,6 +309,7 @@ impl NewBody {
             construction: old.construction,
             sketch_plane: old.sketch_plane,
             properties: old.properties.clone(),
+            attributes: old.attributes.clone(),
             frame: old.frame,
         }
     }
@@ -251,12 +336,15 @@ impl Model {
                 .visible_sub_shapes(kind)
                 .into_iter()
                 .map(|shape| {
-                    let (tid, info) = match special(&shape) {
-                        Some(info) => (None, info),
-                        None => origins.lookup(&shape).unwrap_or((None, default.clone())),
+                    let origin = origins.lookup(&shape);
+                    let (tid, info) = match (special(&shape), &origin) {
+                        (Some(info), _) => (None, info),
+                        (None, Some(o)) => (o.tid, o.info.clone().unwrap_or_else(|| default.clone())),
+                        (None, None) => (None, default.clone()),
                     };
+                    let (ancestry, attributes) = origin.map(|o| (o.ancestry, o.attributes)).unwrap_or_default();
                     let tid = tid.unwrap_or_else(|| self.new_tid());
-                    Entity { tid, shape, info }
+                    Entity { tid, shape, info, ancestry, attributes }
                 })
                 .collect()
         };
@@ -272,6 +360,7 @@ impl Model {
             construction: new.construction,
             sketch_plane: new.sketch_plane,
             properties: new.properties,
+            attributes: new.attributes,
             frame: new.frame,
             faces,
             edges,
@@ -291,6 +380,28 @@ impl Model {
             let keep = !indices.contains(&index);
             index += 1;
             keep
+        });
+    }
+
+    /// The attributes of a body or entity.
+    pub fn attributes(&self, r: EntityRef) -> &Rc<Attributes> {
+        let body = &self.bodies[r.body];
+        match r.kind {
+            EntityType::Body => &body.attributes,
+            kind => &body.entities(kind)[r.index].attributes,
+        }
+    }
+
+    /// Changes the attributes of a body or entity.
+    pub fn update_attributes(&mut self, r: EntityRef, f: impl FnOnce(&mut Attributes)) {
+        self.update_body(r.body, |body| {
+            let attributes = match r.kind {
+                EntityType::Body => &mut body.attributes,
+                EntityType::Face => &mut body.faces[r.index].attributes,
+                EntityType::Edge => &mut body.edges[r.index].attributes,
+                EntityType::Vertex => &mut body.vertices[r.index].attributes,
+            };
+            f(Rc::make_mut(attributes));
         });
     }
 
@@ -369,50 +480,108 @@ impl Model {
 }
 
 /// Where the shapes an operation produced came from: input entities that may come through unchanged, and the
-/// images of input entities the operation modified.
+/// images of input entities the operation modified or generated.
 #[derive(Default)]
 pub struct Origins {
-    by_hash: HashMap<u64, Vec<Origin>>,
+    by_hash: HashMap<u64, Vec<(Shape, Origin)>>,
 }
 
-/// A shape, the transient id it keeps (if it comes through unchanged) and its info.
-type Origin = (Shape, Option<Tid>, Rc<Info>);
+/// What a shape an operation produced inherits.
+#[derive(Clone)]
+pub struct Origin {
+    /// The transient id it keeps, if it is an input entity come through unchanged.
+    pub tid: Option<Tid>,
+    /// The info it takes, or `None` for the operation's own.
+    pub info: Option<Rc<Info>>,
+    pub ancestry: Ancestry,
+    pub attributes: Rc<Attributes>,
+}
 
 impl Origins {
     /// An input entity: if it comes through unchanged it keeps its transient id and info.
     pub fn keep(&mut self, entity: &Entity) {
-        self.insert(&entity.shape, Some(entity.tid), entity.info.clone());
+        let origin =
+            Origin {
+                tid: Some(entity.tid),
+                info: Some(entity.info.clone()),
+                ancestry: entity.ancestry.clone(),
+                attributes: entity.attributes.clone(),
+            };
+        self.insert(&entity.shape, origin);
     }
 
     /// A shape that replaced an input entity: it gets a new transient id but the original's info.
-    pub fn inherit(&mut self, image: &Shape, info: Rc<Info>) {
-        self.insert(image, None, info);
+    pub fn inherit(&mut self, image: &Shape, parent: &Entity) {
+        let origin = Origin {
+            tid: None,
+            info: Some(parent.info.clone()),
+            ancestry: Ancestry::child_of(parent, true),
+            attributes: parent.attributes.clone(),
+        };
+        self.insert(image, origin);
     }
 
-    fn insert(&mut self, shape: &Shape, tid: Option<Tid>, info: Rc<Info>) {
+    /// A shape the operation made from an input entity (modified, or generated from it): new, with the operation's
+    /// info, but tracked back to the entity.
+    pub fn derive(&mut self, image: &Shape, parent: &Entity, modified: bool) {
+        let ancestry = Ancestry::child_of(parent, modified);
+        self.insert(image, Origin { tid: None, info: None, ancestry, attributes: Rc::default() });
+    }
+
+    fn insert(&mut self, shape: &Shape, origin: Origin) {
         let entries = self.by_hash.entry(shape.hash()).or_default();
-        if !entries.iter().any(|(s, _, _)| s.is_same(shape)) {
-            entries.push((shape.clone(), tid, info));
+        match entries.iter_mut().find(|(s, _)| s.is_same(shape)) {
+            // An image of several entities (faces merged into one, say) comes from all of them.
+            Some((_, existing)) => {
+                existing.ancestry.merge(&origin.ancestry);
+                if !origin.attributes.is_empty() {
+                    Rc::make_mut(&mut existing.attributes).merge(&origin.attributes);
+                }
+            }
+            None => entries.push((shape.clone(), origin)),
         }
     }
 
-    /// Origins for an operation on `inputs`: every input entity, and every image of one the operation modified.
+    /// Origins for an operation on `inputs`: every input entity, every image of one the operation modified (which
+    /// inherits its info), and every shape it generated from one (which is new, but tracked back to it).
     pub fn of_operation(op: &occt::Operation, inputs: &[&Body]) -> Origins {
         let mut origins = Origins::default();
         for body in inputs {
             for entity in body.all_entities() {
                 origins.keep(entity);
                 for image in op.modified(&entity.shape) {
-                    origins.inherit(&image, entity.info.clone());
+                    origins.inherit(&image, entity);
+                }
+            }
+        }
+        for body in inputs {
+            for entity in body.all_entities() {
+                for image in op.generated(&entity.shape) {
+                    origins.derive(&image, entity, false);
                 }
             }
         }
         origins
     }
 
-    pub fn lookup(&self, shape: &Shape) -> Option<(Option<Tid>, Rc<Info>)> {
+    /// Origins for an operation that makes new bodies from `inputs`: everything it made from an input entity is new,
+    /// with the operation's info, but tracked back to it.
+    pub fn derived(op: &occt::Operation, inputs: &[&Entity]) -> Origins {
+        let mut origins = Origins::default();
+        for entity in inputs {
+            for image in op.modified(&entity.shape) {
+                origins.derive(&image, entity, true);
+            }
+            for image in op.generated(&entity.shape) {
+                origins.derive(&image, entity, false);
+            }
+        }
+        origins
+    }
+
+    pub fn lookup(&self, shape: &Shape) -> Option<Origin> {
         let entries = self.by_hash.get(&shape.hash())?;
-        entries.iter().find(|(s, _, _)| s.is_same(shape)).map(|(_, tid, info)| (*tid, info.clone()))
+        entries.iter().find(|(s, _)| s.is_same(shape)).map(|(_, origin)| origin.clone())
     }
 }
 

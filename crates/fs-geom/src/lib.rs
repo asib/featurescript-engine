@@ -13,6 +13,7 @@ pub mod model;
 pub mod ops;
 pub mod paths;
 pub mod patterns;
+pub mod attributes;
 pub mod properties;
 pub mod query;
 pub mod sketch;
@@ -42,6 +43,7 @@ pub fn install(interp: &mut Interp) {
     sketch::register(&mut builtins);
     ops::register(&mut builtins);
     properties::register(&mut builtins);
+    attributes::register(&mut builtins);
     evaluate::register(&mut builtins);
     unmodelled::register(&mut builtins);
     variables::register(&mut builtins);

@@ -1,7 +1,9 @@
 //! Direct edits of solids: `@opShell`, `@opDraft`, `@opThicken`, `@opOffsetFace` and `@opDeleteFace`.
 
-use super::{by_body, replace_bodies};
-use crate::model::{BodyType, EntityType, FeatureId, Info, Model, NewBody, Origins};
+use std::rc::Rc;
+
+use super::{ShapeSet, by_body, replace_bodies};
+use crate::model::{BodyType, Cap, Entity, EntityType, FeatureId, Info, Model, NewBody, Origins};
 use crate::values::{self, field};
 use crate::{occt_error, query, regen_error};
 use fs_interp::Value;
@@ -84,32 +86,67 @@ pub fn thicken(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
     if found.is_empty() {
         return Err(regen_error("THICKEN_SELECT_ENTITIES"));
     }
-    // Faces (of solids or sheets) and whole sheet bodies, each thickened on its own.
-    let mut inputs: Vec<Shape> = Vec::new();
+    // Faces (of solids or sheets) and whole sheet bodies, each thickened on its own. What each makes is tracked back
+    // to the entities of the body it came from.
+    let mut inputs: Vec<(Shape, usize)> = Vec::new();
     let mut whole_sheets = Vec::new();
     for r in &found {
         match r.kind {
-            EntityType::Face => inputs.push(model.shape(*r).clone()),
+            EntityType::Face => inputs.push((model.shape(*r).clone(), r.body)),
             EntityType::Body if model.body(*r).body_type == BodyType::Sheet => {
-                inputs.push(model.body(*r).shape.clone());
+                inputs.push((model.body(*r).shape.clone(), r.body));
                 whole_sheets.push(r.body);
             }
             _ => {}
         }
     }
-    let info = Info::new(id);
+    let info = Info::new(id.clone());
+    let start_info = Rc::new(Info {
+        created_by: id.clone(),
+        sketch_entity: None,
+        cap: Some(Cap::Start),
+        dependency: None,
+        label: None,
+        identity: None,
+    });
+    let end_info = Rc::new(Info {
+        created_by: id,
+        sketch_entity: None,
+        cap: Some(Cap::End),
+        dependency: None,
+        label: None,
+        identity: None,
+    });
+    let (mut start_cap, mut end_cap) = (ShapeSet::default(), ShapeSet::default());
     let mut made = Vec::new();
-    for input in &inputs {
+    for (input, body) in &inputs {
         let op = occt::thicken(input, t1, t2).map_err(|_| regen_error("THICKEN_FAILED"))?;
+        let entities: Vec<&Entity> = model.bodies[*body].all_entities().collect();
+        let origins = Rc::new(Origins::derived(&op, &entities));
+        for cap in op.first() {
+            start_cap.insert_all(&cap);
+        }
+        for cap in op.last() {
+            end_cap.insert_all(&cap);
+        }
         for solid in op.shape().sub_shapes(ShapeKind::Solid) {
-            made.push(solid);
+            made.push((solid, origins.clone()));
         }
     }
     if !keep_tools {
         model.remove_bodies(&whole_sheets);
     }
-    for solid in made {
-        model.add_body(NewBody::new(solid, BodyType::Solid, info.clone()), &Origins::default(), &info, &|_| None);
+    let special = |s: &Shape| {
+        if end_cap.contains(s) {
+            Some(end_info.clone())
+        } else if start_cap.contains(s) {
+            Some(start_info.clone())
+        } else {
+            None
+        }
+    };
+    for (solid, origins) in made {
+        model.add_body(NewBody::new(solid, BodyType::Solid, info.clone()), &origins, &info, &special);
     }
     Ok(Value::UNDEFINED)
 }
