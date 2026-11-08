@@ -326,6 +326,13 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   cylinders are 29.6194 mm long on average, as a sine law gives. The base wall's corner is cut square to the
   diagonal, 0.01 mm in, so the bends stay the minimal clearance (0.02 mm) apart.
 
+- **Sheet metal forms** (batch 022): the form's parts are placed at each location (the form's mate connector on
+  it) and registered on the wall (`formedToolBodyIds`); the update takes the part to remove away from the wall's
+  piece and joins the part to add, and they're hidden like the definition. Form tools must overlap the sheet, both
+  parts of them. The placement mate connector stays, as a new body a sheet thickness from where it was placed, the
+  way the material lies from the definition sheet ((20, 15, 2) to (20, 15, 0) on a plate's top; a flipped form's
+  from (20, 15, 0) to (20, 15, −2)).
+
 - **Bend reliefs** (batch 016). Where a bend covers only part of its base wall's edge, the rest of the edge is
   cut back as the bend is, and each end of the bend gets a slot in the base wall: as wide as the width scale ×
   the thickness, reaching from the edge to the depth scale × the bend's inner radius at the centre of an
