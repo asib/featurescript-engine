@@ -81,8 +81,14 @@ pub fn register(m: &mut GeomBuiltins) {
         let name = field(&definition, "name").as_str().map(Rc::<str>::from);
         let value = field(&definition, "attribute").clone();
         model_mut(&args, "setAttribute", |model| {
-            let found = query::evaluate(model, field(&definition, "entities"))?;
+            let entities = field(&definition, "entities");
+            let found = query::evaluate(model, entities)?;
             if found.is_empty() {
+                // Flat patterns aren't modelled, so their counterparts of a part's faces are nothing to attribute
+                // (std attributes a sheet metal hole's flat faces too, batch 032).
+                if field(entities, "queryType").as_str() == Some("CORRESPONDING_IN_FLAT") {
+                    return Ok(Value::UNDEFINED);
+                }
                 return Err(error("@setAttribute: entities resolve to nothing"));
             }
             for r in found {
