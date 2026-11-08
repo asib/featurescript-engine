@@ -333,6 +333,15 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   way the material lies from the definition sheet ((20, 15, 2) to (20, 15, 0) on a plate's top; a flipped form's
   from (20, 15, 0) to (20, 15, −2)).
 
+- **Curves extended** (batch 036) come out as cubic B-splines, the extension more spans of the curve's. An arc is
+  first made the clamped cubic spline through points at equal angles along it, with its exact tangents (radius
+  long) at the ends, parametrized by the angle: as few spans, a power of two, as keep 5/384 r θ⁴ (the spline's
+  error bound, θ a span's angle) within 0.005 mm (r = 20 mm: 11.25° spans; r = 10: 22.5°; r = 7 through 120°:
+  15°). Straight on, a straight span follows a triple knot, as fast as the curve ends. Curving on, a blend comes
+  first: the last span's polynomial with a cubic term added, joining with matching curvature (one knot), ending
+  with none and turned 3° from the curve's end (its parameter length the same whatever the distance); then the
+  straight span, for what's left of the distance or up to the limit. A fit spline's natural end has no curvature,
+  so it goes straight on either way. A trimmed arc stays an arc; in a chain, only the end edge changes.
 - **Splines with derivatives at inner points** (batch 035, from routing curves): Onshape's knots are at the
   centripetal parameters, as without them, and each inner derivative adds one more knot a third of the way into
   the longer of the spans either side of its point, but never into the first span (through five points with the
