@@ -479,7 +479,8 @@ fn regenerate(model: &mut Model, id: &FeatureId, def_index: usize) -> R<()> {
             )
         })
         .collect();
-    let solid = build_part(&def, &bends, &rips, front, back, clearance, &relief, &corners, &tools, &forms)?;
+    let k_rolled = attribute_value(&model_attribute, "kFactorRolled").and_then(Value::as_number).unwrap_or(0.5);
+    let solid = build_part(&def, &bends, &rips, front, back, k_rolled, clearance, &relief, &corners, &tools, &forms)?;
 
     // Replace the model's part, keeping its identity, or make one.
     // Replace the model's parts (one for each piece a rip cuts off), keeping their identities, or make them.
@@ -1230,6 +1231,88 @@ fn bend_reliefs(def: &Body, wall: &Shape, bends: &[Bend], relief: &BendRelief) -
     Ok((stubs, slots))
 }
 
+/// An unfolded rolled wall laid flat (batch 043): the rectangle tangent to its cylinder along the edge it's held by
+/// (a held boundary edge, or the edge it shares with a held or planar wall), as wide as the wall's arc at its neutral
+/// radius (the model's rolled k-factor, 0.5 by default, of the way through the material).
+fn unrolled(
+    def: &Body,
+    wall: &Shape,
+    front: f64,
+    back: f64,
+    k_rolled: f64,
+    rips: &[Shape],
+    clearance: f64,
+) -> R<Shape> {
+    let s = wall.surface_definition().map_err(occt_error)?;
+    if s.kind != 1 {
+        return Err(error("@updateSheetMetalGeometry: only cylindrical rolled walls can be unfolded yet"));
+    }
+    let ((u0, _), (u1, _)) = wall.face_uv_bounds().map_err(occt_error)?;
+    let held_edge = |e: &Shape| {
+        def.edges.iter().any(|d| {
+            d.shape.is_same(e) && d.attributes.named.get("holdEdgeForUnfold").and_then(Value::as_bool) == Some(true)
+        })
+    };
+    let next_to_wall = |e: &Shape, held_only: bool| {
+        def.faces.iter().any(|f| {
+            !f.shape.is_same(wall)
+                && f.shape.sub_shapes(ShapeKind::Edge).iter().any(|g| g.is_same(e))
+                && f.shape.surface_type().ok() == Some(occt::SurfaceType::Plane)
+                && (!held_only
+                    || sm_attribute(&f.attributes, "WALL")
+                        .and_then(|w| w.get("holdFaceForUnfold"))
+                        .and_then(Value::as_bool)
+                        == Some(true))
+        })
+    };
+    let straight: Vec<Shape> = wall
+        .sub_shapes(ShapeKind::Edge)
+        .into_iter()
+        .filter(|e| e.curve_type().ok() == Some(occt::CurveType::Line))
+        .collect();
+    let anchor = straight
+        .iter()
+        .find(|e| held_edge(e))
+        .or_else(|| straight.iter().find(|e| next_to_wall(e, true)))
+        .or_else(|| straight.iter().find(|e| next_to_wall(e, false)))
+        .or(straight.first())
+        .ok_or_else(|| error("@updateSheetMetalGeometry: a rolled wall without a straight edge to unfold from"))?;
+    let mid = anchor.edge_tangent(0.5, false).map_err(occt_error)?.origin;
+    let (fu, _) = wall.face_fraction(mid).map_err(occt_error)?;
+    let at_start = fu < 0.5;
+    let fa = if at_start { 0.0 } else { 1.0 };
+    let (a0, a1) =
+        (wall.face_tangent_plane(fa, 0.0).map_err(occt_error)?, wall.face_tangent_plane(fa, 1.0).map_err(occt_error)?);
+    let normal = a0.normal;
+    let into = if at_start { a0.x } else { scale(a0.x, -1.0) };
+    let rel = sub(a0.origin, s.frame.origin);
+    let radial = sub(rel, scale(s.frame.normal, dot(rel, s.frame.normal)));
+    let outward = if dot(normal, radial) >= 0.0 { 1.0 } else { -1.0 };
+    let neutral = s.radius1 + outward * (-back + k_rolled * (front + back));
+    let mut width = neutral * (u1 - u0).abs();
+    // A rip along either straight edge (meeting a wall tangentially) takes half the clearance off that end, as a
+    // tangent rip does a flat wall.
+    let ripped = |e: &Shape| rips.iter().any(|r| r.is_same(e));
+    let mut start_off = 0.0;
+    if ripped(anchor) {
+        start_off = clearance / 2.0;
+        width -= clearance / 2.0;
+    }
+    if straight.iter().any(|e| !e.is_same(anchor) && ripped(e)) {
+        width -= clearance / 2.0;
+    }
+    let (p0, p1) = (add(a0.origin, scale(into, start_off)), add(a1.origin, scale(into, start_off)));
+    let (p2, p3) = (add(p1, scale(into, width)), add(p0, scale(into, width)));
+    let edges: Vec<Shape> = [(p0, p1), (p1, p2), (p2, p3), (p3, p0)]
+        .iter()
+        .map(|(a, b)| occt::line_edge(*a, *b))
+        .collect::<Result<_, _>>()
+        .map_err(occt_error)?;
+    let face = occt::fill_edges(&edges).map_err(occt_error)?;
+    let n = face.face_plane().map_err(occt_error)?.normal;
+    Ok(if dot(n, normal) < 0.0 { face.reversed() } else { face })
+}
+
 #[allow(clippy::too_many_arguments)]
 fn build_part(
     def: &Body,
@@ -1237,6 +1320,7 @@ fn build_part(
     rips: &[usize],
     front: f64,
     back: f64,
+    k_rolled: f64,
     clearance: f64,
     relief: &BendRelief,
     corners: &[CornerRelief],
@@ -1320,6 +1404,13 @@ fn build_part(
         }
         // Edges run on (a butt joint's overlapping wall) are extended first; the rest are cut back.
         let mut base = wall.shape.clone();
+        let unfolded_rolled = !planar
+            && sm_attribute(&wall.attributes, "WALL").and_then(|a| a.get("unfolded")).and_then(Value::as_bool)
+                == Some(true);
+        if unfolded_rolled {
+            let rip_edges: Vec<Shape> = rips.iter().map(|&r| def.edges[r].shape.clone()).collect();
+            base = unrolled(def, &wall.shape, front, back, k_rolled, &rip_edges, clearance)?;
+        }
         if planar && distances.iter().any(|&d| d > 0.0) {
             let (grow, grow_by): (Vec<Shape>, Vec<f64>) =
                 edges.iter().zip(&distances).filter(|(_, d)| **d > 0.0).map(|(e, d)| (e.clone(), *d)).unzip();
