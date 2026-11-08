@@ -26,13 +26,38 @@ pub fn revolve(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
         return Err(regen_error("REVOLVE_SELECT_FACES"));
     }
     let axis = values::line(field(definition, "axis"), "opRevolve axis")?;
-    let up_to = up_to_bound(model, definition, axis)?;
-    let (start, sweep) = if up_to.is_some() {
+    let backward = occt::Axis { origin: axis.origin, direction: values::scale(axis.direction, -1.0) };
+    let end_cut = up_to_bound(model, definition, axis, "end")?;
+    // A start bound up to something: the revolve runs back from where the end's blind angle puts the profile, to
+    // where the bound is first met going forward from the profile (batch 024). Its offset turns the bound forward,
+    // as the end's does.
+    let start_cut = if values::opt_bool(definition, "hasStartBound")?.unwrap_or(true) {
+        if values::opt_bool(definition, "startOppositeDirection")?.unwrap_or(false)
+            && !matches!(field(definition, "startBound").as_str(), None | Some("BLIND"))
+        {
+            return Err(error("@opRevolve: a start bound up to something in the end's direction isn't supported yet"));
+        }
+        up_to_bound(model, definition, axis, "start")?
+    } else {
+        None
+    };
+    if end_cut.is_some() && start_cut.is_some() {
+        return Err(error("@opRevolve: both bounds up to something isn't supported yet"));
+    }
+    let (start, sweep) = if end_cut.is_some() {
         // Revolved nearly a whole turn, then cut where it meets the bound.
         (0.0, TAU - 1e-4)
+    } else if start_cut.is_some() {
+        let end = match field(definition, "endBoundAngle") {
+            v if v.is_undefined() => 0.0,
+            v => values::angle(v, "opRevolve endBoundAngle")?,
+        };
+        (end, TAU - 1e-4)
     } else {
         sweep_angles(definition)?
     };
+    let up_to = end_cut.or(start_cut.clone());
+    let reversed = start_cut.is_some();
     let full = sweep >= TAU - 1e-12;
 
     // Faces revolve into solids; edges, joined into wires, into sheets.
@@ -44,18 +69,23 @@ pub fn revolve(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
     } else {
         occt::merge_faces(&faces).map_err(occt_error)?.shape()
     };
-    let profile = if start != 0.0 && !full {
+    let placed = if start != 0.0 && !full {
         occt::transform(&profile, &rotation(axis, start)).map_err(occt_error)?.shape()
     } else {
-        profile
+        profile.clone()
     };
-    let op = occt::revolve(&profile, axis, sweep).map_err(|_| regen_error("REVOLVE_FAILED"))?;
+    let op = occt::revolve(&placed, if reversed { backward } else { axis }, sweep)
+        .map_err(|_| regen_error("REVOLVE_FAILED"))?;
     let (mut start_cap, mut end_cap) = (ShapeSet::default(), ShapeSet::default());
+    // Run backward, the revolve's first faces are the end and the bound the start.
+    let (first_cap, bound_cap) = if reversed { (&mut end_cap, &mut start_cap) } else { (&mut start_cap, &mut end_cap) };
     for face in op.first() {
-        start_cap.insert_all(&face);
+        first_cap.insert_all(&face);
     }
-    for face in op.last() {
-        end_cap.insert_all(&face);
+    if !reversed {
+        for face in op.last() {
+            bound_cap.insert_all(&face);
+        }
     }
     let created = Info::new(id.clone());
     let start_info = Rc::new(Info {
@@ -76,6 +106,33 @@ pub fn revolve(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
         if solid { (ShapeKind::Solid, BodyType::Solid) } else { (ShapeKind::Shell, BodyType::Sheet) };
     let pieces = match &up_to {
         None => op.shape().sub_shapes(kind),
+        Some(cutter) if reversed => {
+            // Run back from the end nearly a turn and cut by the bound, everything but the last piece: back to the
+            // last place the bound is met, which is the first going forward from the profile.
+            let split = occt::split(std::slice::from_ref(&op.shape()), std::slice::from_ref(cutter))
+                .map_err(|_| regen_error("REVOLVE_FAILED"))?;
+            let tail = super::extrude::pieces_touching(&split.shape(), &op.last(), kind);
+            let mut kept: Vec<Shape> =
+                split.shape().sub_shapes(kind).into_iter().filter(|p| !tail.iter().any(|t| t.is_same(p))).collect();
+            if kept.len() > 1 {
+                let fused = occt::boolean(occt::BooleanKind::Union, &kept[..1], &kept[1..], true)
+                    .map_err(|_| regen_error("REVOLVE_FAILED"))?;
+                kept = fused.shape().sub_shapes(kind);
+            }
+            let end_faces = op.first();
+            for piece in &kept {
+                for f in piece.sub_shapes(ShapeKind::Face) {
+                    if f.distance(cutter).is_ok_and(|d| d.distance < 1e-7) && super::extrude::on_surface(&f, cutter) {
+                        bound_cap.insert_all(&f);
+                    } else if end_faces.iter().any(|e| {
+                        f.distance(e).is_ok_and(|d| d.distance < 1e-7) && super::extrude::on_surface(&f, e)
+                    }) {
+                        first_cap.insert_all(&f);
+                    }
+                }
+            }
+            kept
+        }
         Some(cutter) => {
             // The piece from the profile to where it first meets the bound; its faces on the bound are the end cap.
             let split = occt::split(std::slice::from_ref(&op.shape()), std::slice::from_ref(cutter))
@@ -84,7 +141,7 @@ pub fn revolve(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
             for piece in &kept {
                 for f in piece.sub_shapes(ShapeKind::Face) {
                     if f.distance(cutter).is_ok_and(|d| d.distance < 1e-7) && super::extrude::on_surface(&f, cutter) {
-                        end_cap.insert_all(&f);
+                        bound_cap.insert_all(&f);
                     }
                 }
             }
@@ -123,17 +180,13 @@ pub fn revolve(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
     Ok(Value::UNDEFINED)
 }
 
-/// For an end bound up to a face, body or vertex, what to cut the revolve with: the face (a planar one as a large
-/// plane), the body, or the half plane from the axis through the vertex. Turned by the bound's offset angle.
-fn up_to_bound(model: &Model, definition: &Value, axis: occt::Axis) -> R<Option<Shape>> {
-    if let Some(start) = field(definition, "startBound").as_str()
-        && start != "BLIND"
-        && values::opt_bool(definition, "hasStartBound")?.unwrap_or(true)
-    {
-        return Err(error(format!("@opRevolve: startBound {start} isn't supported yet")));
-    }
-    let entity = |key: &str| -> R<Option<crate::model::EntityRef>> {
-        Ok(query::evaluate(model, field(definition, key))?.into_iter().next())
+/// For a bound (`which` is "end" or "start") up to a face, body or vertex, what to cut the revolve with: the face (a
+/// planar one as a large plane), the body, or the half plane from the axis through the vertex. Turned by the bound's
+/// offset angle about `axis`, the way the revolve runs to it.
+fn up_to_bound(model: &Model, definition: &Value, axis: occt::Axis, which: &str) -> R<Option<Shape>> {
+    let key = |name: &str| format!("{which}{name}");
+    let entity = |name: &str| -> R<Option<crate::model::EntityRef>> {
+        Ok(query::evaluate(model, field(definition, &key(name)))?.into_iter().next())
     };
     let reach = model
         .bodies
@@ -141,11 +194,11 @@ fn up_to_bound(model: &Model, definition: &Value, axis: occt::Axis) -> R<Option<
         .filter_map(|b| b.shape.bounding_box(false).ok())
         .map(|b| values::norm(values::sub(b.max, b.min)) + values::norm(values::sub(b.min, axis.origin)))
         .fold(1.0, f64::max);
-    let cutter = match field(definition, "endBound").as_str() {
+    let cutter = match field(definition, &key("Bound")).as_str() {
         None | Some("BLIND") => return Ok(None),
         Some("UP_TO_SURFACE") => {
             let face =
-                entity("endBoundEntityFace")?.ok_or_else(|| regen_error("REVOLVE_SELECT_TERMINATING_SURFACE"))?;
+                entity("BoundEntityFace")?.ok_or_else(|| regen_error("REVOLVE_SELECT_TERMINATING_SURFACE"))?;
             let face = model.shape(face).clone();
             match face.face_plane() {
                 Ok(plane) => {
@@ -155,12 +208,12 @@ fn up_to_bound(model: &Model, definition: &Value, axis: occt::Axis) -> R<Option<
             }
         }
         Some("UP_TO_BODY") => {
-            let body = entity("endBoundEntityBody")?.ok_or_else(|| regen_error("REVOLVE_SELECT_TERMINATING_BODY"))?;
+            let body = entity("BoundEntityBody")?.ok_or_else(|| regen_error("REVOLVE_SELECT_TERMINATING_BODY"))?;
             model.bodies[body.body].shape.clone()
         }
         Some("UP_TO_VERTEX") => {
             let vertex =
-                entity("endBoundEntityVertex")?.ok_or_else(|| regen_error("REVOLVE_SELECT_TERMINATING_VERTEX"))?;
+                entity("BoundEntityVertex")?.ok_or_else(|| regen_error("REVOLVE_SELECT_TERMINATING_VERTEX"))?;
             let at = model.shape(vertex).sub_shapes(ShapeKind::Vertex);
             let at = at.first().and_then(|v| v.vertex_point().ok()).ok_or_else(|| regen_error("REVOLVE_FAILED"))?;
             let rel = values::sub(at, axis.origin);
@@ -170,11 +223,11 @@ fn up_to_bound(model: &Model, definition: &Value, axis: occt::Axis) -> R<Option<
             let frame = occt::Frame { origin: axis.origin, normal, x: out };
             occt::plane_face(frame, 0.0, 2.0 * reach, -2.0 * reach, 2.0 * reach).map_err(occt_error)?
         }
-        Some(other) => return Err(error(format!("@opRevolve: endBound {other} isn't supported yet"))),
+        Some(other) => return Err(error(format!("@opRevolve: {which}Bound {other} isn't supported yet"))),
     };
-    let offset = if values::opt_bool(definition, "endBoundHasOffset")?.unwrap_or(false) {
-        let a = values::angle(field(definition, "endBoundOffset"), "opRevolve endBoundOffset")?;
-        if values::opt_bool(definition, "endBoundOffsetFlip")?.unwrap_or(false) { -a } else { a }
+    let offset = if values::opt_bool(definition, &key("BoundHasOffset"))?.unwrap_or(false) {
+        let a = values::angle(field(definition, &key("BoundOffset")), "opRevolve bound offset")?;
+        if values::opt_bool(definition, &key("BoundOffsetFlip"))?.unwrap_or(false) { -a } else { a }
     } else {
         0.0
     };
