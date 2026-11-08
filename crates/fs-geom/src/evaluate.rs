@@ -210,9 +210,17 @@ pub fn register(m: &mut GeomBuiltins) {
             |tags, model, found| {
                 let face = found.first().filter(|r| r.kind == EntityType::Face);
                 let frame = face.and_then(|r| model.shape(*r).face_plane().ok());
-                frame
-                    .map(|f| tags.plane(occt::Frame { x: values::canonical_x(f.normal), ..f }))
-                    .ok_or_else(|| regen_error("CANNOT_RESOLVE_PLANE"))
+                let frame = frame.map(|f| occt::Frame { x: values::canonical_x(f.normal), ..f });
+                // The origin in the middle of the face's box in the plane's own axes.
+                let frame = match (face, frame) {
+                    (Some(r), Some(f)) => model.shape(*r).bounding_box_in(f, true).ok().map(|b| {
+                        let y = values::cross(f.normal, f.x);
+                        let (u, v) = ((b.min.x + b.max.x) / 2.0, (b.min.y + b.max.y) / 2.0);
+                        occt::Frame { origin: values::add(f.origin, values::add(values::scale(f.x, u), values::scale(y, v))), ..f }
+                    }),
+                    (_, f) => f,
+                };
+                frame.map(|f| tags.plane(f)).ok_or_else(|| regen_error("CANNOT_RESOLVE_PLANE"))
             },
             &tags,
         )
