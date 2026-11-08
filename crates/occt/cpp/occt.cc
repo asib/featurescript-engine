@@ -48,6 +48,8 @@
 #include <TopTools_IndexedMapOfShape.hxx>
 #include <TopTools_MapOfShape.hxx>
 #include <TopoDS.hxx>
+#include <gp_Elips.hxx>
+#include <TopoDS_Iterator.hxx>
 #include <TopoDS_Compound.hxx>
 #include <TransferBRep.hxx>
 #include <Transfer_TransientProcess.hxx>
@@ -222,8 +224,10 @@ std::unique_ptr<Operation> prism(const Shape &profile, Vec3 v) {
   arguments.Append(profile.shape);
   op->history = new BRepTools_History(arguments, maker);
   op->result = maker.Shape();
+  // The caps: the profile's faces at each end, or for a profile of edges (a sheet), its edges at each end.
   TopTools_IndexedMapOfShape faces;
   TopExp::MapShapes(profile.shape, TopAbs_FACE, faces);
+  if (faces.IsEmpty()) TopExp::MapShapes(profile.shape, TopAbs_EDGE, faces);
   for (int i = 1; i <= faces.Extent(); ++i) {
     op->first.push_back(maker.FirstShape(faces(i)));
     op->last.push_back(maker.LastShape(faces(i)));
@@ -464,19 +468,73 @@ std::unique_ptr<ShapeList> visible_sub_shapes(const Shape &s, int32_t kind) {
         if (BRep_Tool::IsClosed(edge, TopoDS::Face(face))) return false;
     return true;
   };
+  TopTools_IndexedDataMapOfShapeListOfShape vertex_edges;
+  TopExp::MapShapesAndUniqueAncestors(s.shape, TopAbs_VERTEX, TopAbs_EDGE, vertex_edges);
+  // A closed edge OCCT has split at its seam vertex, where it meets a seam edge of a face: the vertex has just the
+  // two pieces of the one curve as visible edges. Onshape's edge would be whole, so the vertex is hidden and the
+  // pieces count as one edge.
+  auto curve_of = [](const TopoDS_Edge &edge) {
+    TopLoc_Location location;
+    double first, last;
+    return std::make_pair(BRep_Tool::Curve(edge, location, first, last), location);
+  };
+  TopTools_IndexedMapOfShape seam_vertices;
+  for (int i = 1; i <= vertex_edges.Extent(); ++i) {
+    std::vector<TopoDS_Edge> visible;
+    for (const TopoDS_Shape &e : vertex_edges(i))
+      if (visible_edge(TopoDS::Edge(e))) visible.push_back(TopoDS::Edge(e));
+    if (visible.size() != 2 || visible[0].IsSame(visible[1])) continue;
+    auto a = curve_of(visible[0]), b = curve_of(visible[1]);
+    if (a.first.IsNull() || b.first.IsNull()) continue;
+    bool same = a.first == b.first && a.second.IsEqual(b.second) && a.first->IsPeriodic();
+    if (!same) {
+      // A copy (a moved body, say) gives each piece its own copy of the curve: compare circles and ellipses.
+      BRepAdaptor_Curve ca(visible[0]), cb(visible[1]);
+      const double tol = 1e-9;
+      if (ca.GetType() == GeomAbs_Circle && cb.GetType() == GeomAbs_Circle) {
+        gp_Circ x = ca.Circle(), y = cb.Circle();
+        same = x.Location().Distance(y.Location()) < tol && std::abs(x.Radius() - y.Radius()) < tol &&
+               x.Axis().Direction().IsParallel(y.Axis().Direction(), 1e-9);
+      } else if (ca.GetType() == GeomAbs_Ellipse && cb.GetType() == GeomAbs_Ellipse) {
+        gp_Elips x = ca.Ellipse(), y = cb.Ellipse();
+        same = x.Location().Distance(y.Location()) < tol && std::abs(x.MajorRadius() - y.MajorRadius()) < tol &&
+               std::abs(x.MinorRadius() - y.MinorRadius()) < tol &&
+               x.Axis().Direction().IsParallel(y.Axis().Direction(), 1e-9) &&
+               x.XAxis().Direction().IsParallel(y.XAxis().Direction(), 1e-9);
+      }
+    }
+    if (same) seam_vertices.Add(vertex_edges.FindKey(i));
+  }
   auto out = std::make_unique<ShapeList>();
   if (kind == TopAbs_EDGE) {
     TopTools_IndexedMapOfShape edges;
     TopExp::MapShapes(s.shape, TopAbs_EDGE, edges);
-    // Each edge in its own direction, as a Parasolid edge has one, not in the direction a face first used it.
-    for (int i = 1; i <= edges.Extent(); ++i)
-      if (visible_edge(TopoDS::Edge(edges(i)))) out->shapes.push_back(edges(i).Oriented(TopAbs_FORWARD));
+    // Pieces joined at a seam vertex: only the first of them is shown.
+    TopTools_IndexedMapOfShape hidden;
+    for (int i = 1; i <= edges.Extent(); ++i) {
+      const TopoDS_Edge &edge = TopoDS::Edge(edges(i));
+      if (hidden.Contains(edge) || !visible_edge(edge)) continue;
+      // Each edge in its own direction, as a Parasolid edge has one, not in the direction a face first used it.
+      out->shapes.push_back(edge.Oriented(TopAbs_FORWARD));
+      std::vector<TopoDS_Edge> stack{edge};
+      while (!stack.empty()) {
+        TopoDS_Edge current = stack.back();
+        stack.pop_back();
+        for (TopoDS_Iterator it(current); it.More(); it.Next()) {
+          if (!seam_vertices.Contains(it.Value())) continue;
+          for (const TopoDS_Shape &other : vertex_edges.FindFromKey(it.Value()))
+            if (!other.IsSame(edge) && !hidden.Contains(other) && visible_edge(TopoDS::Edge(other))) {
+              hidden.Add(other);
+              stack.push_back(TopoDS::Edge(other));
+            }
+        }
+      }
+    }
     return out;
   }
   if (kind != TopAbs_VERTEX) throw std::invalid_argument("visible_sub_shapes: edges or vertices only");
-  TopTools_IndexedDataMapOfShapeListOfShape vertex_edges;
-  TopExp::MapShapesAndUniqueAncestors(s.shape, TopAbs_VERTEX, TopAbs_EDGE, vertex_edges);
   for (int i = 1; i <= vertex_edges.Extent(); ++i) {
+    if (seam_vertices.Contains(vertex_edges.FindKey(i))) continue;
     const TopTools_ListOfShape &edges = vertex_edges(i);
     bool keep = edges.IsEmpty();  // a point
     for (const TopoDS_Shape &e : edges) {

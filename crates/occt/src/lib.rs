@@ -170,7 +170,7 @@ mod ffi {
             faces: &ShapeList,
             pull: Vec3,
             angle: f64,
-            neutral: Frame,
+            neutrals: &[Frame],
         ) -> Result<UniquePtr<Operation>>;
         fn thicken_op(sheet: &Shape, t1: f64, t2: f64) -> Result<UniquePtr<Operation>>;
         fn offset_faces_op(solid: &Shape, faces: &ShapeList, distance: f64) -> Result<UniquePtr<Operation>>;
@@ -205,6 +205,8 @@ mod ffi {
         fn edge_fraction_extended(s: &Shape, p: Vec3) -> Result<f64>;
         fn shape_distance(a: &Shape, b: &Shape) -> Result<Distance>;
         fn line_crossings(s: &Shape, origin: Vec3, direction: Vec3) -> Result<Vec<f64>>;
+        fn face_feature_solid(faces: &ShapeList) -> Result<UniquePtr<Shape>>;
+        fn point_in_solid(solid: &Shape, p: Vec3) -> Result<bool>;
         fn curve_definition(s: &Shape) -> Result<Conic>;
         fn surface_definition(s: &Shape) -> Result<Conic>;
         fn face_tangent_plane(s: &Shape, fu: f64, fv: f64) -> Result<Frame>;
@@ -456,6 +458,11 @@ impl Shape {
     /// sorted distances along it.
     pub fn line_crossings(&self, origin: Vec3, direction: Vec3) -> Result<Vec<f64>> {
         Ok(ffi::line_crossings(&self.0, origin, direction)?)
+    }
+
+    /// Whether a point is inside this solid.
+    pub fn contains_point(&self, p: Vec3) -> Result<bool> {
+        Ok(ffi::point_in_solid(&self.0, p)?)
     }
 
     /// The minimum distance to another shape, and the closest points.
@@ -811,7 +818,12 @@ pub fn offset(shape: &Shape, distance: f64) -> Result<Shape> {
 
 /// Drafts faces of a solid by `angle` about where they meet a neutral plane.
 pub fn draft(solid: &Shape, faces: &[Shape], pull: Vec3, angle: f64, neutral: Frame) -> Result<Operation> {
-    Ok(Operation(ffi::draft_op(&solid.0, &to_list(faces), pull, angle, neutral)?))
+    Ok(Operation(ffi::draft_op(&solid.0, &to_list(faces), pull, angle, &[neutral])?))
+}
+
+/// Drafts faces of a solid by `angle`, each about where it meets its own neutral plane.
+pub fn draft_each(solid: &Shape, faces: &[Shape], pull: Vec3, angle: f64, neutrals: &[Frame]) -> Result<Operation> {
+    Ok(Operation(ffi::draft_op(&solid.0, &to_list(faces), pull, angle, neutrals)?))
 }
 
 /// Thickens a face or sheet `t1` along its normal and `t2` against it.
@@ -836,6 +848,12 @@ pub fn replace_planar_face(solid: &Shape, face: &Shape, target: Frame) -> Result
 }
 
 /// A solid from a shape: its first solid, or one made from its closed shells.
+/// The solid some faces of a solid bound once their open boundary is capped with planar faces: a boss's material
+/// or a pocket's void.
+pub fn face_feature_solid(faces: &[Shape]) -> Result<Shape> {
+    Ok(Shape::new(ffi::face_feature_solid(&to_list(faces))?))
+}
+
 pub fn solid_from(shape: &Shape) -> Result<Shape> {
     Ok(Shape::new(ffi::solid_from(&shape.0)?))
 }

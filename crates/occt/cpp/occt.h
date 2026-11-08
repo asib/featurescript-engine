@@ -130,7 +130,7 @@ std::unique_ptr<Operation> chamfer_op(const Shape &solid, const ShapeList &edges
 std::unique_ptr<Operation> shell_op(const Shape &solid, const ShapeList &faces, double thickness);
 std::unique_ptr<Shape> offset_shape(const Shape &s, double distance);
 std::unique_ptr<Operation> draft_op(const Shape &solid, const ShapeList &faces, Vec3 pull, double angle,
-                                    Frame neutral);
+                                    rust::Slice<const Frame> neutrals);
 std::unique_ptr<Operation> thicken_op(const Shape &sheet, double t1, double t2);
 std::unique_ptr<Operation> offset_faces_op(const Shape &solid, const ShapeList &faces, double distance);
 std::unique_ptr<Operation> delete_faces_op(const Shape &solid, const ShapeList &faces);
@@ -164,6 +164,8 @@ double edge_fraction(const Shape &s, Vec3 p, bool arc_length);
 double edge_fraction_extended(const Shape &s, Vec3 p);
 Distance shape_distance(const Shape &a, const Shape &b);
 rust::Vec<double> line_crossings(const Shape &s, Vec3 origin, Vec3 direction);
+std::unique_ptr<Shape> face_feature_solid(const ShapeList &faces);
+bool point_in_solid(const Shape &solid, Vec3 p);
 Conic curve_definition(const Shape &s);
 Conic surface_definition(const Shape &s);
 Frame face_tangent_plane(const Shape &s, double fu, double fv);

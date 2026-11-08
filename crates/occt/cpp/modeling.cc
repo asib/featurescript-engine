@@ -19,6 +19,12 @@
 #include <BRepAlgoAPI_Defeaturing.hxx>
 #include <BRepAlgoAPI_Splitter.hxx>
 #include <BRepAdaptor_Surface.hxx>
+#include <BRepClass3d_SolidClassifier.hxx>
+#include <ShapeFix_Solid.hxx>
+#include <ShapeAnalysis_FreeBounds.hxx>
+#include <BRepAdaptor_Curve.hxx>
+#include <BRepBuilderAPI_MakeVertex.hxx>
+#include <BRepExtrema_DistShapeShape.hxx>
 #include <BRepBuilderAPI_Sewing.hxx>
 #include <BRepFilletAPI_MakeChamfer.hxx>
 #include <BRepFilletAPI_MakeFillet.hxx>
@@ -242,11 +248,13 @@ std::unique_ptr<Shape> offset_shape(const Shape &s, double distance) {
 
 // Drafts faces of a solid by `angle` about where they meet the neutral plane, relative to the pull direction.
 std::unique_ptr<Operation> draft_op(const Shape &solid, const ShapeList &faces, Vec3 pull, double angle,
-                                    Frame neutral) {
+                                    rust::Slice<const Frame> neutrals) {
   BRepOffsetAPI_DraftAngle maker(solid.shape);
-  gp_Pln plane(pnt(neutral.origin), dir(neutral.normal));
-  for (const TopoDS_Shape &f : faces.shapes) {
-    maker.Add(TopoDS::Face(f), dir(pull), angle, plane);
+  if (neutrals.empty()) throw std::runtime_error("draft: no neutral plane");
+  for (size_t i = 0; i < faces.shapes.size(); ++i) {
+    const Frame &neutral = neutrals[std::min(i, neutrals.size() - 1)];
+    gp_Pln plane(pnt(neutral.origin), dir(neutral.normal));
+    maker.Add(TopoDS::Face(faces.shapes[i]), dir(pull), angle, plane);
     if (!maker.AddDone()) throw std::runtime_error("draft: a face can't be drafted");
   }
   maker.Build();
@@ -311,6 +319,36 @@ std::unique_ptr<Operation> thicken_op(const Shape &input, double t1, double t2) 
     for (const TopoDS_Shape &image : maker.Modified(base_faces(i))) op->last.push_back(image);
     for (const TopoDS_Shape &image : maker.Generated(base_faces(i)))
       if (image.ShapeType() == TopAbs_FACE) op->last.push_back(image);
+  }
+  // BRepOffset_MakeOffset doesn't report the walls as generated from the boundary edges they run along: record each
+  // wall as generated from every input edge lying wholly on it (at its ends and middle).
+  TopTools_IndexedMapOfShape caps;
+  for (const TopoDS_Shape &f : op->first) caps.Add(f);
+  for (const TopoDS_Shape &f : op->last) caps.Add(f);
+  TopTools_IndexedMapOfShape input_edges;
+  TopExp::MapShapes(input.shape, TopAbs_EDGE, input_edges);
+  for (int j = 1; j <= input_edges.Extent(); ++j) {
+    const TopoDS_Edge &edge = TopoDS::Edge(input_edges(j));
+    if (BRep_Tool::Degenerated(edge)) continue;
+    BRepAdaptor_Curve curve(edge);
+    std::vector<TopoDS_Shape> samples;
+    for (double f : {0.0, 0.5, 1.0})
+      samples.push_back(BRepBuilderAPI_MakeVertex(
+                            curve.Value(curve.FirstParameter() + f * (curve.LastParameter() - curve.FirstParameter())))
+                            .Shape());
+    for (int i = 1; i <= result_faces.Extent(); ++i) {
+      const TopoDS_Shape &wall = result_faces(i);
+      if (caps.Contains(wall)) continue;
+      bool on = true;
+      for (const TopoDS_Shape &sample : samples) {
+        BRepExtrema_DistShapeShape distance(sample, wall);
+        if (!distance.IsDone() || distance.Value() > 1e-7) {
+          on = false;
+          break;
+        }
+      }
+      if (on) op->history->AddGenerated(edge, wall);
+    }
   }
   // Thickening a face of a solid along its outward normal can come out inside out.
   GProp_GProps props;
@@ -446,6 +484,37 @@ std::unique_ptr<Shape> solid_from(const Shape &s) {
   }
   if (!any) throw std::runtime_error("no shell to make a solid from");
   return wrap(solid);
+}
+
+// The solid a set of faces of a solid bounds once its open boundary is capped with planar faces: the material of a
+// boss, or the void of a pocket, that the faces make.
+std::unique_ptr<Shape> face_feature_solid(const ShapeList &faces) {
+  BRep_Builder builder;
+  TopoDS_Shell shell;
+  builder.MakeShell(shell);
+  for (const TopoDS_Shape &f : faces.shapes) builder.Add(shell, f);
+  ShapeAnalysis_FreeBounds bounds(shell, 1e-7, Standard_False, Standard_False);
+  BRepBuilderAPI_Sewing sewing(1e-7);
+  for (const TopoDS_Shape &f : faces.shapes) sewing.Add(f);
+  for (TopExp_Explorer it(bounds.GetClosedWires(), TopAbs_WIRE); it.More(); it.Next()) {
+    BRepBuilderAPI_MakeFace cap(TopoDS::Wire(it.Current()), Standard_True);
+    if (!cap.IsDone()) throw std::runtime_error("face feature: the boundary isn't planar");
+    sewing.Add(cap.Face());
+  }
+  sewing.Perform();
+  TopoDS_Shape sewn = sewing.SewedShape();
+  TopExp_Explorer shells(sewn, TopAbs_SHELL);
+  if (!shells.More()) throw std::runtime_error("face feature: no shell");
+  ShapeFix_Solid fixer;
+  TopoDS_Solid solid = fixer.SolidFromShell(TopoDS::Shell(shells.Current()));
+  if (solid.IsNull()) throw std::runtime_error("face feature: no solid");
+  return wrap(solid);
+}
+
+// Whether a point is inside a solid.
+bool point_in_solid(const Shape &solid, Vec3 p) {
+  BRepClass3d_SolidClassifier classifier(solid.shape, pnt(p), 1e-9);
+  return classifier.State() == TopAbs_IN;
 }
 
 // The faces of a solid other than `faces`, sewn into a sheet: deleting faces and leaving the hole open.
