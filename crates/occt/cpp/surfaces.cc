@@ -1,9 +1,15 @@
 // Surface and curve operations: sections, fills, enclosures, sheet extension, iso curves, projections.
 
 #include "occt/cpp/occt.h"
+#include <TopTools_IndexedMapOfShape.hxx>
+#include <BRepTools_History.hxx>
+#include <ShapeBuild_ReShape.hxx>
 #include <Precision.hxx>
 #include <gp_Pnt2d.hxx>
 #include <Geom2d_TrimmedCurve.hxx>
+#include <Geom2d_Line.hxx>
+#include <gp_Dir2d.hxx>
+#include <gp_Vec2d.hxx>
 #include <Geom2d_BSplineCurve.hxx>
 #include <Geom2dConvert.hxx>
 #include <ElSLib.hxx>
@@ -350,13 +356,13 @@ std::unique_ptr<Shape> offset_edge_on_planar_face(const Shape &edge_shape, const
   return wrap(BRepBuilderAPI_MakeEdge(a.Translated(inward), b.Translated(inward)).Edge());
 }
 
-// Wraps planar faces onto a cylinder face without stretching. The source frame (anchor, direction, normal) on the
+// Wraps planar faces onto a cylinder face without stretching (or with distances round it taken at `arc_radius`). The source frame (anchor, direction, normal) on the
 // plane goes to the destination frame on the cylinder (anchor, direction tangent there, and the face's normal), and
 // distances along the plane become distances along the cylinder: the map from the plane's parameters to the
 // cylinder's (angle, height) is affine, so each edge's curve on the plane, as a B-spline, maps exactly by its poles.
-std::unique_ptr<ShapeList> wrap_onto_cylinder(const ShapeList &faces, Vec3 source_anchor, Vec3 source_direction,
+std::unique_ptr<Operation> wrap_onto_cylinder(const ShapeList &faces, Vec3 source_anchor, Vec3 source_direction,
                                               Vec3 source_normal, const Shape &destination, Vec3 destination_anchor,
-                                              Vec3 destination_direction) {
+                                              Vec3 destination_direction, double arc_radius) {
   const TopoDS_Face &dest = TopoDS::Face(destination.shape);
   Handle(Geom_Surface) dest_surface = BRep_Tool::Surface(dest);
   Handle(Geom_CylindricalSurface) cylinder = Handle(Geom_CylindricalSurface)::DownCast(dest_surface);
@@ -379,8 +385,13 @@ std::unique_ptr<ShapeList> wrap_onto_cylinder(const ShapeList &faces, Vec3 sourc
   gp_Vec ns = gp_Vec(dir(source_normal));
   gp_Vec ds_perp = ns.Crossed(ds);
   gp_Pnt as = pnt(source_anchor);
-  auto out = std::make_unique<ShapeList>();
+  auto op = std::make_unique<Operation>();
+  op->history = new BRepTools_History;
+  BRep_Builder builder;
+  TopoDS_Compound result;
+  builder.MakeCompound(result);
   for (const TopoDS_Shape &shape : faces.shapes) {
+    std::vector<std::pair<TopoDS_Shape, TopoDS_Shape>> edge_images;
     const TopoDS_Face &face = TopoDS::Face(shape);
     Handle(Geom_Plane) plane = Handle(Geom_Plane)::DownCast(BRep_Tool::Surface(face));
     if (plane.IsNull()) throw std::runtime_error("wrap: the source faces must be planar");
@@ -395,7 +406,8 @@ std::unique_ptr<ShapeList> wrap_onto_cylinder(const ShapeList &faces, Vec3 sourc
     auto map = [&](const gp_Pnt2d &q) {
       double u = u0 + q.X() * uu + q.Y() * uv, v = v0 + q.X() * vu + q.Y() * vv;
       double s = u * dt + v * pt, z = u * dz + v * pz;
-      return gp_Pnt2d(ta + s / r, za + z);
+      // Distances round the cylinder are measured at `arc_radius` if one is given (a sheet metal bend's allowance).
+      return gp_Pnt2d(ta + s / (arc_radius > 0 ? arc_radius : r), za + z);
     };
     BRepBuilderAPI_MakeFace maker(cylinder, Precision::Confusion());
     bool first = true;
@@ -408,9 +420,25 @@ std::unique_ptr<ShapeList> wrap_onto_cylinder(const ShapeList &faces, Vec3 sourc
         if (pcurve.IsNull()) throw std::runtime_error("wrap: an edge has no curve on its face");
         Handle(Geom2d_BSplineCurve) spline = Geom2dConvert::CurveToBSplineCurve(new Geom2d_TrimmedCurve(pcurve, f, l));
         for (int i = 1; i <= spline->NbPoles(); ++i) spline->SetPole(i, map(spline->Pole(i)));
-        TopoDS_Edge edge = BRepBuilderAPI_MakeEdge(spline, cylinder, spline->FirstParameter(), spline->LastParameter()).Edge();
-        BRepLib::BuildCurves3d(edge);
+        TopoDS_Edge edge;
+        const gp_Pnt2d a = spline->Pole(1), b = spline->Pole(spline->NbPoles());
+        const bool straight = spline->Degree() == 1 && spline->NbPoles() == 2;
+        if (straight && (std::abs(a.X() - b.X()) < 1e-12 || std::abs(a.Y() - b.Y()) < 1e-12)) {
+          // An edge along the axis or round it: exactly the cylinder's line or circle there, not a B-spline.
+          const bool along = std::abs(a.X() - b.X()) < 1e-12;
+          Handle(Geom_Curve) curve = along ? cylinder->UIso(a.X()) : cylinder->VIso(a.Y());
+          Handle(Geom2d_Line) pcurve = along ? new Geom2d_Line(gp_Pnt2d(a.X(), 0), gp_Dir2d(0, 1))
+                                             : new Geom2d_Line(gp_Pnt2d(0, a.Y()), gp_Dir2d(1, 0));
+          const double p1 = along ? a.Y() : a.X(), p2 = along ? b.Y() : b.X();
+          edge = BRepBuilderAPI_MakeEdge(curve, std::min(p1, p2), std::max(p1, p2)).Edge();
+          BRep_Builder().UpdateEdge(edge, pcurve, cylinder, TopLoc_Location(), Precision::Confusion());
+          if (p2 < p1) edge.Reverse();
+        } else {
+          edge = BRepBuilderAPI_MakeEdge(spline, cylinder, spline->FirstParameter(), spline->LastParameter()).Edge();
+          BRepLib::BuildCurves3d(edge);
+        }
         wire.Add(edge);
+        edge_images.emplace_back(e.Current(), wire.Edge());
       }
       if (!wire.IsDone()) throw std::runtime_error("wrap: a wire couldn't be rebuilt");
       if (first) {
@@ -422,13 +450,24 @@ std::unique_ptr<ShapeList> wrap_onto_cylinder(const ShapeList &faces, Vec3 sourc
     }
     if (!maker.IsDone()) throw std::runtime_error("wrap: the face couldn't be rebuilt");
     ShapeFix_Face fix(maker.Face());
+    fix.SetContext(new ShapeBuild_ReShape);
     fix.Perform();
     built = fix.Face();
     // The result's normal points the way the destination's does.
     if (dest.Orientation() == TopAbs_REVERSED) built.Reverse();
-    out->shapes.push_back(built);
+    // Each face and edge is the image of the one it was wrapped from.
+    op->history->AddModified(face, built);
+    TopTools_IndexedMapOfShape built_edges;
+    TopExp::MapShapes(built, TopAbs_EDGE, built_edges);
+    for (const auto &[source, image] : edge_images) {
+      const TopoDS_Shape fixed = fix.Context()->Value(image);
+      for (TopExp_Explorer x(fixed, TopAbs_EDGE); x.More(); x.Next())
+        if (built_edges.Contains(x.Current())) op->history->AddModified(source, x.Current());
+    }
+    builder.Add(result, built);
   }
-  return out;
+  op->result = result;
+  return op;
 }
 
 // A face on a non-rational B-spline surface over its whole domain: `poles` row by row (`nu` rows of `nv`), and
@@ -489,6 +528,16 @@ std::unique_ptr<Shape> sew_faces(const ShapeList &faces, double tolerance) {
     return wrap(shell);
   }
   return wrap(sewn);
+}
+
+// A face on the cylinder about `frame` (origin on the axis, normal along it, x where the angle starts) of this
+// radius: all the way round, and `half_height` along the axis each way. Its normal points away from the axis.
+std::unique_ptr<Shape> cylinder_face(Frame frame, double radius, double half_height) {
+  gp_Ax3 position(pnt(frame.origin), dir(frame.normal), dir(frame.x));
+  Handle(Geom_CylindricalSurface) surface = new Geom_CylindricalSurface(position, radius);
+  BRepBuilderAPI_MakeFace maker(surface, 0, 2 * M_PI, -half_height, half_height, Precision::Confusion());
+  if (!maker.IsDone()) throw std::runtime_error("cylinder face failed");
+  return wrap(maker.Face());
 }
 
 }  // namespace occt

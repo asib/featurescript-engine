@@ -119,6 +119,7 @@ std::unique_ptr<ShapeList> extract_faces(const ShapeList &faces, double offset);
 std::unique_ptr<Shape> extend_planar_sheet(const Shape &sheet, const ShapeList &edges, double distance);
 std::unique_ptr<Shape> extend_planar_face(const Shape &sheet, const ShapeList &edges, rust::Slice<const double> distances);
 std::unique_ptr<Shape> sew_faces(const ShapeList &faces, double tolerance);
+std::unique_ptr<Shape> cylinder_face(Frame frame, double radius, double half_height);
 std::unique_ptr<ShapeList> iso_curves(const Shape &face, bool along_u, double t);
 bool face_periodic(const Shape &face, bool along_u);
 std::unique_ptr<Shape> join_edges(const Shape &wire);
@@ -184,9 +185,9 @@ std::unique_ptr<Operation> full_round_op(const Shape &solid, const Shape &side1,
 int32_t edge_convexity(const Shape &body, const Shape &edge, bool by_curvature);
 std::unique_ptr<Shape> face_feature_solid(const ShapeList &faces);
 std::unique_ptr<ShapeList> connected_shells(const Shape &s);
-std::unique_ptr<ShapeList> wrap_onto_cylinder(const ShapeList &faces, Vec3 source_anchor, Vec3 source_direction,
+std::unique_ptr<Operation> wrap_onto_cylinder(const ShapeList &faces, Vec3 source_anchor, Vec3 source_direction,
                                               Vec3 source_normal, const Shape &destination, Vec3 destination_anchor,
-                                              Vec3 destination_direction);
+                                              Vec3 destination_direction, double arc_radius);
 std::unique_ptr<Operation> face_blend_op(const ShapeList &side1, bool reverse1, const ShapeList &side2, bool reverse2,
                                          double radius);
 std::unique_ptr<Operation> split_faces_op(const Shape &body, const ShapeList &faces, const ShapeList &tools);

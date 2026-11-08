@@ -11,6 +11,8 @@ use std::fmt;
 
 pub use ffi::{Axis, BSplineData, Box3, Conic, Distance, Frame, Transform, Vec3};
 
+// Some operations take many plain values (wrapping takes two frames, the destination and a radius).
+#[allow(clippy::too_many_arguments)]
 #[cxx::bridge(namespace = "occt")]
 mod ffi {
     #[derive(Clone, Copy, Debug, PartialEq)]
@@ -167,6 +169,7 @@ mod ffi {
         fn extend_planar_sheet(sheet: &Shape, edges: &ShapeList, distance: f64) -> Result<UniquePtr<Shape>>;
         fn extend_planar_face(sheet: &Shape, edges: &ShapeList, distances: &[f64]) -> Result<UniquePtr<Shape>>;
         fn sew_faces(faces: &ShapeList, tolerance: f64) -> Result<UniquePtr<Shape>>;
+        fn cylinder_face(frame: Frame, radius: f64, half_height: f64) -> Result<UniquePtr<Shape>>;
         fn iso_curves(face: &Shape, along_u: bool, t: f64) -> Result<UniquePtr<ShapeList>>;
         fn face_periodic(face: &Shape, along_u: bool) -> Result<bool>;
         fn join_edges(wire: &Shape) -> Result<UniquePtr<Shape>>;
@@ -267,7 +270,8 @@ mod ffi {
             destination: &Shape,
             destination_anchor: Vec3,
             destination_direction: Vec3,
-        ) -> Result<UniquePtr<ShapeList>>;
+            arc_radius: f64,
+        ) -> Result<UniquePtr<Operation>>;
         fn face_blend_op(
             side1: &ShapeList,
             reverse1: bool,
@@ -759,6 +763,12 @@ pub fn extend_planar_face(face: &Shape, edges: &[Shape], distances: &[f64]) -> R
     Ok(Shape::new(ffi::extend_planar_face(&face.0, &to_list(edges), distances)?))
 }
 
+/// A face on the cylinder about `frame`'s normal through its origin, all the way round and `half_height` along the
+/// axis each way, its normal pointing away from the axis.
+pub fn cylinder_face(frame: Frame, radius: f64, half_height: f64) -> Result<Shape> {
+    Ok(Shape::new(ffi::cylinder_face(frame, radius, half_height)?))
+}
+
 /// Faces sewn together where their edges meet: a shell (or compound of shells), for a sheet body.
 pub fn sew_faces(faces: &[Shape], tolerance: f64) -> Result<Shape> {
     Ok(Shape::new(ffi::sew_faces(&to_list(faces), tolerance)?))
@@ -1025,8 +1035,9 @@ pub fn wrap_onto_cylinder(
     destination: &Shape,
     destination_anchor: Vec3,
     destination_direction: Vec3,
-) -> Result<Vec<Shape>> {
-    let out = ffi::wrap_onto_cylinder(
+    arc_radius: Option<f64>,
+) -> Result<Operation> {
+    let op = ffi::wrap_onto_cylinder(
         &to_list(faces),
         source.0,
         source.1,
@@ -1034,8 +1045,9 @@ pub fn wrap_onto_cylinder(
         &destination.0,
         destination_anchor,
         destination_direction,
+        arc_radius.unwrap_or(0.0),
     )?;
-    Ok(from_list(&out))
+    Ok(Operation(op))
 }
 
 /// The faces of a shape grouped into a shell for each set connected through shared edges.
