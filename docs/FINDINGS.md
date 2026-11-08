@@ -205,6 +205,8 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   radius 5 (Onshape's box reaches exactly −10 sin 0.5); past its narrow end, 5 mm along the generators; past a
   sphere band's top, 5 mm along the meridians (to latitude 88.648°). Onshape's new edges are approximations, a
   little off that (areas within 0.03 mm²). A sphere extended round doesn't follow it (1.106 rad at radius 5).
+  Past a sphere's top, Onshape keeps the old corner at the far end of the revolve as a vertex (the meridian there
+  in two edges), though not at the near end, nor on a cone.
 - **`evPlane`'s origin** is the middle of a box round the face in its plane's axes, but on each side where the
   face only touches that box at a point (a vertex, or where a curve turns) rather than along a straight edge, the
   box reaches 0.6% of its size further out (batch 004 c034, batch 024 c008–c010, to 1e-7). A filled right
