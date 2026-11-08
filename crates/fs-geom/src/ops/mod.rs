@@ -130,14 +130,57 @@ pub fn register(m: &mut GeomBuiltins) {
             ]))
         })
     });
-    m.insert("evSheetMetalFormToolBodies", |_, args| {
+    // The tools behind sheet metal forms a face pattern carries along (batch 033): for each wall of the faces' own
+    // model with a form whose part to add or remove a form face lies on, that form's part ids and the wall's frame
+    // (the identity: the engine keeps tools where they form).
+    m.insert("evSheetMetalFormToolBodies", |interp, args| {
+        let tags = crate::tags(interp)?;
         let definition = fs_interp::builtins::arg(&args, 1, "evSheetMetalFormToolBodies")?.clone();
         model_mut(&args, "evSheetMetalFormToolBodies", |model| {
-            let faces = query::evaluate(model, field(&definition, "sheetMetalFormFaces"))?;
-            if faces.iter().any(|&r| model.attributes(r).unnamed.iter().any(|a| a.tag.is_some_and(|t| &*fs_interp::types::name(t) == "FormAttribute"))) {
-                return Err(error("@evSheetMetalFormToolBodies: patterns of sheet metal forms aren't supported yet"));
+            let found: Vec<crate::model::EntityRef> = query::evaluate(model, field(&definition, "sheetMetalFormFaces"))?
+                .into_iter()
+                .filter(|r| r.kind == EntityType::Face)
+                .collect();
+            let points: Vec<occt::Vec3> = found.iter().filter_map(|r| model.shape(*r).face_inner_point().ok()).collect();
+            let models: Vec<crate::model::Tid> = found
+                .iter()
+                .filter_map(|r| sheet_metal::definition_of_part(model, r.body))
+                .map(|d| model.bodies[d].tid)
+                .collect();
+            let identity = tags.transform([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], occt::Vec3::new(0.0, 0.0, 0.0));
+            let mut out: Vec<(&str, Value)> = Vec::new();
+            let mut keys: Vec<String> = Vec::new();
+            let mut values: Vec<Value> = Vec::new();
+            for def in model.bodies.iter().filter(|b| b.is_sheet_metal_definition() && models.contains(&b.tid)) {
+                for wall in &def.faces {
+                    let mut tools = Vec::new();
+                    for (positive, negative) in sheet_metal::wall_form_parts(&wall.attributes) {
+                        let touches = |t: Option<crate::model::Tid>| {
+                            t.and_then(|t| model.bodies.iter().find(|b| b.tid == t)).is_some_and(|body| {
+                                points.iter().any(|p| {
+                                    occt::vertex(*p).and_then(|v| v.distance(&body.shape)).is_ok_and(|d| d.distance < 1e-7)
+                                })
+                            })
+                        };
+                        if touches(positive) || touches(negative) {
+                            if let Some(t) = positive.or(negative) {
+                                tools.push(Value::string(query::tid_string(t)));
+                            }
+                        }
+                    }
+                    if !tools.is_empty() {
+                        keys.push(query::tid_string(wall.tid));
+                        values.push(crate::values::map(vec![
+                            ("formToolBodies", Value::array(tools)),
+                            ("transform", identity.clone()),
+                        ]));
+                    }
+                }
             }
-            Ok(crate::values::map(Vec::new()))
+            for (k, v) in keys.iter().zip(values) {
+                out.push((k.as_str(), v));
+            }
+            Ok(crate::values::map(out))
         })
     });
     m.insert("opTessellatedLoft", |_, args| run_op(&args, "opTessellatedLoft", tessellated::loft));

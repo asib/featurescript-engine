@@ -44,6 +44,11 @@ fn wall_tool_tids(attributes: &Attributes) -> Vec<crate::model::Tid> {
         .unwrap_or_default()
 }
 
+/// The forms registered on a wall, as the transient ids of their parts to add and to remove.
+pub(crate) fn wall_form_parts(attributes: &Attributes) -> Vec<(Option<crate::model::Tid>, Option<crate::model::Tid>)> {
+    wall_forms(attributes).into_iter().map(|f| (f.positive, f.negative)).collect()
+}
+
 /// `wall_tool_tids` for other modules.
 pub(crate) fn wall_tool_tids_of(attributes: &Attributes) -> Vec<crate::model::Tid> {
     wall_tool_tids(attributes)
@@ -498,10 +503,14 @@ fn regenerate(model: &mut Model, id: &FeatureId, def_index: usize) -> R<()> {
         .ok_or_else(|| regen_error("SHEET_METAL_REBUILD_ERROR"))?;
     // The registered tools' faces, whose info the part's faces they cut take (a countersunk hole's cone and
     // cylinder, which std finds by the names `@opHole` gave them, batch 032).
+    // Forms' parts too (batch 033): a form's faces are made by the form.
     let tool_faces: Vec<(Shape, Rc<Info>)> = def
         .faces
         .iter()
-        .flat_map(|f| wall_tool_tids(&f.attributes))
+        .flat_map(|f| {
+            let forms = wall_forms(&f.attributes).into_iter().flat_map(|form| [form.positive, form.negative]).flatten();
+            wall_tool_tids(&f.attributes).into_iter().chain(forms).collect::<Vec<_>>()
+        })
         .filter_map(|t| model.bodies.iter().find(|b| b.tid == t))
         .flat_map(|b| b.faces.iter().map(|f| (f.shape.clone(), f.info.clone())))
         .collect();
@@ -1535,12 +1544,11 @@ fn place_form_connectors(model: &mut Model, id: &FeatureId, index: usize) -> R<(
             let frame = body.frame.map(|f| super::transform_frame(&f, &t));
             model.remove_bodies(&[b]);
             let info = Info::new(id.clone());
-            let new = NewBody { frame, ..NewBody::new(moved.shape(), body.body_type, info.clone()) };
-            let added = model.add_body(new, &Origins::default(), &info, &|_| None);
-            let new_tid = model.bodies[added].tid;
-            let placed = Rc::make_mut(&mut model.placed_forms);
-            placed.push(tid);
-            placed.push(new_tid);
+            // It keeps its transient id, which the wall's form records (std's form pattern copies it by that id,
+            // batch 033).
+            let new = NewBody { frame, tid: Some(tid), ..NewBody::new(moved.shape(), body.body_type, info.clone()) };
+            model.add_body(new, &Origins::default(), &info, &|_| None);
+            Rc::make_mut(&mut model.placed_forms).push(tid);
         }
     }
     Ok(())
