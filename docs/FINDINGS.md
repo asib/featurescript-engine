@@ -333,6 +333,11 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   way the material lies from the definition sheet ((20, 15, 2) to (20, 15, 0) on a plate's top; a flipped form's
   from (20, 15, 0) to (20, 15, −2)).
 
+- **Extruded sheets extended** (batch 039) stay extrusions: past the curve's end, the curve is extended as
+  `trimCurve` extends it and extruded again; along the extrusion, the extrusion is made longer. Keeping curvature,
+  the distance is measured straight from the old edge to the new one, not along the curve as `trimCurve` measures
+  it (an extruded spline's extension 1.24e-4 mm longer along it than 5 mm). A natural spline end has no curvature,
+  so both ways match.
 - **Tags** (batch 038): a standard content tag sets the body purpose attribute; a PCB hole tag sets a
   `pcbStudioHole` attribute on each hole's faces (designator, purpose, owner, plating; its start and end faces as
   queries). `getAttributes` without a name returns neither, in Onshape as in the engine.

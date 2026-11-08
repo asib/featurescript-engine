@@ -49,7 +49,7 @@ Onshape.
 | `trimCurve` (moveCurveBoundary.fs) | matches: extending a straight curve by a distance and up to a plane, trimming it by a plane and by another straight curve; extending up to a cylinder; arcs, cubic B-splines and chains ending in them extended at their end, straight on and curving on, by a distance and up to a plane (Onshape's B-spline knots and poles), arcs trimmed by a plane (036); extended at their start, B-splines trimmed by a plane, arcs trimmed by a line, elliptical arcs extended (038). Not yet: curves other than lines trimmed by or extended up to curves other than lines, rational or other degree B-splines | 005, 018, 021, 027, 036, 038 |
 | `curvePattern` (curvePattern.fs) | matches: equal and distance spacing along an arc, keeping orientation, locked to a face | 005, 018, 019, 020 |
 | `offsetSurface` (offsetSurface.fs) | matches: faces of solids and sheets, both ways | 005 |
-| `extendSurface` (extend.fs) | matches: planar sheets extended by a distance, all or some edges; a cylindrical sheet, carried on round its cylinder; up to a plane and a vertex, up to a part. Not yet: other curved sheets | 005, 018, 020, 021, 027 |
+| `extendSurface` (extend.fs) | matches: planar sheets extended by a distance, all or some edges; a cylindrical sheet, carried on round its cylinder; up to a plane and a vertex, up to a part; sheets extruded from curves, past a curve's end straight on and keeping its curvature, and along the extrusion (039). Known gap: cones and spheres (039 c001–c004). Not yet: other curved sheets | 005, 018, 020, 021, 027, 039 |
 | `fill` (fillSurface.fs) | matches: planar loops (also a triangle; see known gaps for its plane's origin). Not yet: non-planar fills, tangency and curvature conditions, guides | 005, 024 |
 | `boundarySurface` (bsurf.fs) | Known gap: two u profiles give a surface 4e-6 off Onshape's (c019). Not yet: v profiles, end conditions | 005 |
 | `ruledSurface` (ruledSurface.fs) | matches: normal to a face, aligned with a direction (also as angle 0 from it), tangent to a face, 30° from a vector; vertex overrides on a straight edge (a width, up to a point). Not yet: overrides on curved edges or up to faces and edges | 005, 018, 019, 024 |
@@ -157,6 +157,11 @@ What fixtures show Onshape doing that the engine can't yet:
   within the probes' tolerance; OCCT has no conic fillets, so this needs building by hand.
 - **Asymmetric fillets** (c014). The cross section removes 2.14379 mm² for setbacks of 2 and 5 mm, close to but
   not a quarter ellipse (2.14602 mm²); the exact curve isn't known yet.
+- **Cones and spheres extended** (batch 039 c001–c004). Onshape carries the surface on, but the distance isn't
+  arc length at an obvious radius: a quarter cone (radii 10 to 5) extended 5 mm round turns 0.666633 rad more
+  (5 mm of arc at radius 7.50037, not quite the edge's middle radius 7.5); a band of a sphere (radius 10, 0° to
+  60°) turns 0.621337 rad (5 mm at radius 8.047); extended past its top it reaches latitude 88.654° (5.0011 mm of
+  arc). The rule isn't known yet.
 - **Where `evPlane` puts a planar face's origin** (batch 004 c034; batch 024 c008–c010; batch 037 c004, in the
   axes of a rotated copy's plane, not the canonical ones). Near the middle of the
   face's box in the plane's axes, which the engine uses, but 0.3% of the box's size off it along each axis, one
