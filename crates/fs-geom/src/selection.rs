@@ -292,3 +292,47 @@ pub fn in_front_of(model: &Model, found: &[EntityRef], plane: occt::Frame) -> R<
         })
         .collect())
 }
+
+/// Planar faces parallel to a direction: their normal square to it.
+pub fn planes_parallel_to(model: &Model, found: &[EntityRef], direction: Vec3) -> Vec<EntityRef> {
+    found
+        .iter()
+        .copied()
+        .filter(|r| r.kind == EntityType::Face && crate::query::geometry_type(model, *r) == Some("PLANE"))
+        .filter(|r| model.shape(*r).face_plane().is_ok_and(|p| values::dot(p.normal, direction).abs() < 1e-9))
+        .collect()
+}
+
+/// Entities touching an infinite plane: meeting it, or lying on it.
+pub fn touching_plane(model: &Model, found: &[EntityRef], plane: occt::Frame) -> Vec<EntityRef> {
+    found
+        .iter()
+        .copied()
+        .filter(|r| {
+            let shape = if r.kind == EntityType::Body { &model.bodies[r.body].shape } else { model.shape(*r) };
+            if !shape.bounding_box_in(plane, true).is_ok_and(|b| b.min.z <= 1e-8 && b.max.z >= -1e-8) {
+                return false;
+            }
+            // Within the box's range of heights, it touches the plane only if it really meets it.
+            occt::plane_face(plane, -1e3, 1e3, -1e3, 1e3)
+                .is_ok_and(|p| shape.distance(&p).is_ok_and(|d| d.distance < 1e-8))
+        })
+        .collect()
+}
+
+/// Faces parallel to a direction: planes whose normal is square to it, cylinders whose axis runs along it.
+pub fn faces_parallel_to(model: &Model, found: &[EntityRef], direction: Vec3) -> Vec<EntityRef> {
+    found
+        .iter()
+        .copied()
+        .filter(|r| r.kind == EntityType::Face)
+        .filter(|r| {
+            let shape = model.shape(*r);
+            match crate::query::geometry_type(model, *r) {
+                Some("PLANE") => shape.face_plane().is_ok_and(|p| values::dot(p.normal, direction).abs() < 1e-9),
+                Some("CYLINDER") => axis_of(shape).is_some_and(|a| parallel(a.direction, direction)),
+                _ => false,
+            }
+        })
+        .collect()
+}

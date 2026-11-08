@@ -246,6 +246,18 @@ fn resolve(model: &Model, query: &Value) -> R<Vec<EntityRef>> {
             let antiparallel = field(query, "allowAntiparallel").as_bool() != Some(false);
             crate::selection::planes_with_normal(model, &sub(model, query, "subquery")?, normal, antiparallel)
         }
+        "FACE_PARALLEL_DIRECTION" => {
+            let direction = values::vec3(field(query, "direction"), "qFacesParallelToDirection direction")?;
+            crate::selection::faces_parallel_to(model, &sub(model, query, "subquery")?, direction)
+        }
+        "PLANE_PARALLEL_DIRECTION" => {
+            let direction = values::vec3(field(query, "direction"), "qPlanesParallelToDirection direction")?;
+            crate::selection::planes_parallel_to(model, &sub(model, query, "subquery")?, direction)
+        }
+        "INTERSECTS_PLANE" => {
+            let plane = values::plane(field(query, "plane"), "qIntersectsPlane plane")?;
+            crate::selection::touching_plane(model, &sub(model, query, "subquery")?, plane)
+        }
         "IN_FRONT_OF_PLANE" => {
             let plane = values::plane(field(query, "plane"), "qInFrontOfPlane plane")?;
             crate::selection::in_front_of(model, &sub(model, query, "subquery")?, plane)?
