@@ -441,6 +441,10 @@ impl fmt::Display for Report {
 
 /// Writes parts to STEP, reads the file back, and checks every part came back with its name, volume and area.
 fn write_and_reread(parts: &[Part], path: &Path) -> Result<Vec<String>, String> {
+    // A batch of sheets and curves only has no solids to write (batch 039).
+    if parts.is_empty() {
+        return Ok(Vec::new());
+    }
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     }
