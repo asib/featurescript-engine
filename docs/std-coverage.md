@@ -39,7 +39,7 @@ Onshape.
 | `sweep` (sweep.fs) | matches: circles and rectangles along lines, arcs and tangent chains; surface sweeps; thin. Known gap: where `evPlane` puts the origin of a swept planar face (c034). Not yet: profile control, twist, scale | 004, 006 |
 | `loft` (loft.fs) | matches: lofts between squares and between two circles; surface lofts between arcs. Known gaps: lofts between unlike profiles or through three profiles, whose surfaces come from each kernel's own lofting (c038, c039). Not yet: guides, connections, end conditions, sections, thin | 004, 006 |
 | `helix` (helix.fs) | matches: around a cylinder by turns and pitch, both hands; about an axis; tapering | 004 |
-| `fitSpline` (fitSpline.fs) | matches: through vertices, open and closed; through tangent edges. Not yet: end directions, approximation | 004, 010 |
+| `fitSpline` (fitSpline.fs) | matches: through vertices, open and closed (with simple knots, as Onshape's); through tangent edges. Not yet: end directions, approximation | 004, 010, 011 |
 | `compositeCurve` (compositeCurve.fs) | matches | 005 |
 | `projectCurves` (projectCurves.fs) | matches: two sketches; a curve onto a face along a direction. Not yet: along the face's normals | 005 |
 | `intersectionCurve` (faceIntersection.fs) | matches: a cylinder and a plane. Known gap: Onshape splits the closed curves where two cylinders cross into two edges each (c006) | 005 |
@@ -58,7 +58,10 @@ Onshape.
 | `transform` by mate connectors | matches | 005 |
 | `bridgingCurve` (bridgingCurve.fs) | matches: tangent and curvature matches between lines and an arc | 010 |
 | `wrap` (wrap.fs) | matches: a planar face onto a cylinder as a surface. Not yet: cones, solids, imprinting, unwrapping | 010 |
-| `editCurve`, `routingCurve`, `constrainedSurface`, `decal` | not started | later |
+| `editCurve` (editCurve.fs) | matches: raising the degree (of an arc, via its exact rational B-spline, and of a line), flattening onto a plane, approximating a line and arc with one cubic (to within its tolerance), moving control points. Not yet: periodic curves | 011 |
+| `routingCurve` (routingCurve.fs) | matches: polylines with bends, interpolated splines, their tables (XYZ and LRA). Not yet: points from vertices, curves or CSV, derivatives | 011 |
+| `constrainedSurface` (constrainedSurface.fs) | Known gap: a smooth surface through nine points is within tolerance of them, but isn't Onshape's surface (c006). Not yet: normals at the points, meshes, deviation | 011 |
+| `decal` (decal.fs) | matches: planar and cylindrical, turned and shifted (an image given by size only). Not yet: realigning to a mate connector | 011 |
 | `compositePart` (compositePart.fs) | matches: closed composite of two blocks | 006 |
 | `isocline` (isocline.fs) | matches: splitting a sphere, curves on a torus. Not yet: other faces, tilted tori | 007 |
 | `nameEntity` (nameEntity.fs) | matches: a face found again by name after a fillet trims it | 007 |
@@ -69,9 +72,12 @@ Onshape.
 | `endcap` (endcap.fs) | matches: matching the profile, filleted rectangle. Not yet: circle, internal, chamfered corners | 008 |
 | `importDerived` (importDerived.fs) | matches: at the origin, at mate connectors, chosen parts with their mate connectors (from build functions). Not yet: sheet metal | 009 |
 | the `sectionPart` family (sectionpart.fs) | matches: `sectionPart`, `planeSectionPart`. Not yet: several planes, jogged sections | 009 |
-| `cutlist`, `derivedMirror`, `importForeign`, `tag` | not started (`derivedMirror` fails in a Part Studio feature; `importForeign` needs uploaded data) | later |
+| `cutlist` (cutlist.fs) | matches: the two tubes of a mitred L, grouped and tabled. Not yet: overrides, composite segments | 011 |
+| `tag` (tag.fs) | matches: a form's positive part. Not yet: frame profiles, PCB holes, standard content | 011 |
+| `derivedMirror`, `importForeign` | not started (`derivedMirror` fails in a Part Studio feature; `importForeign` needs uploaded data) | later |
 | sheet metal: `sheetMetalStart`, `sheetMetalFlange`, `sheetMetalHem`, `sheetMetalTab`, `sheetMetalJoint`, `sheetMetalMakeJoint`, `sheetMetalCorner`, `sheetMetalCornerBreak`, `sheetMetalBendRelief`, `sheetMetalRip`, `sheetMetalJog`, `sheetMetalBend`, `sheetMetalUnfold`/`Refold`, `sheetMetalFormed`, `sheetMetalLoft`, `sheetMetalGeometryPattern`, `sheetMetalTransform`, `sheetMetalEnd`, `pcbStart`/`pcbEnd` | not started | 010+ (planned) |
-| tables (`cutlistTable`, `holeTable`, `routingCurveTable`), computed properties (`computeMass`) | not started | later |
+| tables (`cutlistTable`, `routingCurveTable`) | match, called from a feature | 011 |
+| `holeTable`, computed properties (`computeMass`) | Onshape won't run them inside a feature (they read properties, or start their own feature), and neither does the engine: both refuse with "Execution error" as Onshape does (c009, c014). Their output outside a feature isn't checked | 011 |
 
 ## Builtins
 
@@ -88,12 +94,15 @@ engine doesn't have. After batch 002, std calls 269 builtins; these are implemen
   (bodies and faces), `opSplitPart`, `opSplitFace`, `opDeleteBodies`, `opFillet` (circular), `opChamfer`,
   `opShell`, `opDraft` (reference surface and entity), `opBodyDraft`, `opThicken`, `opOffsetFace`, `opDeleteFace`,
   `opMoveFace`, `opReplaceFace`, `opModifyFillet`, `opHole`, `opCreateCompositePart`, `opNameEntity`,
-  `opCreateIsocline`, `opSplitByIsocline`, `opMergeContexts` (the cases above), and the
+  `opCreateIsocline`, `opSplitByIsocline`, `opMergeContexts`, `opEditCurve`, `opPolyline`,
+  `opConstrainedSurface` (the cases above), and the
   curve and surface operations of batches 004 and 005.
 - attributes: `setAttribute`, `getAttributes`, `getAttribute`, `getAllAttributes`, `removeAttributes`; they follow
   their entities through operations.
 - evaluation: `evaluateQuery` (and counts), `evPlane`, `evOwnerSketchPlane`, `evVertexPoint`, `evArea`, `evLength`,
-  `evVolume`, `evBox` (with `cSys`), `evAxis`, `evLine`, `evCurveDefinition` (lines, circles, ellipses),
+  `evVolume`, `evBox` (with `cSys`), `evAxis`, `evLine`, `evCurveDefinition` (lines, circles, ellipses,
+  B-splines), `evApproximateBSplineCurve`, `evMaxPathDeviation`, `approximateSpline` (least squares with knots
+  added where the fit is worst; not periodic yet), `clusterBodies`, `getHoleAttributes`,
   `evEdgeTangentLines` (with a face's orientation), `evFaceTangentPlanes`, `evFaceTangentPlanesAtEdge`, `evDistance`
   (minimum; extended sides), `evCollisionDetection`, `evEdgeConvexity`, `evSurfaceDefinition` (with Onshape's
   coordinate systems for extruded and revolved cylinders and cones).
@@ -110,7 +119,7 @@ Handled: `NOTHING`, `EVERYTHING`, `TRANSIENT`, `CREATED_BY`, `SKETCH_REGION`, `S
 `EDGE_ADJACENT`, `EDGE_VERTEX`, `TANGENT_CONNECTED_EDGES`, `TANGENT_CONNECTED_FACES`, `CLOSEST_TO`, `FARTHEST_ALONG`,
 `LARGEST`, `SMALLEST`, `TRACKING` (entities record what they were made from), `ATTRIBUTE_FILTER`, `OP_HOLE_FACE`,
 `OP_HOLE_PROFILE`, `EDGE_TOPOLOGY_FILTER`, `SPLIT` (split faces' sides), `CONTAINED_IN_COMPOSITE`,
-`COMPOSITE_CONTAINING`, `CONSUMED`, `NAMED`, `MATE_CONNECTOR`, `PLANE_PARALLEL_DIRECTION`, `FACE_PARALLEL_DIRECTION`,
+`COMPOSITE_CONTAINING`, `CONSUMED`, `COMPOSITE_PART_TYPE_FITLER`, `NAMED`, `MATE_CONNECTOR`, `PLANE_PARALLEL_DIRECTION`, `FACE_PARALLEL_DIRECTION`,
 `INTERSECTS_PLANE`, the selection queries (`CONVEX_CONNECTED_FACES`, `CONCAVE_CONNECTED_FACES`,
 `HOLE_FACES`, `FILLET_FACES`, `LOOP_EDGES`, `PARALLEL_EDGES`, `LOOP_BOUNDED_FACES`, `FACE_OR_EDGE_BOUNDED_FACES`,
 `PATTERN`, `PLANE_NORMAL`, `IN_FRONT_OF_PLANE`, `EDGE_CONVEXITY_FILTER`), and the sheet metal, mesh and modifiable
@@ -134,6 +143,10 @@ What fixtures show Onshape doing that the engine can't yet:
   edge of a block has its origin at the edge's top end with x pointing away from the corner; one case isn't enough
   for the rule. A cylinder cut through all has its origin at the far end of Onshape's own through-all depth
   (2108.986 mm from the profile in that case), which the engine doesn't reproduce.
+- **Constrained surfaces** (batch 011, c006). Through nine points on a 40 × 30 mm grid with the middle one 4 mm
+  up, Onshape's surface reaches 0.05 mm (in x) and 0.09 mm (in y) past the outer points, dips to −0.015 mm and
+  has an area of 1242.61 mm²; the engine's least-squares bicubic over the points' rectangle has 1255.91 mm². Both
+  are within the 0.01 mm tolerance of every point.
 - **Fillets too big for their faces** (c015). A 15 mm fillet on the four vertical edges of a 30 × 20 mm block:
   Onshape lets the two fillets on each 20 mm side consume it, leaving the lens where the cylinders meet (4 faces,
   6 edges, 4 vertices); OCCT fails.

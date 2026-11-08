@@ -42,6 +42,18 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
 - **Feature tokens.** `@startFeature` returns a token that std keeps in `var token is map`. `@endFeature` and
   `@abortFeature` take that token, or `{}` meaning the open feature with that id (std's two-argument
   `endFeature(context, id)`).
+- **Overloads are found through argument types.** A call also considers the overloads exported by the module that
+  declares each argument's type: std's `toString(value is map)` in string.fs prints a `Vector` in the map with
+  vector.fs's `toString` as `(10, 0, 0)`, a `CoordSystem` with coordSystem.fs's, a `Matrix` with matrix.fs's,
+  though string.fs imports none of them. (Batch 011, c005, c010.)
+- **`mapArray` and `subArray` keep the type tag.** `mapArray` over a `Vector` gives a `Vector` (it starts from
+  `@resize(arr, 0)`), and std's `separatePointsAndWeights` divides `subArray` of a weighted `Vector` by a number,
+  which only works if the result is still a `Vector`. (Batch 011, c001, c004, c005.)
+- **Refusals are "Execution error".** Onshape won't read properties (`@getProperty`) of a context while a feature
+  in it is running ("Cannot get properties during feature regeneration in current context"), and won't start a
+  feature whose id isn't under the running one ("Starting feature propertyRollbackId in scope of …"), which a
+  computed property such as `computeMass` does. So the hole table and `computeMass` can't run in a Part Studio
+  feature. Caught, either error's message is just "Execution error". (Batch 011, c009, c014.)
 - **New Feature Studios** start with `FeatureScript 3112;` and `import(path : "onshape/std/common.fs", version :
   "3112.0");` (as of 2026-11-07, creating the fixture document).
 
@@ -194,6 +206,20 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   100 mm². (Batch 010, c007.)
 - **Mutual trim** splits each sheet's faces with the other (`opSplitFace` with `mutualImprint`), keeps the pieces
   behind the other sheet's normal (`qSplitBy`), and merges the sheets into one. (Batch 005, c023.)
+
+- **Edit curve keeps rational curves rational.** It makes every curve rational (weights of 1) before editing, and
+  Onshape's B-spline keeps those weights; OCCT drops equal weights, so the engine nudges the last by an ulp.
+  Onshape's fit splines have simple interior knots (C2 cubics), and an arc's B-spline is the rational quadratic
+  with middle weight cos 45°, raised to degree 4 with weights 1, 0.854, 0.805, 0.854, 1. (Batch 011, c001,
+  c002, c004.)
+- **Path deviation** is symmetric: for a line and an arc with the same ends it is the sagitta, at the middle of
+  each. (Batch 011, c005.)
+- **Routing curves need a bend radius** even as splines: the feature reads `bendRadius` whatever the curve type.
+  Polylines are lines and tangent arcs in one wire. (Batch 011, c007, c008.)
+- **Approximating a line and a tangent arc** with one cubic to 0.01 mm, Onshape's curve dips 0.0012 mm below the
+  line; the engine's least-squares fit dips 0.0057 mm. Both are within tolerance, so the probe is compared to it.
+  (Batch 011, c003.)
+- **The form tag** adds a mate connector at the part's origin with the attribute. (Batch 011, c012.)
 
 ## STEP export
 
