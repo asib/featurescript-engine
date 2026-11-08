@@ -631,9 +631,9 @@ pub fn face_blend(model: &mut Model, id: FeatureId, definition: &Value) -> R<Val
 /// A face blend between two planar sides, meeting or not: the section runs round the line where their planes meet,
 /// from a point set back along each (as a fillet's, [`section_fillet`]: a radius, two radii — the centre `radius`
 /// from side 1 and `secondRadius` from side 2 — or a width, the chord between the two points, `widthRatio` the
-/// ratio of side 2's setback to side 1's), swept along that line over both sides (untrimmed, further). Each side
-/// is cut back to where the blend meets it and all are sewn into one sheet; detached, the blend is a sheet of its
-/// own and the sides stay as they are.
+/// ratio of the distances from side 1 and side 2 that set them back as two radii would), swept along that line
+/// over both sides (untrimmed, further). Each side is cut back to where the blend meets it and all are sewn into
+/// one sheet; detached, the blend is a sheet of its own and the sides stay as they are.
 fn planar_face_blend(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
     use crate::values::{add, cross, dot, normalize, scale, sub};
     let failed = || regen_error("FACE_BLEND_FAILED");
@@ -680,9 +680,12 @@ fn planar_face_blend(model: &mut Model, id: FeatureId, definition: &Value) -> R<
     let (s1, s2) = if field(definition, "blendControlType").as_str() == Some("WIDTH") {
         let width = values::length(field(definition, "width"), "opFaceBlend width")?;
         let ratio = if asymmetric { field(definition, "widthRatio").as_number().unwrap_or(1.0) } else { 1.0 };
-        // The chord between the points set back s1 and ratio × s1.
-        let chord = (1.0 + ratio * ratio - 2.0 * ratio * angle.cos()).sqrt();
-        (width / chord, ratio * width / chord)
+        // The ratio is of the section's distances from side 1 and side 2, as the two radii set them (batch 056
+        // c012: at 60°, ratio 2 sets the sides back 5.2372 and 6.5465 mm; at 120° it leaves side 1 none, which
+        // Onshape refuses, 055 c010), scaled so the chord between the two points is the width.
+        let (b1, b2) = ((1.0 + ratio * angle.cos()) / angle.sin(), (ratio + angle.cos()) / angle.sin());
+        let chord = (b1 * b1 + b2 * b2 - 2.0 * b1 * b2 * angle.cos()).sqrt();
+        (width * b1 / chord, width * b2 / chord)
     } else {
         let radius = values::length(field(definition, "radius"), "opFaceBlend radius")?;
         let second = if asymmetric {
