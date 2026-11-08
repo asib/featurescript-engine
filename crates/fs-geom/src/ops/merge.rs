@@ -56,6 +56,7 @@ pub fn merge(model: &mut Model, id: FeatureId, definition: &Value, source: &Sour
         new.sketch_plane = body.sketch_plane;
         new.frame = body.frame;
         new.attributes = body.attributes.clone();
+        new.owner = body.owner;
         new.properties = if clear_custom {
             Rc::new(
                 body.properties
@@ -68,6 +69,15 @@ pub fn merge(model: &mut Model, id: FeatureId, definition: &Value, source: &Sour
             body.properties.clone()
         };
         model.add_body(new, &Origins::default(), &info, &special);
+    }
+    // Owners point at the copies of the bodies they pointed at.
+    let copies: Vec<(crate::model::Tid, crate::model::Tid)> =
+        source.bodies.iter().enumerate().map(|(i, b)| (b.tid, model.bodies[first + i].tid)).collect();
+    for i in 0..source.bodies.len() {
+        if let Some(owner) = model.bodies[first + i].owner {
+            let mapped = copies.iter().find(|(old, _)| *old == owner).map(|(_, new)| *new);
+            model.update_body(first + i, |b| b.owner = mapped);
+        }
     }
     let results = source
         .tracked

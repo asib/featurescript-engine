@@ -170,7 +170,11 @@ pub fn make_connector(model: &mut Model, id: FeatureId, definition: &Value) -> R
     let frame = coord_system(field(definition, "coordSystem"), "opMateConnector coordSystem")?;
     let info = Info::new(id);
     let shape = occt::vertex(frame.origin).map_err(occt_error)?;
-    let new = NewBody { frame: Some(frame), ..NewBody::new(shape, BodyType::MateConnector, info.clone()) };
+    let owner = match field(definition, "owner") {
+        v if v.is_undefined() => None,
+        v => crate::query::evaluate(model, v)?.first().map(|r| model.bodies[r.body].tid),
+    };
+    let new = NewBody { frame: Some(frame), owner, ..NewBody::new(shape, BodyType::MateConnector, info.clone()) };
     model.add_body(new, &Origins::default(), &info, &|_| None);
     Ok(Value::UNDEFINED)
 }

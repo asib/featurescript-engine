@@ -250,6 +250,14 @@ fn resolve(model: &Model, query: &Value) -> R<Vec<EntityRef>> {
             let direction = values::vec3(field(query, "direction"), "qFacesParallelToDirection direction")?;
             crate::selection::faces_parallel_to(model, &sub(model, query, "subquery")?, direction)
         }
+        // The mate connectors owned by some parts.
+        "MATE_CONNECTOR" => {
+            let owners: Vec<Tid> = sub(model, query, "subquery")?.iter().map(|r| model.bodies[r.body].tid).collect();
+            (0..model.bodies.len())
+                .filter(|&b| model.bodies[b].owner.is_some_and(|o| owners.contains(&o)))
+                .map(EntityRef::body)
+                .collect()
+        }
         "PLANE_PARALLEL_DIRECTION" => {
             let direction = values::vec3(field(query, "direction"), "qPlanesParallelToDirection direction")?;
             crate::selection::planes_parallel_to(model, &sub(model, query, "subquery")?, direction)

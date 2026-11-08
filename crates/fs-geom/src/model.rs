@@ -237,6 +237,8 @@ pub struct Body {
     pub composite: Option<(Rc<[Tid]>, bool)>,
     /// The bodies it was made from (a piece a split or boolean left of a body), for tracking queries.
     pub ancestry: Ancestry,
+    /// For a mate connector, the transient id of the part that owns it (`qMateConnectorsOfParts`).
+    pub owner: Option<Tid>,
     pub faces: Vec<Entity>,
     pub edges: Vec<Entity>,
     pub vertices: Vec<Entity>,
@@ -305,6 +307,8 @@ pub struct NewBody {
     /// For a composite part, the bodies in it and whether it is closed.
     pub composite: Option<(Rc<[Tid]>, bool)>,
     pub ancestry: Ancestry,
+    /// For a mate connector, the part that owns it.
+    pub owner: Option<Tid>,
 }
 
 impl NewBody {
@@ -322,6 +326,7 @@ impl NewBody {
             frame: None,
             composite: None,
             ancestry: Ancestry::default(),
+            owner: None,
         }
     }
 
@@ -339,6 +344,7 @@ impl NewBody {
             frame: old.frame,
             composite: old.composite.clone(),
             ancestry: Ancestry::of_body(old),
+            owner: old.owner,
         }
     }
 }
@@ -394,6 +400,7 @@ impl Model {
             frame: new.frame,
             composite: new.composite,
             ancestry: new.ancestry,
+            owner: new.owner,
             faces,
             edges,
             vertices,
