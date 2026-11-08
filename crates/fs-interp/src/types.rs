@@ -47,6 +47,11 @@ pub fn register_enum(name: &str, module: usize, values: Vec<Rc<str>>) -> TypeId 
     })
 }
 
+/// The module that declares the type.
+pub fn module(id: TypeId) -> Option<usize> {
+    TYPES.with(|t| t.borrow().get(id as usize).map(|info| info.module))
+}
+
 pub fn name(id: TypeId) -> Rc<str> {
     TYPES.with(|t| t.borrow().get(id as usize).map_or_else(|| "?".into(), |info| info.name.clone()))
 }

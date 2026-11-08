@@ -417,6 +417,18 @@ impl Interp {
                 return self.call_value(&value, args);
             }
         }
+        // Like Onshape, a call also finds the overloads exported by the module declaring each argument's type:
+        // std's `toString(value is map)` prints a `Vector` in it with vector.fs's `toString` (batch 011).
+        if namespace.is_none() {
+            for arg in &args {
+                let Some(module) = arg.tag.and_then(types::module) else { continue };
+                for f in self.modules.own_exported_functions(module, &path.name.name) {
+                    if !functions.iter().any(|g| Rc::ptr_eq(&g.function, &f.function)) {
+                        functions.push(f);
+                    }
+                }
+            }
+        }
         Err(error(format!("Function {} with {} argument(s) not found", path.name.name, args.len())))
     }
 

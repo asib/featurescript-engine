@@ -28,6 +28,12 @@ const CHECKS: &[&str] = &[
     "(function() { var x = 1; const f = function() { return x; }; x = 2; return f(); })() == 1",
     "(function() { var total = 0; for (var k, v in { \"a\" : 1, \"b\" : 2 }) { total += v; } return total; })() == 3",
     "mapArray([1, 2, 3], x => x * 2) == [2, 4, 6]",
+    // A subarray keeps its type tag: std's separatePointsAndWeights divides one of a weighted point by its weight.
+    "subArray(vector([2, 4, 6, 2]), 0, 3) / 2 == vector(1, 2, 3)",
+    // A call also finds overloads in the module declaring an argument's type: std's toString of a map prints a
+    // vector in it with vector.fs's toString (batch 011, c005). mapArray keeps a vector a vector.
+    "toString({ \"a\" : vector(1, 2, 3) }) == \"{ a : (1, 2, 3) }\"",
+    "toString(mapArray(vector(1, 2), x => x * 2)) == \"(2, 4)\"",
     // Predicates check loop bodies as predicate statements, with `continue` and `break` (std's canBeBoundSpec).
     "canBeBoundSpec({ (meter) : [0, 1, 2], (inch) : 3 })",
     "!canBeBoundSpec({ (meter) : [2, 1, 0] })",

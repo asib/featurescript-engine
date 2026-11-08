@@ -30,7 +30,8 @@ pub fn register(m: &mut HashMap<&'static str, BuiltinFn>) {
         if start > end || end > a.len() {
             return Err(error(format!("@subArray: range {start}..{end} out of bounds (size {})", a.len())));
         }
-        Ok(Value::array(a[start..end].to_vec()))
+        // Keeps the type tag too: std divides a subarray of a weighted point, a `Vector`, by its weight.
+        Ok(Value::array(a[start..end].to_vec()).with_tag(args[0].tag))
     });
     m.insert("concatenateArrays", |_, args| {
         let arrays = array(&args, 0, "concatenateArrays")?;

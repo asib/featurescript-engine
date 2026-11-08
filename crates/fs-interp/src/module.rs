@@ -215,6 +215,17 @@ impl Modules {
     }
 
     /// The symbols a name refers to in a module, optionally through an import namespace (`ns::name`).
+    /// The exported functions a module itself declares under `name` (not those it imports).
+    pub fn own_exported_functions(&self, id: ModuleId, name: &str) -> Vec<FunctionRef> {
+        let Some(own) = self.list.get(id).and_then(|m| m.own.get(name)) else { return Vec::new() };
+        own.iter()
+            .filter_map(|(symbol, exported)| match symbol {
+                Symbol::Function(f) if *exported => Some(f.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
     pub fn lookup(&self, id: ModuleId, namespace: Option<&str>, name: &str) -> Rc<[Symbol]> {
         let key = (namespace.map(Rc::from), Rc::from(name));
         if let Some(found) = self.list[id].lookups.borrow().get(&key) {
