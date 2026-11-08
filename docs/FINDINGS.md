@@ -183,6 +183,15 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   each path edge the path's order starts at, and mitre and butt by replacing cap faces with planes: the new face
   keeps the cap's attributes, which gussets and end caps look for. Coped corners subtract one member from the
   other and delete the leftover pieces, found by tracking the member's body. (Batch 008.)
+- **Sketch arcs run counterclockwise** about the sketch normal, whichever of `skArc`'s ends is its start; a
+  bridging curve's direction at an arc depends on it. (Batch 010, c006.)
+- **Variable fillets with a smooth transition** vary the radius as 3t² − 2t³ between the vertices (level at both
+  ends): the volume matches that law exactly. (Batch 010, c002.)
+- **Partial fillet bounds** each keep the fillet on the side their edge comes from (`isFlipped`: the side it goes
+  to), and the fillet is where any bound keeps it: bounds at 25% and 75% of an edge fillet the outer quarters. The
+  ends are square, capped with planar faces. (Batch 010, c003.)
+- **Wrapping** keeps distances: a 10 × 10 mm square wrapped onto a 10 mm cylinder along its tangent line has area
+  100 mm². (Batch 010, c007.)
 - **Mutual trim** splits each sheet's faces with the other (`opSplitFace` with `mutualImprint`), keeps the pieces
   behind the other sheet's normal (`qSplitBy`), and merges the sheets into one. (Batch 005, c023.)
 
