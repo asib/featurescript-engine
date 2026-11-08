@@ -184,7 +184,11 @@ pub fn extend_sheet(model: &mut Model, id: FeatureId, definition: &Value) -> R<V
     let mut results = Vec::new();
     for (b, edges) in groups {
         let curving = field(definition, "extensionShape").as_str() == Some("SOFT");
-        let shape = match extend_cylindrical(&model.bodies[b], &edges, distance)? {
+        let shape = match extend_cylindrical(&model.bodies[b], &edges, distance)?
+            .map(Ok)
+            .or_else(|| extend_revolved(&model.bodies[b], &edges, distance).transpose())
+            .transpose()?
+        {
             Some(patch) => patch,
             None => match extend_extruded(&model.bodies[b], &edges, distance, curving)? {
                 Some(sheet) => sheet,
@@ -205,6 +209,74 @@ pub fn extend_sheet(model: &mut Model, id: FeatureId, definition: &Value) -> R<V
         model.add_body(NewBody::replacing(&old, shape), &origins, &info, &|_| None);
     }
     Ok(Value::UNDEFINED)
+}
+
+/// A sheet of one face on a cone or sphere, bounded by two generators or meridians (a constant u) and two circles
+/// round the axis (a constant v), extended as Onshape extends it (batch 039): each point of an edge carried the
+/// distance along the surface's circle or line through it, square to the edge. Across a generator or meridian
+/// every point goes the distance round its own circle, so the new edge is a curve (a turn of d / r at radius r):
+/// on a quarter cone, Onshape's new edge reaches exactly 0.5 rad round at radius 10 for 5 mm. Past a circle the
+/// edge moves the distance along the generators or meridians. (Onshape's new edges are its own approximations,
+/// off this by up to 0.03 mm²; a sphere's extended round strays further, turning 1.106 rad at radius 5 for 5 mm.)
+fn extend_revolved(body: &crate::model::Body, edges: &[Shape], distance: f64) -> R<Option<Shape>> {
+    use crate::values::{dot, norm, scale, sub};
+    let [face] = &body.faces[..] else { return Ok(None) };
+    let face = &face.shape;
+    let Ok(s) = face.surface_definition() else { return Ok(None) };
+    if s.kind != 2 && s.kind != 3 {
+        return Ok(None);
+    }
+    let ((u0, v0), (u1, v1)) = face.face_uv_bounds().map_err(occt_error)?;
+    let mut extend = [false; 4];
+    for e in edges {
+        let mid = e.edge_tangent(0.5, false).map_err(occt_error)?.origin;
+        let (fu, fv) = face.face_fraction(mid).map_err(occt_error)?;
+        let near = |f: f64, at: f64| (f - at).abs() < 1e-6;
+        match () {
+            _ if near(fu, 0.0) => extend[0] = true,
+            _ if near(fu, 1.0) => extend[1] = true,
+            _ if near(fv, 0.0) => extend[2] = true,
+            _ if near(fv, 1.0) => extend[3] = true,
+            _ => return Ok(None),
+        }
+    }
+    let failed = || regen_error("EXTEND_SHEET_BODY_FAILED");
+    // The radius of the circle round the axis at v.
+    let radius_at = |v: f64| -> R<f64> {
+        let p = face.face_tangent_plane(0.5, (v - v0) / (v1 - v0)).map_err(|_| failed())?.origin;
+        let d = sub(p, s.frame.origin);
+        Ok(norm(sub(d, scale(s.frame.normal, dot(d, s.frame.normal)))))
+    };
+    // Along a cone's generators v is length; along a sphere's meridians, angle.
+    let dv = if s.kind == 2 { distance } else { distance / s.radius1 };
+    let (vb, vt) = (if extend[2] { v0 - dv } else { v0 }, if extend[3] { v1 + dv } else { v1 });
+    let side = |v: f64, at: f64, out: bool, sign: f64| -> R<f64> {
+        Ok(if out {
+            let r = radius_at(v)?;
+            if r < 1e-9 {
+                return Err(failed());
+            }
+            at + sign * distance / r
+        } else {
+            at
+        })
+    };
+    let samples = 32;
+    let column = |at: f64, out: bool, sign: f64, up: bool| -> R<Vec<(f64, f64)>> {
+        let n = if out { samples } else { 1 };
+        (0..=n)
+            .map(|i| {
+                let f = i as f64 / n as f64;
+                let v = if up { vb + f * (vt - vb) } else { vt - f * (vt - vb) };
+                Ok((side(v, at, out, sign)?, v))
+            })
+            .collect()
+    };
+    let right = column(u1, extend[1], 1.0, true)?;
+    let left = column(u0, extend[0], -1.0, false)?;
+    let bottom = vec![(left[left.len() - 1].0, vb), (right[0].0, vb)];
+    let top = vec![(right[right.len() - 1].0, vt), (left[0].0, vt)];
+    occt::face_from_uv(face, &[bottom, right, top, left]).map(Some).map_err(|_| failed())
 }
 
 /// A sheet of one face extruded from a curve, bounded by two copies of the curve and two straight edges (batch 039):
