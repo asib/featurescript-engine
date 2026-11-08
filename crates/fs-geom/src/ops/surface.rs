@@ -164,6 +164,11 @@ pub fn extend_sheet(model: &mut Model, id: FeatureId, definition: &Value) -> R<V
     if field(definition, "extendMethod").as_str() == Some("EXTEND_TO_SURFACE") {
         return super::sheet_metal::extend_to_plane(model, id, definition);
     }
+    // Up to a target: std makes a plane body for a planar target face (batch 020).
+    if field(definition, "endCondition").as_str() == Some("EXTEND_TO_TARGET") {
+        let target = field(definition, "target").clone();
+        return super::sheet_metal::extend_to_plane_with(model, id, definition, &target);
+    }
     match field(definition, "endCondition").as_str() {
         None | Some("EXTEND_BLIND") => {}
         Some(other) => return Err(error(format!("@opExtendSheetBody: {other} isn't supported yet"))),

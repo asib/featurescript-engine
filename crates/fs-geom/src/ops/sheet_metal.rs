@@ -1393,13 +1393,23 @@ fn cut_registered_tools(model: &mut Model, id: &FeatureId, index: usize) -> R<()
 /// the faces sewn where they then meet (make joint, batch 017). Faces keep their identities; an edge two faces now
 /// share is new, tracked back to the edges it joins.
 pub fn extend_to_plane(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
-    let limit = field(definition, "limitEntity");
+    let limit = field(definition, "limitEntity").clone();
+    extend_to_plane_with(model, id, definition, &limit)
+}
+
+/// As [`extend_to_plane`], up to the plane `limit` gives (a plane, a planar face, or a body of one).
+pub fn extend_to_plane_with(model: &mut Model, id: FeatureId, definition: &Value, limit: &Value) -> R<Value> {
     let plane = if limit.get("normal").is_some() {
         values::plane(limit, "opExtendSheetBody limitEntity")?
     } else {
         let found = query::evaluate(model, limit)?;
         let r = found.first().ok_or_else(|| regen_error("EXTEND_SHEET_BODY_FAILED"))?;
-        model.shape(*r).face_plane().map_err(|_| error("@opExtendSheetBody: only planar limits are supported yet"))?
+        let face = match r.kind {
+            EntityType::Body => model.bodies[r.body].faces.first().map(|f| f.shape.clone()),
+            _ => Some(model.shape(*r).clone()),
+        }
+        .ok_or_else(|| regen_error("EXTEND_SHEET_BODY_FAILED"))?;
+        face.face_plane().map_err(|_| error("@opExtendSheetBody: only planar limits are supported yet"))?
     };
     let offset = match field(definition, "offset") {
         v if v.is_undefined() => 0.0,
