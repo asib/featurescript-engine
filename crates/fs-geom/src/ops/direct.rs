@@ -220,9 +220,48 @@ pub fn offset_face(model: &mut Model, id: FeatureId, definition: &Value) -> R<Va
 
 pub fn delete_face(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
     let leave_open = values::opt_bool(definition, "leaveOpen")?.unwrap_or(false);
-    let groups = by_body(model, field(definition, "deleteFaces"), EntityType::Face)?;
+    let mut groups = by_body(model, field(definition, "deleteFaces"), EntityType::Face)?;
     if groups.is_empty() {
         return Err(regen_error("DIRECT_EDIT_DELETE_SELECT_FACES"));
+    }
+    // Faces of sheets just go: a sheet with none left goes too, the rest keep their identities.
+    let (sheets, solids): (Vec<_>, Vec<_>) =
+        groups.drain(..).partition(|(b, _)| model.bodies[*b].body_type == BodyType::Sheet);
+    groups = solids;
+    let mut emptied = Vec::new();
+    let mut trimmed = Vec::new();
+    for (b, faces) in sheets {
+        let old = model.bodies[b].clone();
+        if old.faces.iter().all(|f| faces.iter().any(|g| g.is_same(&f.shape))) {
+            emptied.push(b);
+            continue;
+        }
+        let sheet = occt::remove_faces_open(&old.shape, &faces).map_err(occt_error)?;
+        let mut origins = Origins::default();
+        for entity in old.all_entities() {
+            origins.keep(entity);
+        }
+        trimmed.push((b, NewBody { body_type: BodyType::Sheet, ..NewBody::replacing(&old, sheet) }, origins));
+    }
+    if !emptied.is_empty() || !trimmed.is_empty() {
+        let info = Info::new(id.clone());
+        let mut removed = emptied;
+        removed.extend(trimmed.iter().map(|(b, _, _)| *b));
+        // Indices of the solids still to do shift as bodies go; find them again by transient id.
+        let solid_tids: Vec<(crate::model::Tid, Vec<Shape>)> =
+            groups.drain(..).map(|(b, faces)| (model.bodies[b].tid, faces)).collect();
+        model.remove_bodies(&removed);
+        for (_, new, origins) in trimmed {
+            model.add_body(new, &origins, &info, &|_| None);
+        }
+        for (tid, faces) in solid_tids {
+            if let Some(b) = model.bodies.iter().position(|body| body.tid == tid) {
+                groups.push((b, faces));
+            }
+        }
+        if groups.is_empty() {
+            return Ok(Value::UNDEFINED);
+        }
     }
     if leave_open {
         // The body becomes a sheet of its other faces; they keep their identities.
