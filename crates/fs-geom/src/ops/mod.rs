@@ -75,6 +75,15 @@ pub fn register(m: &mut GeomBuiltins) {
     m.insert("opHole", |_, args| run_op(&args, "opHole", hole::hole));
     m.insert("opCreateIsocline", |_, args| run_op(&args, "opCreateIsocline", isocline::create));
     m.insert("opSplitByIsocline", |_, args| run_op(&args, "opSplitByIsocline", isocline::split));
+    m.insert("opNameEntity", |_, args| {
+        run_op(&args, "opNameEntity", |model, _, definition| {
+            let name: Rc<str> = field(definition, "entityName").as_str().unwrap_or_default().into();
+            let found = query::evaluate(model, field(definition, "entity"))?;
+            let tids: Vec<crate::model::Tid> = found.iter().map(|r| model.tid(*r)).collect();
+            Rc::make_mut(&mut model.names).extend(tids.into_iter().map(|t| (name.clone(), t)));
+            Ok(Value::UNDEFINED)
+        })
+    });
     m.insert("opCreateCompositePart", |_, args| {
         run_op(&args, "opCreateCompositePart", |model, id, definition| {
             // A body holding other bodies: its shape is theirs together, its entities are theirs.

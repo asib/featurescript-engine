@@ -276,6 +276,8 @@ pub struct Model {
     /// For each face a split made, the split's id, the face's transient id, and whether it is behind the tool (on
     /// the side opposite its normal): `qSplitBy`.
     pub splits: Rc<Vec<(FeatureId, Tid, bool)>>,
+    /// Names given to entities (`opNameEntity`), by transient id: `qNamed` finds them and what they become.
+    pub names: Rc<Vec<(Rc<str>, Tid)>>,
 }
 
 /// A new body: its shape and what it is. [`Model::add_body`] fills in the entities.

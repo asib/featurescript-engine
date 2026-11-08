@@ -181,6 +181,25 @@ fn resolve(model: &Model, query: &Value) -> R<Vec<EntityRef>> {
         "SM_FORM_FILTER" => keep_if(sub(model, query, "subquery")?, !yes_no(query, "formFilter")?),
         "ACTIVE_SM_FILTER" => keep_if(sub(model, query, "subquery")?, !yes_no(query, "activeSheetMetal")?),
         "SM_APPLICATION_TYPE_FILTER" => Vec::new(),
+        // A named entity, or what it became: entities carrying on its identity.
+        "NAMED" => {
+            let name = field(query, "name").as_str().unwrap_or_default();
+            let tids: Vec<Tid> = model.names.iter().filter(|(n, _)| &**n == name).map(|(_, t)| *t).collect();
+            let mut out = Vec::new();
+            for (b, body) in model.bodies.iter().enumerate() {
+                if tids.contains(&body.tid) {
+                    out.push(EntityRef::body(b));
+                }
+                for kind in [EntityType::Face, EntityType::Edge, EntityType::Vertex] {
+                    for (index, e) in body.entities(kind).iter().enumerate() {
+                        if tids.contains(&e.tid) || e.ancestry.identity.iter().any(|t| tids.contains(t)) {
+                            out.push(EntityRef { body: b, kind, index });
+                        }
+                    }
+                }
+            }
+            out
+        }
         "CONVEX_CONNECTED_FACES" => crate::selection::connected_faces(model, &sub(model, query, "subquery")?, "CONVEX"),
         "CONCAVE_CONNECTED_FACES" => {
             crate::selection::connected_faces(model, &sub(model, query, "subquery")?, "CONCAVE")
