@@ -110,6 +110,7 @@ std::unique_ptr<Shape> offset_wire_region(const Shape &wire, Vec3 normal, double
 std::unique_ptr<Shape> make_helix_edge(Vec3 origin, Vec3 direction, Vec3 start, double t0, double t1, bool clockwise,
                                        double pitch, double spiral);
 std::unique_ptr<Operation> sweep_op(const Shape &profile, const Shape &path);
+std::unique_ptr<Operation> sweep_controlled_op(const Shape &profile, const Shape &path, int mode, Vec3 direction);
 std::unique_ptr<Operation> loft_op(const ShapeList &wires, bool solid);
 std::unique_ptr<Shape> outer_wire(const Shape &face);
 std::unique_ptr<ShapeList> section_edges(const ShapeList &a, const ShapeList &b);

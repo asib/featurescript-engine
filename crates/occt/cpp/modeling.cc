@@ -14,6 +14,7 @@
 #include <TopoDS_Compound.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepOffsetAPI_MakePipe.hxx>
+#include <BRepOffsetAPI_MakePipeShell.hxx>
 #include <BRepOffsetAPI_ThruSections.hxx>
 #include <BRepTools_WireExplorer.hxx>
 #include <BRepTools_ReShape.hxx>
@@ -43,6 +44,9 @@
 #include <BRepBuilderAPI_MakeVertex.hxx>
 #include <BRepExtrema_DistShapeShape.hxx>
 #include <BRepBuilderAPI_Sewing.hxx>
+#include <BRepLib.hxx>
+#include <BRepBuilderAPI_MakeSolid.hxx>
+#include <BRepBuilderAPI_NurbsConvert.hxx>
 #include <BRepFilletAPI_MakeChamfer.hxx>
 #include <BRepFilletAPI_MakeFillet.hxx>
 #include <BRepLProp_SLProps.hxx>
@@ -1006,6 +1010,106 @@ std::unique_ptr<Shape> remove_faces_open(const Shape &solid, const ShapeList &fa
 
 // Sweeps a profile (a face or a wire) along a path wire. `first` and `last` hold the faces at each end for a face
 // profile.
+// A sweep whose profile keeps its orientation (`mode` 1: a fixed trihedron) or turns only about `direction`
+// (`mode` 2: the trihedron's binormal along it). The caps are the faces on the first and last sections.
+std::unique_ptr<Operation> sweep_controlled_op(const Shape &profile, const Shape &path, int mode, Vec3 direction) {
+  TopoDS_Wire spine = TopoDS::Wire(path.shape);
+  {
+    TopoDS_Vertex first, last;
+    TopExp::Vertices(spine, first, last);
+    if (!first.IsNull() && !last.IsNull() && !first.IsSame(last)) {
+      BRepExtrema_DistShapeShape to_first(profile.shape, first), to_last(profile.shape, last);
+      if (to_first.IsDone() && to_last.IsDone() && to_last.Value() + 1e-9 < to_first.Value())
+        spine = TopoDS::Wire(spine.Reversed());
+    }
+  }
+  bool solid = profile.shape.ShapeType() == TopAbs_FACE;
+  if (mode == 1 && solid) {
+    // Kept as it is, a profile of straight edges sweeps exactly: each edge makes the path moved to it and
+    // extruded along the edge, and the profile caps both ends. Curved faces become B-splines, as Onshape's are.
+    const TopoDS_Face &face = TopoDS::Face(profile.shape);
+    TopoDS_Vertex v0, v1;
+    TopExp::Vertices(spine, v0, v1);
+    gp_Pnt start = BRep_Tool::Pnt(v0), end = BRep_Tool::Pnt(v1);
+    bool straight = true;
+    for (TopExp_Explorer it(face, TopAbs_EDGE); it.More(); it.Next())
+      straight = straight && BRepAdaptor_Curve(TopoDS::Edge(it.Current())).GetType() == GeomAbs_Line;
+    if (straight) {
+      BRepBuilderAPI_Sewing sewing(1e-7);
+      for (TopExp_Explorer it(face, TopAbs_EDGE); it.More(); it.Next()) {
+        const TopoDS_Edge &e = TopoDS::Edge(it.Current());
+        gp_Pnt a = BRep_Tool::Pnt(TopExp::FirstVertex(e)), b = BRep_Tool::Pnt(TopExp::LastVertex(e));
+        gp_Trsf move;
+        move.SetTranslation(gp_Vec(start, a));
+        TopoDS_Shape moved = BRepBuilderAPI_Transform(spine, move, Standard_True).Shape();
+        BRepPrimAPI_MakePrism prism(moved, gp_Vec(a, b), Standard_True);
+        sewing.Add(prism.Shape());
+      }
+      TopoDS_Shape first_cap = BRepBuilderAPI_Copy(face).Shape();
+      gp_Trsf to_end;
+      to_end.SetTranslation(gp_Vec(start, end));
+      TopoDS_Shape last_cap = BRepBuilderAPI_Transform(face, to_end, Standard_True).Shape();
+      sewing.Add(first_cap);
+      sewing.Add(last_cap);
+      sewing.Perform();
+      TopoDS_Shell shell;
+      for (TopExp_Explorer it(sewing.SewedShape(), TopAbs_SHELL); it.More(); it.Next()) shell = TopoDS::Shell(it.Current());
+      if (shell.IsNull()) throw std::runtime_error("sweep: the faces don't close");
+      BRepBuilderAPI_MakeSolid made(shell);
+      TopoDS_Solid body = made.Solid();
+      BRepLib::OrientClosedSolid(body);
+      BRepBuilderAPI_NurbsConvert nurbs(body, Standard_True);
+      auto op = std::make_unique<Operation>();
+      op->history = new BRepTools_History;
+      op->result = planes_recognized(nurbs.Shape(), op->history);
+      TopoDS_Shape ends[2] = {first_cap, last_cap};
+      for (int k = 0; k < 2; ++k) {
+        GProp_GProps props;
+        BRepGProp::SurfaceProperties(ends[k], props);
+        gp_Pnt centre = props.CentreOfMass();
+        for (TopExp_Explorer it(op->result, TopAbs_FACE); it.More(); it.Next()) {
+          BRepExtrema_DistShapeShape d(BRepBuilderAPI_MakeVertex(centre).Vertex(), it.Current());
+          if (d.IsDone() && d.Value() < 1e-7 && BRepAdaptor_Surface(TopoDS::Face(it.Current())).GetType() == GeomAbs_Plane)
+            (k == 0 ? op->first : op->last).push_back(it.Current());
+        }
+      }
+      return op;
+    }
+  }
+  TopoDS_Wire section = solid ? BRepTools::OuterWire(TopoDS::Face(profile.shape)) : TopoDS::Wire(profile.shape);
+  BRepOffsetAPI_MakePipeShell maker(spine);
+  if (mode == 1) {
+    maker.SetMode(gp_Ax2(gp::Origin(), gp::DZ(), gp::DX()));
+  } else {
+    maker.SetMode(gp_Dir(direction.x, direction.y, direction.z));
+  }
+  maker.Add(section, Standard_False, Standard_False);
+  maker.Build();
+  if (!maker.IsDone()) throw std::runtime_error("sweep failed");
+  if (solid && !maker.MakeSolid()) throw std::runtime_error("sweep: no solid");
+  auto op = std::make_unique<Operation>();
+  op->history = new BRepTools_History(one(section), maker);
+  op->result = maker.Shape();
+  if (solid) {
+    TopoDS_Shape ends[2] = {maker.FirstShape(), maker.LastShape()};
+    for (int k = 0; k < 2; ++k) {
+      TopTools_IndexedMapOfShape edges;
+      TopExp::MapShapes(ends[k], TopAbs_EDGE, edges);
+      for (TopExp_Explorer it(op->result, TopAbs_FACE); it.More(); it.Next()) {
+        bool on_section = true;
+        for (TopExp_Explorer e(it.Current(), TopAbs_EDGE); e.More() && on_section; e.Next()) {
+          BRepAdaptor_Curve curve(TopoDS::Edge(e.Current()));
+          gp_Pnt mid = curve.Value((curve.FirstParameter() + curve.LastParameter()) / 2);
+          BRepExtrema_DistShapeShape d(BRepBuilderAPI_MakeVertex(mid).Vertex(), ends[k]);
+          on_section = d.IsDone() && d.Value() < 1e-7;
+        }
+        if (on_section) (k == 0 ? op->first : op->last).push_back(it.Current());
+      }
+    }
+  }
+  return op;
+}
+
 std::unique_ptr<Operation> sweep_op(const Shape &profile, const Shape &path) {
   // The profile is swept from the end of the path it sits at: if that's the far end, sweep along the path reversed.
   TopoDS_Wire spine = TopoDS::Wire(path.shape);

@@ -54,13 +54,18 @@ fn add_with_caps(model: &mut Model, id: &FeatureId, op: &occt::Operation, solid:
 }
 
 pub fn sweep(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
-    if values::opt_bool(definition, "keepProfileOrientation")?.unwrap_or(false) {
-        return Err(error("@opSweep: keepProfileOrientation isn't supported yet"));
-    }
-    match field(definition, "profileControl").as_str() {
-        None | Some("NONE") => {}
-        Some(other) => return Err(error(format!("@opSweep: profileControl {other} isn't supported yet"))),
-    }
+    // The profile kept as it is, or turning only about a direction (batch 021).
+    let control: Option<Option<Vec3>> = if values::opt_bool(definition, "keepProfileOrientation")?.unwrap_or(false) {
+        Some(None)
+    } else {
+        match field(definition, "profileControl").as_str() {
+            None | Some("NONE") | Some("KEEP_ORIENTATION") => None,
+            Some("LOCK_DIRECTION") => {
+                Some(Some(values::vec3(field(definition, "lockDirection"), "opSweep lockDirection")?))
+            }
+            Some(other) => return Err(error(format!("@opSweep: profileControl {other} isn't supported yet"))),
+        }
+    };
     let found = query::evaluate(model, field(definition, "profiles"))?;
     let faces: Vec<Shape> =
         found.iter().filter(|r| r.kind == EntityType::Face).map(|r| model.shape(*r).clone()).collect();
@@ -96,7 +101,11 @@ pub fn sweep(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
         return twisted_or_scaled(model, &id, &profiles, &path_edges, twist, scale, solid);
     }
     for profile in &profiles {
-        let op = occt::sweep(profile, path).map_err(|_| regen_error("SWEEP_FAILED"))?;
+        let op = match control {
+            Some(lock) => occt::sweep_controlled(profile, path, lock),
+            None => occt::sweep(profile, path),
+        }
+        .map_err(|_| regen_error("SWEEP_FAILED"))?;
         add_with_caps(model, &id, &op, solid)?;
     }
     Ok(Value::UNDEFINED)

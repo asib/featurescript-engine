@@ -160,6 +160,7 @@ mod ffi {
             spiral: f64,
         ) -> Result<UniquePtr<Shape>>;
         fn sweep_op(profile: &Shape, path: &Shape) -> Result<UniquePtr<Operation>>;
+        fn sweep_controlled_op(profile: &Shape, path: &Shape, mode: i32, direction: Vec3) -> Result<UniquePtr<Operation>>;
         fn loft_op(wires: &ShapeList, solid: bool) -> Result<UniquePtr<Operation>>;
         fn outer_wire(face: &Shape) -> Result<UniquePtr<Shape>>;
         fn section_edges(a: &ShapeList, b: &ShapeList) -> Result<UniquePtr<ShapeList>>;
@@ -721,6 +722,15 @@ pub fn helix_edge(
 }
 
 /// Sweeps a face or wire along a path wire.
+/// A sweep whose profile keeps its orientation (`lock` none) or turns only about the direction `lock` gives.
+pub fn sweep_controlled(profile: &Shape, path: &Shape, lock: Option<Vec3>) -> Result<Operation> {
+    let (mode, direction) = match lock {
+        None => (1, Vec3::new(0.0, 0.0, 1.0)),
+        Some(d) => (2, d),
+    };
+    Ok(Operation(ffi::sweep_controlled_op(&profile.0, &path.0, mode, direction)?))
+}
+
 pub fn sweep(profile: &Shape, path: &Shape) -> Result<Operation> {
     Ok(Operation(ffi::sweep_op(&profile.0, &path.0)?))
 }
