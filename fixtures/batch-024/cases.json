@@ -1,0 +1,117 @@
+{
+  "batch": "024",
+  "title": "more feature options: tapped, clearance and V3 holes, revolve start bounds, aligned gusset, ruled vertex overrides, wrap onto a cone",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "hole",
+      "description": "an M6 tapped hole, 8 mm deep and tapped 6 mm",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "hole",
+      "description": "an M6 normal clearance hole through",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "hole",
+      "description": "a V3 counterbored M5 clearance hole through",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "hole",
+      "description": "a V3 simple hole 8 mm deep with a 118 degree tip",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "revolve",
+      "description": "60 degrees one way, and up to a face the other",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "revolve",
+      "description": "60 degrees one way, and up to a vertex 10 degrees past it the other",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "gusset",
+      "description": "a triangle in the inside corner of a mitred L, aligned 2 mm up to a block's edge",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c008",
+      "kind": "ruled-surface",
+      "description": "normal to a block's front from its top edge, 6 mm, 12 mm at one end",
+      "slotMeters": [
+        2.8000000000000003,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c009",
+      "kind": "ruled-surface",
+      "description": "normal to a block's front from its top edge, up to a vertex at one end",
+      "slotMeters": [
+        3.2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c010",
+      "kind": "fill",
+      "description": "a right triangle filled",
+      "slotMeters": [
+        3.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c011",
+      "kind": "wrap",
+      "description": "a rectangle wrapped onto a cone as a surface",
+      "slotMeters": [
+        0,
+        0.4,
+        0
+      ]
+    }
+  ]
+}
