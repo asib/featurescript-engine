@@ -57,7 +57,8 @@ pub fn fit_spline(model: &mut Model, id: FeatureId, definition: &Value) -> R<Val
         (true, _, _) => Ends::Periodic,
         (false, Some(a), Some(b)) => Ends::Clamped(a, b),
         (false, None, None) => Ends::Natural,
-        _ => return Err(error("@opFitSpline: one end derivative without the other isn't supported yet")),
+        (false, Some(a), None) => Ends::StartClamped(a),
+        (false, None, Some(b)) => Ends::EndClamped(b),
     };
     let parameters = match field(definition, "parameters") {
         v if v.is_undefined() => None,

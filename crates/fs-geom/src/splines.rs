@@ -11,6 +11,10 @@ pub enum Ends {
     Natural,
     /// These first derivatives (with respect to the [0, 1] parameter) at the start and end.
     Clamped(Vec3, Vec3),
+    /// This first derivative at the start; zero second derivative at the end.
+    StartClamped(Vec3),
+    /// Zero second derivative at the start; this first derivative at the end.
+    EndClamped(Vec3),
     /// Closed and smooth all the way round; the last point isn't repeated.
     Periodic,
 }
@@ -71,19 +75,20 @@ fn derivatives_1d(t: &[f64], y: &[f64], ends: &Ends, d0: f64, d1: f64) -> Option
         a[i][(i + 1) % m] += h[i];
         b[i] = 6.0 * (slope(i) - slope(prev));
     }
-    match ends {
-        Ends::Periodic => {}
-        Ends::Natural => {
-            a[0][0] = 1.0;
-            a[n][n] = 1.0;
-        }
-        Ends::Clamped(..) => {
+    if !periodic {
+        if matches!(ends, Ends::Clamped(..) | Ends::StartClamped(_)) {
             a[0][0] = 2.0 * h[0];
             a[0][1] = h[0];
             b[0] = 6.0 * (slope(0) - d0);
+        } else {
+            a[0][0] = 1.0;
+        }
+        if matches!(ends, Ends::Clamped(..) | Ends::EndClamped(_)) {
             a[n][n - 1] = h[n - 1];
             a[n][n] = 2.0 * h[n - 1];
             b[n] = 6.0 * (d1 - slope(n - 1));
+        } else {
+            a[n][n] = 1.0;
         }
     }
     let second = solve(a, b)?;
@@ -102,9 +107,12 @@ pub fn spline(points: &[Vec3], ends: Ends, parameters: Option<Vec<f64>>) -> R<Sh
         return Err(error("a spline needs more points"));
     }
     let t = parameters.unwrap_or_else(|| centripetal(points, periodic));
+    let zero = Vec3::new(0.0, 0.0, 0.0);
     let (d0, d1) = match &ends {
         Ends::Clamped(a, b) => (*a, *b),
-        _ => (Vec3::new(0.0, 0.0, 0.0), Vec3::new(0.0, 0.0, 0.0)),
+        Ends::StartClamped(a) => (*a, zero),
+        Ends::EndClamped(b) => (zero, *b),
+        _ => (zero, zero),
     };
     let component = |f: fn(&Vec3) -> f64| -> R<Vec<f64>> {
         let y: Vec<f64> = points.iter().map(f).collect();
