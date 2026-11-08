@@ -624,6 +624,12 @@ impl Origins {
         self.insert(image, Origin { tid: None, info: None, ancestry, attributes: parent.attributes.clone() });
     }
 
+    /// A shape that carries another context's entity's attributes (merged in from it), but is otherwise new.
+    pub fn attributes_from(&mut self, image: &Shape, attributes: &Rc<Attributes>) {
+        let origin = Origin { tid: None, info: None, ancestry: Ancestry::default(), attributes: attributes.clone() };
+        self.insert(image, origin);
+    }
+
     /// A shape the operation made from an input entity (modified, or generated from it): new, with the operation's
     /// info, but tracked back to the entity.
     pub fn derive(&mut self, image: &Shape, parent: &Entity, modified: bool) {

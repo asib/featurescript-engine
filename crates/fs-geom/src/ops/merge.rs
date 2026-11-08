@@ -35,7 +35,12 @@ pub fn merge(model: &mut Model, id: FeatureId, definition: &Value, source: &Sour
     for body in &source.bodies {
         // Each entity keeps what it was, made by this operation.
         let mut infos: HashMap<u64, Vec<(Shape, Rc<Info>)>> = HashMap::new();
+        // And its attributes (sheet metal walls and joints, batch 023).
+        let mut origins = Origins::default();
         for entity in body.all_entities() {
+            if !entity.attributes.is_empty() {
+                origins.attributes_from(&entity.shape, &entity.attributes);
+            }
             let copy = Rc::new(Info {
                 created_by: id.clone(),
                 sketch_entity: entity.info.sketch_entity.clone(),
@@ -68,7 +73,7 @@ pub fn merge(model: &mut Model, id: FeatureId, definition: &Value, source: &Sour
         } else {
             body.properties.clone()
         };
-        model.add_body(new, &Origins::default(), &info, &special);
+        model.add_body(new, &origins, &info, &special);
     }
     // Owners point at the copies of the bodies they pointed at.
     let copies: Vec<(crate::model::Tid, crate::model::Tid)> =
