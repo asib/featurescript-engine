@@ -11,6 +11,11 @@ use std::rc::Rc;
 
 /// Adds an operation's solids (or, for sheets, shells) with start and end cap infos.
 fn add_with_caps(model: &mut Model, id: &FeatureId, op: &occt::Operation, solid: bool) -> R<()> {
+    add_with_caps_facing(model, id, op, solid, false)
+}
+
+/// As `add_with_caps`, the pieces reversed if `reverse`.
+fn add_with_caps_facing(model: &mut Model, id: &FeatureId, op: &occt::Operation, solid: bool, reverse: bool) -> R<()> {
     let (mut start_cap, mut end_cap) = (ShapeSet::default(), ShapeSet::default());
     for face in op.first() {
         start_cap.insert_all(&face);
@@ -48,6 +53,7 @@ fn add_with_caps(model: &mut Model, id: &FeatureId, op: &occt::Operation, solid:
         return Err(regen_error("SWEEP_FAILED"));
     }
     for piece in pieces {
+        let piece = if reverse { piece.reversed() } else { piece };
         model.add_body(NewBody::new(piece, body_type, created.clone()), &Origins::default(), &created, &special);
     }
     Ok(())
@@ -222,6 +228,8 @@ pub fn loft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
         return Err(regen_error("LOFT_SELECT_PROFILES"));
     }
     let op = occt::loft(&wires, solid).map_err(|_| regen_error("LOFT_FAILED"))?;
-    add_with_caps(model, &id, &op, solid)?;
+    // A sheet lofted from wires faces the other way from OCCT's, as an extruded one does: outward from a loop
+    // (a thin loft thickens outward, batch 028).
+    add_with_caps_facing(model, &id, &op, solid, !solid)?;
     Ok(Value::UNDEFINED)
 }
