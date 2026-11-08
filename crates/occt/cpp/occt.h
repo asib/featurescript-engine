@@ -165,6 +165,7 @@ double edge_fraction_extended(const Shape &s, Vec3 p);
 Distance shape_distance(const Shape &a, const Shape &b);
 rust::Vec<double> line_crossings(const Shape &s, Vec3 origin, Vec3 direction);
 Vec3 face_inner_point(const Shape &s);
+int32_t edge_convexity(const Shape &body, const Shape &edge, bool by_curvature);
 std::unique_ptr<Shape> face_feature_solid(const ShapeList &faces);
 std::unique_ptr<ShapeList> connected_shells(const Shape &s);
 std::unique_ptr<Operation> split_faces_op(const Shape &body, const ShapeList &faces, const ShapeList &tools);

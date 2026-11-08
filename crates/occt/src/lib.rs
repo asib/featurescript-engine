@@ -206,6 +206,7 @@ mod ffi {
         fn shape_distance(a: &Shape, b: &Shape) -> Result<Distance>;
         fn line_crossings(s: &Shape, origin: Vec3, direction: Vec3) -> Result<Vec<f64>>;
         fn face_inner_point(s: &Shape) -> Result<Vec3>;
+        fn edge_convexity(body: &Shape, edge: &Shape, by_curvature: bool) -> Result<i32>;
         fn face_feature_solid(faces: &ShapeList) -> Result<UniquePtr<Shape>>;
         fn connected_shells(s: &Shape) -> Result<UniquePtr<ShapeList>>;
         fn split_faces_op(body: &Shape, faces: &ShapeList, tools: &ShapeList) -> Result<UniquePtr<Operation>>;
@@ -461,6 +462,12 @@ impl Shape {
     /// sorted distances along it.
     pub fn line_crossings(&self, origin: Vec3, direction: Vec3) -> Result<Vec<f64>> {
         Ok(ffi::line_crossings(&self.0, origin, direction)?)
+    }
+
+    /// How this body's two faces meet along `edge`: 0 convex, 1 concave, 2 smooth, 3 variable, or `None` if it isn't
+    /// between two faces. With `by_curvature`, smooth stretches count as convex or concave by how the faces bend.
+    pub fn edge_convexity(&self, edge: &Shape, by_curvature: bool) -> Option<i32> {
+        ffi::edge_convexity(&self.0, &edge.0, by_curvature).ok().filter(|k| *k >= 0)
     }
 
     /// A point inside this face (not just inside its parameter range).

@@ -3,6 +3,8 @@
 #include "occt/cpp/occt.h"
 
 #include <BRepAdaptor_Curve.hxx>
+#include <vector>
+#include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
 #include <BRepClass_FaceClassifier.hxx>
 #include <gp_Pnt2d.hxx>
 #include <IntCurvesFace_ShapeIntersector.hxx>
@@ -235,6 +237,95 @@ Frame face_tangent_plane(const Shape &s, double fu, double fv) {
 }
 
 // The fractions (u in x, v in y) of a face's parameter-space bounding box at the point on it closest to `p`.
+namespace {
+
+// A face's outward normal at a point near it, and its normal curvature there in direction `across` (negative where
+// the face bends away from its outward normal, as a convex face does).
+bool normal_and_curvature(const TopoDS_Face &face, const gp_Pnt &p, const gp_Dir *across, gp_Dir &normal,
+                          double &curvature) {
+  GeomAPI_ProjectPointOnSurf projector(p, BRep_Tool::Surface(face));
+  if (projector.NbPoints() == 0) return false;
+  double u, v;
+  projector.LowerDistanceParameters(u, v);
+  BRepAdaptor_Surface surface(face, Standard_False);
+  BRepLProp_SLProps props(surface, u, v, 2, 1e-9);
+  if (!props.IsNormalDefined()) return false;
+  normal = props.Normal();
+  curvature = 0;
+  if (across != nullptr && props.IsCurvatureDefined()) {
+    gp_Dir d1, d2;
+    props.CurvatureDirections(d1, d2);
+    double c1 = across->Dot(d1), c2 = across->Dot(d2);
+    curvature = props.MaxCurvature() * c1 * c1 + props.MinCurvature() * c2 * c2;
+    if (props.IsUmbilic()) curvature = props.MaxCurvature();
+  }
+  if (face.Orientation() == TopAbs_REVERSED) {
+    normal.Reverse();
+    curvature = -curvature;
+  }
+  return true;
+}
+
+}  // namespace
+
+// How a body's two faces meet along an edge: 0 convex, 1 concave, 2 smooth, 3 variable, -1 if the edge isn't
+// between two faces. With `by_curvature`, where the faces meet smoothly the way they bend decides: convex if one
+// bends convexly and the other is flat or bends the same way, concave the other way round (the edges of fillets).
+int32_t edge_convexity(const Shape &body, const Shape &edge, bool by_curvature) {
+  TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
+  TopExp::MapShapesAndAncestors(body.shape, TopAbs_EDGE, TopAbs_FACE, edge_faces);
+  const TopTools_ListOfShape *faces = edge_faces.Seek(edge.shape);
+  if (faces == nullptr) return -1;
+  std::vector<TopoDS_Face> distinct;
+  for (const TopoDS_Shape &f : *faces)
+    if (std::none_of(distinct.begin(), distinct.end(), [&](const TopoDS_Face &g) { return g.IsSame(f); }))
+      distinct.push_back(TopoDS::Face(f));
+  if (distinct.size() != 2) return -1;
+  const TopoDS_Face &f1 = distinct[0], &f2 = distinct[1];
+  // The edge's direction with f1 on its left.
+  bool reversed = false;
+  for (TopExp_Explorer it(f1, TopAbs_EDGE); it.More(); it.Next())
+    if (it.Current().IsSame(edge.shape)) {
+      reversed = it.Current().Orientation() == TopAbs_REVERSED;
+      break;
+    }
+  BRepAdaptor_Curve curve(TopoDS::Edge(edge.shape));
+  int seen[3] = {0, 0, 0};
+  const int samples = 5;
+  for (int i = 0; i < samples; ++i) {
+    double t = curve.FirstParameter() + (i + 0.5) / samples * (curve.LastParameter() - curve.FirstParameter());
+    gp_Pnt p;
+    gp_Vec tangent;
+    curve.D1(t, p, tangent);
+    if (tangent.Magnitude() < 1e-12) continue;
+    if (reversed) tangent.Reverse();
+    gp_Dir n1, n2;
+    double k1, k2;
+    if (!normal_and_curvature(f1, p, nullptr, n1, k1) || !normal_and_curvature(f2, p, nullptr, n2, k2)) continue;
+    gp_Vec cross = gp_Vec(n1).Crossed(gp_Vec(n2));
+    int kind;
+    if (cross.Magnitude() > 1e-6) {
+      kind = cross.Dot(tangent) > 0 ? 0 : 1;
+    } else if (!by_curvature) {
+      kind = 2;
+    } else {
+      gp_Dir along(tangent);
+      gp_Dir across1 = gp_Dir(gp_Vec(n1).Crossed(gp_Vec(along)));
+      normal_and_curvature(f1, p, &across1, n1, k1);
+      normal_and_curvature(f2, p, &across1, n2, k2);
+      const double eps = 1e-9;
+      bool convex = k1 < -eps || k2 < -eps, concave = k1 > eps || k2 > eps;
+      kind = convex && !concave ? 0 : concave && !convex ? 1 : 2;
+    }
+    seen[kind] += 1;
+  }
+  int total = seen[0] + seen[1] + seen[2];
+  if (total == 0) return -1;
+  for (int k = 0; k < 3; ++k)
+    if (seen[k] == total) return k;
+  return 3;
+}
+
 // A point inside a face, not just inside its parameter box: the middle of the box if that's on the face, else the
 // first point of finer and finer grids over the box that is.
 Vec3 face_inner_point(const Shape &s) {

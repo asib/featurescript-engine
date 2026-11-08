@@ -147,6 +147,10 @@ bool is_similarity(const Transform &t) {
 
 // Transforms a copy of a shape. Similarities (rotations, reflections, translations, uniform scales) keep the
 // geometry exact; other affine maps, such as a non-uniform scale, turn it into B-splines.
+namespace {
+TopoDS_Shape planes_recognized(const TopoDS_Shape &shape, const Handle(BRepTools_History) &history);
+}
+
 std::unique_ptr<Operation> transform_op(const Shape &s, const Transform &t) {
   auto op = std::make_unique<Operation>();
   TopTools_ListOfShape arguments;
@@ -167,7 +171,8 @@ std::unique_ptr<Operation> transform_op(const Shape &s, const Transform &t) {
     BRepBuilderAPI_GTransform maker(s.shape, gtrsf, Standard_True);
     check_done(maker, "transform");
     op->history = new BRepTools_History(arguments, maker);
-    op->result = maker.Shape();
+    // A general transform turns every surface into a B-spline; planes stay planes in Parasolid.
+    op->result = planes_recognized(maker.Shape(), op->history);
   }
   return op;
 }
