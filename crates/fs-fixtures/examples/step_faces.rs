@@ -1,4 +1,4 @@
-//! Lists the faces of a named part in a STEP file: surface type, area and a point inside each.
+//! Lists the faces of a named part in a STEP file: surface type, area and a point inside each; then its volume.
 //!
 //! Usage: cargo run --release -p fs-fixtures --example step_faces -- <file.step> <part name>
 
@@ -16,5 +16,6 @@ fn main() {
             let edges = face.sub_shapes(occt::ShapeKind::Edge).len();
             println!("{kind:10} area {area:12.6} mm² edges {edges:2} at ({:.3}, {:.3}, {:.3})", p[0], p[1], p[2]);
         }
+        println!("volume {:.6} mm³", shape.volume().unwrap_or(f64::NAN) * 1e9);
     }
 }

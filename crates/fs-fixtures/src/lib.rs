@@ -462,7 +462,16 @@ fn write_and_reread(parts: &[Part], path: &Path) -> Result<Vec<String>, String> 
             _ => false,
         };
         if *name != part.name || !same {
-            problems.push(format!("{} came back as {name:?}, matching: {same}", part.name));
+            let detail = match (&a, &b) {
+                (Ok(a), Ok(b)) => format!(
+                    " (volume {:.6} mm³, read back {:.6}; valid: {})",
+                    a.volume * 1e9,
+                    b.volume * 1e9,
+                    part.shape.is_valid()
+                ),
+                _ => String::new(),
+            };
+            problems.push(format!("{} came back as {name:?}, matching: {same}{detail}", part.name));
         }
     }
     Ok(problems)
