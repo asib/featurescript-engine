@@ -17,6 +17,10 @@
 #include <BRepOffsetAPI_MakePipeShell.hxx>
 #include <BRepOffsetAPI_ThruSections.hxx>
 #include <Geom_BSplineSurface.hxx>
+#include <array>
+#include <TColStd_Array1OfInteger.hxx>
+#include <TColgp_Array2OfPnt.hxx>
+#include <Extrema_ExtPC.hxx>
 #include <Geom_RectangularTrimmedSurface.hxx>
 #include <GeomConvert.hxx>
 #include <BRepTools_WireExplorer.hxx>
@@ -1299,13 +1303,120 @@ std::unique_ptr<Operation> loft_op(const ShapeList &wires, bool solid) {
   return op;
 }
 
-// A loft between two profiles whose ends leave them along given derivatives (a magnitude that isn't a number
-// leaves that end free). Its sides, as OCCT lofts them, are linear across from one profile to the other; each is
-// made cubic across, from the first profile through rows set by the derivatives (a free end's second derivative
-// zero) to the last (batch 055). A derivative is its magnitude times a length: 0.9 of how far apart the profiles'
-// planes are plus 0.1 of how far apart their corners are, along the direction given.
+namespace {
+
+// A wire's edges in order, each with how far along the wire it starts: to place points on it by arc length.
+struct WireRun {
+  struct Piece {
+    BRepAdaptor_Curve curve;
+    bool reversed;
+    double start, length;
+  };
+  std::vector<Piece> pieces;
+  double total = 0;
+
+  explicit WireRun(const TopoDS_Wire &wire) {
+    for (BRepTools_WireExplorer e(wire); e.More(); e.Next()) {
+      BRepAdaptor_Curve curve(e.Current());
+      const double length = GCPnts_AbscissaPoint::Length(curve);
+      pieces.push_back({curve, e.Current().Orientation() == TopAbs_REVERSED, total, length});
+      total += length;
+    }
+  }
+  // The point a fraction of the way along.
+  gp_Pnt at(double fraction) const {
+    double d = fraction * total;
+    for (const Piece &p : pieces) {
+      if (d <= p.start + p.length + 1e-12 || &p == &pieces.back()) {
+        const double along = d - p.start;
+        const double from = p.reversed ? p.curve.LastParameter() : p.curve.FirstParameter();
+        GCPnts_AbscissaPoint point(p.curve, p.reversed ? -along : along, from);
+        return p.curve.Value(point.Parameter());
+      }
+    }
+    return pieces.back().curve.Value(pieces.back().curve.LastParameter());
+  }
+  // How far along a point on the wire is (a fraction), and the wire's unit tangent there, going along it.
+  std::tuple<double, gp_Vec, size_t, double> place(const gp_Pnt &q) const {
+    double best = 1e300, fraction = 0, within = 0;
+    size_t index = 0;
+    gp_Vec tangent;
+    for (const Piece &p : pieces) {
+      Extrema_ExtPC near(q, p.curve);
+      if (!near.IsDone()) continue;
+      for (int i = 1; i <= near.NbExt(); ++i) {
+        if (near.SquareDistance(i) >= best) continue;
+        best = near.SquareDistance(i);
+        const double t = near.Point(i).Parameter();
+        const double along = p.reversed ? GCPnts_AbscissaPoint::Length(p.curve, t, p.curve.LastParameter())
+                                        : GCPnts_AbscissaPoint::Length(p.curve, p.curve.FirstParameter(), t);
+        fraction = (p.start + along) / total;
+        index = &p - pieces.data();
+        within = along / p.length;
+        gp_Pnt point;
+        gp_Vec d1;
+        p.curve.D1(t, point, d1);
+        tangent = (p.reversed ? -d1 : d1).Normalized();
+      }
+      // The ends: Extrema can miss a point at a curve's end.
+      for (double t : {p.curve.FirstParameter(), p.curve.LastParameter()}) {
+        const double d2 = q.SquareDistance(p.curve.Value(t));
+        if (d2 >= best) continue;
+        best = d2;
+        const bool at_start = (t == p.curve.FirstParameter()) != p.reversed;
+        fraction = (p.start + (at_start ? 0 : p.length)) / total;
+        index = &p - pieces.data();
+        within = at_start ? 0 : 1;
+        gp_Pnt point;
+        gp_Vec d1;
+        p.curve.D1(t, point, d1);
+        tangent = (p.reversed ? -d1 : d1).Normalized();
+      }
+    }
+    if (fraction >= 1 - 1e-12) fraction -= 1;
+    return {fraction, tangent, index, within};
+  }
+};
+
+// The periodic cubic spline through values at 0, 1/4, 1/2, 3/4 (period 1): its value and derivative at s.
+struct QuarterSpline {
+  gp_Vec y[4], m[4];  // m: derivatives per quarter
+  explicit QuarterSpline(const gp_Vec values[4]) {
+    // m[k-1] + 4 m[k] + m[k+1] = 3 (y[k+1] - y[k-1]), round the loop: the inverse of that circulant matrix.
+    for (int k = 0; k < 4; ++k) y[k] = values[k];
+    const double inv[4] = {7.0 / 24, -1.0 / 12, 1.0 / 24, -1.0 / 12};
+    gp_Vec rhs[4];
+    for (int k = 0; k < 4; ++k) rhs[k] = (y[(k + 1) % 4] - y[(k + 3) % 4]) * 3;
+    for (int k = 0; k < 4; ++k) {
+      m[k] = gp_Vec();
+      for (int j = 0; j < 4; ++j) m[k] += rhs[j] * inv[(j - k + 4) % 4];
+    }
+  }
+  std::pair<gp_Vec, gp_Vec> at(double s) const {
+    s -= std::floor(s);
+    int k = std::min(3, static_cast<int>(s * 4));
+    const double t = s * 4 - k;
+    const gp_Vec &a = y[k], &b = y[(k + 1) % 4], &ma = m[k], &mb = m[(k + 1) % 4];
+    const double h00 = 2 * t * t * t - 3 * t * t + 1, h10 = t * t * t - 2 * t * t + t, h01 = -2 * t * t * t + 3 * t * t,
+                 h11 = t * t * t - t * t;
+    const double d00 = 6 * t * t - 6 * t, d10 = 3 * t * t - 4 * t + 1, d01 = -6 * t * t + 6 * t, d11 = 3 * t * t - 2 * t;
+    return {a * h00 + ma * h10 + b * h01 + mb * h11, (a * d00 + ma * d10 + b * d01 + mb * d11) * 4};
+  }
+};
+
+}  // namespace
+
+// A loft between two profiles whose ends leave them along conditions (a magnitude that isn't a number leaves that
+// end free). Each side becomes one cubic span across, from the first profile through rows set by the derivatives
+// (a free end's second derivative zero) to the last (batches 055, 056). A chord from the first profile to the last
+// gives a derivative: along a vector v (the profile's normal, or a direction), the magnitude times 0.9 of the chord
+// along v plus 0.1 of its length; square to v (tangent to the profile's plane), the magnitude times the chord's
+// part there. On a profile of several edges the derivative goes from its value at one vertex to the next as
+// 3t² − 2t³; on a profile of one closed edge it is the chord's at each point along v, and square to v the periodic
+// cubic spline through its values a quarter of the way round each time. The sides' rows are cubic Hermite fits of
+// 64 spans (as Onshape's profiles are).
 std::unique_ptr<Operation> loft_clamped_op(const ShapeList &wires, bool solid, Vec3 start_dir, double start_mag,
-                                           Vec3 end_dir, double end_mag) {
+                                           bool start_tangent, Vec3 end_dir, double end_mag, bool end_tangent) {
   if (wires.shapes.size() != 2) throw std::runtime_error("loft: end conditions need two profiles");
   BRepOffsetAPI_ThruSections maker(solid ? Standard_True : Standard_False, Standard_False, 1e-7);
   maker.CheckCompatibility(Standard_True);
@@ -1316,85 +1427,161 @@ std::unique_ptr<Operation> loft_clamped_op(const ShapeList &wires, bool solid, V
   TopTools_IndexedMapOfShape caps;
   if (!maker.FirstShape().IsNull()) caps.Add(maker.FirstShape());
   if (!maker.LastShape().IsNull()) caps.Add(maker.LastShape());
-  auto centroid = [](const TopoDS_Shape &w) {
+  // The wire as lofted: the first section's edges as the sides' first rows meet them.
+  const WireRun run(TopoDS::Wire(wires.shapes[0]));
+  auto centre = [](const TopoDS_Shape &w) {
     GProp_GProps props;
     BRepGProp::LinearProperties(w, props);
     return props.CentreOfMass();
   };
-  const gp_Pnt c0 = centroid(wires.shapes[0]), c1 = centroid(wires.shapes[1]);
+  auto c_first = [&] { return centre(wires.shapes[0]); };
+  auto c_last = [&] { return centre(wires.shapes[1]); };
   BRepExtrema_DistShapeShape near_first;
   near_first.LoadS1(wires.shapes[0]);
-  // The side faces' surfaces, with which end of each is on the first profile.
   struct Side {
     TopoDS_Face face;
-    Handle(Geom_BSplineSurface) surface;
-    bool flipped;
+    Handle(Geom_Surface) surface;
+    double u1, u2, v_first, v_last;
   };
   std::vector<Side> sides;
   std::vector<TopoDS_Shape> kept;
-  double corners = 0;
-  int corner_count = 0;
   for (TopExp_Explorer it(lofted, TopAbs_FACE); it.More(); it.Next()) {
     const TopoDS_Face face = TopoDS::Face(it.Current());
     if (caps.Contains(face)) {
       kept.push_back(face);
       continue;
     }
-    // OCCT makes some sides cones or planes: as B-splines over the face, linear across.
     TopLoc_Location location;
-    Handle(Geom_Surface) base = BRep_Tool::Surface(face, location);
-    Handle(Geom_BSplineSurface) surface = Handle(Geom_BSplineSurface)::DownCast(base->Copy());
-    if (surface.IsNull()) {
-      double fu1, fu2, fv1, fv2;
-      BRepTools::UVBounds(face, fu1, fu2, fv1, fv2);
-      surface = GeomConvert::SurfaceToBSplineSurface(new Geom_RectangularTrimmedSurface(base, fu1, fu2, fv1, fv2));
-    }
-    if (!surface.IsNull() && surface->UDegree() == 1 && surface->NbUPoles() == 2 && surface->NbVPoles() > 2)
-      surface->ExchangeUV();
-    if (surface.IsNull() || surface->VDegree() != 1 || surface->NbVPoles() != 2)
-      throw std::runtime_error("loft: a side isn't linear across the profiles");
+    Handle(Geom_Surface) surface = Handle(Geom_Surface)::DownCast(BRep_Tool::Surface(face, location)->Copy());
     if (!location.IsIdentity()) surface->Transform(location.Transformation());
     double u1, u2, v1, v2;
-    surface->Bounds(u1, u2, v1, v2);
-    near_first.LoadS2(BRepBuilderAPI_MakeVertex(surface->Value(u1, v1)).Vertex());
+    BRepTools::UVBounds(face, u1, u2, v1, v2);
+    // Across the profiles is v unless a u iso line of the face lies on the first profile.
+    near_first.LoadS2(BRepBuilderAPI_MakeVertex(surface->Value((u1 + u2) / 2, v1)).Vertex());
     near_first.Perform();
-    const bool flipped = !(near_first.IsDone() && near_first.Value() < 1e-6);
-    for (double u : {u1, u2}) {
-      corners += surface->Value(u, v1).Distance(surface->Value(u, v2));
-      ++corner_count;
-    }
-    sides.push_back({face, surface, flipped});
+    const bool v_first_low = near_first.IsDone() && near_first.Value() < 1e-6;
+    near_first.LoadS2(BRepBuilderAPI_MakeVertex(surface->Value((u1 + u2) / 2, v2)).Vertex());
+    near_first.Perform();
+    const bool v_first_high = near_first.IsDone() && near_first.Value() < 1e-6;
+    if (!v_first_low && !v_first_high) throw std::runtime_error("loft: a side doesn't run across the profiles");
+    sides.push_back({face, surface, u1, u2, v_first_low ? v1 : v2, v_first_low ? v2 : v1});
   }
   if (sides.empty()) throw std::runtime_error("loft: no sides");
-  const gp_Vec n0(dir(start_dir)), n1(dir(end_dir));
-  const gp_Vec travel(c0, c1);
-  const double apart = std::abs(travel.Dot(std::isnan(start_mag) ? n1 : n0));
-  const double length = 0.9 * apart + 0.1 * corners / corner_count;
-  // Along the travel from the first profile to the last.
-  auto toward = [&](const gp_Vec &n) { return travel.Dot(n) < 0 ? -n : n; };
+  // The chord from the first profile to the last at a point of the first.
+  auto chord_at = [&](const gp_Pnt &q) {
+    double best = 1e300;
+    gp_Vec chord;
+    for (const Side &side : sides) {
+      GeomAPI_ProjectPointOnSurf projection(q, side.surface, side.u1, side.u2, std::min(side.v_first, side.v_last),
+                                            std::max(side.v_first, side.v_last), 1e-9);
+      if (!projection.IsDone() || projection.NbPoints() == 0) continue;
+      double u, v;
+      projection.LowerDistanceParameters(u, v);
+      if (projection.LowerDistance() >= best) continue;
+      best = projection.LowerDistance();
+      chord = gp_Vec(side.surface->Value(u, side.v_first), side.surface->Value(u, side.v_last));
+    }
+    return chord;
+  };
   const bool has_start = !std::isnan(start_mag), has_end = !std::isnan(end_mag);
-  const gp_Vec d0 = has_start ? toward(n0) * (start_mag * length) : gp_Vec(), d1 = has_end ? toward(n1) * (end_mag * length) : gp_Vec();
+  struct End {
+    gp_Vec v;
+    double mag;
+    bool tangent;
+  } ends[2] = {{gp_Vec(dir(start_dir)), has_start ? start_mag : 0, start_tangent},
+               {gp_Vec(dir(end_dir)), has_end ? end_mag : 0, end_tangent}};
+  // The derivative a chord gives: along v, 0.9 of the chord along it plus 0.1 of its length; square to v, the
+  // chord's part there. v points from the first profile towards the last.
+  for (End &end : ends) {
+    end.v.Normalize();
+    gp_Vec across(c_first(), c_last());
+    if (across.Dot(end.v) < 0) end.v.Reverse();
+  }
+  auto from_chord = [&](const End &end, const gp_Vec &c) {
+    return end.tangent ? (c - end.v * c.Dot(end.v)) * end.mag
+                       : end.v * (end.mag * (0.9 * c.Dot(end.v) + 0.1 * c.Magnitude()));
+  };
+  // A profile of one closed edge: along a vector, the chord at each point; tangent to the plane, the periodic
+  // spline through the chords a quarter of the way round each time. A profile of several edges: the chords at its
+  // vertices, along each edge from one to the next as 3t² − 2t³.
+  const bool closed_curve = run.pieces.size() == 1;
+  std::vector<QuarterSpline> quarters;
+  std::vector<std::array<gp_Vec, 2>> at_vertices;
+  for (const End &end : ends) {
+    gp_Vec values[4];
+    for (int k = 0; k < 4; ++k) values[k] = from_chord(end, chord_at(run.at(k / 4.0)));
+    quarters.emplace_back(values);
+  }
+  std::vector<gp_Vec> vertex_chords;
+  for (const WireRun::Piece &piece : run.pieces) vertex_chords.push_back(chord_at(run.at(piece.start / run.total)));
+  // The derivative and how it changes along the profile (per unit of the profile's length fraction s), at u on a
+  // side, where the first profile is at s and the side's u runs ds per unit of u.
+  auto derivative = [&](int which, const Side &side, double u, double s, size_t piece, double within, double ds) {
+    const End &end = ends[which];
+    if (closed_curve && end.tangent) return quarters[which].at(s);
+    if (closed_curve) {
+      // The chord here: straight across the side.
+      auto chord = [&](double w) { return gp_Vec(side.surface->Value(w, side.v_first), side.surface->Value(w, side.v_last)); };
+      const double h = (side.u2 - side.u1) * 1e-6 * (u + (side.u2 - side.u1) * 1e-6 > side.u2 ? -1 : 1);
+      const gp_Vec here = from_chord(end, chord(u)), ahead = from_chord(end, chord(u + h));
+      return std::make_pair(here, (ahead - here) / (h * ds));
+    }
+    const gp_Vec a = from_chord(end, vertex_chords[piece]),
+                 b = from_chord(end, vertex_chords[(piece + 1) % vertex_chords.size()]);
+    const double t = within, len = run.pieces[piece].length / run.total;
+    return std::make_pair(a + (b - a) * (3 * t * t - 2 * t * t * t), (b - a) * ((6 * t - 6 * t * t) / len));
+  };
   BRepBuilderAPI_Sewing sewing(1e-6);
   for (const TopoDS_Shape &cap : kept) sewing.Add(cap);
-  for (Side &side : sides) {
-    Handle(Geom_BSplineSurface) s = side.surface;
-    s->IncreaseDegree(s->UDegree(), 3);
-    const int r0 = side.flipped ? 4 : 1, r1 = side.flipped ? 3 : 2, r2 = side.flipped ? 2 : 3, r3 = side.flipped ? 1 : 4;
-    for (int i = 1; i <= s->NbUPoles(); ++i) {
-      if (std::abs(s->Weight(i, r0) - s->Weight(i, r3)) > 1e-12)
-        throw std::runtime_error("loft: end conditions between unlike rational profiles aren't supported yet");
-      const gp_Pnt p0 = s->Pole(i, r0), p3 = s->Pole(i, r3);
-      gp_Pnt p1 = p0.Translated(d0 / 3), p2 = p3.Translated(-d1 / 3);
-      if (!has_start) p1 = gp_Pnt((p0.XYZ() + p2.XYZ()) / 2);
-      if (!has_end) p2 = gp_Pnt((p1.XYZ() + p3.XYZ()) / 2);
-      s->SetPole(i, r1, p1, s->Weight(i, r0));
-      s->SetPole(i, r2, p2, s->Weight(i, r0));
+  const int spans = 64;
+  for (const Side &side : sides) {
+    // Each row's value and derivative along u at the span ends.
+    std::vector<std::array<gp_Pnt, 4>> value(spans + 1);
+    std::vector<std::array<gp_Vec, 4>> slope(spans + 1);
+    for (int j = 0; j <= spans; ++j) {
+      const double u = side.u1 + (side.u2 - side.u1) * j / spans;
+      gp_Pnt r0, r3;
+      gp_Vec r0u, r0v, r3u, r3v;
+      side.surface->D1(u, side.v_first, r0, r0u, r0v);
+      side.surface->D1(u, side.v_last, r3, r3u, r3v);
+      const auto [s, tangent, piece, along_piece] = run.place(r0);
+      const double ds = r0u.Dot(tangent) / run.total;
+      const auto [a, da] = derivative(0, side, u, s, piece, along_piece, ds);
+      const auto [b, db] = derivative(1, side, u, s, piece, along_piece, ds);
+      gp_Pnt r1 = r0.Translated(a / 3), r2 = r3.Translated(-b / 3);
+      gp_Vec r1u = r0u + da * (ds / 3), r2u = r3u - db * (ds / 3);
+      if (!has_start) {
+        r1 = gp_Pnt((r0.XYZ() + r2.XYZ()) / 2);
+        r1u = (r0u + r2u) / 2;
+      }
+      if (!has_end) {
+        r2 = gp_Pnt((r1.XYZ() + r3.XYZ()) / 2);
+        r2u = (r1u + r3u) / 2;
+      }
+      value[j] = {r0, r1, r2, r3};
+      slope[j] = {r0u, r1u, r2u, r3u};
     }
-    double u1, u2, v1, v2;
-    s->Bounds(u1, u2, v1, v2);
-    TopoDS_Face face = BRepBuilderAPI_MakeFace(s, u1, u2, v1, v2, 1e-7).Face();
-    if (side.face.Orientation() == TopAbs_REVERSED) face.Reverse();
-    sewing.Add(face);
+    TColgp_Array2OfPnt poles(1, 3 * spans + 1, 1, 4);
+    const double step = (side.u2 - side.u1) / spans;
+    for (int row = 0; row < 4; ++row) {
+      for (int j = 0; j < spans; ++j) {
+        poles(3 * j + 1, row + 1) = value[j][row];
+        poles(3 * j + 2, row + 1) = value[j][row].Translated(slope[j][row] * (step / 3));
+        poles(3 * j + 3, row + 1) = value[j + 1][row].Translated(-slope[j + 1][row] * (step / 3));
+      }
+      poles(3 * spans + 1, row + 1) = value[spans][row];
+    }
+    TColStd_Array1OfReal uknots(1, spans + 1), vknots(1, 2);
+    TColStd_Array1OfInteger umults(1, spans + 1), vmults(1, 2);
+    for (int j = 0; j <= spans; ++j) {
+      uknots(j + 1) = side.u1 + step * j;
+      umults(j + 1) = (j == 0 || j == spans) ? 4 : 3;
+    }
+    vknots(1) = 0;
+    vknots(2) = 1;
+    vmults(1) = vmults(2) = 4;
+    Handle(Geom_BSplineSurface) s = new Geom_BSplineSurface(poles, uknots, vknots, umults, vmults, 3, 3);
+    sewing.Add(BRepBuilderAPI_MakeFace(s, side.u1, side.u2, 0, 1, 1e-7).Face());
   }
   sewing.Perform();
   TopoDS_Shape result = sewing.SewedShape();
@@ -1414,6 +1601,7 @@ std::unique_ptr<Operation> loft_clamped_op(const ShapeList &wires, bool solid, V
     TopoDS_Shape image = sewing.Modified(caps(i));
     (i == 1 && !maker.FirstShape().IsNull() ? op->first : op->last).push_back(image);
   }
+  op->result = planes_recognized(op->result, op->history);
   return op;
 }
 

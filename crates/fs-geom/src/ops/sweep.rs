@@ -280,18 +280,19 @@ pub fn loft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
             return Err(error(format!("@opLoft: {key} isn't supported yet")));
         }
     }
-    // Conditions at the ends: a derivative along a vector (normal to the profile's plane, or a direction given).
-    let mut ends: [Option<(occt::Vec3, f64)>; 2] = [None, None];
+    // Conditions at the ends: a derivative along a vector (normal to the profile's plane, or a direction given) or
+    // in the plane square to it (tangent to the profile's plane).
+    let mut ends: [Option<(occt::Vec3, f64, bool)>; 2] = [None, None];
     for info in field(definition, "derivativeInfo").as_array().map(|a| a.to_vec()).unwrap_or_default() {
-        if values::opt_bool(&info, "tangentToPlane")?.unwrap_or(false) || !field(&info, "adjacentFaces").is_undefined()
-        {
-            return Err(error("@opLoft: end conditions other than along a vector aren't supported yet"));
+        if !field(&info, "adjacentFaces").is_undefined() {
+            return Err(error("@opLoft: end conditions matching faces aren't supported yet"));
         }
+        let tangent = values::opt_bool(&info, "tangentToPlane")?.unwrap_or(false);
         let index =
             field(&info, "profileIndex").as_number().ok_or_else(|| error("@opLoft: profileIndex must be a number"))?;
         let magnitude = field(&info, "magnitude").as_number().unwrap_or(1.0);
         let vector = values::vec3(field(&info, "vector"), "@opLoft derivative vector")?;
-        ends[if index == 0.0 { 0 } else { 1 }] = Some((vector, magnitude));
+        ends[if index == 0.0 { 0 } else { 1 }] = Some((vector, magnitude, tangent));
     }
     let solid = field(definition, "bodyType").as_str() != Some("SURFACE");
     let subqueries = field(definition, "profileSubqueries")

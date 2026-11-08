@@ -115,7 +115,7 @@ std::unique_ptr<Operation> sweep_op(const Shape &profile, const Shape &path);
 std::unique_ptr<Operation> sweep_controlled_op(const Shape &profile, const Shape &path, int mode, Vec3 direction);
 std::unique_ptr<Operation> loft_op(const ShapeList &wires, bool solid);
 std::unique_ptr<Operation> loft_clamped_op(const ShapeList &wires, bool solid, Vec3 start_dir, double start_mag,
-                                           Vec3 end_dir, double end_mag);
+                                           bool start_tangent, Vec3 end_dir, double end_mag, bool end_tangent);
 std::unique_ptr<Shape> outer_wire(const Shape &face);
 std::unique_ptr<ShapeList> section_edges(const ShapeList &a, const ShapeList &b);
 std::unique_ptr<Shape> fill_edges(const ShapeList &edges);
