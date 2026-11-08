@@ -53,12 +53,81 @@ pub fn fillet(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> 
         return Err(regen_error("FILLET_SELECT_EDGES"));
     }
     let mut results = Vec::new();
+    let mut framed: Vec<(Shape, occt::Frame)> = Vec::new();
     for (b, edges) in groups {
-        let op = occt::fillet(&model.bodies[b].shape, &edges, radius).map_err(|_| regen_error("FILLET_FAILED"))?;
+        let body = model.bodies[b].shape.clone();
+        let op = occt::fillet(&body, &edges, radius).map_err(|_| regen_error("FILLET_FAILED"))?;
+        for edge in &edges {
+            let line_origin =
+                model.bodies[b].edges.iter().find(|e| e.shape.is_same(edge)).and_then(|e| e.info.line_origin);
+            for face in op.generated(edge) {
+                if let Some(frame) = fillet_frame(&body, edge, &face, line_origin) {
+                    framed.push((face, frame));
+                }
+            }
+        }
         results.push((b, op));
     }
     replace_bodies(model, &id, results);
+    // The fillets' cylinders get Onshape's coordinate systems.
+    for (face, frame) in framed {
+        let Some((b, i)) = model
+            .bodies
+            .iter()
+            .enumerate()
+            .find_map(|(b, body)| body.faces.iter().position(|f| f.shape.is_same(&face)).map(|i| (b, i)))
+        else {
+            continue;
+        };
+        model.update_body(b, |body| {
+            let info = crate::model::Info { surface_frame: Some(frame), ..(*body.faces[i].info).clone() };
+            body.faces[i].info = std::rc::Rc::new(info);
+        });
+    }
     Ok(Value::UNDEFINED)
+}
+
+/// The coordinate system Onshape gives the cylinder a fillet of a straight edge makes (batch 047): z along the edge
+/// as it runs in the loop of its neighbouring face whose normal leans most along x (then y, then z), x along y × z
+/// (x × z for an edge along y), and the origin where the edge's line is placed (`Info::line_origin`, else its middle)
+/// brought onto the axis.
+fn fillet_frame(body: &Shape, edge: &Shape, face: &Shape, line_origin: Option<occt::Vec3>) -> Option<occt::Frame> {
+    use crate::values::{add, cross, dot, normalize, scale, sub};
+    let s = face.surface_definition().ok()?;
+    if s.kind != 1 || edge.curve_type().ok() != Some(occt::CurveType::Line) {
+        return None;
+    }
+    let mid = edge.edge_tangent(0.5, false).ok()?;
+    let (m, t) = (mid.origin, mid.direction);
+    let normal_of = |f: &Shape| -> Option<occt::Vec3> {
+        let (u, v) = f.face_fraction(m).ok()?;
+        f.face_tangent_plane(u, v).ok().map(|p| p.normal)
+    };
+    let neighbours: Vec<(Shape, occt::Vec3)> =
+        body.ancestors(edge, ShapeKind::Face).into_iter().filter_map(|f| normal_of(&f).map(|n| (f, n))).collect();
+    let key = |n: occt::Vec3| [n.x.abs(), n.y.abs(), n.z.abs()];
+    let (chosen, n) = neighbours.iter().max_by(|(_, a), (_, b)| {
+        let (ka, kb) = (key(*a), key(*b));
+        (0..3)
+            .map(|i| if (ka[i] - kb[i]).abs() < 1e-9 { std::cmp::Ordering::Equal } else { ka[i].total_cmp(&kb[i]) })
+            .find(|o| *o != std::cmp::Ordering::Equal)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    })?;
+    // Walking the face's loop (anticlockwise about its normal), the face is on the left.
+    let left = cross(*n, t);
+    let inside =
+        occt::vertex(add(m, scale(left, 1e-6))).and_then(|v| v.distance(chosen)).is_ok_and(|d| d.distance < 1e-7);
+    let along = if inside { t } else { scale(t, -1.0) };
+    let z = if dot(s.frame.normal, along) > 0.0 { s.frame.normal } else { scale(s.frame.normal, -1.0) };
+    let y_axis = occt::Vec3::new(0.0, 1.0, 0.0);
+    let x = if dot(z, y_axis).abs() > 1.0 - 1e-9 {
+        normalize(cross(occt::Vec3::new(1.0, 0.0, 0.0), z))?
+    } else {
+        normalize(cross(y_axis, z))?
+    };
+    let p = line_origin.unwrap_or(m);
+    let origin = add(s.frame.origin, scale(z, dot(sub(p, s.frame.origin), z)));
+    Some(occt::Frame { origin, normal: z, x })
 }
 
 /// The face next to an edge that the edge runs forward along: walking along the edge with that face's normal up,
