@@ -153,6 +153,7 @@ std::unique_ptr<Operation> delete_faces_op(const Shape &solid, const ShapeList &
 std::unique_ptr<Shape> remove_faces_open(const Shape &solid, const ShapeList &faces);
 std::unique_ptr<Shape> solid_from(const Shape &s);
 std::unique_ptr<Operation> replace_planar_face_op(const Shape &solid, const Shape &face, Frame target);
+std::unique_ptr<Operation> replace_face_with_surface_op(const Shape &solid, const Shape &face, const Shape &template_face, double offset);
 
 std::unique_ptr<Shape> operation_shape(const Operation &op);
 std::unique_ptr<ShapeList> operation_modified(const Operation &op, const Shape &s);

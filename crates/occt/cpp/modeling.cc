@@ -21,6 +21,9 @@
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Defeaturing.hxx>
 #include <BRepAlgoAPI_Splitter.hxx>
+#include <Geom_OffsetSurface.hxx>
+#include <GeomLProp_SLProps.hxx>
+#include <GeomAPI_ProjectPointOnSurf.hxx>
 #include <BRepAdaptor_Surface.hxx>
 #include <TColgp_Array1OfPnt2d.hxx>
 #include <gp_Pnt2d.hxx>
@@ -663,6 +666,73 @@ std::unique_ptr<Operation> replace_planar_face_op(const Shape &solid, const Shap
   unifier.Build();
   auto op = std::make_unique<Operation>();
   // Keep the identities of faces that survive: track the fuse, the split and the merge.
+  TopTools_ListOfShape arguments = one(solid.shape);
+  arguments.Append(prism.Shape());
+  op->history = new BRepTools_History(arguments, fuse);
+  op->history->Merge(one(fuse.Shape()), splitter);
+  op->history->Merge(unifier.History());
+  TopExp_Explorer first(unifier.Shape(), TopAbs_SOLID);
+  op->result = count == 1 && first.More() ? first.Current() : unifier.Shape();
+  return op;
+}
+
+// Replaces a planar face of a solid with the surface of another face (offset by `offset` along its normal): the
+// solid is extended past the face along its normal, split by the whole surface, and what's behind the surface
+// (against its normal turned to agree with the face's) is kept; faces left on one surface are merged.
+std::unique_ptr<Operation> replace_face_with_surface_op(const Shape &solid, const Shape &face, const Shape &template_face, double offset) {
+  const TopoDS_Face &f = TopoDS::Face(face.shape);
+  if (BRepAdaptor_Surface(f).GetType() != GeomAbs_Plane) throw std::runtime_error("replace face: not planar");
+  gp_Dir n = face_normal(f);
+  Handle(Geom_Surface) surface = BRep_Tool::Surface(TopoDS::Face(template_face.shape));
+  if (std::abs(offset) > 0) surface = new Geom_OffsetSurface(surface, offset);
+  Bnd_Box bounds;
+  BRepBndLib::Add(solid.shape, bounds);
+  BRepBndLib::Add(template_face.shape, bounds);
+  double x0, y0, z0, x1, y1, z1;
+  bounds.Get(x0, y0, z0, x1, y1, z1);
+  double reach = 10 * gp_Pnt(x0, y0, z0).Distance(gp_Pnt(x1, y1, z1)) + 1;
+  TopoDS_Shape copy = BRepBuilderAPI_Copy(f).Shape();
+  BRepPrimAPI_MakePrism prism(copy, gp_Vec(n) * reach, Standard_True);
+  BRepAlgoAPI_Fuse fuse(solid.shape, prism.Shape());
+  fuse.SetRunParallel(Standard_False);
+  fuse.Build();
+  if (!fuse.IsDone()) throw std::runtime_error("replace face: extending failed");
+  // The whole surface, its infinite directions cut off far away.
+  double u0, u1, v0, v1;
+  surface->Bounds(u0, u1, v0, v1);
+  auto clamp = [&](double x) { return std::max(-reach * 4, std::min(reach * 4, x)); };
+  TopoDS_Face cutter = BRepBuilderAPI_MakeFace(surface, clamp(u0), clamp(u1), clamp(v0), clamp(v1), Precision::Confusion()).Face();
+  BRepAlgoAPI_Splitter splitter;
+  splitter.SetArguments(one(fuse.Shape()));
+  splitter.SetTools(one(cutter));
+  splitter.SetRunParallel(Standard_False);
+  splitter.Build();
+  if (splitter.HasErrors()) throw std::runtime_error("replace face: cutting failed");
+  BRep_Builder builder;
+  TopoDS_Compound kept;
+  builder.MakeCompound(kept);
+  int count = 0;
+  for (TopExp_Explorer it(splitter.Shape(), TopAbs_SOLID); it.More(); it.Next()) {
+    GProp_GProps props;
+    BRepGProp::VolumeProperties(it.Current(), props);
+    gp_Pnt q = props.CentreOfMass();
+    GeomAPI_ProjectPointOnSurf projection(q, surface);
+    if (projection.NbPoints() == 0) continue;
+    double u, v;
+    projection.LowerDistanceParameters(u, v);
+    GeomLProp_SLProps local(surface, u, v, 1, 1e-9);
+    if (!local.IsNormalDefined()) continue;
+    gp_Dir normal = local.Normal();
+    if (normal.Dot(n) < 0) normal.Reverse();
+    if (gp_Vec(projection.NearestPoint(), q).Dot(gp_Vec(normal)) < 0) {
+      builder.Add(kept, it.Current());
+      ++count;
+    }
+  }
+  if (count == 0) throw std::runtime_error("replace face: nothing left");
+  ShapeUpgrade_UnifySameDomain unifier(kept, Standard_True, Standard_True, Standard_False);
+  unifier.Build();
+  auto op = std::make_unique<Operation>();
   TopTools_ListOfShape arguments = one(solid.shape);
   arguments.Append(prism.Shape());
   op->history = new BRepTools_History(arguments, fuse);

@@ -359,13 +359,14 @@ fn plane_of(model: &Model, query: &Value) -> R<Option<occt::Frame>> {
 }
 
 pub fn replace_face(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
-    let mut target = plane_of(model, field(definition, "templateFace"))?
-        .ok_or_else(|| error("@opReplaceFace: only planar template faces are supported yet"))?;
-    let offset = field(definition, "offset");
-    if !offset.is_undefined() {
-        let offset = values::length(offset, "opReplaceFace offset")?;
-        target.origin = values::add(target.origin, values::scale(target.normal, offset));
-    }
+    let offset = match field(definition, "offset") {
+        v if v.is_undefined() => 0.0,
+        v => values::length(v, "opReplaceFace offset")?,
+    };
+    let Some(mut target) = plane_of(model, field(definition, "templateFace"))? else {
+        return replace_with_surface(model, id, definition, offset);
+    };
+    target.origin = values::add(target.origin, values::scale(target.normal, offset));
     let groups = by_body(model, field(definition, "replaceFaces"), EntityType::Face)?;
     if groups.is_empty() {
         return Err(regen_error("DIRECT_EDIT_REPLACE_FACE_SELECT"));
@@ -412,6 +413,35 @@ pub fn replace_face(model: &mut Model, id: FeatureId, definition: &Value) -> R<V
             face.ancestry.identity = identity.into();
         });
     }
+    Ok(Value::UNDEFINED)
+}
+
+/// Planar faces replaced by a curved template face's surface (batch 020): see `occt::replace_face_with_surface`.
+fn replace_with_surface(model: &mut Model, id: FeatureId, definition: &Value, offset: f64) -> R<Value> {
+    let template = query::evaluate(model, field(definition, "templateFace"))?
+        .into_iter()
+        .find(|r| r.kind == EntityType::Face)
+        .map(|r| model.shape(r).clone())
+        .ok_or_else(|| regen_error("DIRECT_EDIT_REPLACE_FACE_SELECT_TEMPLATE"))?;
+    let groups = by_body(model, field(definition, "replaceFaces"), EntityType::Face)?;
+    if groups.is_empty() {
+        return Err(regen_error("DIRECT_EDIT_REPLACE_FACE_SELECT"));
+    }
+    let mut results = Vec::new();
+    for (b, faces) in groups {
+        let mut shape = model.bodies[b].shape.clone();
+        let mut last = None;
+        for face in &faces {
+            let op = occt::replace_face_with_surface(&shape, face, &template, offset)
+                .map_err(|_| regen_error("DIRECT_EDIT_REPLACE_FACE_FAILED"))?;
+            shape = op.shape();
+            last = Some(op);
+        }
+        if let Some(op) = last {
+            results.push((b, op));
+        }
+    }
+    replace_bodies(model, &id, results);
     Ok(Value::UNDEFINED)
 }
 

@@ -225,6 +225,7 @@ mod ffi {
         fn remove_faces_open(solid: &Shape, faces: &ShapeList) -> Result<UniquePtr<Shape>>;
         fn solid_from(s: &Shape) -> Result<UniquePtr<Shape>>;
         fn replace_planar_face_op(solid: &Shape, face: &Shape, target: Frame) -> Result<UniquePtr<Operation>>;
+        fn replace_face_with_surface_op(solid: &Shape, face: &Shape, template_face: &Shape, offset: f64) -> Result<UniquePtr<Operation>>;
 
         fn operation_shape(op: &Operation) -> UniquePtr<Shape>;
         fn operation_modified(op: &Operation, s: &Shape) -> Result<UniquePtr<ShapeList>>;
@@ -283,6 +284,7 @@ mod ffi {
             radius: f64,
         ) -> Result<UniquePtr<Operation>>;
         fn split_faces_op(body: &Shape, faces: &ShapeList, tools: &ShapeList) -> Result<UniquePtr<Operation>>;
+        fn split_face_by_edges_op(body: &Shape, face: &Shape, edges: &ShapeList) -> Result<UniquePtr<Operation>>;
         fn point_in_solid(solid: &Shape, p: Vec3) -> Result<bool>;
         fn curve_definition(s: &Shape) -> Result<Conic>;
         fn edge_bspline(s: &Shape, tolerance: f64, force_cubic: bool, force_non_rational: bool) -> Result<BSplineData>;
