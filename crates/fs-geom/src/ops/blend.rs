@@ -239,21 +239,31 @@ fn section_fillet(model: &mut Model, id: FeatureId, definition: &Value, section:
             // surfaces (two fillets mitred at a corner) far better than two extrusions (batch 053 c013: their faces
             // 0.17 mm² short, against 0.03 once converted).
             let exact_arc = matches!(section, Section::Circular) && !asymmetric;
-            let tool = if exact_arc { tool } else { occt::nurbs_converted(&tool).map_err(crate::occt_error)? };
-            if inside { cut.push(tool) } else { fill.push(tool) }
+            let converted =
+                if exact_arc { tool.clone() } else { occt::nurbs_converted(&tool).map_err(crate::occt_error)? };
+            if inside { cut.push((converted, tool)) } else { fill.push((converted, tool)) }
         }
+        // With the converted tools, OCCT's boolean can come back unchanged, reporting no error (batch 056 c017, a
+        // curvature fillet of magnitude 0.82): then with the extrusions themselves.
+        let apply = |kind: occt::BooleanKind, shape: &Shape, tools: &[(Shape, Shape)]| -> R<occt::Operation> {
+            let before = shape.volume().unwrap_or(0.0);
+            let converted: Vec<Shape> = tools.iter().map(|(c, _)| c.clone()).collect();
+            let o = occt::boolean(kind, std::slice::from_ref(shape), &converted, true).map_err(|_| failed())?;
+            if (o.shape().volume().unwrap_or(0.0) - before).abs() > 1e-15 {
+                return Ok(o);
+            }
+            let raw: Vec<Shape> = tools.iter().map(|(_, r)| r.clone()).collect();
+            occt::boolean(kind, std::slice::from_ref(shape), &raw, true).map_err(|_| failed())
+        };
         let mut shape = body.clone();
         let mut op = None;
         if !cut.is_empty() {
-            let o = occt::boolean(occt::BooleanKind::Subtraction, std::slice::from_ref(&shape), &cut, true)
-                .map_err(|_| failed())?;
+            let o = apply(occt::BooleanKind::Subtraction, &shape, &cut)?;
             shape = o.shape();
             op = Some(o);
         }
         if !fill.is_empty() {
-            let o = occt::boolean(occt::BooleanKind::Union, std::slice::from_ref(&shape), &fill, true)
-                .map_err(|_| failed())?;
-            op = Some(o);
+            op = Some(apply(occt::BooleanKind::Union, &shape, &fill)?);
         }
         if let Some(op) = op {
             results.push((b, op));
