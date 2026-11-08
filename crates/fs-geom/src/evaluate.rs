@@ -75,6 +75,50 @@ fn body_signature(model: &Model, b: usize) -> R<(Vec<usize>, Vec<f64>)> {
     Ok((counts, sizes))
 }
 
+/// The box `evPlane` takes the middle of: the face's box in the plane's axes, but on each side where the face only
+/// touches it at a point (a vertex, or where a curve turns) rather than along a straight edge, 0.6% of the box's
+/// size further out. So it is in Onshape: a filled right triangle 30 × 12 mm with its legs along the axes has its
+/// plane's origin at (15.09, 6.036), not (15, 6); a ruled trapezoid, an annular sector swept along an arc, and so
+/// on (batches 004 c034, 024 c008–c010, to 1e-7).
+fn plane_origin_box(face: &occt::Shape, axes: occt::Frame, b: occt::Box3) -> occt::Box3 {
+    let y = values::cross(axes.normal, axes.x);
+    let local = |p: occt::Vec3| {
+        let d = values::sub(p, axes.origin);
+        (values::dot(d, axes.x), values::dot(d, y))
+    };
+    let size = (b.max.x - b.min.x, b.max.y - b.min.y);
+    // The box can stand off the face by its tolerance (1e-7 m).
+    let tolerance = 1e-6;
+    // Whether an edge runs along the side where coordinate `axis` is `at` (a straight one, whatever its curve:
+    // ruled and swept sheets' straight edges are B-splines).
+    let along = |axis: usize, at: f64| {
+        face.sub_shapes(occt::ShapeKind::Edge).iter().any(|e| {
+            let points: Vec<(f64, f64)> = (0..=8)
+                .filter_map(|i| e.edge_tangent(i as f64 / 8.0, false).ok().map(|t| local(t.origin)))
+                .map(|p| if axis == 0 { p } else { (p.1, p.0) })
+                .collect();
+            points.len() == 9
+                && points.iter().all(|p| (p.0 - at).abs() < tolerance)
+                && (points[0].1 - points[8].1).abs() > tolerance
+        })
+    };
+    let grow = 0.006;
+    let mut out = b;
+    if !along(0, b.min.x) {
+        out.min.x -= grow * size.0;
+    }
+    if !along(0, b.max.x) {
+        out.max.x += grow * size.0;
+    }
+    if !along(1, b.min.y) {
+        out.min.y -= grow * size.1;
+    }
+    if !along(1, b.max.y) {
+        out.max.y += grow * size.1;
+    }
+    out
+}
+
 pub fn register(m: &mut GeomBuiltins) {
     // Bodies alike up to a rotation, by topology counts, volume, area, length and principal moments of inertia.
     m.insert("clusterBodies", |_, args| {
@@ -231,6 +275,7 @@ pub fn register(m: &mut GeomBuiltins) {
                         };
                         model.shape(*r).bounding_box_in(axes, true).ok().map(|b| {
                             let y = values::cross(axes.normal, axes.x);
+                            let b = plane_origin_box(model.shape(*r), axes, b);
                             let (u, v) = ((b.min.x + b.max.x) / 2.0, (b.min.y + b.max.y) / 2.0);
                             occt::Frame {
                                 origin: values::add(
