@@ -10,7 +10,7 @@ Onshape.
 | feature (file) | status | batch |
 |---|---|---|
 | `extrude` (extrude.fs) | matches: blind, symmetric, two directions; new, add, remove, intersect; surfaces from edges; thin walls; up to a face (with offset), body, vertex, the next part; through all; drafts | 001, 004 |
-| `revolve` (revolve.fs) | matches: full, blind, opposite, symmetric, two directions; new, add, remove, intersect; surfaces. Known gap: a revolved semicircle's boundary is one ring edge in Onshape (c018 of batch 004). Not yet: up-to bounds, thin | 002, 004 |
+| `revolve` (revolve.fs) | matches: full, blind, opposite, symmetric, two directions; new, add, remove, intersect; surfaces. Not yet: up-to bounds, thin | 002, 004 |
 | `cube`, `fCuboid`, `fCylinder`, `fCone`, `fSphere`, `fEllipsoid` (primitives.fs) | matches | 002 |
 | `booleanBodies` (boolean.fs) | matches: union, subtraction (keep tools, several targets), intersection. Not yet: offset, sheet metal | 002 |
 | `transform`, `copyPart` (transformCopy.fs) | matches: translate (xyz, distance, line), rotate, copy, uniform scale. Not yet: mate connectors, non-uniform scale | 002 |
@@ -95,9 +95,6 @@ What fixtures show Onshape doing that the engine can't yet:
   within the probes' tolerance; OCCT has no conic fillets, so this needs building by hand.
 - **Asymmetric fillets** (c014). The cross section removes 2.14379 mm² for setbacks of 2 and 5 mm, close to but
   not a quarter ellipse (2.14602 mm²); the exact curve isn't known yet.
-- **A revolved semicircle's boundary** (batch 004, c018): revolving a semicircle half a turn as a surface leaves
-  a boundary of two semicircles meeting at the poles; Onshape makes it one ring edge with no vertices, OCCT keeps
-  two edges and two vertices.
 - **Where `evPlane` puts a planar face's origin** (c034): the centroid for faces with straight edges, but not for
   the annular sector a line swept along an arc makes: Onshape gives (16.239, 12.045), the centroid is
   (18.127, 10.157) and the box centre (16.142, 12.142).
