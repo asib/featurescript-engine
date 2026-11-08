@@ -36,13 +36,16 @@ pub fn fillet(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> 
         None | Some("CIRCULAR") => {}
         Some(other) => return Err(error(format!("@opFillet: {other} cross sections aren't supported yet"))),
     }
-    for key in ["isVariable", "isAsymmetric", "createDetachedSurface"] {
+    for key in ["isAsymmetric", "createDetachedSurface"] {
         if values::opt_bool(definition, key)?.unwrap_or(false) {
             return Err(error(format!("@opFillet: {key} isn't supported yet")));
         }
     }
+    if values::opt_bool(definition, "isVariable")?.unwrap_or(false) {
+        return variable_fillet(model, id, definition);
+    }
     if field(definition, "partialFilletBounds").as_array().is_some_and(|b| !b.is_empty()) {
-        return Err(error("@opFillet: partial fillets aren't supported yet"));
+        return partial_fillet(model, id, definition);
     }
     let radius = values::length(field(definition, "radius"), "opFillet radius")?;
     let groups = blend_edges(model, definition)?;
@@ -203,5 +206,152 @@ pub fn full_round(model: &mut Model, id: FeatureId, definition: &Value) -> R<Val
     let op = occt::full_round(&model.bodies[side1.body].shape, model.shape(side1), model.shape(side2), &centre)
         .map_err(|_| regen_error("FULL_ROUND_FILLET_FAILED"))?;
     replace_bodies(model, &id, vec![(side1.body, op)]);
+    Ok(Value::UNDEFINED)
+}
+
+/// `@opFaceBlend`: a rolling ball blend of constant radius between two sets of faces meeting along edges, trimming
+/// them to it; the sides' sheets become one. Each side's normal, flipped if asked, points towards the blend.
+pub fn face_blend(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
+    if field(definition, "crossSection").as_str().is_some_and(|c| c != "ROLLING_BALL")
+        || field(definition, "blendControlType").as_str().is_some_and(|c| c != "RADIUS")
+        || values::opt_bool(definition, "asymmetric")?.unwrap_or(false)
+        || field(definition, "crossSectionShape").as_str().is_some_and(|c| c != "CIRCULAR")
+    {
+        return Err(error("@opFaceBlend: only symmetric circular rolling ball blends of a radius are supported yet"));
+    }
+    let radius = values::length(field(definition, "radius"), "opFaceBlend radius")?;
+    let side = |key: &str| -> R<Vec<EntityRef>> {
+        Ok(query::evaluate(model, field(definition, key))?.into_iter().filter(|r| r.kind == EntityType::Face).collect())
+    };
+    let (side1, side2) = (side("side1")?, side("side2")?);
+    if side1.is_empty() || side2.is_empty() {
+        return Err(regen_error("FACE_BLEND_SELECT_FACES"));
+    }
+    let shapes = |refs: &[EntityRef]| -> Vec<Shape> { refs.iter().map(|r| model.shape(*r).clone()).collect() };
+    let reverse1 = !values::opt_bool(definition, "flipSide1Normal")?.unwrap_or(false);
+    let reverse2 = !values::opt_bool(definition, "flipSide2Normal")?.unwrap_or(false);
+    let op = occt::face_blend(&shapes(&side1), reverse1, &shapes(&side2), reverse2, radius)
+        .map_err(|_| regen_error("FACE_BLEND_FAILED"))?;
+    // The sides' bodies give way to the blended sheet, which keeps the first's identity.
+    let first = model.bodies[side1[0].body].clone();
+    let mut bodies: Vec<usize> = side1.iter().chain(&side2).map(|r| r.body).collect();
+    bodies.sort_unstable();
+    bodies.dedup();
+    let info = crate::model::Info::new(id);
+    let sheets = occt::connected_shells(&op.shape()).map_err(crate::occt_error)?;
+    model.remove_bodies(&bodies);
+    for (i, sheet) in sheets.into_iter().enumerate() {
+        let tid = (i == 0).then_some(first.tid);
+        let new = crate::model::NewBody {
+            tid,
+            body_type: crate::model::BodyType::Sheet,
+            ..crate::model::NewBody::replacing(&first, sheet)
+        };
+        model.add_body(new, &crate::model::Origins::default(), &info, &|_| None);
+    }
+    Ok(Value::UNDEFINED)
+}
+
+/// A variable fillet: the radius at each end of each edge is set at its vertex (`vertexSettings`), the fillet's
+/// radius elsewhere, and goes from one to the other smoothly (level at both ends) or linearly.
+fn variable_fillet(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
+    if field(definition, "pointOnEdgeSettings").as_array().is_some_and(|a| !a.is_empty()) {
+        return Err(error("@opFillet: radii at points on edges aren't supported yet"));
+    }
+    let radius = values::length(field(definition, "radius"), "opFillet radius")?;
+    let smooth = values::opt_bool(definition, "smoothTransition")?.unwrap_or(false);
+    let mut at_vertex: Vec<(occt::Vec3, f64)> = Vec::new();
+    for setting in field(definition, "vertexSettings").as_array().map(|a| a.to_vec()).unwrap_or_default() {
+        let r = values::length(field(&setting, "vertexRadius"), "opFillet vertexRadius")?;
+        for v in query::evaluate(model, field(&setting, "vertex"))? {
+            if let Ok(p) = model.shape(v).vertex_point() {
+                at_vertex.push((p, r));
+            }
+        }
+    }
+    let radius_at = |p: occt::Vec3| {
+        at_vertex.iter().find(|(q, _)| values::norm(values::sub(*q, p)) < 1e-9).map(|(_, r)| *r).unwrap_or(radius)
+    };
+    let groups = blend_edges(model, definition)?;
+    if groups.is_empty() {
+        return Err(regen_error("FILLET_SELECT_EDGES"));
+    }
+    let mut results = Vec::new();
+    for (b, edges) in groups {
+        let (mut p0, mut r0, mut r1) = (Vec::new(), Vec::new(), Vec::new());
+        for edge in &edges {
+            let ends = edge.edge_end_vertices().unwrap_or_default();
+            let points: Vec<occt::Vec3> = ends.iter().filter_map(|v| v.vertex_point().ok()).collect();
+            let (a, z) = match points.as_slice() {
+                [a, z, ..] => (*a, *z),
+                [a] => (*a, *a),
+                [] => return Err(regen_error("FILLET_FAILED")),
+            };
+            p0.push(a);
+            r0.push(radius_at(a));
+            r1.push(radius_at(z));
+        }
+        let op = occt::variable_fillet(&model.bodies[b].shape, &edges, &p0, &r0, &r1, smooth)
+            .map_err(|_| regen_error("FILLET_FAILED"))?;
+        results.push((b, op));
+    }
+    replace_bodies(model, &id, results);
+    Ok(Value::UNDEFINED)
+}
+
+/// A partial fillet: what a full fillet would remove, only where a bound keeps it. Each bound is a plane square to
+/// its edge at a parameter along it. The fillet ends square.
+fn partial_fillet(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
+    let radius = values::length(field(definition, "radius"), "opFillet radius")?;
+    let mut planes: Vec<occt::Frame> = Vec::new();
+    for bound in field(definition, "partialFilletBounds").as_array().map(|a| a.to_vec()).unwrap_or_default() {
+        let edges = query::evaluate(model, field(&bound, "boundaryEdge"))?;
+        let edge = edges.iter().find(|r| r.kind == EntityType::Edge).ok_or_else(|| regen_error("FILLET_FAILED"))?;
+        let t = field(&bound, "boundaryParameter").as_number().ok_or_else(|| error("@opFillet: boundaryParameter"))?;
+        let flipped = field(&bound, "isFlipped").as_bool() == Some(true);
+        let at = model.shape(*edge).edge_tangent(t, false).map_err(|_| regen_error("FILLET_FAILED"))?;
+        let normal = if flipped { values::scale(at.direction, -1.0) } else { at.direction };
+        planes.push(occt::Frame { origin: at.origin, normal, x: values::canonical_x(normal) });
+    }
+    let groups = blend_edges(model, definition)?;
+    if groups.is_empty() {
+        return Err(regen_error("FILLET_SELECT_EDGES"));
+    }
+    let mut results = Vec::new();
+    for (b, edges) in groups {
+        let body = model.bodies[b].shape.clone();
+        let full = occt::fillet(&body, &edges, radius).map_err(|_| regen_error("FILLET_FAILED"))?;
+        let removed =
+            occt::boolean(occt::BooleanKind::Subtraction, std::slice::from_ref(&body), &[full.shape()], false)
+                .map_err(|_| regen_error("FILLET_FAILED"))?
+                .shape();
+        // Each bound keeps the removed material on the side its edge comes from (flipped, the side it goes to);
+        // the fillet is where any bound keeps it. (Batch 010, c003: bounds at a quarter and three quarters fillet
+        // the two outer quarters.)
+        let bounds = body.bounding_box(false).map_err(crate::occt_error)?;
+        let size = values::norm(values::sub(bounds.max, bounds.min)) * 4.0 + 1.0;
+        let removed = removed.sub_shapes(ShapeKind::Solid);
+        let mut pieces = Vec::new();
+        for plane in &planes {
+            let cutter = occt::plane_face(*plane, -size, size, -size, size).map_err(crate::occt_error)?;
+            for piece in &removed {
+                let split = occt::split(std::slice::from_ref(piece), std::slice::from_ref(&cutter))
+                    .map_err(crate::occt_error)?;
+                for part in split.shape().sub_shapes(ShapeKind::Solid) {
+                    let centre = part.centroid().map_err(crate::occt_error)?;
+                    if values::dot(values::sub(centre, plane.origin), plane.normal) < 0.0 {
+                        pieces.push(part);
+                    }
+                }
+            }
+        }
+        if pieces.is_empty() {
+            return Err(regen_error("FILLET_FAILED"));
+        }
+        let op = occt::boolean(occt::BooleanKind::Subtraction, std::slice::from_ref(&body), &pieces, true)
+            .map_err(|_| regen_error("FILLET_FAILED"))?;
+        results.push((b, op));
+    }
+    replace_bodies(model, &id, results);
     Ok(Value::UNDEFINED)
 }

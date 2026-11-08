@@ -55,6 +55,13 @@ fn add_joined_curves(model: &mut Model, id: &FeatureId, edges: &[Shape]) -> R<()
     Ok(())
 }
 
+/// `@opSplineThroughEdges`: one spline along a chain of edges: the edges joined into one B-spline.
+pub fn spline_through_edges(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
+    let edges = shapes(model, field(definition, "edges"), EntityType::Edge)?;
+    add_joined_curves(model, &id, &edges)?;
+    Ok(Value::UNDEFINED)
+}
+
 pub fn extract_wires(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
     let edges = shapes(model, field(definition, "edges"), EntityType::Edge)?;
     add_wires(model, &id, &edges)?;
@@ -392,6 +399,45 @@ pub fn move_curve_boundary(model: &mut Model, id: FeatureId, definition: &Value)
         let old = model.bodies[b].clone();
         model.remove_bodies(&[b]);
         model.add_body(NewBody::replacing(&old, edge), &Origins::default(), &info, &|_| None);
+    }
+    Ok(Value::UNDEFINED)
+}
+
+/// `@opWrap`: planar faces wrapped onto a cylinder face, as sheets (`SIMPLE` or `TRIM`). The source plane's anchor
+/// and direction go to the destination's, without stretching.
+pub fn wrap(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
+    match field(definition, "wrapType").as_str() {
+        Some("SIMPLE") | Some("TRIM") | None => {}
+        Some(other) => return Err(error(format!("@opWrap: wrapType {other} isn't supported yet"))),
+    }
+    let faces = shapes(model, field(definition, "entities"), EntityType::Face)?;
+    let source = field(definition, "source");
+    let destination = field(definition, "destination");
+    let plane = values::plane(field(source, "plane"), "opWrap source plane")
+        .map_err(|_| error("@opWrap: only planar sources are supported yet"))?;
+    let anchor = |w: &Value, what: &str| -> R<(occt::Vec3, occt::Vec3)> {
+        Ok((
+            values::vec3(field(w, "anchorPoint"), what)?,
+            values::normalize(values::vec3(field(w, "anchorDirection"), what)?)
+                .ok_or_else(|| error("zero direction"))?,
+        ))
+    };
+    let (source_anchor, source_direction) = anchor(source, "opWrap source anchor")?;
+    let (destination_anchor, destination_direction) = anchor(destination, "opWrap destination anchor")?;
+    let target = query::evaluate(model, field(destination, "face"))?
+        .into_iter()
+        .find(|r| r.kind == EntityType::Face)
+        .ok_or_else(|| error("@opWrap: the destination must be a face for now"))?;
+    let wrapped = occt::wrap_onto_cylinder(
+        &faces,
+        (source_anchor, source_direction, plane.normal),
+        model.shape(target),
+        destination_anchor,
+        destination_direction,
+    )
+    .map_err(|_| regen_error("WRAP_FAILED"))?;
+    for face in wrapped {
+        add(model, &id, face, BodyType::Sheet);
     }
     Ok(Value::UNDEFINED)
 }

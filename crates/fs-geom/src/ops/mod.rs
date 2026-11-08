@@ -120,6 +120,7 @@ pub fn register(m: &mut GeomBuiltins) {
     m.insert("opChamfer", |_, args| run_op(&args, "opChamfer", blend::chamfer));
     m.insert("opModifyFillet", |_, args| run_op(&args, "opModifyFillet", blend::modify_fillet));
     m.insert("opFullRoundFillet", |_, args| run_op(&args, "opFullRoundFillet", blend::full_round));
+    m.insert("opFaceBlend", |_, args| run_op(&args, "opFaceBlend", blend::face_blend));
     m.insert("opShell", |_, args| run_op(&args, "opShell", direct::shell));
     m.insert("opDraft", |_, args| run_op(&args, "opDraft", direct::draft));
     m.insert("opBodyDraft", |_, args| run_op(&args, "opBodyDraft", direct::body_draft));
@@ -136,6 +137,8 @@ pub fn register(m: &mut GeomBuiltins) {
     m.insert("opCreateBSplineCurve", |_, args| run_op(&args, "opCreateBSplineCurve", curve::bspline_curve));
     m.insert("opMateConnector", |_, args| run_op(&args, "opMateConnector", crate::mate::make_connector));
     m.insert("opExtractWires", |_, args| run_op(&args, "opExtractWires", surface::extract_wires));
+    m.insert("opWrap", |_, args| run_op(&args, "opWrap", surface::wrap));
+    m.insert("opSplineThroughEdges", |_, args| run_op(&args, "opSplineThroughEdges", surface::spline_through_edges));
     m.insert("opExtractSurface", |_, args| run_op(&args, "opExtractSurface", surface::extract_surface));
     m.insert("opIntersectFaces", |_, args| run_op(&args, "opIntersectFaces", surface::intersect_faces));
     m.insert("opFillSurface", |_, args| run_op(&args, "opFillSurface", surface::fill_surface));
