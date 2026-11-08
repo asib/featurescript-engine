@@ -333,6 +333,11 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   way the material lies from the definition sheet ((20, 15, 2) to (20, 15, 0) on a plate's top; a flipped form's
   from (20, 15, 0) to (20, 15, −2)).
 
+- **Body drafts on both sides** (batch 050): the part is split at the parting plane and each piece's steep faces
+  turn about their edges farthest along the way it's pulled (the piece behind the plane against the pull): the top
+  and bottom stay as they were and the part is widest at the plane. **Plane corners**: each drafted face keeps its
+  sides in its neighbours' original planes, and the plane through the corner at the reference and those sides' far
+  ends fills each corner.
 - **Parting line drafts** (batch 049): from std 3013, `draft` hands `opDraft` the parting edges and sides
   (`inferReferences`, `inferReferenceOptions`) instead of the faces: each edge's two faces are ordered by
   steepness, the face's normal · (the edge's direction in it × the pull), the one along the pull first; one sided
