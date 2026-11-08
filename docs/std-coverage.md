@@ -75,7 +75,9 @@ Onshape.
 | `cutlist` (cutlist.fs) | matches: the two tubes of a mitred L, grouped and tabled. Not yet: overrides, composite segments | 011 |
 | `tag` (tag.fs) | matches: a form's positive part. Not yet: frame profiles, PCB holes, standard content | 011 |
 | `derivedMirror`, `importForeign` | not started (`derivedMirror` fails in a Part Studio feature; `importForeign` needs uploaded data) | later |
-| sheet metal: `sheetMetalStart`, `sheetMetalFlange`, `sheetMetalHem`, `sheetMetalTab`, `sheetMetalJoint`, `sheetMetalMakeJoint`, `sheetMetalCorner`, `sheetMetalCornerBreak`, `sheetMetalBendRelief`, `sheetMetalRip`, `sheetMetalJog`, `sheetMetalBend`, `sheetMetalUnfold`/`Refold`, `sheetMetalFormed`, `sheetMetalLoft`, `sheetMetalGeometryPattern`, `sheetMetalTransform`, `sheetMetalEnd`, `pcbStart`/`pcbEnd` | not started | 010+ (planned) |
+| `sheetMetalStart` (sheetMetalStart.fs) | matches: thickening sketch regions (both ways), extruding sketch lines into an L and a U (with bends), converting a block into an open box (bends along the bottom, rips up the corners) | 012 |
+| `sheetMetalFlange` (sheetMetalFlange.fs) | matches: 90° and 45° flanges (inner alignment, default and own radius, the other way), flanges on two edges meeting at a corner (simple corner, edge-to-edge rip). Not yet: other alignments, up to an entity, miters, partial flanges | 012 |
+| sheet metal: `sheetMetalHem`, `sheetMetalTab`, `sheetMetalJoint`, `sheetMetalMakeJoint`, `sheetMetalCorner`, `sheetMetalCornerBreak`, `sheetMetalBendRelief`, `sheetMetalRip`, `sheetMetalJog`, `sheetMetalBend`, `sheetMetalUnfold`/`Refold`, `sheetMetalFormed`, `sheetMetalLoft`, `sheetMetalGeometryPattern`, `sheetMetalTransform`, `sheetMetalEnd`, `pcbStart`/`pcbEnd` | not started. The folded part is built from the model for planar walls, straight bends, edge-to-edge rips and simple corners; not yet: rolled walls, butt rips, corner and bend reliefs, the flat pattern | later |
 | tables (`cutlistTable`, `routingCurveTable`) | match, called from a feature | 011 |
 | `holeTable`, computed properties (`computeMass`) | Onshape won't run them inside a feature (they read properties, or start their own feature), and neither does the engine: both refuse with "Execution error" as Onshape does (c009, c014). Their output outside a feature isn't checked | 011 |
 
@@ -95,7 +97,8 @@ engine doesn't have. After batch 002, std calls 269 builtins; these are implemen
   `opShell`, `opDraft` (reference surface and entity), `opBodyDraft`, `opThicken`, `opOffsetFace`, `opDeleteFace`,
   `opMoveFace`, `opReplaceFace`, `opModifyFillet`, `opHole`, `opCreateCompositePart`, `opNameEntity`,
   `opCreateIsocline`, `opSplitByIsocline`, `opMergeContexts`, `opEditCurve`, `opPolyline`,
-  `opConstrainedSurface` (the cases above), and the
+  `opConstrainedSurface`, `updateSheetMetalGeometry` (planar walls, straight bends, edge-to-edge rips, simple
+  corners), `opEdgeChange` (moving straight free edges of planar faces) (the cases above), and the
   curve and surface operations of batches 004 and 005.
 - attributes: `setAttribute`, `getAttributes`, `getAttribute`, `getAllAttributes`, `removeAttributes`; they follow
   their entities through operations.
@@ -108,7 +111,7 @@ engine doesn't have. After batch 002, std calls 269 builtins; these are implemen
   coordinate systems for extruded and revolved cylinders and cones).
 - patterns: `computeLinearPatternTransforms`, `computeCircularPatternTransforms`, `setPatternData`.
 - properties: `setProperty`, `getProperty`.
-- not modelled yet, answered as if absent: sheet metal, feature patterns; Onshape's history bookkeeping
+- not modelled yet, answered as if absent: feature patterns, flat sheet metal; Onshape's history bookkeeping
   (`convert`, `recordQuery`, `clampContextVersion`, the disambiguation builtins) does nothing.
 
 ## Query types

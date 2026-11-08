@@ -57,7 +57,8 @@ fn union_of_sheets_reports_the_shared_edge() {
     };
     let wall_edge = wall.sub_shapes(ShapeKind::Edge).into_iter().find(|e| on_line(e)).expect("the wall's edge");
     let plate_edge = plate.sub_shapes(ShapeKind::Edge).into_iter().find(|e| on_line(e)).expect("the plate's edge");
-    let op = occt::boolean(BooleanKind::Union, std::slice::from_ref(&plate), std::slice::from_ref(&wall), true).unwrap();
+    let op =
+        occt::boolean(BooleanKind::Union, std::slice::from_ref(&plate), std::slice::from_ref(&wall), true).unwrap();
     let result = op.shape();
     let in_result = |e: &Shape| result.sub_shapes(ShapeKind::Edge).iter().any(|r| r.is_same(e));
     eprintln!(

@@ -221,6 +221,24 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   (Batch 011, c003.)
 - **The form tag** adds a mate connector at the part's origin with the attribute. (Batch 011, c012.)
 
+- **Sheet metal parts** (batch 012) come from std's definition sheet, whose faces are walls and whose edges are
+  joints: a thickened sketch region's definition is the face on the far side of the material, with the material
+  in front of it (along its normal); an extruded sketch line's is the sketch line itself, the material on the
+  right of the line's direction; a converted part's faces are the inside of the material. A bend's attribute
+  radius is the part's inner radius; the part's bend is the definition's corner rounded on the inside, its inner
+  and outer surfaces concentric. Where two bends meet at a corner (the simple corner, the default), each stops
+  where the other cuts back the wall they share, leaving the corner square empty; two flanges meeting at right
+  angles there, with an edge-to-edge rip, each stop the minimal clearance (0.02 mm) short of the other's inner
+  face. Inner flange alignment moves the definition's edge out by thickness × tan(angle / 2) with `opEdgeChange`,
+  which must give the edge a new transient id: std compares the edge's query before and after to see it moved.
+  Onshape keeps the faces at the ends of walls and bends separate where they're coplanar.
+- **Sheet metal can't be moved or seen.** `opTransform` refuses sheet metal parts (SHEET_METAL_PARTS_PROHIBITED);
+  outside sheet metal features `qEverything` and `qCreatedBy` don't find the definition sheets (attribute queries
+  do), and never find a flat pattern. (Batch 012.)
+- **Tracking a sketch entity** takes the sketch's IMPRINT entities derived from it (its regions' edges along it)
+  as well, and follows them into surfaces extracted from the regions: the flange builds its wall that way.
+  (Batch 012, c006.)
+
 ## STEP export
 
 - **Part names** are written on each `MANIFOLD_SOLID_BREP` (`MANIFOLD_SOLID_BREP('c030.1', ...)`), as well as on
