@@ -333,6 +333,11 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   way the material lies from the definition sheet ((20, 15, 2) to (20, 15, 0) on a plate's top; a flipped form's
   from (20, 15, 0) to (20, 15, −2)).
 
+- **Recognizing rounded and rolled sheet metal** (batch 042): `evOffsetDetection` pairs coaxial cylinders a
+  thickness apart as well as planes; of several thicknesses the commonest is used, the thinnest of those as common
+  (an L 2 mm thick at its base and 3 mm at its upright keeps only its base); side0 starts from the first pair's
+  larger face (the base's full bottom). std extracts side0 and turns a cylinder between two walls into a bend of
+  its radius; a half tube becomes a rolled wall.
 - **Assembly sections** (batch 041): std copies each target part to its instances by `opPattern`, cuts the copies,
   and moves the results back. A multiple planes section needs a `bbox`, and each plane cuts square to its x axis,
   through its origin.
