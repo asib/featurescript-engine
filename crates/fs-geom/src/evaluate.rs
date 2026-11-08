@@ -448,7 +448,15 @@ pub fn register(m: &mut GeomBuiltins) {
                         ]),
                         "Ellipse",
                     ),
-                    // B-splines and the rest: std only promises a map.
+                    _ if matches!(
+                        model.shape(*r).curve_type(),
+                        Ok(occt::CurveType::BSpline | occt::CurveType::Bezier)
+                    ) =>
+                    {
+                        let data = model.shape(*r).edge_bspline(1e-6, false, false).map_err(occt_error)?;
+                        crate::bspline::bspline_value(tags, &data)
+                    }
+                    // The rest: std only promises a map.
                     _ => Ok(map(vec![("curveType", Value::string("OTHER"))])),
                 }
             },

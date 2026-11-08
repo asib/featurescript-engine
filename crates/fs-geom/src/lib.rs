@@ -8,6 +8,7 @@
 #![allow(clippy::mutable_key_type)]
 
 pub mod attributes;
+pub mod bspline;
 pub mod evaluate;
 pub mod mate;
 pub mod model;
@@ -46,6 +47,7 @@ pub fn install(interp: &mut Interp) {
     properties::register(&mut builtins);
     attributes::register(&mut builtins);
     evaluate::register(&mut builtins);
+    bspline::register(&mut builtins);
     unmodelled::register(&mut builtins);
     variables::register(&mut builtins);
     patterns::register(&mut builtins);

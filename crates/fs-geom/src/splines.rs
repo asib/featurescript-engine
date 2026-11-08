@@ -28,7 +28,7 @@ pub fn centripetal(points: &[Vec3], periodic: bool) -> Vec<f64> {
 }
 
 /// Solves a dense linear system by Gaussian elimination with partial pivoting.
-fn solve(mut a: Vec<Vec<f64>>, mut b: Vec<f64>) -> Option<Vec<f64>> {
+pub(crate) fn solve(mut a: Vec<Vec<f64>>, mut b: Vec<f64>) -> Option<Vec<f64>> {
     let n = b.len();
     for i in 0..n {
         let pivot = (i..n).max_by(|&p, &q| a[p][i].abs().total_cmp(&a[q][i].abs()))?;
