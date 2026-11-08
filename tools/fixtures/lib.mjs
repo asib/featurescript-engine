@@ -232,7 +232,7 @@ function fixtureErrorText(error) returns string
 {
     if (error is map && error.message != undefined)
         return toString(error.message);
-    return "error";
+    return error == undefined ? "error" : toString(error);
 }
 
 function fixtureBodyType(context is Context, body is Query)
