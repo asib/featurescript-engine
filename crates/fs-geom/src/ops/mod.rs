@@ -6,6 +6,7 @@ mod direct;
 mod extrude;
 mod frames;
 mod hole;
+mod isocline;
 mod pattern;
 mod revolve;
 mod split;
@@ -72,6 +73,8 @@ pub fn register(m: &mut GeomBuiltins) {
         })
     });
     m.insert("opHole", |_, args| run_op(&args, "opHole", hole::hole));
+    m.insert("opCreateIsocline", |_, args| run_op(&args, "opCreateIsocline", isocline::create));
+    m.insert("opSplitByIsocline", |_, args| run_op(&args, "opSplitByIsocline", isocline::split));
     m.insert("opCreateCompositePart", |_, args| {
         run_op(&args, "opCreateCompositePart", |model, id, definition| {
             // A body holding other bodies: its shape is theirs together, its entities are theirs.
