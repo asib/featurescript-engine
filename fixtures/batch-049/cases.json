@@ -1,0 +1,47 @@
+{
+  "batch": "049",
+  "title": "parting line drafts",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "draft",
+      "description": "a block's sides drafted 5 degrees one sided from a parting line at mid height, the faces along the pull",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "draft",
+      "description": "the same, the faces away from the pull",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "draft",
+      "description": "the same, symmetric",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "draft",
+      "description": "the same, two sided, 5 and 10 degrees",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    }
+  ]
+}
