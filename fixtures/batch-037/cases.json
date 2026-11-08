@@ -1,0 +1,47 @@
+{
+  "batch": "037",
+  "title": "section parts: crop views, offset sections and aligned sections",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "section",
+      "description": "nothing: holds slot 0, where the other cases are built",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "section",
+      "description": "a block and pin cropped to a closed spline through four points on the top",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "section",
+      "description": "a block and pin cut along x = 20, offset 8 mm to a point at x = 28",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "section",
+      "description": "a block and pin cut along a line bent at (20, 15), as an aligned section",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    }
+  ]
+}
