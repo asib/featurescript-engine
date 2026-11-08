@@ -2,7 +2,7 @@
 
 use super::{ShapeSet, translation};
 use crate::model::{BodyType, Cap, EntityType, FeatureId, Info, Model, NewBody, Origins};
-use crate::values::{self, field, scale};
+use crate::values::{self, add, dot, field, scale, sub};
 use crate::{occt_error, query, regen_error};
 use fs_interp::Value;
 use fs_interp::eval::{R, error};
@@ -117,6 +117,24 @@ pub(super) fn pieces_touching(shape: &Shape, start: &[Shape], kind: ShapeKind) -
         .collect()
 }
 
+/// The faces of a split sheet on one side of a plane (that of `start`), sewn into shells: a split sheet comes back as
+/// loose faces, which connect again across the cut (a hem's sheet cut at a slanted plane, batch 021).
+fn sheet_faces_beside(shape: &Shape, plane: occt::Frame, start: &[Shape]) -> R<Vec<Shape>> {
+    let side = |p: Vec3| dot(sub(p, plane.origin), plane.normal);
+    let reference = start.iter().find_map(|s| s.centroid().ok()).map(side).unwrap_or(0.0);
+    let faces: Vec<Shape> = shape
+        .sub_shapes(ShapeKind::Face)
+        .into_iter()
+        .filter(|f| f.centroid().is_ok_and(|c| side(c) * reference > 0.0))
+        .collect();
+    if faces.is_empty() {
+        return Ok(Vec::new());
+    }
+    let sewn = occt::sew_faces(&faces, 1e-7).map_err(occt_error)?;
+    let shells = sewn.sub_shapes(ShapeKind::Shell);
+    Ok(if shells.is_empty() { vec![sewn] } else { shells })
+}
+
 pub fn extrude(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
     let (profiles, solid) = profile(model, definition)?;
     let direction = values::normalize(values::vec3(field(definition, "direction"), "opExtrude direction")?)
@@ -139,7 +157,9 @@ pub fn extrude(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
             }
         }
         Some(Bound::ThroughAll) => -reach,
-        Some(_) => return Err(error("@opExtrude: up-to start bounds aren't supported yet")),
+        // Up to a plane: swept from far behind, then cut at the plane (a hem's step, batch 021).
+        Some(Bound::Surface(face, _)) if face.face_plane().is_ok() => -reach,
+        Some(_) => return Err(error("@opExtrude: up-to start bounds other than planes aren't supported yet")),
     };
     let end_at = match &end {
         Bound::Blind(d) => *d,
@@ -207,7 +227,11 @@ pub fn extrude(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
                 };
                 let split = occt::split(std::slice::from_ref(&swept), std::slice::from_ref(&cutter))
                     .map_err(|_| regen_error("EXTRUDE_FAILED"))?;
-                let kept = pieces_touching(&split.shape(), &moved_start(&first, &moved), kind);
+                let starts = moved_start(&first, &moved);
+                let kept = match (solid, cutter.face_plane()) {
+                    (false, Ok(plane)) => sheet_faces_beside(&split.shape(), plane, &starts)?,
+                    _ => pieces_touching(&split.shape(), &starts, kind),
+                };
                 for piece in &kept {
                     for f in piece.sub_shapes(ShapeKind::Face) {
                         if f.distance(&cutter).is_ok_and(|d| d.distance < 1e-7) && on_surface(&f, &cutter) {
@@ -248,6 +272,41 @@ pub fn extrude(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
                 }
                 kept
             }
+        };
+        // A planar start bound: keep what's ahead of the plane along the direction; its faces there are the start cap.
+        let result = match &start {
+            Some(Bound::Surface(face, offset)) => {
+                let mut plane = face.face_plane().map_err(occt_error)?;
+                plane.origin = add(plane.origin, scale(direction, *offset));
+                let cutter =
+                    occt::plane_face(plane, -2.0 * reach, 2.0 * reach, -2.0 * reach, 2.0 * reach).map_err(occt_error)?;
+                let split = occt::split(&result, std::slice::from_ref(&cutter)).map_err(|_| regen_error("EXTRUDE_FAILED"))?;
+                let is_ahead = |piece: &Shape| {
+                    piece.centroid().is_ok_and(|c| dot(sub(c, plane.origin), plane.normal) * dot(direction, plane.normal) > 0.0)
+                };
+                // Sheets come back as loose faces: those ahead, sewn together again.
+                let ahead: Vec<Shape> = if solid {
+                    split.shape().sub_shapes(kind).into_iter().filter(|p| is_ahead(p)).collect()
+                } else {
+                    let faces: Vec<Shape> = split.shape().sub_shapes(ShapeKind::Face).into_iter().filter(|f| is_ahead(f)).collect();
+                    if faces.is_empty() {
+                        Vec::new()
+                    } else {
+                        let sewn = occt::sew_faces(&faces, 1e-7).map_err(occt_error)?;
+                        let shells = sewn.sub_shapes(ShapeKind::Shell);
+                        if shells.is_empty() { vec![sewn] } else { shells }
+                    }
+                };
+                for piece in &ahead {
+                    for f in piece.sub_shapes(ShapeKind::Face) {
+                        if on_surface(&f, &cutter) {
+                            start_cap.insert_all(&f);
+                        }
+                    }
+                }
+                ahead
+            }
+            _ => result,
         };
         if result.is_empty() {
             return Err(regen_error("EXTRUDE_FAILED"));
