@@ -199,17 +199,25 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   bridging curve's direction at an arc depends on it. (Batch 010, c006.)
 - **Variable fillets with a smooth transition** vary the radius as 3t² − 2t³ between the vertices (level at both
   ends): the volume matches that law exactly. (Batch 010, c002.)
-- **Conic and asymmetric fillets** (batch 003, c013 and c014) have a rational quadratic cross section from a point
-  set back along one face to one along the other, the edge its middle control point. A conic fillet's setbacks
-  are the circular fillet's, its weight `rho / (1 - rho)`; an asymmetric circular fillet's are its two radii
-  (`radius` on the face the edge runs backward along in its loop, `otherRadius` on the one it runs forward along),
-  weighted as a circle's arc: a quarter ellipse at a right angle (c014's 2 × 5 mm passes through (2, 5)(1 − 1/√2)).
-  Onshape's surface is a non-rational cubic B-spline swept along the edge, through the conic at equal steps of its
-  own parameter (to 1e-12) with its exact end derivatives (`2w` times the leg): 8 equal spans for a 4 mm ρ 0.7
-  conic (6.5 µm off the conic with 4, 0.54 µm with 8), 4 for the 2 × 5 quarter ellipse (13 µm with 2, 0.95 with
-  4), so spans are halved until within somewhere between 0.95 and 6.5 µm (the engine takes 2 µm). Onshape's own
-  volumes and areas of these fillets are off any exact value by up to 6e-6 (c014's volume 0.038 mm³ above its
-  B-spline's), though the exported surfaces match the engine's to the square micrometre.
+- **Conic and asymmetric fillets** (batch 003, c013 and c014; batch 052) have a rational quadratic cross section
+  from a point set back along one face to one along the other, the edge its middle control point. Its setbacks
+  are the feet on the faces of a centre `d1` from face 1 and `d2` from face 2: `s1 = (d2 + d1 cos α) / sin α`
+  along face 1 (α the angle between the faces; at a right angle `s1 = d2`). A conic fillet's centre is the
+  circular fillet's (`d1 = d2 =` the radius), its weight `rho / (1 - rho)`. An asymmetric fillet's centre is
+  `radius` from the face whose normal leans most along x, then y, then z (the face that orients fillet cylinders,
+  batch 047) and `otherRadius` from the other at a convex edge, the other way round at a concave one (flipped,
+  swapped); weighted as a circle's arc, `sin(α / 2)`: a quarter ellipse at a right angle (c014's 2 × 5 mm passes
+  through (2, 5)(1 − 1/√2)), weight 0.5 at 60° (setbacks 3√3 and 4√3 for 2 and 5). At an obtuse corner with
+  uneven radii a setback can come out negative (120°, 2 and 5 mm: −0.58 mm): Onshape fails (`FILLET_FAILED`).
+  Equal radii make a plain circular fillet, a cylinder. Onshape's surface is a non-rational cubic B-spline swept
+  along the edge, through the conic at its knots in its own parameter (to 1e-12, uneven knots too) with its exact
+  end derivatives (`2w` times the leg). The knots start at the ends; each round, every span whose middle is more
+  than 10 µm from the conic at the same parameter is halved and the spline fitted again: this gives all of
+  Onshape's 13 knot vectors (1 span for rho 0.5, a parabola; 18 crowded at the ends for rho 0.9; 6, 8 and 10 for
+  4 mm at rho 0.7 with radius 1, 4 and 10; 9 or 11 µm would miss some). Onshape's own volumes, areas and boxes of
+  these fillets stray from its exported surfaces (which match the engine's) and from the exact conics: a 2 × 5
+  section measures 2.143786 mm² along a convex edge, 2.144238 along a concave one, 2.146018 exactly, 2.147538 as
+  exported.
 - **Fillets too big for their faces** (batch 003, c015): a 30 × 20 × 10 block's four upright edges rounded 15 mm.
   Onshape lets the fillets eat the faces between them: the result is the block with each edge's own region
   (between the edge and its arc, the arc's centre 15 mm in from both faces) taken away. The arcs of the corners

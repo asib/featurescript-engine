@@ -1,0 +1,197 @@
+{
+  "batch": "052",
+  "title": "conic and asymmetric fillets: sizes, angles, concave edges, sides",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "fillet",
+      "description": "a block's upright edge, conic, 4 mm, rho 0.5",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "fillet",
+      "description": "a block's upright edge, conic, 4 mm, rho 0.9",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "fillet",
+      "description": "a block's upright edge, conic, 4 mm, rho 0.2",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "fillet",
+      "description": "a 60 × 40 × 10 block's upright edge, conic, 10 mm, rho 0.7",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "fillet",
+      "description": "a block's upright edge, conic, 1 mm, rho 0.7",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "fillet",
+      "description": "a block's top edge along x at y = 0, conic, 4 mm, rho 0.7",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "fillet",
+      "description": "a trapezoid prism's 60° upright edge, conic, 4 mm, rho 0.7",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c008",
+      "kind": "fillet",
+      "description": "a trapezoid prism's 120° upright edge, conic, 4 mm, rho 0.7",
+      "slotMeters": [
+        2.8000000000000003,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c009",
+      "kind": "fillet",
+      "description": "an L block's concave inside edge, conic, 4 mm, rho 0.7",
+      "slotMeters": [
+        3.2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c010",
+      "kind": "fillet",
+      "description": "a block's upright edge, asymmetric 2 and 5 mm, flipped",
+      "slotMeters": [
+        3.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c011",
+      "kind": "fillet",
+      "description": "a block's top edge along x at y = 0, asymmetric 2 and 5 mm",
+      "slotMeters": [
+        0,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c012",
+      "kind": "fillet",
+      "description": "a block's upright edge at (30, 20), asymmetric 2 and 5 mm",
+      "slotMeters": [
+        0.4,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c013",
+      "kind": "fillet",
+      "description": "a trapezoid prism's 60° upright edge, asymmetric 2 and 5 mm",
+      "slotMeters": [
+        0.8,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c014",
+      "kind": "fillet",
+      "description": "a trapezoid prism's 120° upright edge, asymmetric 2 and 5 mm",
+      "slotMeters": [
+        1.2000000000000002,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c015",
+      "kind": "fillet",
+      "description": "an L block's concave inside edge, asymmetric 2 and 5 mm",
+      "slotMeters": [
+        1.6,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c016",
+      "kind": "fillet",
+      "description": "a block's upright edge, asymmetric 1 and 8 mm",
+      "slotMeters": [
+        2,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c017",
+      "kind": "fillet",
+      "description": "a block's upright edge, asymmetric 3 and 3 mm",
+      "slotMeters": [
+        2.4000000000000004,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c018",
+      "kind": "fillet",
+      "description": "a block's upright edge, conic and asymmetric, 3 and 6 mm, rho 0.6",
+      "slotMeters": [
+        2.8000000000000003,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c019",
+      "kind": "fillet",
+      "description": "a block's two top edges along x, conic, 4 mm, rho 0.7",
+      "slotMeters": [
+        3.2,
+        0.4,
+        0
+      ]
+    }
+  ]
+}
