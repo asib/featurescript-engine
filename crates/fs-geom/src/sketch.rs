@@ -1,11 +1,12 @@
 //! Sketches: `@newSketch` makes a [`Sketch`] object, `@sk*` builtins add entities to it, and `@skSolve` adds the
 //! result to the context.
 //!
-//! Constraints are recorded but not solved: the engine only places entities where their definitions put them,
-//! which is exact for sketches built in FeatureScript with explicit coordinates.
+//! Constraints are solved only where the entities don't already meet them (sketches built in FeatureScript with
+//! explicit coordinates do): from where the definitions put the entities, by damped Gauss–Newton over the points,
+//! lines and arcs (a tear drop hem's profile, batch 029). Constraint types not listed in `residuals` are ignored.
 //!
 //! Solving adds, as Onshape does (fixture batch 004, c012), a wire body for each curve (construction curves too,
-//! though none counts as construction for `qConstructionFilter`), a sheet body for each enclosed region, and a
+//! though none counts as construction for `qConstructionFilter`; their edges do), a sheet body for each enclosed region, and a
 //! point body for each `skPoint` and each circle, arc or ellipse centre.
 
 use crate::model::{BodyType, FeatureId, Info, Model, NewBody, Origins};
@@ -26,6 +27,7 @@ pub struct Sketch {
     id: FeatureId,
     plane: Frame,
     entities: RefCell<Vec<SketchEntity>>,
+    constraints: RefCell<Vec<Value>>,
     solved: std::cell::Cell<bool>,
 }
 
@@ -144,6 +146,7 @@ pub fn register(m: &mut GeomBuiltins) {
             id,
             plane,
             entities: RefCell::new(Vec::new()),
+            constraints: RefCell::new(Vec::new()),
             solved: std::cell::Cell::new(false),
         })))
     });
@@ -230,9 +233,9 @@ pub fn register(m: &mut GeomBuiltins) {
         })?;
         Ok(ids(&id, &[("startId", "start"), ("endId", "end")]))
     });
-    // Constraints are already satisfied by entities placed with explicit coordinates.
     m.insert("skConstraint", |_, args| {
-        sketch_arg(&args, "skConstraint")?;
+        let sketch = sketch_arg(&args, "skConstraint")?;
+        sketch.constraints.borrow_mut().push(arg(&args, 2, "skConstraint")?.clone());
         Ok(Value::UNDEFINED)
     });
     m.insert("skSolve", |interp, args| {
@@ -241,6 +244,7 @@ pub fn register(m: &mut GeomBuiltins) {
             return Err(error("@skSolve: the sketch has already been solved"));
         }
         tags(interp)?;
+        constraints::solve(&mut sketch.entities.borrow_mut(), &sketch.constraints.borrow())?;
         model_of(&sketch.context, "skSolve", |model| solve(model, sketch))?;
         Ok(Value::UNDEFINED)
     });
@@ -378,13 +382,14 @@ fn solve(model: &mut Model, sketch: &Sketch) -> R<()> {
         let new = NewBody { sketch_plane: Some(plane), ..NewBody::new(sheet, BodyType::Sheet, created.clone()) };
         model.add_body(new, &none, &created, &|_| None);
     }
-    // Curves: a wire body each.
-    for (id, edge, _) in edges {
+    // Curves: a wire body each; a construction curve's edge and vertices are construction.
+    for (id, edge, construction) in edges {
         let info = Rc::new(Info {
             created_by: sketch.id.clone(),
             sketch_entity: Some(id.clone()),
             cap: None,
             dependency: None,
+            construction,
             ..Default::default()
         });
         let new = NewBody { sketch_plane: Some(plane), ..NewBody::new(edge, BodyType::Wire, info.clone()) };
@@ -397,6 +402,7 @@ fn solve(model: &mut Model, sketch: &Sketch) -> R<()> {
                     Rc::new(Info {
                         created_by: sketch.id.clone(),
                         sketch_entity: Some(format!("{curve}.{suffix}").into()),
+                        construction,
                         ..Default::default()
                     })
                 };
@@ -423,4 +429,265 @@ fn solve(model: &mut Model, sketch: &Sketch) -> R<()> {
         model.add_body(new, &none, &info, &|_| None);
     }
     Ok(())
+}
+
+mod constraints {
+    //! Solving a sketch's constraints: see the module's documentation.
+    use super::{Geometry, P2, SketchEntity, circle_through};
+    use crate::values::field;
+    use fs_interp::Value;
+    use fs_interp::eval::R;
+    use std::f64::consts::TAU;
+
+    /// Where an entity's unknowns start in the vector, and their kind.
+    #[derive(Clone, Copy)]
+    enum Slot {
+        Point(usize),
+        Line(usize),
+        /// Centre, radius, and start and end angles (the end past the start the way the arc runs).
+        Arc(usize),
+    }
+
+    fn slots(entities: &[SketchEntity]) -> (Vec<Option<Slot>>, Vec<f64>) {
+        let mut x = Vec::new();
+        let mut out = Vec::new();
+        for e in entities {
+            let slot = match &e.geometry {
+                Geometry::Point(p) => {
+                    x.extend([p.0, p.1]);
+                    Some(Slot::Point(x.len() - 2))
+                }
+                Geometry::Line(a, b) => {
+                    x.extend([a.0, a.1, b.0, b.1]);
+                    Some(Slot::Line(x.len() - 4))
+                }
+                // An arc's start and end run counterclockwise, whichever way it was given, as in Onshape (std's
+                // hem relies on it).
+                Geometry::Arc { start, mid, end } => match circle_through(*start, *mid, *end) {
+                    Some((c, r)) => {
+                        let ccw = (mid.0 - start.0) * (end.1 - mid.1) - (mid.1 - start.1) * (end.0 - mid.0) > 0.0;
+                        let (from, to) = if ccw { (*start, *end) } else { (*end, *start) };
+                        let a0 = (from.1 - c.1).atan2(from.0 - c.0);
+                        let mut a1 = (to.1 - c.1).atan2(to.0 - c.0);
+                        if a1 <= a0 {
+                            a1 += TAU;
+                        }
+                        x.extend([c.0, c.1, r, a0, a1]);
+                        Some(Slot::Arc(x.len() - 5))
+                    }
+                    None => None,
+                },
+                _ => None,
+            };
+            out.push(slot);
+        }
+        (out, x)
+    }
+
+    /// A reference to part of the sketch: a whole entity, or one of its points.
+    enum Part {
+        Entity(Slot),
+        Point(Slot, &'static str),
+    }
+
+    fn part(entities: &[SketchEntity], slots: &[Option<Slot>], name: &str) -> Option<Part> {
+        let (base, suffix) = match name.rsplit_once('.') {
+            Some((b, s @ ("start" | "end" | "center"))) => (b, Some(s)),
+            _ => (name, None),
+        };
+        let index = entities.iter().position(|e| &*e.id == base)?;
+        let slot = slots[index]?;
+        Some(match (suffix, slot) {
+            (None, Slot::Point(_)) => Part::Point(slot, "point"),
+            (None, _) => Part::Entity(slot),
+            (Some(s), _) => Part::Point(slot, match s {
+                "start" => "start",
+                "end" => "end",
+                _ => "center",
+            }),
+        })
+    }
+
+    fn point(x: &[f64], slot: Slot, which: &str) -> Option<P2> {
+        match (slot, which) {
+            (Slot::Point(i), _) => Some((x[i], x[i + 1])),
+            (Slot::Line(i), "start") => Some((x[i], x[i + 1])),
+            (Slot::Line(i), "end") => Some((x[i + 2], x[i + 3])),
+            (Slot::Arc(i), "center") => Some((x[i], x[i + 1])),
+            (Slot::Arc(i), "start") => Some((x[i] + x[i + 2] * x[i + 3].cos(), x[i + 1] + x[i + 2] * x[i + 3].sin())),
+            (Slot::Arc(i), "end") => Some((x[i] + x[i + 2] * x[i + 4].cos(), x[i + 1] + x[i + 2] * x[i + 4].sin())),
+            _ => None,
+        }
+    }
+
+    fn line(x: &[f64], slot: Slot) -> Option<(P2, P2)> {
+        match slot {
+            Slot::Line(i) => Some(((x[i], x[i + 1]), (x[i + 2], x[i + 3]))),
+            _ => None,
+        }
+    }
+
+    /// The perpendicular distance from `p` to the line through `a` and `b`, signed.
+    fn to_line(p: P2, a: P2, b: P2) -> f64 {
+        let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+        let len = dx.hypot(dy).max(1e-300);
+        ((p.0 - a.0) * dy - (p.1 - a.1) * dx) / len
+    }
+
+    /// One constraint's residuals at `x` (each zero when it holds), given its values at the start `x0` for fixes.
+    fn residuals(entities: &[SketchEntity], slots: &[Option<Slot>], c: &Value, x: &[f64], x0: &[f64]) -> Vec<f64> {
+        let kind = field(c, "constraintType").as_str().unwrap_or("");
+        let first = field(c, "localFirst").as_str().and_then(|n| part(entities, slots, n));
+        let second = field(c, "localSecond").as_str().and_then(|n| part(entities, slots, n));
+        let length = |key: &str| crate::values::length(field(c, key), "constraint length").ok();
+        match (kind, first, second) {
+            ("FIX", Some(Part::Point(s, w)), None) => match (point(x, s, w), point(x0, s, w)) {
+                (Some(p), Some(q)) => vec![p.0 - q.0, p.1 - q.1],
+                _ => vec![],
+            },
+            // A fixed arc keeps its centre and radius; its ends may still move round it.
+            ("FIX", Some(Part::Entity(Slot::Arc(i))), None) => vec![x[i] - x0[i], x[i + 1] - x0[i + 1], x[i + 2] - x0[i + 2]],
+            ("FIX", Some(Part::Entity(Slot::Line(i))), None) => (i..i + 4).map(|k| x[k] - x0[k]).collect(),
+            ("COINCIDENT", Some(Part::Point(s1, w1)), Some(Part::Point(s2, w2))) => match (point(x, s1, w1), point(x, s2, w2)) {
+                (Some(p), Some(q)) => vec![p.0 - q.0, p.1 - q.1],
+                _ => vec![],
+            },
+            ("COINCIDENT", Some(Part::Point(s, w)), Some(Part::Entity(e))) | ("COINCIDENT", Some(Part::Entity(e)), Some(Part::Point(s, w))) => {
+                let Some(p) = point(x, s, w) else { return vec![] };
+                match e {
+                    Slot::Line(_) => line(x, e).map(|(a, b)| vec![to_line(p, a, b)]).unwrap_or_default(),
+                    Slot::Arc(i) => vec![(p.0 - x[i]).hypot(p.1 - x[i + 1]) - x[i + 2]],
+                    Slot::Point(_) => vec![],
+                }
+            }
+            ("TANGENT", Some(Part::Entity(Slot::Arc(i))), Some(Part::Entity(l))) | ("TANGENT", Some(Part::Entity(l)), Some(Part::Entity(Slot::Arc(i)))) => {
+                line(x, l).map(|(a, b)| vec![to_line((x[i], x[i + 1]), a, b).abs() - x[i + 2]]).unwrap_or_default()
+            }
+            ("PERPENDICULAR" | "PARALLEL", Some(Part::Entity(l1)), Some(Part::Entity(l2))) => match (line(x, l1), line(x, l2)) {
+                (Some((a, b)), Some((p, q))) => {
+                    let (d1, d2) = ((b.0 - a.0, b.1 - a.1), (q.0 - p.0, q.1 - p.1));
+                    let n = d1.0.hypot(d1.1) * d2.0.hypot(d2.1);
+                    if n < 1e-300 {
+                        return vec![];
+                    }
+                    vec![if kind == "PERPENDICULAR" { (d1.0 * d2.0 + d1.1 * d2.1) / n } else { (d1.0 * d2.1 - d1.1 * d2.0) / n }]
+                }
+                _ => vec![],
+            },
+            ("HORIZONTAL" | "VERTICAL", Some(Part::Entity(l)), None) => match line(x, l) {
+                Some((a, b)) => vec![if kind == "HORIZONTAL" { b.1 - a.1 } else { b.0 - a.0 }],
+                None => vec![],
+            },
+            ("DISTANCE", Some(Part::Point(s1, w1)), Some(Part::Point(s2, w2))) => {
+                let (Some(p), Some(q), Some(l)) = (point(x, s1, w1), point(x, s2, w2), length("length")) else { return vec![] };
+                let aligned = field(c, "alignment").as_str();
+                let along = |d: f64| match aligned {
+                    Some("ALIGNED") => d - l,
+                    Some("ANTI_ALIGNED") => -d - l,
+                    _ => d.abs() - l,
+                };
+                match field(c, "direction").as_str() {
+                    Some("HORIZONTAL") => vec![along(q.0 - p.0)],
+                    Some("VERTICAL") => vec![along(q.1 - p.1)],
+                    // Smooth at the solution: a zero distance makes the points coincide.
+                    _ if l < 1e-12 => vec![q.0 - p.0, q.1 - p.1],
+                    _ => vec![((q.0 - p.0).powi(2) + (q.1 - p.1).powi(2) - l * l) / (2.0 * l)],
+                }
+            }
+            _ => vec![],
+        }
+    }
+
+    fn all(entities: &[SketchEntity], slots: &[Option<Slot>], constraints: &[Value], x: &[f64], x0: &[f64]) -> Vec<f64> {
+        constraints.iter().flat_map(|c| residuals(entities, slots, c, x, x0)).collect()
+    }
+
+    /// Moves the entities to meet the constraints, if they don't already.
+    pub fn solve(entities: &mut [SketchEntity], constraints: &[Value]) -> R<()> {
+        if constraints.is_empty() {
+            return Ok(());
+        }
+        let (slots, x0) = slots(entities);
+        let norm = |r: &[f64]| r.iter().map(|v| v * v).sum::<f64>().sqrt();
+        let mut x = x0.clone();
+        let mut r = all(entities, &slots, constraints, &x, &x0);
+        if r.iter().all(|v| v.abs() < 1e-10) {
+            return Ok(());
+        }
+        let n = x.len();
+        let mut lambda = 1e-6;
+        for _ in 0..200 {
+            if norm(&r) < 1e-13 {
+                break;
+            }
+            // The Jacobian by forward differences.
+            let h = 1e-10;
+            let mut jac = vec![vec![0.0; n]; r.len()];
+            for k in 0..n {
+                let mut xk = x.clone();
+                xk[k] += h;
+                let rk = all(entities, &slots, constraints, &xk, &x0);
+                for (row, (a, b)) in jac.iter_mut().zip(rk.iter().zip(r.iter())) {
+                    row[k] = (a - b) / h;
+                }
+            }
+            // (JᵀJ + λI) δ = −Jᵀr
+            let mut a = vec![vec![0.0; n]; n];
+            let mut g = vec![0.0; n];
+            for (row, ri) in jac.iter().zip(r.iter()) {
+                for i in 0..n {
+                    if row[i] == 0.0 {
+                        continue;
+                    }
+                    g[i] -= row[i] * ri;
+                    for j in 0..n {
+                        a[i][j] += row[i] * row[j];
+                    }
+                }
+            }
+            let mut improved = false;
+            for _ in 0..30 {
+                let mut m = a.clone();
+                for (i, row) in m.iter_mut().enumerate() {
+                    row[i] += lambda * (1.0 + row[i]);
+                }
+                let Some(step) = crate::splines::solve(m, g.clone()) else {
+                    lambda *= 10.0;
+                    continue;
+                };
+                let trial: Vec<f64> = x.iter().zip(step.iter()).map(|(a, b)| a + b).collect();
+                let rt = all(entities, &slots, constraints, &trial, &x0);
+                if norm(&rt) < norm(&r) {
+                    x = trial;
+                    r = rt;
+                    lambda = (lambda / 10.0).max(1e-12);
+                    improved = true;
+                    break;
+                }
+                lambda *= 10.0;
+            }
+            if !improved {
+                break;
+            }
+        }
+        // Write the solved geometry back.
+        for (e, slot) in entities.iter_mut().zip(slots.iter()) {
+            match (slot, &mut e.geometry) {
+                (Some(Slot::Point(i)), Geometry::Point(p)) => *p = (x[*i], x[*i + 1]),
+                (Some(Slot::Line(i)), Geometry::Line(a, b)) => {
+                    *a = (x[*i], x[*i + 1]);
+                    *b = (x[*i + 2], x[*i + 3]);
+                }
+                (Some(Slot::Arc(i)), Geometry::Arc { start, mid, end }) => {
+                    let (cx, cy, rr, a0, a1) = (x[*i], x[*i + 1], x[*i + 2], x[*i + 3], x[*i + 4]);
+                    let at = |a: f64| (cx + rr * a.cos(), cy + rr * a.sin());
+                    *start = at(a0);
+                    *mid = at((a0 + a1) / 2.0);
+                    *end = at(a1);
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
 }
