@@ -117,21 +117,24 @@ pub fn modify_fillet(model: &mut Model, id: FeatureId, definition: &Value) -> R<
         Some("CHANGE_RADIUS") => Some(values::length(field(definition, "radius"), "opModifyFillet radius")?),
         other => return Err(error(format!("@opModifyFillet: modifyFilletType {other:?} isn't supported"))),
     };
+    let refillet = change.is_some() && values::opt_bool(definition, "reFillet")?.unwrap_or(false);
     let fillets = query::evaluate(model, field(definition, "faces"))?;
     let fillets: Vec<EntityRef> = fillets.into_iter().filter(|r| r.kind == EntityType::Face).collect();
     if fillets.is_empty() {
         return Err(regen_error("MODIFY_FILLET_SELECT_FACES"));
     }
-    // For each fillet, the transient ids of the two faces it is tangent to.
-    let mut rails: Vec<(Tid, Tid)> = Vec::new();
-    for &fillet in &fillets {
+    // Refilleting, the fillets next to these (curved faces tangent to them, and on through tangent curved faces)
+    // are taken away too and made again afterwards with their own radii (batch 028).
+    let neighbours: Vec<EntityRef> = if refillet { tangent_curved_neighbours(model, &fillets) } else { Vec::new() };
+    let all: Vec<EntityRef> = fillets.iter().chain(neighbours.iter()).copied().collect();
+    let rails_of = |fillet: EntityRef| -> Vec<Tid> {
         let face = model.shape(fillet);
         let body = model.body(fillet);
         let mut found = Vec::new();
         for edge in face.visible_sub_shapes(ShapeKind::Edge) {
             for (index, other) in body.faces.iter().enumerate() {
                 let r = EntityRef { body: fillet.body, kind: EntityType::Face, index };
-                if fillets.contains(&r) || other.shape.is_same(face) {
+                if all.contains(&r) || other.shape.is_same(face) {
                     continue;
                 }
                 let shares = other.shape.visible_sub_shapes(ShapeKind::Edge).iter().any(|e| e.is_same(&edge));
@@ -140,53 +143,117 @@ pub fn modify_fillet(model: &mut Model, id: FeatureId, definition: &Value) -> R<
                 }
             }
         }
-        if let [a, b] = found[..] {
+        found
+    };
+    // For each fillet, the transient ids of the two faces it is tangent to.
+    let mut rails: Vec<(Tid, Tid)> = Vec::new();
+    for &fillet in &fillets {
+        if let [a, b] = rails_of(fillet)[..] {
             rails.push((a, b));
         } else if change.is_some() {
             return Err(regen_error("MODIFY_FILLET_FAILED"));
         }
     }
+    // The neighbours made again: the cylinders among them, by their rails and radius (their corners come back as
+    // the fillets meet).
+    let mut again: Vec<(Tid, Tid, f64)> = Vec::new();
+    for &n in &neighbours {
+        let Ok(surface) = model.shape(n).surface_definition() else { continue };
+        if surface.kind != 1 {
+            continue;
+        }
+        if let [a, b] = rails_of(n)[..]
+            && !again.iter().any(|(x, y, _)| (*x, *y) == (a, b) || (*x, *y) == (b, a))
+        {
+            again.push((a, b, surface.radius1));
+        }
+    }
     let mut results = Vec::new();
-    for (b, faces) in by_body(model, field(definition, "faces"), EntityType::Face)? {
+    let mut groups: Vec<(usize, Vec<Shape>)> = Vec::new();
+    for r in &all {
+        let shape = model.shape(*r).clone();
+        match groups.iter_mut().find(|(b, _)| *b == r.body) {
+            Some((_, list)) => list.push(shape),
+            None => groups.push((r.body, vec![shape])),
+        }
+    }
+    for (b, faces) in groups {
         let op = occt::delete_faces(&model.bodies[b].shape, &faces).map_err(|_| regen_error("MODIFY_FILLET_FAILED"))?;
         results.push((b, op));
     }
     replace_bodies(model, &id, results);
     let Some(radius) = change else { return Ok(Value::UNDEFINED) };
-    // The rails' images now meet at a sharp edge.
+    refillet_rails(model, &id, rails.iter().map(|&(a, b)| (a, b, radius)).collect())?;
+    let mut radii: Vec<f64> = Vec::new();
+    for &(_, _, r) in &again {
+        if !radii.iter().any(|x| (x - r).abs() < 1e-12) {
+            radii.push(r);
+        }
+    }
+    for r in radii {
+        refillet_rails(model, &id, again.iter().filter(|g| (g.2 - r).abs() < 1e-12).copied().collect())?;
+    }
+    Ok(Value::UNDEFINED)
+}
+
+/// The curved faces tangent to these fillets, and on through curved faces tangent to those.
+fn tangent_curved_neighbours(model: &Model, fillets: &[EntityRef]) -> Vec<EntityRef> {
+    let mut found: Vec<EntityRef> = Vec::new();
+    let mut queue: Vec<EntityRef> = fillets.to_vec();
+    while let Some(r) = queue.pop() {
+        let face = model.shape(r).clone();
+        let body = model.body(r).clone();
+        for edge in face.visible_sub_shapes(ShapeKind::Edge) {
+            for (index, other) in body.faces.iter().enumerate() {
+                let o = EntityRef { body: r.body, kind: EntityType::Face, index };
+                if fillets.contains(&o) || found.contains(&o) || other.shape.is_same(&face) {
+                    continue;
+                }
+                if other.shape.face_plane().is_ok() {
+                    continue;
+                }
+                let shares = other.shape.visible_sub_shapes(ShapeKind::Edge).iter().any(|e| e.is_same(&edge));
+                if shares && edge.faces_tangent_along(&face, &other.shape, 1e-6) {
+                    found.push(o);
+                    queue.push(o);
+                }
+            }
+        }
+    }
+    found
+}
+
+/// Fillets the edges where each pair of faces (by transient id, through what became of them) now meets.
+fn refillet_rails(model: &mut Model, id: &FeatureId, rails: Vec<(Tid, Tid, f64)>) -> R<()> {
     let image = |model: &Model, tid: Tid| -> Option<EntityRef> {
         model.everything(Some(EntityType::Face)).into_iter().find(|r| {
             let entity = model.entity(*r).expect("a face");
             entity.tid == tid || entity.ancestry.identity.contains(&tid)
         })
     };
-    let mut edges: Vec<(usize, Shape)> = Vec::new();
-    for (a, b) in rails {
+    let mut by_body: Vec<(usize, Vec<Shape>, f64)> = Vec::new();
+    for (a, b, radius) in rails {
         let (Some(a), Some(b)) = (image(model, a), image(model, b)) else {
             return Err(regen_error("MODIFY_FILLET_FAILED"));
         };
         let theirs = model.shape(b).visible_sub_shapes(ShapeKind::Edge);
         for edge in model.shape(a).visible_sub_shapes(ShapeKind::Edge) {
             if theirs.iter().any(|e| e.is_same(&edge)) {
-                edges.push((a.body, edge));
+                match by_body.iter_mut().find(|(g, _, _)| *g == a.body) {
+                    Some((_, list, _)) => list.push(edge),
+                    None => by_body.push((a.body, vec![edge], radius)),
+                }
             }
         }
     }
     let mut results: Vec<(usize, occt::Operation)> = Vec::new();
-    let mut by_body: Vec<(usize, Vec<Shape>)> = Vec::new();
-    for (b, edge) in edges {
-        match by_body.iter_mut().find(|(g, _)| *g == b) {
-            Some((_, list)) => list.push(edge),
-            None => by_body.push((b, vec![edge])),
-        }
-    }
-    for (b, edges) in by_body {
+    for (b, edges, radius) in by_body {
         let op =
             occt::fillet(&model.bodies[b].shape, &edges, radius).map_err(|_| regen_error("MODIFY_FILLET_FAILED"))?;
         results.push((b, op));
     }
-    replace_bodies(model, &id, results);
-    Ok(Value::UNDEFINED)
+    replace_bodies(model, id, results);
+    Ok(())
 }
 
 /// `@opFullRoundFillet`: rounds the centre faces between two parallel planar side faces into a half cylinder
