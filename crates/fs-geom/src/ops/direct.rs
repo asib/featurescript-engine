@@ -3,7 +3,7 @@
 use std::rc::Rc;
 
 use super::{ShapeSet, by_body, replace_bodies};
-use crate::model::{BodyType, Cap, Entity, EntityType, FeatureId, Info, Model, NewBody, Origins};
+use crate::model::{BodyType, Cap, Entity, EntityRef, EntityType, FeatureId, Info, Model, NewBody, Origins};
 use crate::values::{self, field};
 use crate::{occt_error, query, regen_error};
 use fs_interp::Value;
@@ -80,36 +80,135 @@ pub fn draft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
 }
 
 /// A draft of faces each about its own reference edges: each face turns about the plane through its first
-/// reference edge square to the pull direction.
+/// reference edge square to the pull direction, at the draft's angle or its own. The faces and edges are given as
+/// options, or, with `inferReferences` (std 3013 on), found from the parting edges as std's own
+/// `getReferenceEntityDraftOptions` would (batch 049).
 fn draft_about_entities(model: &mut Model, id: FeatureId, definition: &Value, pull: Vec3, angle: f64) -> R<Value> {
-    let mut groups: Vec<(usize, Vec<Shape>, Vec<occt::Frame>)> = Vec::new();
-    for option in field(definition, "referenceEntityDraftOptions").as_array().map(|a| a.to_vec()).unwrap_or_default() {
-        let faces = query::evaluate(model, field(&option, "face"))?;
-        let Some(face) = faces.into_iter().find(|r| r.kind == EntityType::Face) else { continue };
-        let references = query::evaluate(model, field(&option, "references"))?;
-        let edge = references.iter().find(|r| r.kind == EntityType::Edge).ok_or_else(|| regen_error("DRAFT_FAILED"))?;
-        let at = model.shape(*edge).edge_tangent(0.5, false).map_err(|_| regen_error("DRAFT_FAILED"))?.origin;
+    let options: Vec<(EntityRef, Shape, f64)> = if values::opt_bool(definition, "inferReferences")?.unwrap_or(false) {
+        inferred_draft_options(model, definition, pull, angle)?
+    } else {
+        let mut out = Vec::new();
+        for option in
+            field(definition, "referenceEntityDraftOptions").as_array().map(|a| a.to_vec()).unwrap_or_default()
+        {
+            let faces = query::evaluate(model, field(&option, "face"))?;
+            let Some(face) = faces.into_iter().find(|r| r.kind == EntityType::Face) else { continue };
+            let references = query::evaluate(model, field(&option, "references"))?;
+            let edge =
+                references.iter().find(|r| r.kind == EntityType::Edge).ok_or_else(|| regen_error("DRAFT_FAILED"))?;
+            let own = match field(&option, "angle") {
+                v if v.is_undefined() => angle,
+                v => values::angle(v, "opDraft option angle")?,
+            };
+            out.push((face, model.shape(*edge).clone(), own));
+        }
+        out
+    };
+    let mut groups: Vec<(usize, Vec<Shape>, Vec<occt::Frame>, Vec<f64>)> = Vec::new();
+    for (face, edge, own) in options {
+        let at = edge.edge_tangent(0.5, false).map_err(|_| regen_error("DRAFT_FAILED"))?.origin;
         let neutral = occt::Frame { origin: at, normal: pull, x: values::canonical_x(pull) };
         let shape = model.shape(face).clone();
-        match groups.iter_mut().find(|(b, _, _)| *b == face.body) {
-            Some((_, shapes, frames)) => {
+        match groups.iter_mut().find(|(b, _, _, _)| *b == face.body) {
+            Some((_, shapes, frames, angles)) => {
                 shapes.push(shape);
                 frames.push(neutral);
+                angles.push(own);
             }
-            None => groups.push((face.body, vec![shape], vec![neutral])),
+            None => groups.push((face.body, vec![shape], vec![neutral], vec![own])),
         }
     }
     if groups.is_empty() {
         return Err(regen_error("DRAFT_SELECT_FACES"));
     }
     let mut results = Vec::new();
-    for (b, faces, neutrals) in groups {
-        let op = occt::draft_each(&model.bodies[b].shape, &faces, pull, angle, &neutrals)
+    for (b, faces, neutrals, angles) in groups {
+        let op = occt::draft_angles(&model.bodies[b].shape, &faces, pull, &angles, &neutrals)
             .map_err(|_| regen_error("DRAFT_FAILED"))?;
         results.push((b, op));
     }
     replace_bodies(model, &id, results);
     Ok(Value::UNDEFINED)
+}
+
+/// The faces a parting line draft turns, each with its parting edge and angle, from `inferReferenceOptions`: each
+/// parting edge's two faces ordered by steepness (the face's normal along the edge's direction in it × the pull
+/// direction), the more along the pull first; one side takes the first (or, not `alongPull`, the second) at the
+/// draft's angle; symmetric and two sided ones take both, the face away from the pull at the draft's angle and the
+/// one along it at its negative or at the second angle.
+fn inferred_draft_options(
+    model: &Model,
+    definition: &Value,
+    pull_vec: Vec3,
+    angle: f64,
+) -> R<Vec<(EntityRef, Shape, f64)>> {
+    let options = field(definition, "inferReferenceOptions");
+    let flag = |key: &str| options.get(key).and_then(Value::as_bool).unwrap_or(false);
+    let pull_direction = !flag("negatePullVec");
+    let second_pull_direction = !flag("negateSecondPullDirection");
+    // std's raw pull direction: pullVec is it, or its negative with `pullDirection`.
+    let raw = if pull_direction { values::scale(pull_vec, -1.0) } else { pull_vec };
+    let sides = options.get("partingLineSides").and_then(Value::as_str).unwrap_or("ONE_SIDED").to_string();
+    let along_pull = options.get("alongPull").and_then(Value::as_bool).unwrap_or(true);
+    let away_angle = angle;
+    let along_angle = match sides.as_str() {
+        "SYMMETRIC" => -angle,
+        "TWO_SIDED" => {
+            let second = values::angle(field(options, "secondAngle"), "opDraft secondAngle")?;
+            if pull_direction == second_pull_direction { second } else { -second }
+        }
+        _ => angle,
+    };
+    let edges: Vec<EntityRef> = query::evaluate(model, field(options, "partingEdges"))?
+        .into_iter()
+        .filter(|r| r.kind == EntityType::Edge)
+        .collect();
+    if edges.is_empty() {
+        return Err(regen_error("DRAFT_SELECT_PARTING_EDGES"));
+    }
+    let mut out = Vec::new();
+    for e in edges {
+        let edge = model.shape(e).clone();
+        let mid = edge.edge_tangent(0.5, false).map_err(|_| regen_error("DRAFT_FAILED"))?;
+        let body = &model.bodies[e.body];
+        let mut data: Vec<(EntityRef, f64)> = Vec::new();
+        for (index, f) in body.faces.iter().enumerate() {
+            if !f.shape.sub_shapes(ShapeKind::Edge).iter().any(|x| x.is_same(&edge)) {
+                continue;
+            }
+            let (u, v) = f.shape.face_fraction(mid.origin).map_err(|_| regen_error("DRAFT_FAILED"))?;
+            let n = f.shape.face_tangent_plane(u, v).map_err(|_| regen_error("DRAFT_FAILED"))?.normal;
+            // The edge's direction in the face's loop: the face on its left, the normal up.
+            let left = values::cross(n, mid.direction);
+            let inside = occt::vertex(values::add(mid.origin, values::scale(left, 1e-6)))
+                .and_then(|p| p.distance(&f.shape))
+                .is_ok_and(|d| d.distance < 1e-7);
+            let along = if inside { mid.direction } else { values::scale(mid.direction, -1.0) };
+            if values::norm(values::cross(along, raw)) < 1e-9 {
+                return Err(regen_error("DRAFT_PARALLEL_PARTING_EDGE"));
+            }
+            let across = values::normalize(values::cross(along, raw)).ok_or_else(|| regen_error("DRAFT_FAILED"))?;
+            data.push((EntityRef { body: e.body, kind: EntityType::Face, index }, values::dot(n, across)));
+        }
+        if data.is_empty() {
+            return Err(regen_error("DRAFT_FAILED"));
+        }
+        if data.len() == 1 {
+            data.push(data[0]);
+        }
+        if data[1].1 > data[0].1 {
+            data.swap(0, 1);
+        }
+        if sides == "ONE_SIDED" {
+            let (face, _) = data[if along_pull { 0 } else { 1 }];
+            out.push((face, edge.clone(), angle));
+        } else {
+            for (face, steepness) in &data {
+                out.push((*face, edge.clone(), if *steepness > 0.0 { along_angle } else { away_angle }));
+            }
+        }
+    }
+    Ok(out)
 }
 
 pub fn thicken(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
