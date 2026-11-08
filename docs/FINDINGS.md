@@ -582,8 +582,10 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   sides' extent along the blend at each end (6 mm for 60 mm sheets, 3 mm with a 2 mm radius, 5 mm for sides
   spanning 50 mm between them). A short trim blends only where both sides run (20 mm of sheets along x 0..30 and
   10..50) and notches each side there; a long trim blends over both and cuts them back along their length.
-  Trimmed to the walls, sides of unequal extent give the blend slanted ends (on each side as long as that side):
-  OCCT's rolling ball does the same for circular blends; the engine's own sections don't yet. Sheets apart blend
+  Trimmed to the walls, sides of unequal extent give the blend slanted ends, the blend running along each side as
+  far as that side does: in the blend's parameters (angle, distance along it) each end is a cubic Bézier leaving
+  each corner along the section, as fast as the chord between the two corners is long (the poles' angle
+  √(2/3) = 12.247 / (3 × 5) in from each corner for c004; along the blend 3t² − 2t³ of the way). Sheets apart blend
   as sheets that meet do once std's flip is made up for. A width-controlled blend at 120°, ratio 2, fails in
   Onshape (`FACE_BLEND_FAILED`, c010); the engine builds it.
 - **Mass properties of rational surfaces** (batch 055): OCCT's adaptive integration can settle on a wrong value
