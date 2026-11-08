@@ -1,0 +1,47 @@
+{
+  "batch": "041",
+  "title": "section parts for assemblies: transformed parts, several planes",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "section",
+      "description": "nothing: holds slot 0, where the other cases are built",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "section",
+      "description": "a block at two instances, the second 40 mm along y, cut along x = 20",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "section",
+      "description": "a block and its pin as two targets, the pin at two instances, cut along a jogged line",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "section",
+      "description": "a block at two instances cut by two planes: square to x at x = 15, and square to (−1, 1) through (30, 15)",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    }
+  ]
+}
