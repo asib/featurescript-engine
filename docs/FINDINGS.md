@@ -333,6 +333,17 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   way the material lies from the definition sheet ((20, 15, 2) to (20, 15, 0) on a plate's top; a flipped form's
   from (20, 15, 0) to (20, 15, −2)).
 
+- **Revolve start bounds** (batch 024). With a blind end and a start bound up to a face or vertex, the revolve
+  runs from the end's angle back to where the bound is first met going *forward* from the profile: a plane y = −5
+  below a profile revolving about z from +x is met forward at 194.5° (the far side), so the revolve passes through
+  the block below and stops 165.5° back. A positive offset turns the bound forward (10° short of a vertex behind
+  the profile), as an end bound's offset does (further for the end).
+- **Ruled surface vertex overrides** (batch 024). An override's ruling at a vertex blends into the default along
+  the edge by 3t² − 2t³ (with `useCubicInterpolation`, the default): Onshape's far edge's poles fit it. Rulings in
+  one plane make a planar face (Onshape's is a plane, its far edge a 51-pole B-spline approximation).
+- **Wrapping onto a cone** (batch 024): isometric, rolling the plane round the cone's apex from the anchor's
+  generator; the rectangle's image matches Onshape's to the probes' tolerance.
+
 - **Derived sheet metal parts** (batch 023): with `preserveActiveSheetMetal`, `importDerived` merges the source's
   model (definition sheet with its wall and joint attributes, and its parts) and, unless it lands where it was,
   `sheetMetalTransform` moves the definition and rebuilds the parts, which stay active: a flange can be added to
