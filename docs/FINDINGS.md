@@ -333,6 +333,11 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   way the material lies from the definition sheet ((20, 15, 2) to (20, 15, 0) on a plate's top; a flipped form's
   from (20, 15, 0) to (20, 15, −2)).
 
+- **Section parts' leftovers** (batch 037): the first step of a section, deleting every body but its targets,
+  leaves the default planes and sketches in place, in Onshape as in the engine; an aligned section's tracking
+  query then takes them in, copying, rotating and cutting them with the parts. Their pieces are ordinary sheets:
+  a construction plane cut by a boolean isn't construction any more, and a copy of a sketch's sheet is still a
+  sketch's.
 - **Curves extended** (batch 036) come out as cubic B-splines, the extension more spans of the curve's. An arc is
   first made the clamped cubic spline through points at equal angles along it, with its exact tangents (radius
   long) at the ends, parametrized by the angle: as few spans, a power of two, as keep 5/384 r θ⁴ (the spline's

@@ -72,7 +72,7 @@ Onshape.
 | `gusset` (gusset.fs) | matches: triangle and chamfered rectangle, centred, in a mitred corner, offset from the centre, aligned to an edge | 008, 021, 024 |
 | `endcap` (endcap.fs) | matches: matching the profile, filleted and chamfered rectangles, circle, internal | 008, 019 |
 | `importDerived` (importDerived.fs) | matches: at the origin, at mate connectors, chosen parts with their mate connectors (from build functions); sheet metal models kept (at the origin, at a mate connector, at the source's mate connector, then edited; one of two models), or derived as plain parts. Not yet: composite parts with sheet metal | 009, 023 |
-| the `sectionPart` family (sectionpart.fs) | matches: `sectionPart`, `planeSectionPart`; `jogSectionPart` along a jogged line, as a partial section, and broken out inside a closed spline to a depth; `multiplePlaneSectionPart` with two planes. Not yet: crop views, offset and aligned sections, the assembly forms (`sectionTransformedParts`, `multiplePlanesSectionTransformedParts`) | 009, 025 |
+| the `sectionPart` family (sectionpart.fs) | matches: `sectionPart`, `planeSectionPart`; `jogSectionPart` along a jogged line, as a partial section, and broken out inside a closed spline to a depth; `multiplePlaneSectionPart` with two planes; crop views, offset and aligned sections (037). Not yet: the assembly forms (`sectionTransformedParts`, `multiplePlanesSectionTransformedParts`) | 009, 025, 037 |
 | `cutlist` (cutlist.fs) | matches: the two tubes of a mitred L, grouped and tabled; a column overridden for all frames, and for one frame (034); a frame's tangent segments merged, listed apart or, given the closed composite, as one item (035) | 011, 030, 034, 035 |
 | `tag` (tag.fs) | matches: a form's positive part; a frame profile with an alignment point (034). Not yet: PCB holes, standard content | 011, 034 |
 | `derivedMirror`, `importForeign` | not started (`derivedMirror` fails in a Part Studio feature; `importForeign` needs uploaded data) | later |
@@ -157,7 +157,8 @@ What fixtures show Onshape doing that the engine can't yet:
   within the probes' tolerance; OCCT has no conic fillets, so this needs building by hand.
 - **Asymmetric fillets** (c014). The cross section removes 2.14379 mm² for setbacks of 2 and 5 mm, close to but
   not a quarter ellipse (2.14602 mm²); the exact curve isn't known yet.
-- **Where `evPlane` puts a planar face's origin** (batch 004 c034; batch 024 c008–c010). Near the middle of the
+- **Where `evPlane` puts a planar face's origin** (batch 004 c034; batch 024 c008–c010; batch 037 c004, in the
+  axes of a rotated copy's plane, not the canonical ones). Near the middle of the
   face's box in the plane's axes, which the engine uses, but 0.3% of the box's size off it along each axis, one
   way or the other: a right triangle 30 × 12 mm gives (15.09, 6.036), not the box centre (15, 6) or the centroid
   (10, 4); the annular sector a line swept along an arc makes, (16.239, 12.045) against the box centre
