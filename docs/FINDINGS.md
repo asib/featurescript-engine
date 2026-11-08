@@ -333,6 +333,9 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   way the material lies from the definition sheet ((20, 15, 2) to (20, 15, 0) on a plate's top; a flipped form's
   from (20, 15, 0) to (20, 15, −2)).
 
+- **Assembly sections** (batch 041): std copies each target part to its instances by `opPattern`, cuts the copies,
+  and moves the results back. A multiple planes section needs a `bbox`, and each plane cuts square to its x axis,
+  through its origin.
 - **Ruled surfaces along curved edges** (batch 040): normal to a face, the rulings follow the face's normal along
   the edge (from a round's top arc they fan out in the top's plane, making a planar sheet); a width override
   blends from the default along the edge by length, smoothly (3t² − 2t³) or linearly. Onshape's far edge is an
