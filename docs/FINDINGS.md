@@ -333,6 +333,11 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   way the material lies from the definition sheet ((20, 15, 2) to (20, 15, 0) on a plate's top; a flipped form's
   from (20, 15, 0) to (20, 15, −2)).
 
+- **Ruled surfaces along curved edges** (batch 040): normal to a face, the rulings follow the face's normal along
+  the edge (from a round's top arc they fan out in the top's plane, making a planar sheet); a width override
+  blends from the default along the edge by length, smoothly (3t² − 2t³) or linearly. Onshape's far edge is an
+  approximation (areas within 0.005 mm² of exact). An angle override, or one along a vector, on a curved edge
+  fails in Onshape. `evSurfaceDefinition` gives every surface its `surfaceType` (std tells extruded walls by it).
 - **Extruded sheets extended** (batch 039) stay extrusions: past the curve's end, the curve is extended as
   `trimCurve` extends it and extruded again; along the extrusion, the extrusion is made longer. Keeping curvature,
   the distance is measured straight from the old edge to the new one, not along the curve as `trimCurve` measures
