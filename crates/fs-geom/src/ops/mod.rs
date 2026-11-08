@@ -11,6 +11,7 @@ mod merge;
 mod pattern;
 mod revolve;
 pub mod sheet_metal;
+mod tessellated;
 mod split;
 mod surface;
 mod sweep;
@@ -106,6 +107,12 @@ pub fn register(m: &mut GeomBuiltins) {
             }
             Ok(crate::values::map(Vec::new()))
         })
+    });
+    m.insert("opTessellatedLoft", |_, args| run_op(&args, "opTessellatedLoft", tessellated::loft));
+    m.insert("evTessellatedLoftMatches", |interp, args| {
+        let tags = crate::tags(interp)?;
+        let definition = fs_interp::builtins::arg(&args, 1, "evTessellatedLoftMatches")?.clone();
+        model_mut(&args, "evTessellatedLoftMatches", |model| tessellated::matches(&tags, model, &definition))
     });
     m.insert("opRevolve", |_, args| run_op(&args, "opRevolve", revolve::revolve));
     m.insert("opSphere", |_, args| {
