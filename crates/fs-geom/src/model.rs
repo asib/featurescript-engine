@@ -93,7 +93,7 @@ pub enum Cap {
 }
 
 /// Where an entity came from.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Info {
     /// The feature (or sub-feature) that created it. `qCreatedBy(id)` matches this id and every id inside it.
     pub created_by: FeatureId,
@@ -106,11 +106,14 @@ pub struct Info {
     pub label: Option<Rc<str>>,
     /// The entity whose identity it was made for, such as the sketch point a hole was placed at (`qOpHoleFace`).
     pub identity: Option<Tid>,
+    /// For a cylinder or cone, the coordinate system Onshape gives its surface (`evSurfaceDefinition`), which
+    /// depends on how it was made.
+    pub surface_frame: Option<Frame>,
 }
 
 impl Info {
     pub fn new(created_by: FeatureId) -> Rc<Info> {
-        Rc::new(Info { created_by, sketch_entity: None, cap: None, dependency: None, label: None, identity: None })
+        Rc::new(Info { created_by, sketch_entity: None, cap: None, dependency: None, ..Default::default() })
     }
 
     /// Info for entities `created_by` made from the entities `dependency`.
@@ -120,8 +123,7 @@ impl Info {
             sketch_entity: None,
             cap: None,
             dependency: Some(dependency.into()),
-            label: None,
-            identity: None,
+            ..Default::default()
         })
     }
 

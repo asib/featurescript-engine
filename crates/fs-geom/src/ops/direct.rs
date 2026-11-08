@@ -159,16 +159,14 @@ pub fn thicken(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
         sketch_entity: None,
         cap: Some(Cap::Start),
         dependency: None,
-        label: None,
-        identity: None,
+        ..Default::default()
     });
     let end_info = Rc::new(Info {
         created_by: id,
         sketch_entity: None,
         cap: Some(Cap::End),
         dependency: None,
-        label: None,
-        identity: None,
+        ..Default::default()
     });
     let (mut start_cap, mut end_cap) = (ShapeSet::default(), ShapeSet::default());
     let mut made = Vec::new();

@@ -106,16 +106,8 @@ pub fn hole(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
         let labels = |s: &Shape| label(axis, &placed, &face_names, &profile_names, s);
         let created = Info::new(id.clone());
         let special = |s: &Shape| {
-            labels(s).map(|name| {
-                Rc::new(Info {
-                    created_by: id.clone(),
-                    sketch_entity: None,
-                    cap: None,
-                    dependency: None,
-                    label: Some(name),
-                    identity,
-                })
-            })
+            labels(s)
+                .map(|name| Rc::new(Info { created_by: id.clone(), label: Some(name), identity, ..Default::default() }))
         };
         let body = model.add_body(
             NewBody::new(tool, BodyType::Solid, created.clone()),

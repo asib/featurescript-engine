@@ -386,7 +386,11 @@ pub fn register(m: &mut GeomBuiltins) {
                 if r.kind != EntityType::Face {
                     return Err(regen_error("INVALID_INPUT"));
                 }
-                let s = model.shape(*r).surface_definition().map_err(occt_error)?;
+                let mut s = model.shape(*r).surface_definition().map_err(occt_error)?;
+                // Cylinders and cones made by an extrude or revolve carry the coordinate system Onshape gives them.
+                if let (1 | 2, Some(frame)) = (s.kind, model.info(*r).surface_frame) {
+                    s.frame = frame;
+                }
                 let cs = || tags.coord_system(s.frame);
                 match s.kind {
                     0 => {

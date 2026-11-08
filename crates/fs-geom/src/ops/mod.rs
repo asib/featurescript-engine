@@ -4,6 +4,7 @@ mod blend;
 mod curve;
 mod direct;
 mod extrude;
+mod frames;
 mod hole;
 mod pattern;
 mod revolve;

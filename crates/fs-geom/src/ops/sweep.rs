@@ -25,8 +25,7 @@ fn add_with_caps(model: &mut Model, id: &FeatureId, op: &occt::Operation, solid:
             sketch_entity: None,
             cap: Some(c),
             dependency: None,
-            label: None,
-            identity: None,
+            ..Default::default()
         })
     };
     let (start_info, end_info) = (cap(Cap::Start), cap(Cap::End));

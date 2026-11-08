@@ -368,8 +368,7 @@ fn solve(model: &mut Model, sketch: &Sketch) -> R<()> {
             sketch_entity: Some(id),
             cap: None,
             dependency: None,
-            label: None,
-            identity: None,
+            ..Default::default()
         });
         let new = NewBody { sketch_plane: Some(plane), ..NewBody::new(edge, BodyType::Wire, info.clone()) };
         model.add_body(new, &none, &info, &|_| None);
@@ -380,8 +379,7 @@ fn solve(model: &mut Model, sketch: &Sketch) -> R<()> {
             sketch_entity: Some(id),
             cap: None,
             dependency: None,
-            label: None,
-            identity: None,
+            ..Default::default()
         });
         let shape = occt::vertex(p).map_err(occt_error)?;
         let new =

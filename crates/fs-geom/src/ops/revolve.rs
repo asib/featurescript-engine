@@ -63,16 +63,14 @@ pub fn revolve(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
         sketch_entity: None,
         cap: Some(Cap::Start),
         dependency: None,
-        label: None,
-        identity: None,
+        ..Default::default()
     });
     let end_info = Rc::new(Info {
         created_by: id.clone(),
         sketch_entity: None,
         cap: Some(Cap::End),
         dependency: None,
-        label: None,
-        identity: None,
+        ..Default::default()
     });
     let (kind, body_type) =
         if solid { (ShapeKind::Solid, BodyType::Solid) } else { (ShapeKind::Shell, BodyType::Sheet) };
@@ -96,11 +94,22 @@ pub fn revolve(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
     if pieces.is_empty() {
         return Err(regen_error("REVOLVE_FAILED"));
     }
+    // Cylinders and cones get Onshape's coordinate system.
+    let profile_point =
+        profile.bounding_box(false).ok().map(|b| values::scale(values::add(b.min, b.max), 0.5)).unwrap_or(axis.origin);
     let special = |s: &Shape| {
         if end_cap.contains(s) {
             Some(end_info.clone())
         } else if start_cap.contains(s) {
             Some(start_info.clone())
+        } else if s.kind() == Some(ShapeKind::Face) {
+            super::frames::revolved(s, axis, profile_point).map(|frame| {
+                Rc::new(Info {
+                    created_by: created.created_by.clone(),
+                    surface_frame: Some(frame),
+                    ..Default::default()
+                })
+            })
         } else {
             None
         }

@@ -156,24 +156,21 @@ pub fn extrude(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
         sketch_entity: None,
         cap: None,
         dependency: dependency.clone(),
-        label: None,
-        identity: None,
+        ..Default::default()
     });
     let start_info = Rc::new(Info {
         created_by: id.clone(),
         sketch_entity: None,
         cap: Some(Cap::Start),
         dependency: dependency.clone(),
-        label: None,
-        identity: None,
+        ..Default::default()
     });
     let end_info = Rc::new(Info {
         created_by: id.clone(),
         sketch_entity: None,
         cap: Some(Cap::End),
         dependency,
-        label: None,
-        identity: None,
+        ..Default::default()
     });
     let mut made: Vec<(Shape, BodyType)> = Vec::new();
     let (mut start_cap, mut end_cap) = (ShapeSet::default(), ShapeSet::default());
@@ -259,11 +256,23 @@ pub fn extrude(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
         let result = if solid { result } else { result.iter().map(|s| s.reversed()).collect() };
         made.extend(result.into_iter().map(|s| (s, if solid { BodyType::Solid } else { BodyType::Sheet })));
     }
+    // Cylinders swept from circles get Onshape's coordinate system.
+    let circles = super::frames::circles(&profiles);
+    let side_info = |frame| {
+        Rc::new(Info {
+            surface_frame: Some(frame),
+            created_by: created.created_by.clone(),
+            dependency: created.dependency.clone(),
+            ..Default::default()
+        })
+    };
     let special = |s: &Shape| {
         if end_cap.contains(s) {
             Some(end_info.clone())
         } else if start_cap.contains(s) {
             Some(start_info.clone())
+        } else if s.kind() == Some(ShapeKind::Face) && !circles.is_empty() {
+            super::frames::extruded(s, &circles, direction).map(side_info)
         } else {
             None
         }
