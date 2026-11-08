@@ -305,7 +305,9 @@ pub fn register(m: &mut GeomBuiltins) {
             |tags, model, found| {
                 let edge = single_edge(model, &found).ok_or_else(|| regen_error("INVALID_INPUT"))?;
                 if edge.curve_type().ok() != Some(occt::CurveType::Line) {
-                    return Err(regen_error("INVALID_INPUT"));
+                    // A spline fitted through two points is straight (a jog's second bend line, batch 013).
+                    let (origin, direction) = straight_spline(&edge).ok_or_else(|| regen_error("INVALID_INPUT"))?;
+                    return Ok(tags.line(origin, direction));
                 }
                 let axis = edge.axis().map_err(|_| regen_error("INVALID_INPUT"))?;
                 Ok(tags.line(axis.origin, axis.direction))
@@ -701,4 +703,24 @@ fn distance(tags: &Tags, model: &Model, definition: &Value, arc_length: bool) ->
     };
     let sides = vec![describe(&side0, i, d.a)?, describe(&side1, j, d.b)?];
     tags.tagged(map(vec![("distance", tags.length(d.distance)), ("sides", Value::array(sides))]), "DistanceResult")
+}
+
+/// A B-spline or Bezier edge that is straight: its start and direction.
+fn straight_spline(edge: &occt::Shape) -> Option<(Vec3, Vec3)> {
+    if !matches!(edge.curve_type().ok()?, occt::CurveType::BSpline | occt::CurveType::Bezier) {
+        return None;
+    }
+    let start = edge.edge_tangent(0.0, false).ok()?.origin;
+    let end = edge.edge_tangent(1.0, false).ok()?.origin;
+    let chord = values::sub(end, start);
+    let length = values::norm(chord);
+    let direction = values::normalize(chord)?;
+    let straight = [0.2, 0.4, 0.5, 0.6, 0.8].iter().all(|&t| {
+        edge.edge_tangent(t, false).is_ok_and(|a| {
+            let off = values::sub(a.origin, start);
+            let along = values::scale(direction, values::dot(off, direction));
+            values::norm(values::sub(off, along)) <= 1e-9 * length.max(1.0)
+        })
+    });
+    straight.then_some((start, direction))
 }
