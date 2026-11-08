@@ -17,7 +17,7 @@ Onshape.
 | `mirror` (mirror.fs) | matches: part, face and feature mirrors (a boss) | 002, 006, 009 |
 | `linearPattern` (linearPattern.fs) | matches: part pattern, one and two directions, centred, skipped instances, add; face and feature patterns (a boss); sheet metal parts patterned as parts, a cut hole's face patterned in a sheet metal plate. Not yet: reapplying features in each instance, patterns of hole-feature holes and forms in sheet metal | 002, 006, 009, 017 |
 | `circularPattern` (circularPattern.fs) | matches: part pattern, equal spacing, centred, opposite, add; face and feature patterns (a boss, touching the block's edges). Not yet: reapplying features in each instance | 002, 006, 009 |
-| `splitPart` (splitpart.fs) | matches: split solids by a plane or face, keep both, front or back; splitting faces by sketch edges, a plane, and a face of another part. Not yet: sheet tools | 002, 006, 007 |
+| `splitPart` (splitpart.fs) | matches: split solids by a plane or face, keep both, front or back; splitting faces by sketch edges, a plane, and a face of another part; a block split by a curved sheet | 002, 006, 007, 018 |
 | `deleteBodies` (deleteBodies.fs) | matches | 002 |
 | `cPlane` (cplane.fs) | matches: offset, plane and point, line and angle, line and point, three points, mid plane, curve point, tangent to a cylinder | 002, 006 |
 | `cPoint` (cpoint.fs) | matches: point on an edge | 002 |
@@ -27,10 +27,10 @@ Onshape.
 | `shell` (shell.fs) | matches: removing faces inwards and outwards, hollow, cylinders, an L | 003 |
 | `draft` (draft.fs) | matches: neutral plane drafts, both pull directions, cylinders; reference entity drafts (inside rib). Not yet: parting line drafts | 003, 006 |
 | `deleteFace` (deleteFace.fs) | matches: heal, cap, leave open | 003 |
-| `moveFace` (moveFace.fs) | matches: offsets; translating a face along its normal, a hole sideways, a top face sideways; rotating a planar face whose neighbours are perpendicular to it. Not yet: up to an entity, creating new faces | 003, 010 |
+| `moveFace` (moveFace.fs) | matches: offsets; translating a face along its normal, a hole sideways, a top face sideways; rotating a planar face whose neighbours are perpendicular to it; a top face translated up to a plane. Not yet: other up-to entities, creating new faces | 003, 010, 018 |
 | `replaceFace` (replaceFace.fs) | matches: a planar face replaced by a plane, with an offset, when its neighbours are perpendicular to it. Not yet: other faces | 003 |
 | `thicken` (thicken.fs) | matches: faces of solids, planar and curved, one and two sides, midplane, added to a part; sheets (inside rib and thin revolve) | 003, 006 |
-| `hole` (hole.fs) | matches: simple, counterbored and countersunk holes; blind (118° and flat tips), through, up to the next part, up to a face, blind in the last part; several at once; simple holes through a sheet metal plate. Not yet: tapped holes and clearance, offsets from the tip, starting from a sketch or plane, the newer hole (isV2), counterbored and countersunk holes in sheet metal | 006, 007, 017 |
+| `hole` (hole.fs) | matches: simple, counterbored and countersunk holes; blind (118° and flat tips), through, up to the next part, up to a face, blind in the last part; several at once; simple and counterbored holes through a sheet metal plate. Not yet: tapped holes and clearance, offsets from the tip, starting from a sketch or plane, the newer hole (isV2), countersunk holes in sheet metal | 006, 007, 017, 018 |
 | `rib` (rib.fs) | matches: parallel and normal to the sketch plane, with and without draft. Not yet: extending to the part, merging ribs | 006, 007 |
 | `modifyFillet` (modifyFillet.fs) | matches: changing the radius, removing. Not yet: refilleting neighbours | 006 |
 | `bodyDraft` (bodyDraft.fs) | matches: by faces, top edges and parts, one side of a planar parting object, crossing the part or at its side. Not yet: both sides, matching faces at the parting object, corner treatments, curved parting objects | 006, 007 |
@@ -39,22 +39,22 @@ Onshape.
 | `sweep` (sweep.fs) | matches: circles and rectangles along lines, arcs and tangent chains; surface sweeps; thin. Known gap: where `evPlane` puts the origin of a swept planar face (c034). Not yet: profile control, twist, scale | 004, 006 |
 | `loft` (loft.fs) | matches: lofts between squares and between two circles; surface lofts between arcs. Known gaps: lofts between unlike profiles or through three profiles, whose surfaces come from each kernel's own lofting (c038, c039). Not yet: guides, connections, end conditions, sections, thin | 004, 006 |
 | `helix` (helix.fs) | matches: around a cylinder by turns and pitch, both hands; about an axis; tapering | 004 |
-| `fitSpline` (fitSpline.fs) | matches: through vertices, open and closed (with simple knots, as Onshape's); through tangent edges. Not yet: end directions, approximation | 004, 010, 011 |
+| `fitSpline` (fitSpline.fs) | matches: through vertices, open and closed (with simple knots, as Onshape's); through tangent edges; with start and end directions. Not yet: magnitudes, curvature, approximation | 004, 010, 011, 018 |
 | `compositeCurve` (compositeCurve.fs) | matches | 005 |
 | `projectCurves` (projectCurves.fs) | matches: two sketches; a curve onto a face along a direction. Not yet: along the face's normals | 005 |
 | `intersectionCurve` (faceIntersection.fs) | matches: a cylinder and a plane. Known gap: Onshape splits the closed curves where two cylinders cross into two edges each (c006) | 005 |
-| `isoparametricCurve` (isoparametricCurve.fs) | matches: equally spaced both ways. Not yet: curves at given parameters or points | 005 |
+| `isoparametricCurve` (isoparametricCurve.fs) | matches: equally spaced both ways; at given positions round a cylinder (Onshape's u runs from the cylinder's x axis towards its y axis). Not yet: at points | 005, 018 |
 | `offsetCurveOnFace` (offsetCurveOnFace.fs) | matches: a straight edge across a planar face. Not yet: curved edges and faces, extending, splitting | 005 |
-| `trimCurve` (moveCurveBoundary.fs) | matches: extending a straight curve by a distance. Not yet: trimming, extending up to an entity, curved extensions | 005 |
-| `curvePattern` (curvePattern.fs) | matches: equal spacing along an arc. Not yet: distance spacing, locked faces, keeping orientation | 005 |
+| `trimCurve` (moveCurveBoundary.fs) | matches: extending a straight curve by a distance and up to a plane, trimming it by a plane. Not yet: other limits, curved extensions | 005, 018 |
+| `curvePattern` (curvePattern.fs) | matches: equal and distance spacing along an arc. Not yet: locked faces, keeping orientation | 005, 018 |
 | `offsetSurface` (offsetSurface.fs) | matches: faces of solids and sheets, both ways | 005 |
-| `extendSurface` (extend.fs) | matches: planar sheets extended by a distance, all or some edges. Not yet: curved sheets, up-to bounds | 005 |
+| `extendSurface` (extend.fs) | matches: planar sheets extended by a distance, all or some edges; a cylindrical sheet, carried on round its cylinder. Not yet: other curved sheets, up-to bounds | 005, 018 |
 | `fill` (fillSurface.fs) | matches: planar loops. Not yet: non-planar fills, tangency and curvature conditions, guides | 005 |
 | `boundarySurface` (bsurf.fs) | Known gap: two u profiles give a surface 4e-6 off Onshape's (c019). Not yet: v profiles, end conditions | 005 |
-| `ruledSurface` (ruledSurface.fs) | matches: normal to a face, aligned with a direction. Not yet: tangent, angles, vertex overrides | 005 |
+| `ruledSurface` (ruledSurface.fs) | matches: normal to a face, aligned with a direction (also as angle 0 from it). Not yet: tangent, angles from a vector, vertex overrides | 005, 018 |
 | `enclose` (enclose.fs) | Known gap: a tube closed by a slanted plane is 3e-6 off in area, because OCCT's curve where the plane cuts the cylinder is an approximation (c022) | 005 |
 | `mutualTrim` (mutualTrim.fs) | matches: two crossing planar sheets, merged | 005 |
-| `mateConnector` (mateConnector.fs) | matches: on faces (centroid), vertices, circular edges (centre), edge mid points; moved, turned, flipped, secondary axis. Not yet: between entities, realigning, specifying the normal | 005 |
+| `mateConnector` (mateConnector.fs) | matches: on faces (centroid), vertices, circular edges (centre), edge mid points; moved, turned, flipped, secondary axis; between two faces; realigned to two edges. Not yet: specifying the normal | 005, 018 |
 | `transform` by mate connectors | matches | 005 |
 | `bridgingCurve` (bridgingCurve.fs) | matches: tangent and curvature matches between lines and an arc | 010 |
 | `wrap` (wrap.fs) | matches: a planar face onto a cylinder as a surface. Not yet: cones, solids, imprinting, unwrapping | 010 |

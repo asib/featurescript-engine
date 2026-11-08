@@ -286,6 +286,15 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
 - **Sheet metal lofts** (batch 017): between two straight lines, one flat wall facing along the first profile
   crossed with the way to the second.
 
+- **Counterbored sheet metal holes** (batch 018): the flat pattern takes only what goes through (the 4 mm hole),
+  and the counterbore is cut from the part.
+- **Isoparametric curves round a cylinder** (batch 018): Onshape's u runs from the cylinder's coordinate system x
+  axis towards its y axis; for an extruded circle round z that's from −x towards +y (u = 0.25 at (0, 10), 0.6666 at
+  (5, −8.66)). Equal spacing round it is at i / n.
+- **Extending a cylindrical sheet** (batch 018) carries it on round the cylinder (5 mm of arc), not along tangents.
+- **Mate connectors between entities** (batch 018) sit halfway from the inferred origin to the other face, turned as
+  the inferred frame; **realigned** ones take z along the primary entity and x along the secondary.
+
 - **Bend reliefs** (batch 016). Where a bend covers only part of its base wall's edge, the rest of the edge is
   cut back as the bend is, and each end of the bend gets a slot in the base wall: as wide as the width scale ×
   the thickness, reaching from the edge to the depth scale × the bend's inner radius at the centre of an
