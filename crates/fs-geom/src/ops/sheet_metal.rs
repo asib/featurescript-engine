@@ -1421,6 +1421,9 @@ fn build_part(
         let piece = occt::prism(&section, scale(bend.axis_direction, span.1 - span.0)).map_err(occt_error)?.shape();
         pieces.push(place(piece, wall_index(&bend.walls.0))?);
     }
+    if pieces.is_empty() {
+        return Err(regen_error("SHEET_METAL_REBUILD_ERROR"));
+    }
     let first = pieces.remove(0);
     let solid = if pieces.is_empty() {
         first
