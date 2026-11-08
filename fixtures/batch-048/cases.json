@@ -1,0 +1,37 @@
+{
+  "batch": "048",
+  "title": "sweeps twisted and scaled along curved paths",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "sweep",
+      "description": "a rectangle along a quarter circle, twisted a quarter turn",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "sweep",
+      "description": "a circle along a quarter circle, scaled to twice its size",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "sweep",
+      "description": "a rectangle along a quarter circle, twisted a quarter turn and scaled to half its size",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    }
+  ]
+}
