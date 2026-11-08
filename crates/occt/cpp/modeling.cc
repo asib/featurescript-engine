@@ -526,17 +526,22 @@ std::unique_ptr<Operation> split_faces_op(const Shape &body, const ShapeList &fa
   BRep_Builder builder;
   builder.MakeCompound(tool);
   for (const TopoDS_Shape &t : tools.shapes) builder.Add(tool, t);
-  for (const TopoDS_Shape &f : faces.shapes) {
-    BRepAlgoAPI_Section section(f, tool, Standard_False);
-    section.ComputePCurveOn1(Standard_True);
-    section.Approximation(Standard_True);
-    section.Build();
-    if (!section.IsDone()) continue;
+  // One section of all the faces, so cuts meeting where faces meet share their vertices; each section edge goes to
+  // the face it lies on.
+  TopoDS_Compound targets;
+  builder.MakeCompound(targets);
+  for (const TopoDS_Shape &f : faces.shapes) builder.Add(targets, f);
+  BRepAlgoAPI_Section section(targets, tool, Standard_False);
+  section.ComputePCurveOn1(Standard_True);
+  section.Approximation(Standard_True);
+  section.Build();
+  if (section.IsDone())
     for (TopExp_Explorer it(section.Shape(), TopAbs_EDGE); it.More(); it.Next()) {
-      splitter.Add(TopoDS::Edge(it.Current()), TopoDS::Face(f));
+      TopoDS_Shape face;
+      if (!section.HasAncestorFaceOn1(it.Current(), face)) continue;
+      splitter.Add(TopoDS::Edge(it.Current()), TopoDS::Face(face));
       any = true;
     }
-  }
   if (!any) throw std::runtime_error("split faces: the tools don't cross the faces");
   splitter.Build();
   return finish(one(body.shape), splitter, "split faces");
