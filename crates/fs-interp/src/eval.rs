@@ -80,6 +80,8 @@ pub struct Interp {
     param_types: HashMap<usize, Rc<Vec<Option<TypeTest>>>>,
     /// Per-engine state for builtins (contexts, timers and so on).
     pub state: builtins::State,
+    /// The first predicate statement found false since the last precondition started, for its error message.
+    failed_predicate: Option<String>,
 }
 
 enum Step {
@@ -95,6 +97,7 @@ impl Interp {
             output: String::new(),
             lenient_builtins: false,
             trace_catches: false,
+            failed_predicate: None,
             locals: Vec::new(),
             frame_base: 0,
             module: 0,
@@ -363,10 +366,12 @@ impl Interp {
             for (param, arg) in function.params.iter().zip(args) {
                 this.declare(&param.name.name, arg, false);
             }
-            if let Some(precondition) = &function.precondition
-                && !this.exec_predicate(precondition)?
-            {
-                return Err(error(format!("Precondition of {name} failed")));
+            if let Some(precondition) = &function.precondition {
+                this.failed_predicate = None;
+                if !this.exec_predicate(precondition)? {
+                    let detail = this.failed_predicate.take().map(|s| format!(" ({s})")).unwrap_or_default();
+                    return Err(error(format!("Precondition of {name} failed{detail}")));
+                }
             }
             let value = match &function.body {
                 FunctionBody::Block(block) if predicate => Value::bool(this.exec_predicate_block(block)?),
@@ -885,9 +890,13 @@ impl Interp {
         match &stmt.kind {
             StmtKind::Expr(expr) => {
                 let value = self.eval(expr)?;
-                value.as_bool().ok_or_else(|| {
+                let holds = value.as_bool().ok_or_else(|| {
                     error(format!("Predicate statement must be boolean, value is {}", value.type_description()))
-                })
+                })?;
+                if !holds && self.failed_predicate.is_none() {
+                    self.failed_predicate = Some(fs_lang::printer::print_expr(expr));
+                }
+                Ok(holds)
             }
             StmtKind::Block(block) => self.exec_predicate_block(block),
             StmtKind::If { cond, then, otherwise } => {
