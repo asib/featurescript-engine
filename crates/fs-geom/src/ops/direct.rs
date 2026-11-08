@@ -734,8 +734,11 @@ pub fn body_draft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Val
     // Symmetric: the part behind the parting plane is drafted too, against the pull (batch 050).
     let both_sides = values::opt_bool(definition, "bothSides")?.unwrap_or(false);
     let plane_corners = field(definition, "cornerType").as_str() == Some("PLANE");
-    if both_sides && field(definition, "selectionType").as_str() == Some("EDGES") {
-        return Err(error("@opBodyDraft: symmetric drafts by edges aren't supported yet"));
+    // Whole parts can't be drafted on themselves: there's no reference for their faces (batch 051).
+    if values::opt_bool(definition, "draftOnSelf")?.unwrap_or(false)
+        && field(definition, "selectionType").as_str() == Some("PARTS")
+    {
+        return Err(regen_error("BODY_DRAFT_INVALID_PART_REFERENCE"));
     }
     // A face is steep if it is closer to the pull direction than the draft angle.
     let normal = |face: &Shape| face.face_tangent_plane(0.5, 0.5).ok().map(|p| p.normal);
@@ -746,6 +749,28 @@ pub fn body_draft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Val
     // Bodies drafted after splitting at the parting plane.
     let mut split_results: Vec<(usize, occt::Operation)> = Vec::new();
     let selection = field(definition, "selectionType").as_str().unwrap_or("EDGES");
+    // Symmetric by edges: the steep faces the top and bottom edges bound, drafted as chosen faces are (batch 051).
+    let edge_faces: Option<Vec<(usize, Shape)>> = if both_sides && selection == "EDGES" {
+        let mut out: Vec<(usize, Shape)> = Vec::new();
+        for key in ["topEdges", "bottomEdges"] {
+            for r in query::evaluate(model, field(definition, key))? {
+                if r.kind != EntityType::Edge {
+                    continue;
+                }
+                let edge = model.shape(r).clone();
+                for face in &model.bodies[r.body].faces {
+                    let has = face.shape.visible_sub_shapes(ShapeKind::Edge).iter().any(|e| e.is_same(&edge));
+                    if has && steep(&face.shape) && !out.iter().any(|(_, f)| f.is_same(&face.shape)) {
+                        out.push((r.body, face.shape.clone()));
+                    }
+                }
+            }
+        }
+        Some(out)
+    } else {
+        None
+    };
+    let selection = if edge_faces.is_some() { "FACES" } else { selection };
     match selection {
         "EDGES" => {
             for r in query::evaluate(model, field(definition, "topEdges"))? {
@@ -768,7 +793,9 @@ pub fn body_draft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Val
         }
         "FACES" | "PARTS" => {
             let mut faces: Vec<(usize, Shape)> = Vec::new();
-            if selection == "FACES" {
+            if let Some(chosen) = &edge_faces {
+                faces = chosen.clone();
+            } else if selection == "FACES" {
                 for r in query::evaluate(model, field(definition, "faces"))? {
                     if r.kind == EntityType::Face {
                         faces.push((r.body, model.shape(r).clone()));
