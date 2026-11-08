@@ -1,0 +1,57 @@
+{
+  "batch": "031",
+  "title": "external threads and sheet metal recognition",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "external-thread",
+      "description": "an M10 thread 15 mm down the top of a 10 mm shaft, its face split",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "external-thread",
+      "description": "the thread with a 1 mm 45 degree chamfer",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "external-thread",
+      "description": "the thread with an 8 mm undercut 3 mm long",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "external-thread",
+      "description": "an M10 thread up to the step of a shaft",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "sheet-metal-recognize",
+      "description": "an L bracket 2 mm thick, extruded 30 mm, recognized as sheet metal with 1 mm bends",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    }
+  ]
+}
