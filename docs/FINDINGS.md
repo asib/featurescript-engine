@@ -247,6 +247,14 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   keep their attributes and are tracked to what they copy; deleting faces of a sheet leaves a body for each piece,
   the edges that lost a neighbour changed; unions of sheets face one way throughout.
 
+- **Hems and rips** (batch 014). A hem sketches its profile and extrudes it, tracking the profile arc's end
+  point ("initialHemArc.end", counterclockwise) into the side edge the extrusion sweeps from it: sketch curves'
+  end vertices are named `<id>.start` and `<id>.end`, and extrusions track their faces and edges to the profile.
+  A converted box without bends is five parts, every joint a rip. A flange on its wall covers the wall's edge
+  only where the rips leave it, 0.02 mm short of each end; the wall is cut back to the rips there, with no
+  relief. A rip across a plate from corner to corner leaves it whole. Mitred flanges (30°) fail in Onshape, and
+  the plate their case leaves can't be deleted outside a sheet metal feature, so it keeps its default name.
+
 ## STEP export
 
 - **Part names** are written on each `MANIFOLD_SOLID_BREP` (`MANIFOLD_SOLID_BREP('c030.1', ...)`), as well as on

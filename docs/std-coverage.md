@@ -76,14 +76,16 @@ Onshape.
 | `tag` (tag.fs) | matches: a form's positive part. Not yet: frame profiles, PCB holes, standard content | 011 |
 | `derivedMirror`, `importForeign` | not started (`derivedMirror` fails in a Part Studio feature; `importForeign` needs uploaded data) | later |
 | `sheetMetalStart` (sheetMetalStart.fs) | matches: thickening sketch regions (both ways), extruding sketch lines into an L and a U (with bends), converting a block into an open box (bends along the bottom, rips up the corners) | 012 |
-| `sheetMetalFlange` (sheetMetalFlange.fs) | matches: 90° and 45° flanges (inner, outer, middle and hold-line alignment, default and own radius, the other way), flanges on two edges meeting at a corner (simple corner, edge-to-edge rip). Not yet: up to an entity, miters, partial flanges | 012, 013 |
+| `sheetMetalFlange` (sheetMetalFlange.fs) | matches: 90° and 45° flanges (inner, outer, middle and hold-line alignment, default and own radius, the other way), up to a plane, flanges on two edges meeting at a corner (simple corner, edge-to-edge rip), on an edge of a converted box (whose rips leave the wall short of the edge's ends). Mitred flanges at 30° fail in Onshape and the engine alike. Not yet: partial flanges | 012, 013, 014 |
 | `sheetMetalBend` (sheetMetalBend.fs) | matches: a plate bent along a line, 90° up and 60° down holding the other side | 013 |
 | `sheetMetalJoint` (sheetMetalJoint.fs) | matches: a bend made a rip (the model falls into two parts), a bend given another radius | 013 |
 | `sheetMetalTab` (sheetMetalTab.fs) | matches: a tab merged into a plate's edge | 013 |
 | `sheetMetalEnd` (sheetMetalEnd.fs) | matches: the parts become ordinary parts | 013 |
 | `sheetMetalJog` (sheetMetalJog.fs) | Known gap: std finds the jog's second split badly decomposed (c003) | 013 |
 | `sheetMetalCorner` (sheetMetalCorner.fs) | Known gap: a round relief, which Onshape cuts in the flat pattern and folds back, through the plate, the flanges and the bends (c006) | 013 |
-| sheet metal: `sheetMetalHem`, `sheetMetalMakeJoint`, `sheetMetalCornerBreak`, `sheetMetalBendRelief`, `sheetMetalRip`, `sheetMetalUnfold`/`Refold`, `sheetMetalFormed`, `sheetMetalLoft`, `sheetMetalGeometryPattern`, `sheetMetalTransform`, `pcbStart`/`pcbEnd` | not started. The folded part is built from the model for planar and cylindrical walls, sharp and rounded bends, edge-to-edge rips and simple corners; not yet: butt rips, corner and bend reliefs, the flat pattern | later |
+| `sheetMetalHem` (sheetMetalHem.fs) | matches: straight hems (with a radius, closed to the minimal gap, aligned in place or outside), a rolled hem. Not yet: tear drops (their profile needs the sketch solved), closed corners | 014 |
+| `sheetMetalRip` (sheetMetalRip.fs) | matches: a plate ripped corner to corner (Onshape leaves it whole) | 014 |
+| sheet metal: `sheetMetalMakeJoint`, `sheetMetalCornerBreak`, `sheetMetalBendRelief`, `sheetMetalUnfold`/`Refold`, `sheetMetalFormed`, `sheetMetalLoft`, `sheetMetalGeometryPattern`, `sheetMetalTransform`, `pcbStart`/`pcbEnd` | not started. The folded part is built from the model for planar and cylindrical walls, sharp and rounded bends, edge-to-edge rips and simple corners; not yet: butt rips, corner and bend reliefs, the flat pattern | later |
 | tables (`cutlistTable`, `routingCurveTable`) | match, called from a feature | 011 |
 | `holeTable`, computed properties (`computeMass`) | Onshape won't run them inside a feature (they read properties, or start their own feature), and neither does the engine: both refuse with "Execution error" as Onshape does (c009, c014). Their output outside a feature isn't checked | 011 |
 
