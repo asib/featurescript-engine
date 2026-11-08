@@ -148,7 +148,11 @@ pub fn hole(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
                 ("firstExit", Value::number(e.first_exit)),
                 ("fullExit", Value::number(e.full_exit)),
             ]);
-            depths.push((tid_string(model.bodies[*t].tid), entry));
+            depths.push((tid_string(model.bodies[*t].tid), entry.clone()));
+            // A sheet metal part's extremes are its definition sheet's too, which std looks them up by (batch 032).
+            if let Some(d) = super::sheet_metal::definition_of_part(model, *t) {
+                depths.push((tid_string(model.bodies[d].tid), entry));
+            }
         }
         let mut references = Vec::new();
         for p in &profiles {
