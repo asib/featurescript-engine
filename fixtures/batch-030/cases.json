@@ -1,0 +1,67 @@
+{
+  "batch": "030",
+  "title": "more feature options: frames trimmed to parts, locked and aligned; cut list overrides; curvature at both ends; cylinder isoclines",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "frame",
+      "description": "a square tube along a line, its end trimmed to a block it runs into",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "frame",
+      "description": "a square tube L on a block's top, its profile locked to the top",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "frame",
+      "description": "a square tube L aligned at a corner of its profile",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "cutlist",
+      "description": "the two tubes of a mitred L, their description overridden",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "fit-spline",
+      "description": "through three vertices, along x at the start and y at the end, matching curvature at both",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "isocline",
+      "description": "the 30 degree isoclines of a cylinder lying along y, as curves",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    }
+  ]
+}
