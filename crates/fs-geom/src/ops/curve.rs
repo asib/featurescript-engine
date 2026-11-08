@@ -1,9 +1,9 @@
-//! Curve operations: `@opHelix`, `@opFitSpline` and `@opCreateBSplineCurve`.
+//! Curve operations: `@opHelix`, `@opFitSpline`, `@opCreateBSplineCurve`, `@opEditCurve` and `@opPolyline`.
 
-use crate::model::{BodyType, FeatureId, Info, Model, NewBody, Origins};
-use crate::regen_error;
+use crate::model::{BodyType, EntityType, FeatureId, Info, Model, NewBody, Origins};
 use crate::splines::{self, Ends};
 use crate::values::{self, field};
+use crate::{occt_error, query, regen_error};
 use fs_interp::Value;
 use fs_interp::eval::{R, error};
 
@@ -89,5 +89,160 @@ pub fn bspline_curve(model: &mut Model, id: FeatureId, definition: &Value) -> R<
     let periodic = field(curve, "isPeriodic").as_bool() == Some(true);
     let edge = occt::bspline_edge(&poles, &weights, &knots, degree, periodic).map_err(crate::occt_error)?;
     add_wire(model, id, edge);
+    Ok(Value::UNDEFINED)
+}
+
+/// `@opEditCurve`: a wire body takes the curve of another edge. It keeps its identity; its edge and end vertices
+/// are the old ones, changed (one edge, however many it had).
+pub fn edit_curve(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
+    let mut bodies: Vec<usize> = query::evaluate(model, field(definition, "wire"))?.iter().map(|r| r.body).collect();
+    bodies.dedup();
+    let [b] = bodies[..] else { return Err(regen_error("EDIT_CURVE_SELECT_WIRE")) };
+    if model.bodies[b].body_type != BodyType::Wire {
+        return Err(regen_error("EDIT_CURVE_SELECT_WIRE"));
+    }
+    let edge = query::evaluate(model, field(definition, "edge"))?
+        .into_iter()
+        .find(|r| r.kind == EntityType::Edge)
+        .ok_or_else(|| regen_error("CANNOT_RESOLVE_ENTITIES"))?;
+    // A fresh edge on the same curve, so the two bodies share no topology.
+    let data = model.shape(edge).edge_bspline(1e-7, false, false).map_err(occt_error)?;
+    let new_edge =
+        occt::bspline_edge(&data.poles, &data.weights, &data.knots, data.degree, data.periodic).map_err(occt_error)?;
+    let wire = occt::connect_edges(std::slice::from_ref(&new_edge))
+        .map_err(occt_error)?
+        .into_iter()
+        .next()
+        .ok_or_else(|| error("@opEditCurve: no wire"))?;
+    let old = model.bodies[b].clone();
+    let mut origins = Origins::default();
+    if let (Some(old_edge), Some(image)) = (old.edges.first(), wire.sub_shapes(occt::ShapeKind::Edge).first()) {
+        origins.inherit(image, old_edge);
+    }
+    // The old ends, in order along the old wire, become the new ones.
+    let ends = |shape: &occt::Shape| -> Vec<occt::Shape> {
+        let vertices = shape.sub_shapes(occt::ShapeKind::Vertex);
+        let first = shape.edge_tangent(0.0, false).ok().map(|a| a.origin);
+        let mut v = vertices;
+        if let Some(first) = first {
+            v.sort_by(|x, y| {
+                let d =
+                    |s: &occt::Shape| s.vertex_point().map(|p| values::norm(values::sub(p, first))).unwrap_or(f64::MAX);
+                d(x).total_cmp(&d(y))
+            });
+        }
+        v
+    };
+    let new_ends = ends(&new_edge);
+    let old_ends: Vec<_> = match old.edges[..] {
+        [ref only] => ends(&only.shape),
+        _ => Vec::new(),
+    };
+    for (image, old_vertex) in new_ends.iter().zip(&old_ends) {
+        if let Some(entity) = old.vertices.iter().find(|v| v.shape.is_same(old_vertex)) {
+            let image = wire.sub_shapes(occt::ShapeKind::Vertex).into_iter().find(|w| w.is_same(image));
+            if let Some(image) = image {
+                origins.inherit(&image, entity);
+            }
+        }
+    }
+    let new = NewBody { tid: Some(old.tid), body_type: BodyType::Wire, ..NewBody::replacing(&old, wire) };
+    model.remove_bodies(&[b]);
+    model.add_body(new, &origins, &Info::new(id), &|_| None);
+    Ok(Value::UNDEFINED)
+}
+
+/// `@opPolyline`: a wire body of lines through the points, with a tangent arc of the given radius at each bend
+/// that has one (`bendRadii[i]` is the bend at point i + 1). It's closed if the first point is the last.
+pub fn polyline(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
+    use values::{add, cross, dot, norm, normalize, scale, sub};
+    let mut points: Vec<occt::Vec3> = field(definition, "points")
+        .as_array()
+        .ok_or_else(|| error("@opPolyline: points must be an array"))?
+        .iter()
+        .map(|p| values::vec3(p, "opPolyline point"))
+        .collect::<R<_>>()?;
+    points.dedup_by(|a, b| norm(sub(*a, *b)) < 1e-9);
+    let closed = points.len() > 2 && norm(sub(points[0], points[points.len() - 1])) < 1e-9;
+    if closed {
+        points.pop();
+    }
+    let n = points.len();
+    if n < 2 {
+        return Err(regen_error("ROUTING_CURVE_AT_LEAST_TWO_DISTINCT_POINTS"));
+    }
+    let radii: Vec<f64> = match field(definition, "bendRadii") {
+        v if v.is_undefined() => Vec::new(),
+        v => v
+            .as_array()
+            .ok_or_else(|| error("@opPolyline: bendRadii must be an array"))?
+            .iter()
+            .map(|r| values::length(r, "opPolyline bend radius"))
+            .collect::<R<_>>()?,
+    };
+    // Each corner's radius: corner i is at point i; an open polyline has none at its ends.
+    let corner_radius = |i: usize| -> f64 {
+        if closed {
+            // bendRadii[k] is the bend at point k + 1, wrapping round to the start.
+            radii.get((i + n - 1) % n).copied().unwrap_or(0.0)
+        } else if i == 0 || i == n - 1 {
+            0.0
+        } else {
+            radii.get(i - 1).copied().unwrap_or(0.0)
+        }
+    };
+    // Where each corner's lines end and its arc (if any), as (start, end, arc through).
+    let mut corners: Vec<(occt::Vec3, occt::Vec3, Option<occt::Vec3>)> = Vec::new();
+    for i in 0..n {
+        let p = points[i];
+        let r = corner_radius(i);
+        let neighbours =
+            if closed || (i > 0 && i < n - 1) { Some((points[(i + n - 1) % n], points[(i + 1) % n])) } else { None };
+        let (Some((before, after)), true) = (neighbours, r > 0.0) else {
+            corners.push((p, p, None));
+            continue;
+        };
+        let (Some(d_in), Some(d_out)) = (normalize(sub(p, before)), normalize(sub(after, p))) else {
+            corners.push((p, p, None));
+            continue;
+        };
+        let turn = dot(d_in, d_out).clamp(-1.0, 1.0).acos();
+        if turn < 1e-9 || norm(cross(d_in, d_out)) < 1e-12 {
+            corners.push((p, p, None));
+            continue;
+        }
+        let t = r * (turn / 2.0).tan();
+        let t1 = sub(p, scale(d_in, t));
+        let t2 = add(p, scale(d_out, t));
+        let bisector = normalize(sub(d_out, d_in)).ok_or_else(|| regen_error("POLYLINE_INVALID_BEND"))?;
+        let centre = add(p, scale(bisector, r / (turn / 2.0).cos()));
+        let mid = add(centre, scale(normalize(sub(p, centre)).expect("the corner is off the centre"), r));
+        corners.push((t1, t2, Some(mid)));
+    }
+    let mut edges = Vec::new();
+    let segments = if closed { n } else { n - 1 };
+    for i in 0..segments {
+        let j = (i + 1) % n;
+        let (start, end) = (corners[i].1, corners[j].0);
+        let along = sub(points[j], points[i]);
+        // The arcs at both ends must leave some of the line between them.
+        if dot(sub(end, start), along) < -1e-9 {
+            return Err(regen_error("POLYLINE_INVALID_BEND"));
+        }
+        if norm(sub(end, start)) > 1e-9 {
+            edges.push(occt::line_edge(start, end).map_err(occt_error)?);
+        }
+        if let (start, end, Some(mid)) = corners[j]
+            && (closed || j < n - 1)
+        {
+            edges.push(occt::arc_through(start, mid, end).map_err(occt_error)?);
+        }
+    }
+    let wire = occt::connect_edges(&edges)
+        .map_err(occt_error)?
+        .into_iter()
+        .next()
+        .ok_or_else(|| error("@opPolyline: no wire"))?;
+    add_wire(model, id, wire);
     Ok(Value::UNDEFINED)
 }

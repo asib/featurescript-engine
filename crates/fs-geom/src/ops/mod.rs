@@ -137,6 +137,8 @@ pub fn register(m: &mut GeomBuiltins) {
     m.insert("opCreateBSplineCurve", |_, args| run_op(&args, "opCreateBSplineCurve", curve::bspline_curve));
     m.insert("opMateConnector", |_, args| run_op(&args, "opMateConnector", crate::mate::make_connector));
     m.insert("opExtractWires", |_, args| run_op(&args, "opExtractWires", surface::extract_wires));
+    m.insert("opEditCurve", |_, args| run_op(&args, "opEditCurve", curve::edit_curve));
+    m.insert("opPolyline", |_, args| run_op(&args, "opPolyline", curve::polyline));
     m.insert("opConstrainedSurface", |_, args| run_op(&args, "opConstrainedSurface", surface::constrained_surface));
     m.insert("opWrap", |_, args| run_op(&args, "opWrap", surface::wrap));
     m.insert("opSplineThroughEdges", |_, args| run_op(&args, "opSplineThroughEdges", surface::spline_through_edges));
