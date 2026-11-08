@@ -62,15 +62,16 @@ pub fn evaluate(model: &Model, query: &Value) -> R<Vec<EntityRef>> {
     Ok(found.into_iter().filter(|r| seen.insert(*r)).collect())
 }
 
-/// Leaves out sheet metal definition bodies, which only sheet metal features see.
+/// Leaves out sheet metal definition bodies, which only sheet metal features see, and the tools registered on
+/// their walls, which none do (std's form feature deletes the formed bodies it still finds, batch 033).
 fn visible(model: &Model, found: Vec<EntityRef>) -> Vec<EntityRef> {
-    if model.sheet_metal_scope {
-        return found;
-    }
     let tools = crate::ops::sheet_metal::cutting_tools(model);
     found
         .into_iter()
-        .filter(|r| !model.bodies[r.body].is_sheet_metal_definition() && !tools.contains(&model.bodies[r.body].tid))
+        .filter(|r| {
+            let body = &model.bodies[r.body];
+            (model.sheet_metal_scope || !body.is_sheet_metal_definition()) && !tools.contains(&body.tid)
+        })
         .collect()
 }
 
