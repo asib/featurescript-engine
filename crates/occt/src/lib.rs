@@ -170,6 +170,7 @@ mod ffi {
         fn extend_planar_face(sheet: &Shape, edges: &ShapeList, distances: &[f64]) -> Result<UniquePtr<Shape>>;
         fn sew_faces(faces: &ShapeList, tolerance: f64) -> Result<UniquePtr<Shape>>;
         fn cylinder_face(frame: Frame, radius: f64, half_height: f64) -> Result<UniquePtr<Shape>>;
+        fn face_corners_2d(face: &Shape, vertices: &ShapeList, size: f64, chamfer: bool) -> Result<UniquePtr<Shape>>;
         fn iso_curves(face: &Shape, along_u: bool, t: f64) -> Result<UniquePtr<ShapeList>>;
         fn face_periodic(face: &Shape, along_u: bool) -> Result<bool>;
         fn join_edges(wire: &Shape) -> Result<UniquePtr<Shape>>;
@@ -767,6 +768,11 @@ pub fn extend_planar_face(face: &Shape, edges: &[Shape], distances: &[f64]) -> R
 /// axis each way, its normal pointing away from the axis.
 pub fn cylinder_face(frame: Frame, radius: f64, half_height: f64) -> Result<Shape> {
     Ok(Shape::new(ffi::cylinder_face(frame, radius, half_height)?))
+}
+
+/// A planar face with corners at some vertices rounded to `size`, or (`chamfer`) cut back `size` along both edges.
+pub fn face_corners_2d(face: &Shape, vertices: &[Shape], size: f64, chamfer: bool) -> Result<Shape> {
+    Ok(Shape::new(ffi::face_corners_2d(&face.0, &to_list(vertices), size, chamfer)?))
 }
 
 /// Faces sewn together where their edges meet: a shell (or compound of shells), for a sheet body.

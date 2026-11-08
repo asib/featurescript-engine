@@ -120,6 +120,7 @@ std::unique_ptr<Shape> extend_planar_sheet(const Shape &sheet, const ShapeList &
 std::unique_ptr<Shape> extend_planar_face(const Shape &sheet, const ShapeList &edges, rust::Slice<const double> distances);
 std::unique_ptr<Shape> sew_faces(const ShapeList &faces, double tolerance);
 std::unique_ptr<Shape> cylinder_face(Frame frame, double radius, double half_height);
+std::unique_ptr<Shape> face_corners_2d(const Shape &face_shape, const ShapeList &vertices, double size, bool chamfer);
 std::unique_ptr<ShapeList> iso_curves(const Shape &face, bool along_u, double t);
 bool face_periodic(const Shape &face, bool along_u);
 std::unique_ptr<Shape> join_edges(const Shape &wire);

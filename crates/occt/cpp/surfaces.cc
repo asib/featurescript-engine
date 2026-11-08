@@ -1,6 +1,8 @@
 // Surface and curve operations: sections, fills, enclosures, sheet extension, iso curves, projections.
 
 #include "occt/cpp/occt.h"
+#include <BRepFilletAPI_MakeFillet2d.hxx>
+#include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
 #include <BRepTools_History.hxx>
 #include <ShapeBuild_ReShape.hxx>
@@ -538,6 +540,30 @@ std::unique_ptr<Shape> cylinder_face(Frame frame, double radius, double half_hei
   BRepBuilderAPI_MakeFace maker(surface, 0, 2 * M_PI, -half_height, half_height, Precision::Confusion());
   if (!maker.IsDone()) throw std::runtime_error("cylinder face failed");
   return wrap(maker.Face());
+}
+
+// A planar face with corners at some of its vertices rounded to `size` (or, for `chamfer`, cut back `size` along
+// both edges), as a 2D fillet in its plane.
+std::unique_ptr<Shape> face_corners_2d(const Shape &face_shape, const ShapeList &vertices, double size, bool chamfer) {
+  const TopoDS_Face &face = TopoDS::Face(face_shape.shape);
+  BRepFilletAPI_MakeFillet2d maker(face);
+  TopTools_IndexedDataMapOfShapeListOfShape vertex_edges;
+  TopExp::MapShapesAndAncestors(face, TopAbs_VERTEX, TopAbs_EDGE, vertex_edges);
+  for (const TopoDS_Shape &v : vertices.shapes) {
+    const int index = vertex_edges.FindIndex(v);
+    if (index == 0) throw std::runtime_error("corner: the vertex isn't on the face");
+    const TopoDS_Vertex vertex = TopoDS::Vertex(vertex_edges.FindKey(index));
+    if (chamfer) {
+      const TopTools_ListOfShape &edges = vertex_edges(index);
+      if (edges.Extent() != 2) throw std::runtime_error("corner: a chamfer needs two edges at the vertex");
+      maker.AddChamfer(TopoDS::Edge(edges.First()), TopoDS::Edge(edges.Last()), size, size);
+    } else {
+      maker.AddFillet(vertex, size);
+    }
+  }
+  maker.Build();
+  if (!maker.IsDone()) throw std::runtime_error("corner: the 2D fillet failed");
+  return wrap(maker.Shape());
 }
 
 }  // namespace occt
