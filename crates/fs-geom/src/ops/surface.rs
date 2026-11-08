@@ -183,10 +183,14 @@ pub fn extend_sheet(model: &mut Model, id: FeatureId, definition: &Value) -> R<V
     }
     let mut results = Vec::new();
     for (b, edges) in groups {
+        let curving = field(definition, "extensionShape").as_str() == Some("SOFT");
         let shape = match extend_cylindrical(&model.bodies[b], &edges, distance)? {
             Some(patch) => patch,
-            None => occt::extend_planar_sheet(&model.bodies[b].shape, &edges, distance)
-                .map_err(|_| regen_error("EXTEND_SHEET_BODY_FAILED"))?,
+            None => match extend_extruded(&model.bodies[b], &edges, distance, curving)? {
+                Some(sheet) => sheet,
+                None => occt::extend_planar_sheet(&model.bodies[b].shape, &edges, distance)
+                    .map_err(|_| regen_error("EXTEND_SHEET_BODY_FAILED"))?,
+            },
         };
         results.push((b, shape));
     }
@@ -201,6 +205,67 @@ pub fn extend_sheet(model: &mut Model, id: FeatureId, definition: &Value) -> R<V
         model.add_body(NewBody::replacing(&old, shape), &origins, &info, &|_| None);
     }
     Ok(Value::UNDEFINED)
+}
+
+/// A sheet of one face extruded from a curve, bounded by two copies of the curve and two straight edges (batch 039):
+/// at a straight edge the curve is extended as `trimCurve` extends it, straight on or keeping its curvature, and
+/// extruded again; at a copy of the curve the extrusion is made longer.
+fn extend_extruded(body: &crate::model::Body, edges: &[Shape], distance: f64, curving: bool) -> R<Option<Shape>> {
+    use crate::values::{add, dot, norm, normalize, scale, sub};
+    let [face] = &body.faces[..] else { return Ok(None) };
+    if face.shape.surface_type().ok() != Some(occt::SurfaceType::Extrusion) {
+        return Ok(None);
+    }
+    let own: Vec<Shape> = body.edges.iter().map(|e| e.shape.clone()).collect();
+    let (lines, curves): (Vec<&Shape>, Vec<&Shape>) =
+        own.iter().partition(|e| e.curve_type().ok() == Some(occt::CurveType::Line));
+    let ([line, _], [bottom, top]) = (lines.as_slice(), curves.as_slice()) else { return Ok(None) };
+    let ends = |e: &Shape| -> R<(occt::Vec3, occt::Vec3)> {
+        Ok((
+            e.edge_tangent(0.0, false).map_err(occt_error)?.origin,
+            e.edge_tangent(1.0, false).map_err(occt_error)?.origin,
+        ))
+    };
+    let (b0, b1) = ends(bottom)?;
+    let (l0, l1) = ends(line)?;
+    // The extrusion: from the bottom curve to the top one, along the straight edges.
+    let mut vector = if norm(sub(l0, b0)) < 1e-9 || norm(sub(l0, b1)) < 1e-9 {
+        sub(l1, l0)
+    } else if norm(sub(l1, b0)) < 1e-9 || norm(sub(l1, b1)) < 1e-9 {
+        sub(l0, l1)
+    } else {
+        return Ok(None);
+    };
+    let along = normalize(vector).ok_or_else(|| regen_error("EXTEND_SHEET_BODY_FAILED"))?;
+    let mut profile = edge_as_cubic(bottom)?;
+    let mut shift = 0.0;
+    for e in edges {
+        let (e0, e1) = ends(e)?;
+        if e.is_same(top) {
+            vector = add(vector, scale(along, distance));
+        } else if e.is_same(bottom) {
+            vector = add(vector, scale(along, distance));
+            shift += distance;
+        } else if e.curve_type().ok() == Some(occt::CurveType::Line) {
+            // The straight edge at the curve's start or end.
+            let start = *profile.poles.first().expect("poles");
+            let at_start =
+                [e0, e1].iter().any(|p| norm(sub(sub(*p, start), scale(along, dot(sub(*p, start), along)))) < 1e-7);
+            profile = extended_cubic(profile, !at_start, curving, distance, true)?;
+        } else {
+            return Ok(None);
+        }
+    }
+    let curve = profile.edge()?;
+    let curve = if shift > 0.0 {
+        occt::transform(&curve, &super::translation(scale(along, -shift))).map_err(occt_error)?.shape()
+    } else {
+        curve
+    };
+    let face = occt::prism(&curve, vector).map_err(|_| regen_error("EXTEND_SHEET_BODY_FAILED"))?.shape();
+    // As a shell, as sheets are.
+    let shells = occt::connected_shells(&face).map_err(occt_error)?;
+    Ok(shells.into_iter().next())
 }
 
 /// A sheet of one cylindrical face bounded by its parameter lines, grown at the chosen edges: round the cylinder
@@ -781,6 +846,98 @@ pub fn move_curve_boundary(model: &mut Model, id: FeatureId, definition: &Value)
     Ok(Value::UNDEFINED)
 }
 
+/// A curve as Onshape extends or trims it (batches 036, 038): an arc or elliptical arc made a B-spline, or the
+/// clamped cubic B-spline it is.
+fn edge_as_cubic(edge: &Shape) -> R<crate::curve_extend::Cubic> {
+    use crate::curve_extend::{Cubic, arc_frame};
+    use crate::values::{add, cross, dot, norm, scale, sub};
+    let start = edge.edge_tangent(0.0, false).map_err(occt_error)?;
+    let end = edge.edge_tangent(1.0, false).map_err(occt_error)?;
+    if edge.curve_type().ok() == Some(occt::CurveType::Circle) {
+        let centre = edge.curve_definition().map_err(occt_error)?.frame.origin;
+        let (x, y, radius, angle) = arc_frame(centre, start.origin, start.direction, end.origin)?;
+        return Cubic::arc(centre, x, y, radius, angle);
+    }
+    // An elliptical arc keeps the ellipse's own angle, from its major axis (batch 038).
+    if edge.curve_type().ok() == Some(occt::CurveType::Ellipse) {
+        let conic = edge.curve_definition().map_err(occt_error)?;
+        let (centre, x, a, b) = (conic.frame.origin, conic.frame.x, conic.radius1, conic.radius2);
+        let mut y = cross(conic.frame.normal, x);
+        let angle_of = |p: occt::Vec3, y: occt::Vec3| {
+            let d = sub(p, centre);
+            (dot(d, y) / b).atan2(dot(d, x) / a)
+        };
+        let t0 = angle_of(start.origin, y);
+        let along = add(scale(x, -a * t0.sin()), scale(y, b * t0.cos()));
+        if dot(along, start.direction) < 0.0 {
+            y = scale(y, -1.0);
+        }
+        let t0 = angle_of(start.origin, y);
+        let mut t1 = angle_of(end.origin, y);
+        while t1 <= t0 + 1e-12 {
+            t1 += 2.0 * std::f64::consts::PI;
+        }
+        return Cubic::ellipse(centre, x, y, a, b, t0, t1);
+    }
+    let data = edge.edge_bspline(1e-7, false, false).map_err(occt_error)?;
+    let first = data.knots.first().copied().unwrap_or_default();
+    let last = data.knots.last().copied().unwrap_or_default();
+    let clamped = data.knots.len() == data.poles.len() + 4
+        && data.knots[..4].iter().all(|k| *k == first)
+        && data.knots[data.knots.len() - 4..].iter().all(|k| *k == last);
+    if data.degree != 3 || data.rational || data.periodic || !clamped {
+        return Err(error(
+            "@opMoveCurveBoundary: of curves other than lines, only arcs and clamped cubic B-splines are supported yet",
+        ));
+    }
+    let cubic = Cubic { knots: data.knots, poles: data.poles };
+    if norm(sub(*cubic.poles.last().expect("poles"), end.origin)) > 1e-9
+        || norm(sub(cubic.poles[0], start.origin)) > 1e-9
+    {
+        return Err(error("@opMoveCurveBoundary: B-splines running against their edge aren't supported yet"));
+    }
+    Ok(cubic)
+}
+
+/// A cubic extended at its end (or its start, as its reverse is at its end, its parameters kept) by `distance`:
+/// straight on, or keeping its curvature with a blend first (batches 036, 038). The distance runs along the curve,
+/// or, with `by_chord`, straight from the old end to the new one, as a sheet's curving extension measures it (batch
+/// 039: an extruded spline's extension 1.24e-4 mm longer than 5 mm along it).
+fn extended_cubic(
+    cubic: crate::curve_extend::Cubic,
+    at_end: bool,
+    curving: bool,
+    distance: f64,
+    by_chord: bool,
+) -> R<crate::curve_extend::Cubic> {
+    use crate::values::{norm, sub};
+    let cubic = if at_end { cubic } else { cubic.reversed() };
+    let old_end = cubic.derivative(cubic.end(), 0);
+    let (base, already) = match if curving { cubic.blended()? } else { None } {
+        Some(blended) => {
+            let length = blended.length(cubic.end(), blended.end());
+            (blended, length)
+        }
+        None => (cubic, 0.0),
+    };
+    let mut straight = distance - already;
+    if straight <= 1e-12 {
+        return Err(error("extensions ending within their blend aren't supported yet"));
+    }
+    let mut extended = base.straight_on(straight)?;
+    if by_chord {
+        for _ in 0..20 {
+            let chord = norm(sub(extended.derivative(extended.end(), 0), old_end));
+            if (distance - chord).abs() < 1e-15 {
+                break;
+            }
+            straight += distance - chord;
+            extended = base.straight_on(straight)?;
+        }
+    }
+    Ok(if at_end { extended } else { extended.reversed() })
+}
+
 /// A curve other than a single line trimmed or extended (batch 036): an arc trimmed by a plane stays an arc; a curve
 /// extended at its end (an arc, a cubic B-spline, or a chain of edges ending in one) becomes a B-spline as Onshape
 /// makes it (see `curve_extend`), a line at a chain's end staying a line.
@@ -796,7 +953,7 @@ fn curved_boundary_moved(
     flip: bool,
     curving: bool,
 ) -> R<Shape> {
-    use crate::curve_extend::{Cubic, arc_frame};
+    use crate::curve_extend::arc_frame;
     use crate::values::{add, cross, dot, norm, normalize, scale, sub};
     if limit_curve.is_some_and(|c| c.curve_type().ok() != Some(occt::CurveType::Line)) {
         return Err(error(
@@ -835,53 +992,7 @@ fn curved_boundary_moved(
     let (start, end) = points[index];
     let circle = edge.curve_type().ok() == Some(occt::CurveType::Circle);
 
-    // The curve as Onshape extends or trims it: an arc (its exact frame for trimming) or a clamped cubic B-spline.
-    let as_cubic = |edge: &Shape, start: &occt::Axis, end: &occt::Axis| -> R<Cubic> {
-        if edge.curve_type().ok() == Some(occt::CurveType::Circle) {
-            let centre = edge.curve_definition().map_err(occt_error)?.frame.origin;
-            let (x, y, radius, angle) = arc_frame(centre, start.origin, start.direction, end.origin)?;
-            return Cubic::arc(centre, x, y, radius, angle);
-        }
-        // An elliptical arc keeps the ellipse's own angle, from its major axis (batch 038).
-        if edge.curve_type().ok() == Some(occt::CurveType::Ellipse) {
-            let conic = edge.curve_definition().map_err(occt_error)?;
-            let (centre, x, a, b) = (conic.frame.origin, conic.frame.x, conic.radius1, conic.radius2);
-            let mut y = cross(conic.frame.normal, x);
-            let angle_of = |p: occt::Vec3, y: occt::Vec3| {
-                let d = sub(p, centre);
-                (dot(d, y) / b).atan2(dot(d, x) / a)
-            };
-            let t0 = angle_of(start.origin, y);
-            let along = add(scale(x, -a * t0.sin()), scale(y, b * t0.cos()));
-            if dot(along, start.direction) < 0.0 {
-                y = scale(y, -1.0);
-            }
-            let t0 = angle_of(start.origin, y);
-            let mut t1 = angle_of(end.origin, y);
-            while t1 <= t0 + 1e-12 {
-                t1 += 2.0 * std::f64::consts::PI;
-            }
-            return Cubic::ellipse(centre, x, y, a, b, t0, t1);
-        }
-        let data = edge.edge_bspline(1e-7, false, false).map_err(occt_error)?;
-        let first = data.knots.first().copied().unwrap_or_default();
-        let last = data.knots.last().copied().unwrap_or_default();
-        let clamped = data.knots.len() == data.poles.len() + 4
-            && data.knots[..4].iter().all(|k| *k == first)
-            && data.knots[data.knots.len() - 4..].iter().all(|k| *k == last);
-        if data.degree != 3 || data.rational || data.periodic || !clamped {
-            return Err(error(
-                "@opMoveCurveBoundary: of curves other than lines, only arcs and clamped cubic B-splines are supported yet",
-            ));
-        }
-        let cubic = Cubic { knots: data.knots, poles: data.poles };
-        if norm(sub(*cubic.poles.last().expect("poles"), end.origin)) > 1e-9
-            || norm(sub(cubic.poles[0], start.origin)) > 1e-9
-        {
-            return Err(error("@opMoveCurveBoundary: B-splines running against their edge aren't supported yet"));
-        }
-        Ok(cubic)
-    };
+    let as_cubic = |edge: &Shape, _: &occt::Axis, _: &occt::Axis| edge_as_cubic(edge);
     // A straight limit curve stands for the plane through it square to the curve's plane (an arc trimmed by a line,
     // batch 038).
     let limit = match (limit, limit_curve) {
