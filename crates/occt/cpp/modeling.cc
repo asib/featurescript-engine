@@ -1134,6 +1134,13 @@ std::unique_ptr<Operation> sweep_controlled_op(const Shape &profile, const Shape
     op->history->Merge(one(outer_shape), cut);
     op->result = cut.Shape();
   }
+  // Faces swept along consecutive path edges onto one surface are one face in Onshape (batch 034).
+  {
+    ShapeUpgrade_UnifySameDomain unifier(op->result, Standard_True, Standard_True, Standard_False);
+    unifier.Build();
+    op->history->Merge(unifier.History());
+    op->result = unifier.Shape();
+  }
   if (solid) {
     for (int k = 0; k < 2; ++k) {
       for (TopExp_Explorer it(op->result, TopAbs_FACE); it.More(); it.Next()) {
