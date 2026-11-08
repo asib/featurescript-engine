@@ -163,6 +163,7 @@ Axis edge_tangent(const Shape &s, double t, bool arc_length);
 double edge_fraction(const Shape &s, Vec3 p, bool arc_length);
 double edge_fraction_extended(const Shape &s, Vec3 p);
 Distance shape_distance(const Shape &a, const Shape &b);
+rust::Vec<double> line_crossings(const Shape &s, Vec3 origin, Vec3 direction);
 Conic curve_definition(const Shape &s);
 Conic surface_definition(const Shape &s);
 Frame face_tangent_plane(const Shape &s, double fu, double fv);

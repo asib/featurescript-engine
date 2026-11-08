@@ -256,10 +256,14 @@ std::unique_ptr<Operation> draft_op(const Shape &solid, const ShapeList &faces, 
 // Thickens a face or sheet `t1` along its normal and `t2` against it. Planar faces are swept exactly; curved ones
 // are offset.
 std::unique_ptr<Operation> thicken_op(const Shape &input, double t1, double t2) {
-  // Work on a copy: a face of a solid must not share topology with the new body.
-  Shape sheet(BRepBuilderAPI_Copy(input.shape).Shape());
+  // Work on a copy: a face of a solid must not share topology with the new body. The history runs from the input,
+  // through the copy, to the result. The caps are the faces at the thickness2 side (first) and thickness1 side (last).
+  BRepBuilderAPI_Copy copier(input.shape);
+  const TopoDS_Shape sheet = copier.Shape();
+  auto op = std::make_unique<Operation>();
+  op->history = new BRepTools_History(one(input.shape), copier);
   TopTools_IndexedMapOfShape faces;
-  TopExp::MapShapes(sheet.shape, TopAbs_FACE, faces);
+  TopExp::MapShapes(sheet, TopAbs_FACE, faces);
   bool planar = faces.Extent() > 0;
   for (int i = 1; i <= faces.Extent(); ++i)
     if (BRepAdaptor_Surface(TopoDS::Face(faces(i))).GetType() != GeomAbs_Plane) planar = false;
@@ -268,19 +272,27 @@ std::unique_ptr<Operation> thicken_op(const Shape &input, double t1, double t2) 
     gp_Vec n(face_normal(face));
     gp_Trsf back;
     back.SetTranslation(n * -t2);
-    TopoDS_Shape start = BRepBuilderAPI_Transform(face, back, Standard_True).Shape();
+    BRepBuilderAPI_Transform mover(face, back, Standard_True);
+    op->history->Merge(one(face), mover);
+    const TopoDS_Shape start = mover.Shape();
     BRepPrimAPI_MakePrism maker(start, n * (t1 + t2), Standard_False, Standard_True);
     maker.Build();
-    return finish(one(sheet.shape), maker, "thicken");
+    if (!maker.IsDone()) throw std::runtime_error("thicken failed");
+    op->history->Merge(one(start), maker);
+    op->result = maker.Shape();
+    op->first.push_back(maker.FirstShape(start));
+    op->last.push_back(maker.LastShape(start));
+    return op;
   }
   // BRepOffset_MakeOffset in thickening mode keeps analytic surfaces exact (a cylinder offsets to a cylinder);
   // the simpler offset turns them into B-splines.
-  TopoDS_Shape base = sheet.shape;
+  TopoDS_Shape base = sheet;
   if (t2 != 0) {
     BRepOffset_MakeOffset back;
-    back.Initialize(sheet.shape, -t2, 1e-7, BRepOffset_Skin, Standard_False, Standard_False, GeomAbs_Arc);
+    back.Initialize(sheet, -t2, 1e-7, BRepOffset_Skin, Standard_False, Standard_False, GeomAbs_Arc);
     back.MakeOffsetShape();
     if (!back.IsDone()) throw std::runtime_error("thicken: offset failed");
+    op->history->Merge(one(sheet), back);
     base = back.Shape();
   }
   BRepOffset_MakeOffset maker;
@@ -288,9 +300,18 @@ std::unique_ptr<Operation> thicken_op(const Shape &input, double t1, double t2) 
                    Standard_True);
   maker.MakeOffsetShape();
   if (!maker.IsDone()) throw std::runtime_error("thicken failed");
-  auto op = std::make_unique<Operation>();
-  op->history = new BRepTools_History();
+  op->history->Merge(one(base), maker);
   op->result = maker.Shape();
+  TopTools_IndexedMapOfShape result_faces;
+  TopExp::MapShapes(op->result, TopAbs_FACE, result_faces);
+  TopTools_IndexedMapOfShape base_faces;
+  TopExp::MapShapes(base, TopAbs_FACE, base_faces);
+  for (int i = 1; i <= base_faces.Extent(); ++i) {
+    if (result_faces.Contains(base_faces(i))) op->first.push_back(base_faces(i));
+    for (const TopoDS_Shape &image : maker.Modified(base_faces(i))) op->last.push_back(image);
+    for (const TopoDS_Shape &image : maker.Generated(base_faces(i)))
+      if (image.ShapeType() == TopAbs_FACE) op->last.push_back(image);
+  }
   // Thickening a face of a solid along its outward normal can come out inside out.
   GProp_GProps props;
   BRepGProp::VolumeProperties(op->result, props);

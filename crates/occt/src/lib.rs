@@ -204,6 +204,7 @@ mod ffi {
         fn edge_fraction(s: &Shape, p: Vec3, arc_length: bool) -> Result<f64>;
         fn edge_fraction_extended(s: &Shape, p: Vec3) -> Result<f64>;
         fn shape_distance(a: &Shape, b: &Shape) -> Result<Distance>;
+        fn line_crossings(s: &Shape, origin: Vec3, direction: Vec3) -> Result<Vec<f64>>;
         fn curve_definition(s: &Shape) -> Result<Conic>;
         fn surface_definition(s: &Shape) -> Result<Conic>;
         fn face_tangent_plane(s: &Shape, fu: f64, fv: f64) -> Result<Frame>;
@@ -449,6 +450,12 @@ impl Shape {
     /// or above 1.
     pub fn edge_fraction_extended(&self, p: Vec3) -> Result<f64> {
         Ok(ffi::edge_fraction_extended(&self.0, p)?)
+    }
+
+    /// Where the infinite line through `origin` along the unit vector `direction` crosses this shape's faces, as
+    /// sorted distances along it.
+    pub fn line_crossings(&self, origin: Vec3, direction: Vec3) -> Result<Vec<f64>> {
+        Ok(ffi::line_crossings(&self.0, origin, direction)?)
     }
 
     /// The minimum distance to another shape, and the closest points.

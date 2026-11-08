@@ -3,6 +3,8 @@
 #include "occt/cpp/occt.h"
 
 #include <BRepAdaptor_Curve.hxx>
+#include <IntCurvesFace_ShapeIntersector.hxx>
+#include <algorithm>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepLProp_SLProps.hxx>
@@ -147,6 +149,22 @@ double edge_fraction_extended(const Shape &s, Vec3 p) {
 }
 
 // The minimum distance between two shapes and the closest points on each.
+// Where the infinite line through `origin` along `direction` (a unit vector) crosses the faces of a shape, as
+// distances along it, sorted, with crossings at the same place (on an edge between faces) counted once.
+rust::Vec<double> line_crossings(const Shape &s, Vec3 origin, Vec3 direction) {
+  IntCurvesFace_ShapeIntersector intersector;
+  intersector.Load(s.shape, 1e-9);
+  intersector.Perform(gp_Lin(pnt(origin), dir(direction)), -1e6, 1e6);
+  std::vector<double> found;
+  if (intersector.IsDone())
+    for (int i = 1; i <= intersector.NbPnt(); ++i) found.push_back(intersector.WParameter(i));
+  std::sort(found.begin(), found.end());
+  rust::Vec<double> out;
+  for (double w : found)
+    if (out.empty() || w - out[out.size() - 1] > 1e-9) out.push_back(w);
+  return out;
+}
+
 Distance shape_distance(const Shape &a, const Shape &b) {
   BRepExtrema_DistShapeShape extrema(a.shape, b.shape);
   if (!extrema.IsDone() || extrema.NbSolution() == 0) throw std::runtime_error("distance failed");
