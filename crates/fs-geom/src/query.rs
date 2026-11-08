@@ -201,7 +201,13 @@ fn resolve(model: &Model, query: &Value) -> R<Vec<EntityRef>> {
         }
         "CONSTRUCTION_FILTER" => {
             let construction = yes_no(query, "constructionFilter")?;
-            sub(model, query, "subquery")?.into_iter().filter(|r| model.body(*r).construction == construction).collect()
+            sub(model, query, "subquery")?
+                .into_iter()
+                .filter(|r| {
+                    let entity = r.kind != EntityType::Body && model.info(*r).construction;
+                    (model.body(*r).construction || entity) == construction
+                })
+                .collect()
         }
         "SKETCH_OBJECT_FILTER" => {
             let sketch = yes_no(query, "sketchObjectFilter")?;

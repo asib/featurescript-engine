@@ -109,6 +109,9 @@ pub struct Info {
     /// For a cylinder or cone, the coordinate system Onshape gives its surface (`evSurfaceDefinition`), which
     /// depends on how it was made.
     pub surface_frame: Option<Frame>,
+    /// For the edges and vertices of a sketch's construction curves: construction to `qConstructionFilter`, though
+    /// their wire bodies aren't (batches 004 and 029).
+    pub construction: bool,
 }
 
 impl Info {
