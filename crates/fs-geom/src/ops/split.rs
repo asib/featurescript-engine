@@ -85,24 +85,32 @@ pub fn split_part(model: &mut Model, id: FeatureId, definition: &Value) -> R<Val
         };
         let mut first = true;
         for piece in op.shape().sub_shapes(kind) {
+            // Which side of the tool the piece is on, for qSplitBy (in front: along the tool's normal).
+            let mut back = None;
             if let Some(frame) = plane {
                 let centre = piece.centroid().map_err(occt_error)?;
                 let front = values::dot(values::sub(centre, frame.origin), frame.normal) > 0.0;
                 if (keep == "KEEP_FRONT" && !front) || (keep == "KEEP_BACK" && front) {
                     continue;
                 }
+                back = Some(!front);
             }
             let tid = first.then_some(body.tid);
             first = false;
-            results.push((NewBody { tid, ..NewBody::replacing(&body, piece) }, origins.clone()));
+            results.push((NewBody { tid, ..NewBody::replacing(&body, piece) }, origins.clone(), back));
         }
     }
     let mut remove = targets.clone();
     remove.extend(delete_tools);
     model.remove_bodies(&remove);
-    for (new, origins) in results {
-        model.add_body(new, &origins, &default, &|_| None);
+    let mut sides = Vec::new();
+    for (new, origins, back) in results {
+        let b = model.add_body(new, &origins, &default, &|_| None);
+        if let Some(back) = back {
+            sides.push((default.created_by.clone(), model.bodies[b].tid, back));
+        }
     }
+    std::rc::Rc::make_mut(&mut model.splits).extend(sides);
     Ok(Value::UNDEFINED)
 }
 
