@@ -233,6 +233,10 @@ pub fn curves_on_face(model: &mut Model, id: FeatureId, definition: &Value) -> R
     for group in groups.iter() {
         let faces = shapes(model, field(group, "face"), EntityType::Face)?;
         let face = faces.first().ok_or_else(|| regen_error("CANNOT_RESOLVE_ENTITIES"))?.clone();
+        let onshape_frame = query::evaluate(model, field(group, "face"))?
+            .into_iter()
+            .find(|r| r.kind == EntityType::Face)
+            .and_then(|r| model.info(r).surface_frame);
         let creation = field(group, "creationType").as_str().unwrap_or_default().to_string();
         // DIR1 curves run along the face's v parameter at fixed u (on a cylinder, lines along it), DIR2 the other
         // way. (Batch 005, c007 and c008.)
@@ -240,9 +244,25 @@ pub fn curves_on_face(model: &mut Model, id: FeatureId, definition: &Value) -> R
         // Equally spaced curves: across an open range at i / (n - 1), ends included (curves on the face's boundary
         // are then dropped); round a periodic one at (i + ½) / n. (Batch 005, c007 and c008.)
         let auto = creation.contains("AUTO_SPACED");
+        // Round a cylinder or cone, Onshape's u runs from its coordinate system's x axis towards its y axis
+        // (batches 005 and 018): the face fraction at each.
+        let round_face = |u: f64| -> Option<f64> {
+            let frame = onshape_frame?;
+            let s = face.surface_definition().ok()?;
+            if along_u || !matches!(s.kind, 1 | 2) {
+                return None;
+            }
+            let y = values::cross(frame.normal, frame.x);
+            let a = 2.0 * std::f64::consts::PI * u;
+            let dir = values::add(values::scale(frame.x, a.cos()), values::scale(y, a.sin()));
+            face.face_fraction(values::add(frame.origin, dir)).ok().map(|(fu, _)| fu)
+        };
+        let periodic = occt::face_periodic(&face, !along_u);
         let parameters: Vec<f64> = if auto {
             let n = field(group, "nCurves").as_number().unwrap_or(1.0).max(1.0) as usize;
-            if occt::face_periodic(&face, !along_u) {
+            if periodic && round_face(0.0).is_some() {
+                (0..n).filter_map(|i| round_face(i as f64 / n as f64)).collect()
+            } else if periodic {
                 (0..n).map(|i| (i as f64 + 0.5) / n as f64).collect()
             } else if n == 1 {
                 vec![0.5]
@@ -250,7 +270,8 @@ pub fn curves_on_face(model: &mut Model, id: FeatureId, definition: &Value) -> R
                 (0..n).map(|i| i as f64 / (n - 1) as f64).collect()
             }
         } else {
-            values::numbers(field(group, "parameters"), "parameters")?
+            let given = values::numbers(field(group, "parameters"), "parameters")?;
+            given.into_iter().map(|u| round_face(u).unwrap_or(u)).collect()
         };
         let boundary: Vec<Shape> = face.visible_sub_shapes(ShapeKind::Edge);
         let names = field(group, "names").as_array();
