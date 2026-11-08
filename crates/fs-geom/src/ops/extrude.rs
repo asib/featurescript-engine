@@ -351,7 +351,7 @@ pub fn extrude(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
         } else if start_cap.contains(s) {
             Some(start_info.clone())
         } else if s.kind() == Some(ShapeKind::Face) && !circles.is_empty() {
-            super::frames::extruded(s, &circles, direction).map(side_info)
+            super::frames::extruded(s, &circles, direction, !solid).map(side_info)
         } else {
             None
         }

@@ -29,8 +29,9 @@ pub(crate) fn circles(profiles: &[Shape]) -> Vec<Circle> {
 }
 
 /// A cylinder an extrude swept along `direction` from one of `circles`: its origin is on the axis at the face's far
-/// end, z points back along the extrude, and x is the circle's y × z.
-pub(crate) fn extruded(face: &Shape, circles: &[Circle], direction: Vec3) -> Option<Frame> {
+/// end, z points back along the extrude, and x is the circle's y × z. A sheet's is the other way about: its origin
+/// at the near end, z along the extrude (a quarter cylinder swept from an arc, batch 046).
+pub(crate) fn extruded(face: &Shape, circles: &[Circle], direction: Vec3, sheet: bool) -> Option<Frame> {
     let s = face.surface_definition().ok()?;
     if s.kind != 1 {
         return None;
@@ -43,11 +44,12 @@ pub(crate) fn extruded(face: &Shape, circles: &[Circle], direction: Vec3) -> Opt
             && dot(off_axis, off_axis) < 1e-18
             && crate::values::norm(cross(c.normal, a)) < 1e-9
     })?;
-    let z = scale(direction, -1.0);
+    let z = if sheet { direction } else { scale(direction, -1.0) };
     let x = normalize(cross(cross(circle.normal, circle.x), z))?;
     let local = Frame { origin: circle.centre, normal: direction, x: crate::values::canonical_x(direction) };
-    let far = face.bounding_box_in(local, true).ok()?.max.z;
-    Some(Frame { origin: add(circle.centre, scale(direction, far)), normal: z, x })
+    let bounds = face.bounding_box_in(local, true).ok()?;
+    let along = if sheet { bounds.min.z } else { bounds.max.z };
+    Some(Frame { origin: add(circle.centre, scale(direction, along)), normal: z, x })
 }
 
 /// A cylinder or cone revolved about `axis` from a profile through `profile_point`. Both have z against the axis. A
