@@ -577,6 +577,18 @@ impl Origins {
         self.insert(&entity.shape, origin);
     }
 
+    /// A shape that is an input entity reshaped (an edge moved, a face grown): it keeps the entity's transient id,
+    /// info and attributes.
+    pub fn same(&mut self, image: &Shape, entity: &Entity) {
+        let origin = Origin {
+            tid: Some(entity.tid),
+            info: Some(entity.info.clone()),
+            ancestry: entity.ancestry.clone(),
+            attributes: entity.attributes.clone(),
+        };
+        self.insert(image, origin);
+    }
+
     /// A shape that replaced an input entity: it gets a new transient id but the original's info.
     pub fn inherit(&mut self, image: &Shape, parent: &Entity) {
         let origin = Origin {

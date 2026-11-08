@@ -10,6 +10,7 @@ mod isocline;
 mod merge;
 mod pattern;
 mod revolve;
+pub mod sheet_metal;
 mod split;
 mod surface;
 mod sweep;
@@ -63,6 +64,8 @@ pub fn register(m: &mut GeomBuiltins) {
         })
     });
     m.insert("opTransform", |_, args| run_op(&args, "opTransform", transform_bodies));
+    m.insert("updateSheetMetalGeometry", |_, args| run_op(&args, "updateSheetMetalGeometry", sheet_metal::update));
+    m.insert("opEdgeChange", |_, args| run_op(&args, "opEdgeChange", sheet_metal::edge_change));
     m.insert("opRevolve", |_, args| run_op(&args, "opRevolve", revolve::revolve));
     m.insert("opSphere", |_, args| {
         run_op(&args, "opSphere", |model, id, definition| {
@@ -211,6 +214,10 @@ fn run_op(args: &[Value], name: &str, f: impl FnOnce(&mut Model, FeatureId, &Val
 fn transform_bodies(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
     let transform = transform(field(definition, "transform"))?;
     let bodies = owner_bodies(model, field(definition, "bodies"))?;
+    // Sheet metal parts move only with their model, which opTransform can't do (batch 012).
+    if bodies.iter().any(|&b| sheet_metal::is_sheet_metal_body(&model.bodies[b])) {
+        return Err(regen_error("SHEET_METAL_PARTS_PROHIBITED"));
+    }
     let mut replacements = Vec::new();
     for &b in &bodies {
         let body = model.bodies[b].clone();
