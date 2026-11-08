@@ -190,6 +190,9 @@ std::unique_ptr<Operation> full_round_op(const Shape &solid, const Shape &side1,
 int32_t edge_convexity(const Shape &body, const Shape &edge, bool by_curvature);
 std::unique_ptr<Shape> face_feature_solid(const ShapeList &faces);
 std::unique_ptr<ShapeList> connected_shells(const Shape &s);
+std::unique_ptr<Operation> unwrap_from_cylinder(const ShapeList &faces, const Shape &source, Vec3 source_anchor,
+                                                Vec3 source_direction, Vec3 destination_anchor,
+                                                Vec3 destination_direction, Vec3 destination_normal);
 std::unique_ptr<Operation> wrap_onto_cylinder(const ShapeList &faces, Vec3 source_anchor, Vec3 source_direction,
                                               Vec3 source_normal, const Shape &destination, Vec3 destination_anchor,
                                               Vec3 destination_direction, double arc_radius);

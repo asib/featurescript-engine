@@ -547,6 +547,96 @@ static std::unique_ptr<Operation> wrap_onto_cone(const ShapeList &faces, Vec3 so
 // plane goes to the destination frame on the cylinder (anchor, direction tangent there, and the face's normal), and
 // distances along the plane become distances along the cylinder: the map from the plane's parameters to the
 // cylinder's (angle, height) is affine, so each edge's curve on the plane, as a B-spline, maps exactly by its poles.
+// Faces of a cylinder unwrapped onto a plane without stretching (batch 046): the inverse of wrap_onto_cylinder's
+// mapping, the source frame (anchor and direction on the cylinder, and the face's normal) going to the destination
+// frame (anchor, direction and normal of the plane). A face all the way round fails, as in Onshape.
+std::unique_ptr<Operation> unwrap_from_cylinder(const ShapeList &faces, const Shape &source, Vec3 source_anchor,
+                                                Vec3 source_direction, Vec3 destination_anchor,
+                                                Vec3 destination_direction, Vec3 destination_normal) {
+  const TopoDS_Face &src = TopoDS::Face(source.shape);
+  Handle(Geom_CylindricalSurface) cylinder = Handle(Geom_CylindricalSurface)::DownCast(BRep_Tool::Surface(src));
+  if (cylinder.IsNull()) throw std::runtime_error("unwrap: the source isn't a cylinder");
+  const double r = cylinder->Radius();
+  const gp_Ax3 position = cylinder->Position();
+  double ta, za;
+  ElSLib::Parameters(cylinder->Cylinder(), pnt(source_anchor), ta, za);
+  gp_Dir axis = position.Direction();
+  gp_Vec radial = gp_Vec(position.XDirection()) * std::cos(ta) + gp_Vec(position.YDirection()) * std::sin(ta);
+  gp_Vec around = gp_Vec(axis).Crossed(radial);
+  if (!position.Direct()) around.Reverse();
+  // The cylinder's outward normal, whichever way the face is turned (a sheet's faces inward, batch 046).
+  gp_Vec n_src = radial;
+  gp_Vec d = gp_Vec(dir(source_direction));
+  gp_Vec d_perp = n_src.Crossed(d);
+  const double dt = d.Dot(around), dz = d.Dot(gp_Vec(axis)), pt = d_perp.Dot(around), pz = d_perp.Dot(gp_Vec(axis));
+  const double det = dt * pz - pt * dz;
+  if (std::abs(det) < 1e-12) throw std::runtime_error("unwrap: the anchor direction runs along the normal");
+  gp_Ax3 frame(pnt(destination_anchor), dir(destination_normal), dir(destination_direction));
+  Handle(Geom_Plane) plane = new Geom_Plane(frame);
+  auto op = std::make_unique<Operation>();
+  op->history = new BRepTools_History;
+  BRep_Builder builder;
+  TopoDS_Compound result;
+  builder.MakeCompound(result);
+  for (const TopoDS_Shape &shape : faces.shapes) {
+    const TopoDS_Face &face = TopoDS::Face(shape);
+    Handle(Geom_CylindricalSurface) own = Handle(Geom_CylindricalSurface)::DownCast(BRep_Tool::Surface(face));
+    if (own.IsNull() || !own->Position().IsCoplanar(position, 1e-9, 1e-9) ||
+        !own->Position().XDirection().IsEqual(position.XDirection(), 1e-9) || std::abs(own->Radius() - r) > 1e-9)
+      throw std::runtime_error("unwrap: the faces must lie on the source cylinder");
+    double u1, u2, v1, v2;
+    BRepTools::UVBounds(face, u1, u2, v1, v2);
+    if (u2 - u1 > 2 * M_PI - 1e-9) throw std::runtime_error("unwrap: a face all the way round");
+    // The face's angles taken within a turn of the anchor's, on the side the face is.
+    double shift = 0;
+    while ((u1 + u2) / 2 + shift - ta > M_PI) shift -= 2 * M_PI;
+    while ((u1 + u2) / 2 + shift - ta < -M_PI) shift += 2 * M_PI;
+    auto map = [&](const gp_Pnt2d &q) {
+      const double s = (q.X() + shift - ta) * r, z = q.Y() - za;
+      return gp_Pnt2d((pz * s - pt * z) / det, (-dz * s + dt * z) / det);
+    };
+    TopoDS_Face built;
+    bool first = true;
+    for (TopExp_Explorer w(face, TopAbs_WIRE); w.More(); w.Next()) {
+      BRepBuilderAPI_MakeWire wire;
+      for (BRepTools_WireExplorer e(TopoDS::Wire(w.Current()), face); e.More(); e.Next()) {
+        double f, l;
+        Handle(Geom2d_Curve) pcurve = BRep_Tool::CurveOnSurface(e.Current(), face, f, l);
+        if (pcurve.IsNull()) throw std::runtime_error("unwrap: an edge has no curve on its face");
+        Handle(Geom2d_BSplineCurve) spline = Geom2dConvert::CurveToBSplineCurve(new Geom2d_TrimmedCurve(pcurve, f, l));
+        for (int i = 1; i <= spline->NbPoles(); ++i) spline->SetPole(i, map(spline->Pole(i)));
+        TopoDS_Edge edge;
+        if (spline->Degree() == 1 && spline->NbPoles() == 2) {
+          gp_Pnt a = plane->Value(spline->Pole(1).X(), spline->Pole(1).Y());
+          gp_Pnt b = plane->Value(spline->Pole(2).X(), spline->Pole(2).Y());
+          edge = BRepBuilderAPI_MakeEdge(a, b).Edge();
+        } else {
+          edge = BRepBuilderAPI_MakeEdge(spline, plane).Edge();
+          BRepLib::BuildCurves3d(edge);
+        }
+        if (e.Current().Orientation() == TopAbs_REVERSED) edge.Reverse();
+        wire.Add(edge);
+      }
+      if (!wire.IsDone()) throw std::runtime_error("unwrap: a loop didn't close");
+      if (first) {
+        BRepBuilderAPI_MakeFace maker(plane, wire.Wire(), Standard_True);
+        if (!maker.IsDone()) throw std::runtime_error("unwrap: no face");
+        built = maker.Face();
+        first = false;
+      } else {
+        BRepBuilderAPI_MakeFace maker(built, wire.Wire());
+        built = maker.Face();
+      }
+    }
+    ShapeFix_Face fix(built);
+    fix.FixOrientation();
+    fix.Perform();
+    builder.Add(result, fix.Face());
+  }
+  op->result = result;
+  return op;
+}
+
 std::unique_ptr<Operation> wrap_onto_cylinder(const ShapeList &faces, Vec3 source_anchor, Vec3 source_direction,
                                               Vec3 source_normal, const Shape &destination, Vec3 destination_anchor,
                                               Vec3 destination_direction, double arc_radius) {

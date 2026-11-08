@@ -267,6 +267,15 @@ mod ffi {
         fn edge_convexity(body: &Shape, edge: &Shape, by_curvature: bool) -> Result<i32>;
         fn face_feature_solid(faces: &ShapeList) -> Result<UniquePtr<Shape>>;
         fn connected_shells(s: &Shape) -> Result<UniquePtr<ShapeList>>;
+        fn unwrap_from_cylinder(
+            faces: &ShapeList,
+            source: &Shape,
+            source_anchor: Vec3,
+            source_direction: Vec3,
+            destination_anchor: Vec3,
+            destination_direction: Vec3,
+            destination_normal: Vec3,
+        ) -> Result<UniquePtr<Operation>>;
         fn wrap_onto_cylinder(
             faces: &ShapeList,
             source_anchor: Vec3,
@@ -1074,6 +1083,26 @@ pub fn face_feature_solid(faces: &[Shape]) -> Result<Shape> {
 /// its normals point away from the blend).
 pub fn face_blend(side1: &[Shape], reverse1: bool, side2: &[Shape], reverse2: bool, radius: f64) -> Result<Operation> {
     Ok(Operation(ffi::face_blend_op(&to_list(side1), reverse1, &to_list(side2), reverse2, radius)?))
+}
+
+/// Faces of a cylinder unwrapped onto a plane without stretching: the source frame (anchor and direction on the
+/// cylinder, and its face's normal) goes to the destination frame (anchor, direction and normal of the plane).
+pub fn unwrap_from_cylinder(
+    faces: &[Shape],
+    source: &Shape,
+    source_frame: (Vec3, Vec3),
+    destination: (Vec3, Vec3, Vec3),
+) -> Result<Operation> {
+    let op = ffi::unwrap_from_cylinder(
+        &to_list(faces),
+        &source.0,
+        source_frame.0,
+        source_frame.1,
+        destination.0,
+        destination.1,
+        destination.2,
+    )?;
+    Ok(Operation(op))
 }
 
 /// Planar faces wrapped onto a cylinder face without stretching: the source frame (anchor, direction, plane

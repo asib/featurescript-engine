@@ -1209,6 +1209,10 @@ pub fn wrap(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
     let faces = shapes(model, field(definition, "entities"), EntityType::Face)?;
     let source = field(definition, "source");
     let destination = field(definition, "destination");
+    // Unwrapping: faces of a cylinder laid onto a plane (batch 046).
+    if field(source, "plane").is_undefined() && !field(destination, "plane").is_undefined() {
+        return unwrap(model, id, definition, &faces);
+    }
     let plane = values::plane(field(source, "plane"), "opWrap source plane")
         .map_err(|_| error("@opWrap: only planar sources are supported yet"))?;
     let anchor = |w: &Value, what: &str| -> R<(occt::Vec3, occt::Vec3)> {
@@ -1283,6 +1287,39 @@ pub fn wrap(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
     let info = Info::new(id.clone());
     for face in wrapped.shape().sub_shapes(ShapeKind::Face) {
         model.add_body(NewBody::new(face, BodyType::Sheet, info.clone()), &origins, &info, &|_| None);
+    }
+    Ok(Value::UNDEFINED)
+}
+
+/// `@opWrap` unwrapping: faces of a cylinder (the source's face) laid onto the destination's plane without
+/// stretching (batch 046). A face all the way round fails (`ROLL_FAILED`), as in Onshape.
+fn unwrap(model: &mut Model, id: FeatureId, definition: &Value, faces: &[Shape]) -> R<Value> {
+    let source = field(definition, "source");
+    let destination = field(definition, "destination");
+    let anchor = |w: &Value, what: &str| -> R<(occt::Vec3, occt::Vec3)> {
+        Ok((
+            values::vec3(field(w, "anchorPoint"), what)?,
+            values::normalize(values::vec3(field(w, "anchorDirection"), what)?)
+                .ok_or_else(|| error("zero direction"))?,
+        ))
+    };
+    let source_face = query::evaluate(model, field(source, "face"))?
+        .into_iter()
+        .find(|r| r.kind == EntityType::Face)
+        .map(|r| model.shape(r).clone())
+        .ok_or_else(|| error("@opWrap: unwrapping needs the source given as a cylindrical face for now"))?;
+    let plane = values::plane(field(destination, "plane"), "opWrap destination plane")?;
+    let (destination_anchor, destination_direction) = anchor(destination, "opWrap destination anchor")?;
+    let unwrapped = occt::unwrap_from_cylinder(
+        faces,
+        &source_face,
+        anchor(source, "opWrap source anchor")?,
+        (destination_anchor, destination_direction, plane.normal),
+    )
+    .map_err(|_| regen_error("ROLL_FAILED"))?;
+    let info = Info::new(id.clone());
+    for face in unwrapped.shape().sub_shapes(ShapeKind::Face) {
+        model.add_body(NewBody::new(face, BodyType::Sheet, info.clone()), &Origins::default(), &info, &|_| None);
     }
     Ok(Value::UNDEFINED)
 }
