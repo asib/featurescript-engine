@@ -100,6 +100,60 @@ fn derivatives_1d(t: &[f64], y: &[f64], ends: &Ends, d0: f64, d1: f64) -> Option
     Some(out)
 }
 
+/// A cubic spline through points meeting a first and second derivative at an end (`start`, `end`: the derivatives
+/// there, by order), the other end natural if it has none. Its knots are averaged from the centripetal parameters
+/// with each end's parameter repeated once per condition there, as Onshape's are (batch 027): through three points
+/// with both derivatives at the start, [0, 0, 0, 0, t₁/3, (t₁ + 1)/3, 1, 1, 1, 1].
+pub fn spline_with_end_derivatives(points: &[Vec3], start: &[Vec3], end: &[Vec3]) -> R<Shape> {
+    use crate::bspline::{basis_derivatives, find_span};
+    let n = points.len();
+    if n < 2 || (start.is_empty() && end.is_empty()) {
+        return Err(error("spline: needs points and an end's derivatives"));
+    }
+    let t = centripetal(points, false);
+    let mut u = vec![0.0; 1 + start.len()];
+    u.extend_from_slice(&t[1..n - 1]);
+    u.extend(std::iter::repeat_n(1.0, 1 + end.len()));
+    let natural = usize::from(start.is_empty()) + usize::from(end.is_empty());
+    let count = u.len() + natural;
+    let p = 3;
+    if count < p + 1 || count > u.len() + 1 {
+        return Err(error("spline: unsupported end conditions"));
+    }
+    let interior: Vec<f64> = (1..=count - p - 1).map(|j| (u[j] + u[j + 1] + u[j + 2]) / 3.0).collect();
+    let knots = [vec![0.0; p + 1], interior, vec![1.0; p + 1]].concat();
+    let row = |x: f64, order: usize| -> Vec<f64> {
+        let span = find_span(count, p, x, &knots);
+        let ders = basis_derivatives(span, x, p, order, &knots);
+        let mut r = vec![0.0; count];
+        for j in 0..=p {
+            r[span - p + j] = ders[order][j];
+        }
+        r
+    };
+    let zero = Vec3::new(0.0, 0.0, 0.0);
+    let mut rows: Vec<(Vec<f64>, Vec3)> = (0..n).map(|i| (row(t[i], 0), points[i])).collect();
+    for (k, d) in start.iter().enumerate() {
+        rows.push((row(0.0, k + 1), *d));
+    }
+    for (k, d) in end.iter().enumerate() {
+        rows.push((row(1.0, k + 1), *d));
+    }
+    if start.is_empty() {
+        rows.push((row(0.0, 2), zero));
+    }
+    if end.is_empty() {
+        rows.push((row(1.0, 2), zero));
+    }
+    let a: Vec<Vec<f64>> = rows.iter().map(|(r, _)| r.clone()).collect();
+    let component = |f: fn(&Vec3) -> f64| -> R<Vec<f64>> {
+        solve(a.clone(), rows.iter().map(|(_, v)| f(v)).collect()).ok_or_else(|| error("spline: singular system"))
+    };
+    let (x, y, z) = (component(|v| v.x)?, component(|v| v.y)?, component(|v| v.z)?);
+    let poles: Vec<Vec3> = (0..count).map(|i| Vec3::new(x[i], y[i], z[i])).collect();
+    occt::bspline_edge(&poles, &[], &knots, p as i32, false).map_err(|e| error(format!("spline: {e}")))
+}
+
 /// A spline edge through points. `parameters`, if given, overrides the centripetal ones.
 pub fn spline(points: &[Vec3], ends: Ends, parameters: Option<Vec<f64>>) -> R<Shape> {
     let periodic = matches!(ends, Ends::Periodic);

@@ -33,10 +33,8 @@ pub fn helix(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
 }
 
 pub fn fit_spline(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
-    for key in ["start2ndDerivative", "end2ndDerivative", "derivatives"] {
-        if !field(definition, key).is_undefined() {
-            return Err(error(format!("@opFitSpline: {key} isn't supported yet")));
-        }
+    if !field(definition, "derivatives").is_undefined() {
+        return Err(error("@opFitSpline: derivatives at the points aren't supported yet"));
     }
     if values::opt_bool(definition, "hasTargetLength")?.unwrap_or(false) {
         return Err(error("@opFitSpline: target lengths aren't supported yet"));
@@ -53,6 +51,23 @@ pub fn fit_spline(model: &mut Model, id: FeatureId, definition: &Value) -> R<Val
             v => values::vec3(v, key).map(Some),
         }
     };
+    // A second derivative at an end (matching a curve's curvature there, batch 027).
+    let (second_start, second_end) = (derivative("start2ndDerivative")?, derivative("end2ndDerivative")?);
+    if !closed && (second_start.is_some() || second_end.is_some()) {
+        let conditions = |first: Option<occt::Vec3>, second: Option<occt::Vec3>| -> R<Vec<occt::Vec3>> {
+            match (first, second) {
+                (Some(d1), Some(d2)) => Ok(vec![d1, d2]),
+                (Some(d1), None) => Ok(vec![d1]),
+                (None, None) => Ok(Vec::new()),
+                (None, Some(_)) => Err(error("@opFitSpline: a second derivative needs a first")),
+            }
+        };
+        let start = conditions(derivative("startDerivative")?, second_start)?;
+        let end = conditions(derivative("endDerivative")?, second_end)?;
+        let edge = splines::spline_with_end_derivatives(&points, &start, &end).map_err(|_| regen_error("FIT_SPLINE_FAILED"))?;
+        add_wire(model, id, edge);
+        return Ok(Value::UNDEFINED);
+    }
     let ends = match (closed, derivative("startDerivative")?, derivative("endDerivative")?) {
         (true, _, _) => Ends::Periodic,
         (false, Some(a), Some(b)) => Ends::Clamped(a, b),

@@ -38,7 +38,7 @@ pub fn bspline_value(tags: &Tags, data: &BSplineData) -> R<Value> {
 // ----- B-spline basics (Piegl and Tiller, The NURBS Book, chapter 2) -----
 
 /// The knot span holding `u` for `n` control points of degree `p`.
-fn find_span(n: usize, p: usize, u: f64, knots: &[f64]) -> usize {
+pub(crate) fn find_span(n: usize, p: usize, u: f64, knots: &[f64]) -> usize {
     if u >= knots[n] {
         return n - 1;
     }
@@ -60,7 +60,7 @@ fn find_span(n: usize, p: usize, u: f64, knots: &[f64]) -> usize {
 
 /// The basis functions that aren't zero at `u` in `span`, and their derivatives up to `order`: `out[k][j]` is
 /// the k-th derivative of N_{span - p + j}.
-fn basis_derivatives(span: usize, u: f64, p: usize, order: usize, knots: &[f64]) -> Vec<Vec<f64>> {
+pub(crate) fn basis_derivatives(span: usize, u: f64, p: usize, order: usize, knots: &[f64]) -> Vec<Vec<f64>> {
     let mut ndu = vec![vec![0.0; p + 1]; p + 1];
     let (mut left, mut right) = (vec![0.0; p + 1], vec![0.0; p + 1]);
     ndu[0][0] = 1.0;
