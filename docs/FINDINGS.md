@@ -268,6 +268,24 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   splits then cut nothing: `ownExistingImprints` makes the edges already on the tools theirs, and no face is
   `qSplitBy` them. The second bend line is a spline fitted through two points, which `evLine` takes as a line.
 
+- **Sheet metal holes** (batch 017). A hole registers its tool bodies on the walls they cut (`cuttingToolBodyIds`)
+  and the update cuts them from the definition sheet: std then looks for the circular edges on the sheet made by
+  the update. The tools stay in the model, hidden like the definition (they aren't counted as parts). For std to
+  find the walls a tool cuts, `evCollision` of bodies reports each pair of faces that meet.
+- **Fillets and chamfers of sheet metal corners** (batch 017) go through std's attribute-based corner break: the
+  break is kept on the definition vertex (`cornerBreaks`, with the wall it rounds) and the part's wall is rounded
+  there.
+- **Part entities are made by what made the definition's** (batch 017): `qCreatedBy` of an extrude that cut a
+  sheet metal plate finds the hole's wall in the part.
+- **Make joint** (batch 017) extends both walls to the plane bisecting them (`opExtendSheetBody` with
+  `extendMethod : EXTEND_TO_SURFACE`), then marks the edge they now share. A butt rip ("direction 1") runs the
+  first wall on to the other's outer face; the other stops the minimal clearance (0.02 mm) short of the first's
+  inner face, as at an edge rip.
+- **Bend relief overrides** (batch 017): a sized rectangle reaches its depth in from where the wall is cut back for
+  the bend (4 mm deep, radius 1: from x = 39 to 35), as wide as the model's relief; a tear cuts nothing.
+- **Sheet metal lofts** (batch 017): between two straight lines, one flat wall facing along the first profile
+  crossed with the way to the second.
+
 - **Bend reliefs** (batch 016). Where a bend covers only part of its base wall's edge, the rest of the edge is
   cut back as the bend is, and each end of the bend gets a slot in the base wall: as wide as the width scale ×
   the thickness, reaching from the edge to the depth scale × the bend's inner radius at the centre of an
