@@ -260,6 +260,51 @@ pub fn register(m: &mut GeomBuiltins) {
             &tags,
         )
     });
+    m.insert("evSurfaceDefinition", |interp, args| {
+        let tags = tags(interp)?;
+        measure(
+            args,
+            "evSurfaceDefinition",
+            "face",
+            |tags, model, found| {
+                let r = found.first().ok_or_else(|| regen_error("CANNOT_RESOLVE_ENTITIES"))?;
+                if r.kind != EntityType::Face {
+                    return Err(regen_error("INVALID_INPUT"));
+                }
+                let s = model.shape(*r).surface_definition().map_err(occt_error)?;
+                let cs = || tags.coord_system(s.frame);
+                match s.kind {
+                    0 => {
+                        let plane = model.shape(*r).face_plane().map_err(occt_error)?;
+                        Ok(tags.plane(occt::Frame { x: values::canonical_x(plane.normal), ..plane }))
+                    }
+                    1 => tags.tagged(map(vec![("coordSystem", cs()?), ("radius", tags.length(s.radius1))]), "Cylinder"),
+                    2 => tags.tagged(
+                        map(vec![("coordSystem", cs()?), ("halfAngle", tags.with_units(s.radius1, "radian", 1.0))]),
+                        "Cone",
+                    ),
+                    3 => tags.tagged(map(vec![("coordSystem", cs()?), ("radius", tags.length(s.radius1))]), "Sphere"),
+                    4 => tags.tagged(
+                        map(vec![
+                            ("coordSystem", cs()?),
+                            ("radius", tags.length(s.radius1)),
+                            ("minorRadius", tags.length(s.radius2)),
+                        ]),
+                        "Torus",
+                    ),
+                    _ => Ok(map(vec![("surfaceType", Value::string("OTHER"))])),
+                }
+            },
+            &tags,
+        )
+    });
+    // The frame a face on this plane would have: Onshape's canonical x direction.
+    m.insert("alignCanonically", |interp, args| {
+        let tags = tags(interp)?;
+        let definition = definition(&args, "alignCanonically")?;
+        let plane = values::plane(field(&definition, "plane"), "alignCanonically plane")?;
+        Ok(tags.plane(occt::Frame { x: values::canonical_x(plane.normal), ..plane }))
+    });
     m.insert("evFaceTangentPlanes", |interp, args| {
         let tags = tags(interp)?;
         let definition = definition(&args, "evFaceTangentPlanes")?;

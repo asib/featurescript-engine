@@ -1,11 +1,13 @@
 //! Operations (`@op*`): the builtins that change a context's geometry.
 
 mod blend;
+mod curve;
 mod direct;
 mod extrude;
 mod pattern;
 mod revolve;
 mod split;
+mod sweep;
 
 pub use revolve::rotation;
 
@@ -78,6 +80,10 @@ pub fn register(m: &mut GeomBuiltins) {
     m.insert("opReplaceFace", |_, args| run_op(&args, "opReplaceFace", direct::replace_face));
     m.insert("opMoveFace", |_, args| run_op(&args, "opMoveFace", direct::move_face));
     m.insert("opOffsetWire", |_, args| run_op(&args, "opOffsetWire", direct::offset_wire));
+    m.insert("opSweep", |_, args| run_op(&args, "opSweep", sweep::sweep));
+    m.insert("opLoft", |_, args| run_op(&args, "opLoft", sweep::loft));
+    m.insert("opHelix", |_, args| run_op(&args, "opHelix", curve::helix));
+    m.insert("opFitSpline", |_, args| run_op(&args, "opFitSpline", curve::fit_spline));
 }
 
 /// The shapes of the entities a query finds, grouped by the body that owns them, in model order.
