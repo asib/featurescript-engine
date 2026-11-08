@@ -406,17 +406,8 @@ impl Interp {
         }
         let namespace = path.namespace.as_ref().map(|n| n.name.as_str());
         let symbols = self.modules.lookup(self.module, namespace, &path.name.name);
-        let functions: Vec<FunctionRef> =
+        let mut functions: Vec<FunctionRef> =
             symbols.iter().filter_map(|s| if let Symbol::Function(f) = s { Some(f.clone()) } else { None }).collect();
-        if !functions.is_empty() {
-            return self.call_overloaded(&path.name.name, &functions, args);
-        }
-        for symbol in symbols.iter() {
-            if let Symbol::Const { module, item } = symbol {
-                let value = self.const_value(*module, *item)?;
-                return self.call_value(&value, args);
-            }
-        }
         // Like Onshape, a call also finds the overloads exported by the module declaring each argument's type:
         // std's `toString(value is map)` prints a `Vector` in it with vector.fs's `toString` (batch 011).
         if namespace.is_none() {
@@ -427,6 +418,15 @@ impl Interp {
                         functions.push(f);
                     }
                 }
+            }
+        }
+        if !functions.is_empty() {
+            return self.call_overloaded(&path.name.name, &functions, args);
+        }
+        for symbol in symbols.iter() {
+            if let Symbol::Const { module, item } = symbol {
+                let value = self.const_value(*module, *item)?;
+                return self.call_value(&value, args);
             }
         }
         Err(error(format!("Function {} with {} argument(s) not found", path.name.name, args.len())))
