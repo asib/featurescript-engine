@@ -119,6 +119,7 @@ pub fn register(m: &mut GeomBuiltins) {
     m.insert("opFillet", |_, args| run_op(&args, "opFillet", blend::fillet));
     m.insert("opChamfer", |_, args| run_op(&args, "opChamfer", blend::chamfer));
     m.insert("opModifyFillet", |_, args| run_op(&args, "opModifyFillet", blend::modify_fillet));
+    m.insert("opFullRoundFillet", |_, args| run_op(&args, "opFullRoundFillet", blend::full_round));
     m.insert("opShell", |_, args| run_op(&args, "opShell", direct::shell));
     m.insert("opDraft", |_, args| run_op(&args, "opDraft", direct::draft));
     m.insert("opBodyDraft", |_, args| run_op(&args, "opBodyDraft", direct::body_draft));
@@ -132,6 +133,7 @@ pub fn register(m: &mut GeomBuiltins) {
     m.insert("opLoft", |_, args| run_op(&args, "opLoft", sweep::loft));
     m.insert("opHelix", |_, args| run_op(&args, "opHelix", curve::helix));
     m.insert("opFitSpline", |_, args| run_op(&args, "opFitSpline", curve::fit_spline));
+    m.insert("opCreateBSplineCurve", |_, args| run_op(&args, "opCreateBSplineCurve", curve::bspline_curve));
     m.insert("opMateConnector", |_, args| run_op(&args, "opMateConnector", crate::mate::make_connector));
     m.insert("opExtractWires", |_, args| run_op(&args, "opExtractWires", surface::extract_wires));
     m.insert("opExtractSurface", |_, args| run_op(&args, "opExtractSurface", surface::extract_surface));

@@ -1,4 +1,4 @@
-//! Curve operations: `@opHelix` and `@opFitSpline`.
+//! Curve operations: `@opHelix`, `@opFitSpline` and `@opCreateBSplineCurve`.
 
 use crate::model::{BodyType, FeatureId, Info, Model, NewBody, Origins};
 use crate::regen_error;
@@ -64,6 +64,30 @@ pub fn fit_spline(model: &mut Model, id: FeatureId, definition: &Value) -> R<Val
         v => Some(values::numbers(v, "opFitSpline parameters")?),
     };
     let edge = splines::spline(&points, ends, parameters).map_err(|_| regen_error("FIT_SPLINE_FAILED"))?;
+    add_wire(model, id, edge);
+    Ok(Value::UNDEFINED)
+}
+
+/// `@opCreateBSplineCurve`: a wire body on a B-spline given as std's `BSplineCurve`.
+pub fn bspline_curve(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
+    let curve = field(definition, "bSplineCurve");
+    let degree = field(curve, "degree").as_number().ok_or_else(|| error("@opCreateBSplineCurve: no degree"))? as i32;
+    if field(curve, "dimension").as_number() != Some(3.0) {
+        return Err(error("@opCreateBSplineCurve: only 3D curves are supported"));
+    }
+    let poles: Vec<occt::Vec3> = field(curve, "controlPoints")
+        .as_array()
+        .map(|a| a.iter().map(|p| values::vec3(p, "opCreateBSplineCurve control point")).collect::<R<_>>())
+        .transpose()?
+        .unwrap_or_default();
+    let weights = if field(curve, "isRational").as_bool() == Some(true) {
+        values::numbers(field(curve, "weights"), "opCreateBSplineCurve weights")?
+    } else {
+        Vec::new()
+    };
+    let knots = values::numbers(field(curve, "knots"), "opCreateBSplineCurve knots")?;
+    let periodic = field(curve, "isPeriodic").as_bool() == Some(true);
+    let edge = occt::bspline_edge(&poles, &weights, &knots, degree, periodic).map_err(crate::occt_error)?;
     add_wire(model, id, edge);
     Ok(Value::UNDEFINED)
 }

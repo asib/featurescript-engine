@@ -318,6 +318,65 @@ pub fn register(m: &mut GeomBuiltins) {
             &tags,
         )
     });
+    m.insert("evEdgeCurvatures", |interp, args| {
+        let tags = tags(interp)?;
+        let definition = definition(&args, "evEdgeCurvatures")?;
+        let parameters = values::numbers(field(&definition, "parameters"), "evEdgeCurvatures parameters")?;
+        let arc_length = values::opt_bool(&definition, "arcLengthParameterization")?.unwrap_or(true);
+        let face_query = field(&definition, "face").clone();
+        model_mut(&args, "evEdgeCurvatures", |model| {
+            let found = query::evaluate(model, field(&definition, "edge"))?;
+            let edge = single_edge(model, &found).ok_or_else(|| regen_error("NO_TANGENT_LINE"))?;
+            // With a face, the edge runs the way the face's boundary uses it: with the face on its left.
+            let mut reversed = false;
+            if !face_query.is_undefined() {
+                let faces = query::evaluate(model, &face_query)?;
+                let face =
+                    faces.iter().find(|r| r.kind == EntityType::Face).ok_or_else(|| regen_error("NO_TANGENT_LINE"))?;
+                let used = model.shape(*face).sub_shapes(ShapeKind::Edge);
+                let used = used.iter().find(|e| e.is_same(&edge)).ok_or_else(|| regen_error("NO_TANGENT_LINE"))?;
+                reversed = used.is_reversed() != edge.is_reversed();
+            }
+            let mut out = Vec::new();
+            for t in parameters {
+                let t = if reversed { 1.0 - t } else { t };
+                let c = edge.edge_curvature(t, arc_length).map_err(|_| regen_error("NO_TANGENT_LINE"))?;
+                let tangent = if reversed { values::scale(c.frame.normal, -1.0) } else { c.frame.normal };
+                let frame = occt::Frame { origin: c.frame.origin, normal: tangent, x: c.frame.x };
+                let curvature = tags.with_units(c.radius1, "meter", -1.0);
+                out.push(tags.tagged(
+                    map(vec![("frame", tags.coord_system(frame)?), ("curvature", curvature)]),
+                    "EdgeCurvatureResult",
+                )?);
+            }
+            Ok(Value::array(out))
+        })
+    });
+    m.insert("evEdgeCurvatureDerivatives", |interp, args| {
+        let tags = tags(interp)?;
+        let definition = definition(&args, "evEdgeCurvatureDerivatives")?;
+        let parameters = values::numbers(field(&definition, "parameters"), "evEdgeCurvatureDerivatives parameters")?;
+        let arc_length = values::opt_bool(&definition, "arcLengthParameterization")?.unwrap_or(true);
+        measure(
+            args,
+            "evEdgeCurvatureDerivatives",
+            "edge",
+            |tags, model, found| {
+                let edge = single_edge(model, &found).ok_or_else(|| regen_error("NO_TANGENT_LINE"))?;
+                let mut out = Vec::new();
+                for t in parameters {
+                    let k =
+                        edge.edge_curvature_derivative(t, arc_length).map_err(|_| regen_error("NO_TANGENT_LINE"))?;
+                    let per_area = |x: f64| tags.with_units(x, "meter", -2.0);
+                    out.push(
+                        Value::array(vec![per_area(k.x), per_area(k.y), per_area(k.z)]).with_tag(Some(tags.vector)),
+                    );
+                }
+                Ok(Value::array(out))
+            },
+            &tags,
+        )
+    });
     m.insert("evFaceTangentPlanesAtEdge", |interp, args| {
         let tags = tags(interp)?;
         let definition = definition(&args, "evFaceTangentPlanesAtEdge")?;

@@ -185,3 +185,23 @@ pub fn modify_fillet(model: &mut Model, id: FeatureId, definition: &Value) -> R<
     replace_bodies(model, &id, results);
     Ok(Value::UNDEFINED)
 }
+
+/// `@opFullRoundFillet`: rounds the centre faces between two parallel planar side faces into a half cylinder
+/// tangent to both.
+pub fn full_round(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
+    let one = |key: &str| -> R<Option<EntityRef>> {
+        Ok(query::evaluate(model, field(definition, key))?.into_iter().find(|r| r.kind == EntityType::Face))
+    };
+    let (Some(side1), Some(side2)) = (one("side1Face")?, one("side2Face")?) else {
+        return Err(regen_error("FULL_ROUND_FILLET_SELECT_FACES"));
+    };
+    let centre: Vec<Shape> = query::evaluate(model, field(definition, "centerFaces"))?
+        .into_iter()
+        .filter(|r| r.kind == EntityType::Face && r.body == side1.body)
+        .map(|r| model.shape(r).clone())
+        .collect();
+    let op = occt::full_round(&model.bodies[side1.body].shape, model.shape(side1), model.shape(side2), &centre)
+        .map_err(|_| regen_error("FULL_ROUND_FILLET_FAILED"))?;
+    replace_bodies(model, &id, vec![(side1.body, op)]);
+    Ok(Value::UNDEFINED)
+}
