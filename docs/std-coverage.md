@@ -71,7 +71,7 @@ Onshape.
 | `gusset` (gusset.fs) | matches: triangle and chamfered rectangle, centred, in a mitred corner, offset from the centre, aligned to an edge | 008, 021, 024 |
 | `endcap` (endcap.fs) | matches: matching the profile, filleted and chamfered rectangles, circle, internal | 008, 019 |
 | `importDerived` (importDerived.fs) | matches: at the origin, at mate connectors, chosen parts with their mate connectors (from build functions); sheet metal models kept (at the origin, at a mate connector, at the source's mate connector, then edited; one of two models), or derived as plain parts. Not yet: composite parts with sheet metal | 009, 023 |
-| the `sectionPart` family (sectionpart.fs) | matches: `sectionPart`, `planeSectionPart`. Not yet: several planes, jogged sections | 009 |
+| the `sectionPart` family (sectionpart.fs) | matches: `sectionPart`, `planeSectionPart`; `jogSectionPart` along a jogged line, as a partial section, and broken out inside a closed spline to a depth; `multiplePlaneSectionPart` with two planes. Not yet: crop views, offset and aligned sections, the assembly forms (`sectionTransformedParts`, `multiplePlanesSectionTransformedParts`) | 009, 025 |
 | `cutlist` (cutlist.fs) | matches: the two tubes of a mitred L, grouped and tabled. Not yet: overrides, composite segments | 011 |
 | `tag` (tag.fs) | matches: a form's positive part. Not yet: frame profiles, PCB holes, standard content | 011 |
 | `derivedMirror`, `importForeign` | not started (`derivedMirror` fails in a Part Studio feature; `importForeign` needs uploaded data) | later |
