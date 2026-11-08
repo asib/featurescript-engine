@@ -312,6 +312,13 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
 - **Offsetting a cylinder's top edge across its top** (batch 020, c008) made no curve in Onshape, without an error.
 - **Section parts by several planes**, like `sectionPart`, delete the parts of a Part Studio they don't section.
 
+- **Sweeps keeping their orientation** (batch 021): Onshape's side surfaces are B-splines 1.6e-5 short in area of
+  the exact surfaces (the path moved to each profile edge and extruded along it: 742.8419 mm² by hand, Onshape
+  742.8303).
+- **Trimming a curve by another curve** (batch 021) cuts it where they cross and keeps the side the help point is on.
+- **Hems at a closed corner** (batch 021) extrude their pieces from mitre planes (up-to start bounds) and leave the
+  plate whole, with two small cylindrical pieces where the hem arcs meet.
+
 - **Bend reliefs** (batch 016). Where a bend covers only part of its base wall's edge, the rest of the edge is
   cut back as the bend is, and each end of the bend gets a slot in the base wall: as wide as the width scale ×
   the thickness, reaching from the edge to the depth scale × the bend's inner radius at the centre of an
