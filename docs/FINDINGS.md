@@ -231,6 +231,11 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   would be negative: it's held at 0.001, α₃ taking up the difference. At m 0.95 even that fails, and Onshape makes
   a cubic B-spline of 8 equal spans with the quintic's end derivative (3m times the setback) and shoulder, through
   some other curve.
+- **Two conic or asymmetric fillets meeting at a corner** (batch 053, c013–c015: two top edges of a block, or a
+  top edge and an upright one, with the third edge there left sharp) meet in a mitre: the block with each edge's
+  own region taken away, as for one. Onshape's faces (17 edges, 8 faces, 11 vertices) and their areas match what
+  that gives exactly (c013's fillets 153.7975 and 100.9583 mm² in its STEP; exact for its cubic sections 153.7967
+  and 100.9582). Three filleted edges at a corner (c012) get a bicubic corner patch of 304 poles.
 - **Fillets too big for their faces** (batch 003, c015): a 30 × 20 × 10 block's four upright edges rounded 15 mm.
   Onshape lets the fillets eat the faces between them: the result is the block with each edge's own region
   (between the edge and its arc, the arc's centre 15 mm in from both faces) taken away. The arcs of the corners
