@@ -26,6 +26,24 @@ fn faces_of(model: &Model, query: &Value) -> R<Vec<Shape>> {
     Ok(out)
 }
 
+/// Whether two faces, edges or vertices occupy the same place: sample points of each lie on the other.
+fn coincide(a: &Shape, b: &Shape) -> bool {
+    let samples = |s: &Shape| -> Vec<occt::Vec3> {
+        match s.kind() {
+            Some(ShapeKind::Vertex) => s.vertex_point().into_iter().collect(),
+            Some(ShapeKind::Edge) => {
+                [0.0, 0.5, 1.0].iter().filter_map(|&t| s.edge_tangent(t, false).ok().map(|a| a.origin)).collect()
+            }
+            _ => s.face_inner_point().into_iter().collect(),
+        }
+    };
+    let on = |points: Vec<occt::Vec3>, target: &Shape| {
+        !points.is_empty()
+            && points.iter().all(|p| occt::vertex(*p).and_then(|v| v.distance(target)).is_ok_and(|d| d.distance < 1e-9))
+    };
+    on(samples(a), b) && on(samples(b), a)
+}
+
 fn add(model: &mut Model, id: &FeatureId, shape: Shape, body_type: BodyType) {
     let info = Info::new(id.clone());
     model.add_body(NewBody::new(shape, body_type, info.clone()), &Origins::default(), &info, &|_| None);
@@ -80,8 +98,36 @@ pub fn extract_surface(model: &mut Model, id: FeatureId, definition: &Value) -> 
     if faces.is_empty() {
         return Err(regen_error("EXTRACT_SURFACE_FAILED"));
     }
+    // The copies' entities are tracked back to the faces, edges and vertices they lie on (std tracks a sketch's
+    // lines into the surfaces extracted from its regions).
+    let mut sources: Vec<crate::model::Entity> = Vec::new();
+    if offset == 0.0 {
+        for body in &model.bodies {
+            for entity in body.all_entities() {
+                if faces.iter().any(|f| {
+                    f.is_same(&entity.shape)
+                        || f.sub_shapes(entity.shape.kind().unwrap_or(ShapeKind::Face))
+                            .iter()
+                            .any(|x| x.is_same(&entity.shape))
+                }) {
+                    sources.push(entity.clone());
+                }
+            }
+        }
+    }
     for sheet in occt::extract_faces(&faces, offset).map_err(|_| regen_error("EXTRACT_SURFACE_FAILED"))? {
-        add(model, &id, sheet, BodyType::Sheet);
+        let mut origins = Origins::default();
+        for kind in [ShapeKind::Face, ShapeKind::Edge, ShapeKind::Vertex] {
+            for copy in sheet.sub_shapes(kind) {
+                for source in sources.iter().filter(|e| e.shape.kind() == Some(kind)) {
+                    if coincide(&copy, &source.shape) {
+                        origins.derive(&copy, source, true);
+                    }
+                }
+            }
+        }
+        let info = Info::new(id.clone());
+        model.add_body(NewBody::new(sheet, BodyType::Sheet, info.clone()), &origins, &info, &|_| None);
     }
     Ok(Value::UNDEFINED)
 }

@@ -109,7 +109,10 @@ fn resolve(model: &Model, query: &Value) -> R<Vec<EntityRef>> {
         "CREATED_BY" => {
             let feature = values::feature_id(field(query, "featureId"), "qCreatedBy")?;
             let kind = entity_type(field(query, "entityType"))?;
-            model.everything(kind).into_iter().filter(|r| model.info(*r).is_created_by(&feature)).collect()
+            visible(model, model.everything(kind))
+                .into_iter()
+                .filter(|r| model.info(*r).is_created_by(&feature))
+                .collect()
         }
         "SKETCH_REGION" => {
             let feature = values::feature_id(field(query, "featureId"), "qSketchRegion")?;
@@ -385,7 +388,16 @@ fn resolve(model: &Model, query: &Value) -> R<Vec<EntityRef>> {
             if feature.last().is_some_and(|last| &**last == "imprint") {
                 feature.pop();
             }
-            filter_type(sketch_regions(model, &feature, false), entity_type(field(query, "entityType"))?)
+            match field(query, "derivedFrom") {
+                v if v.is_undefined() => {
+                    filter_type(sketch_regions(model, &feature, false), entity_type(field(query, "entityType"))?)
+                }
+                // The regions' edges and vertices lying on given sketch entities (std's sketch entity tracking).
+                from => filter_type(
+                    imprints_of(model, &feature, &evaluate(model, from)?),
+                    entity_type(field(query, "entityType"))?,
+                ),
+            }
         }
         "VERTEX_ADJACENT" | "EDGE_ADJACENT" => {
             let via = if kind == "VERTEX_ADJACENT" { EntityType::Vertex } else { EntityType::Edge };
@@ -633,6 +645,41 @@ pub fn geometry_type(model: &Model, r: EntityRef) -> Option<&'static str> {
 
 /// The region faces of the sketches `feature` created. With `filter_inner`, regions that fill a hole in another
 /// region are left out: their whole boundary is shared with that region.
+/// The edges and vertices of a sketch's regions that lie on some of its curves and points.
+fn imprints_of(model: &Model, feature: &[std::rc::Rc<str>], from: &[EntityRef]) -> Vec<EntityRef> {
+    let on = |shape: &occt::Shape, target: &occt::Shape| -> bool {
+        let probe = |p: occt::Vec3| occt::vertex(p).and_then(|v| v.distance(target)).is_ok_and(|d| d.distance < 1e-9);
+        match shape.kind() {
+            Some(ShapeKind::Vertex) => shape.vertex_point().is_ok_and(probe),
+            _ => [0.0, 0.5, 1.0].iter().all(|&t| shape.edge_tangent(t, false).is_ok_and(|a| probe(a.origin))),
+        }
+    };
+    let mut out = Vec::new();
+    for (b, body) in model.bodies.iter().enumerate() {
+        if body.sketch_plane.is_none()
+            || body.body_type != crate::model::BodyType::Sheet
+            || !body.info.is_created_by(feature)
+        {
+            continue;
+        }
+        for kind in [EntityType::Edge, EntityType::Vertex] {
+            for (index, entity) in body.entities(kind).iter().enumerate() {
+                let hit = from.iter().any(|r| {
+                    let target = model.shape(*r);
+                    match (kind, r.kind) {
+                        (EntityType::Edge, EntityType::Edge) | (EntityType::Vertex, _) => on(&entity.shape, target),
+                        _ => false,
+                    }
+                });
+                if hit {
+                    out.push(EntityRef { body: b, kind, index });
+                }
+            }
+        }
+    }
+    out
+}
+
 fn sketch_regions(model: &Model, feature: &[std::rc::Rc<str>], filter_inner: bool) -> Vec<EntityRef> {
     let mut regions = Vec::new();
     for (b, body) in model.bodies.iter().enumerate() {
