@@ -374,7 +374,10 @@ fn boolean(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
         return Ok(Value::UNDEFINED);
     }
     let keep_tools = values::opt_bool(definition, "keepTools")?.unwrap_or(false);
-    boolean_bodies(model, id, kind, per_target, targets, tools, keep_tools)?;
+    // Without erasing imprinted edges, faces on one surface stay apart: a jog joins its stretched strip, already
+    // split where its bends go, to the rest of the plate this way (batch 013).
+    let unify = values::opt_bool(definition, "eraseImprintedEdges")?.unwrap_or(true);
+    boolean_bodies_with(model, id, kind, per_target, targets, tools, keep_tools, unify)?;
     Ok(Value::UNDEFINED)
 }
 
@@ -399,6 +402,21 @@ pub(crate) fn boolean_bodies(
     targets: Vec<usize>,
     tools: Vec<usize>,
     keep_tools: bool,
+) -> R<()> {
+    boolean_bodies_with(model, id, kind, per_target, targets, tools, keep_tools, true)
+}
+
+/// As [`boolean_bodies`]; with `unify`, faces and edges left on one surface or curve are merged.
+#[allow(clippy::too_many_arguments)]
+fn boolean_bodies_with(
+    model: &mut Model,
+    id: FeatureId,
+    kind: BooleanKind,
+    per_target: bool,
+    targets: Vec<usize>,
+    tools: Vec<usize>,
+    keep_tools: bool,
+    unify: bool,
 ) -> R<()> {
     let default = Info::new(id);
     let shapes = |bodies: &[usize]| -> Vec<Shape> { bodies.iter().map(|&b| model.bodies[b].shape.clone()).collect() };
@@ -443,7 +461,7 @@ pub(crate) fn boolean_bodies(
             }
         }
         let op =
-            occt::boolean(kind, &shapes(objects), &tool_shapes, true).map_err(|e| error(format!("@opBoolean: {e}")))?;
+            occt::boolean(kind, &shapes(objects), &tool_shapes, unify).map_err(|e| error(format!("@opBoolean: {e}")))?;
         let input_bodies: Vec<_> = inputs.iter().map(|&b| model.bodies[b].clone()).collect();
         // Faces a tool leaves in the result, such as a pocket's walls, keep the tool's creator, unless the tool is
         // kept: then they are new, made by this operation.
