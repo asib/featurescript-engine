@@ -295,6 +295,15 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
 - **Mate connectors between entities** (batch 018) sit halfway from the inferred origin to the other face, turned as
   the inferred frame; **realigned** ones take z along the primary entity and x along the secondary.
 
+- **Twisted sweeps** (batch 019) turn the profile right-handed about the path's direction, in proportion to the
+  distance along it; **scaled** ones grow it in proportion too (a circle makes an exact cone).
+- **Ruled surfaces at an angle from a vector** (batch 019) turn the vector about the edge, towards the outside of the
+  reference face.
+- **A two-point fit spline** behaves as a line: rib profiles extended to the part (by such splines) merge with the
+  profile's line.
+- **Sized obround bend reliefs** (batch 019) reach their depth in from where the wall is cut back, as sized
+  rectangles do; an extended relief changed nothing on a partial flange's end.
+
 - **Bend reliefs** (batch 016). Where a bend covers only part of its base wall's edge, the rest of the edge is
   cut back as the bend is, and each end of the bend gets a slot in the base wall: as wide as the width scale ×
   the thickness, reaching from the edge to the depth scale × the bend's inner radius at the centre of an
