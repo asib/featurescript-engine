@@ -333,6 +333,9 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   way the material lies from the definition sheet ((20, 15, 2) to (20, 15, 0) on a plate's top; a flipped form's
   from (20, 15, 0) to (20, 15, −2)).
 
+- **Frames** (batch 030): limited by a part, a frame's end is trimmed to the part's face it runs into; locked to
+  a planar face, its profile turns only about the face's normal (std sweeps with `LOCK_FACES`); alignment point 0
+  puts the path at the profile's corner. A cut list column override for all frames shows in the table.
 - **Tear drop hems** (batch 029): std draws the profile and lets the sketch solver place it: the hem's arc fixed
   (centre and radius; its end free to move round), a line from its end tangent to it, a construction cap square to
   the line at its far end, its inner point the tip gap plus a thickness from the plate and its outer point the
