@@ -180,7 +180,22 @@ fn resolve(model: &Model, query: &Value) -> R<Vec<EntityRef>> {
         "SM_FLAT_FILTER" => keep_if(sub(model, query, "subquery")?, !yes_no(query, "flatFilter")?),
         "SM_FORM_FILTER" => keep_if(sub(model, query, "subquery")?, !yes_no(query, "formFilter")?),
         "ACTIVE_SM_FILTER" => keep_if(sub(model, query, "subquery")?, !yes_no(query, "activeSheetMetal")?),
-        "SM_APPLICATION_TYPE_FILTER" => Vec::new(),
+        // No sheet metal: nothing is a flat's counterpart or a sheet metal definition entity.
+        "SM_APPLICATION_TYPE_FILTER" | "CORRESPONDING_IN_FLAT" | "SM_DEFINITION_ENTITY_FILTER" => Vec::new(),
+        // Entities of bodies a closed composite part consumes (or not).
+        "CONSUMED" => {
+            let consumed = field(query, "consumed").as_str() == Some("YES");
+            sub(model, query, "subquery")?
+                .into_iter()
+                .filter(|r| {
+                    let is = model
+                        .composites_containing(r.body)
+                        .iter()
+                        .any(|&c| model.bodies[c].composite.as_ref().is_some_and(|(_, closed)| *closed));
+                    is == consumed
+                })
+                .collect()
+        }
         // A named entity, or what it became: entities carrying on its identity.
         "NAMED" => {
             let name = field(query, "name").as_str().unwrap_or_default();

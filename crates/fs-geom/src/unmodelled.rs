@@ -14,6 +14,8 @@ fn identity_transform() -> Value {
 }
 
 pub fn register(m: &mut GeomBuiltins) {
+    // Converting a value to the current FeatureScript version: the engine has only one.
+    m.insert("convert", |_, args| Ok(args.first().cloned().unwrap_or(Value::UNDEFINED)));
     m.insert("queryContainsFlattenedSheetMetal", |_, _| Ok(Value::bool(false)));
     m.insert("isInSheetMetalFeature", |_, _| Ok(Value::bool(false)));
     m.insert("isInFeaturePattern", |_, _| Ok(Value::bool(false)));
@@ -23,6 +25,11 @@ pub fn register(m: &mut GeomBuiltins) {
     m.insert("getTolerantParameterIds", |_, _| Ok(Value::map(Default::default())));
     for name in [
         "addManipulators",
+        // Id disambiguation and recording queries matter only to Onshape's history.
+        "skipOrderDisambiguation",
+        "setExternalDisambiguation",
+        "recordQuery",
+        "clampContextVersion",
         "setDimensionedEntities",
         "setHighlightedEntities",
         "addDebugEntities",

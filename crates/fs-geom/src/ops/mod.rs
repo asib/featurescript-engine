@@ -7,6 +7,7 @@ mod extrude;
 mod frames;
 mod hole;
 mod isocline;
+mod merge;
 mod pattern;
 mod revolve;
 mod split;
@@ -73,6 +74,13 @@ pub fn register(m: &mut GeomBuiltins) {
         })
     });
     m.insert("opHole", |_, args| run_op(&args, "opHole", hole::hole));
+    m.insert("opMergeContexts", |_, args| {
+        let (_, definition) = id_and_definition(&args, "opMergeContexts")?;
+        let source = crate::model_of(field(&definition, "contextFrom"), "opMergeContexts", |other| {
+            merge::read(other, &definition)
+        })?;
+        run_op(&args, "opMergeContexts", |model, id, definition| merge::merge(model, id, definition, &source))
+    });
     m.insert("opCreateIsocline", |_, args| run_op(&args, "opCreateIsocline", isocline::create));
     m.insert("opSplitByIsocline", |_, args| run_op(&args, "opSplitByIsocline", isocline::split));
     m.insert("opNameEntity", |_, args| {
