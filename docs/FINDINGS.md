@@ -333,6 +333,20 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   way the material lies from the definition sheet ((20, 15, 2) to (20, 15, 0) on a plate's top; a flipped form's
   from (20, 15, 0) to (20, 15, −2)).
 
+- **Splines with derivatives at inner points** (batch 035, from routing curves): Onshape's knots are at the
+  centripetal parameters, as without them, and each inner derivative adds one more knot a third of the way into
+  the longer of the spans either side of its point, but never into the first span (through five points with the
+  first span 2.4 times the second, the second point's knot still goes after it); ends without a derivative are
+  natural. Std scales a routing curve's derivatives by its points' bounding box diagonal, and needs `bendRadius`
+  even for a spline.
+- **A line and a three point sketch arc** meant to be tangent meet 3e-8 radians off, in Onshape as in the engine:
+  std's frames don't count that as tangent (1e-8), so they mitre the segments and don't merge them. A block's
+  rounded top edges are tangent exactly. A cut list given a frame's closed composite segment lists it as one item,
+  its length the segments' together (std copies the composite with its bodies by `opPattern`, dissolves the copy
+  and unions the bodies); given the segments, it lists them apart.
+- **Decals on a full cylinder** (batch 035): std tells a face that goes all the way round by evaluating it at
+  parameters (0, 0) and (1, 1); Onshape evaluates the far end of the period exactly at the seam, so the decal is
+  centred at the cylinder's x axis. (Batch 011's probes printed only the decals' frame origins.)
 - **Sweeps round sharp corners** (batch 034): a profile left free sweeps round a sharp corner of its path and is
   mitred there (a 6 mm square along an L of 100 and 60 mm lines: 36 mm² × 160 mm, 8 planar faces, the L's top
   and bottom one face each). Locked to a face, it can't: Onshape finds the path invalid (`SWEEP_INVALID_PATH`).
