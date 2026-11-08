@@ -402,11 +402,8 @@ pub fn ruled_surface(model: &mut Model, id: FeatureId, definition: &Value) -> R<
         v => values::angle(v, "opRuledSurface angle")?,
     };
     let mut kind = field(definition, "ruledSurfaceType").as_str().unwrap_or("ANGLE_FROM_FACE").to_string();
-    // No angle from the vector is along it (batch 018); other angles aren't checked against Onshape yet.
-    if kind == "ANGLE_FROM_VECTOR" {
-        if angle.abs() > 1e-12 {
-            return Err(error("@opRuledSurface: angles from a vector aren't supported yet"));
-        }
+    // No angle from the vector is along it (batch 018).
+    if kind == "ANGLE_FROM_VECTOR" && angle.abs() < 1e-12 {
         kind = "ALIGNED_WITH_VECTOR".to_string();
     }
     let path = shapes(model, field(definition, "path"), EntityType::Edge)?;
@@ -446,6 +443,34 @@ pub fn ruled_surface(model: &mut Model, id: FeatureId, definition: &Value) -> R<
                     r[4] * away.x + r[5] * away.y + r[6] * away.z,
                     r[8] * away.x + r[9] * away.y + r[10] * away.z,
                 )
+            }
+            // The vector turned about the edge by the angle, towards the outside of the reference face next to the
+            // edge (batch 019).
+            "ANGLE_FROM_VECTOR" => {
+                let v = values::normalize(values::vec3(field(definition, "ruledDirection"), "ruledDirection")?)
+                    .ok_or_else(|| error("@opRuledSurface: zero direction"))?;
+                let tangent = edge.edge_tangent(0.5, true).map_err(occt_error)?;
+                let outward = references
+                    .iter()
+                    .find(|f| f.sub_shapes(ShapeKind::Edge).iter().any(|e| e.is_same(edge)))
+                    .and_then(|face| {
+                        let (u, w) = face.face_fraction(tangent.origin).ok()?;
+                        face.face_tangent_plane(u, w).ok().map(|p| p.normal)
+                    });
+                let turned = |a: f64| {
+                    let axis = occt::Axis { origin: occt::Vec3::new(0.0, 0.0, 0.0), direction: tangent.direction };
+                    let r = super::rotation(axis, a).m;
+                    occt::Vec3::new(
+                        r[0] * v.x + r[1] * v.y + r[2] * v.z,
+                        r[4] * v.x + r[5] * v.y + r[6] * v.z,
+                        r[8] * v.x + r[9] * v.y + r[10] * v.z,
+                    )
+                };
+                let (plus, minus) = (turned(angle), turned(-angle));
+                match outward {
+                    Some(n) if values::dot(minus, n) > values::dot(plus, n) => minus,
+                    _ => plus,
+                }
             }
             other => return Err(error(format!("@opRuledSurface: {other} isn't supported yet"))),
         };
