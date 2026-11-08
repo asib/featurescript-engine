@@ -435,6 +435,8 @@ pub fn body_draft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Val
     let height = |edge: &Shape| edge.edge_tangent(0.5, false).ok().map(|a| values::dot(a.origin, pull));
     // (body, face, reference edge)
     let mut pairs: Vec<(usize, Shape, Shape)> = Vec::new();
+    // Bodies drafted after splitting at the parting plane.
+    let mut split_results: Vec<(usize, occt::Operation)> = Vec::new();
     let selection = field(definition, "selectionType").as_str().unwrap_or("EDGES");
     match selection {
         "EDGES" => {
@@ -477,20 +479,76 @@ pub fn body_draft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Val
                     }
                 }
             }
-            for (b, face) in faces {
-                let others: Vec<&Shape> =
-                    model.bodies[b].faces.iter().map(|f| &f.shape).filter(|f| !f.is_same(&face) && !steep(f)).collect();
-                let reference = face
-                    .visible_sub_shapes(ShapeKind::Edge)
+            // A face's reference edge: its highest edge shared with a face of the solid that isn't steep.
+            let reference = |solid: &Shape, face: &Shape| -> Option<Shape> {
+                let others: Vec<Shape> =
+                    solid.sub_shapes(ShapeKind::Face).into_iter().filter(|f| !f.is_same(face) && !steep(f)).collect();
+                face.visible_sub_shapes(ShapeKind::Edge)
                     .into_iter()
-                    .filter(|e| {
-                        others.iter().any(|o| o.visible_sub_shapes(ShapeKind::Edge).iter().any(|x| x.is_same(e)))
-                    })
+                    .filter(|e| others.iter().any(|o| o.sub_shapes(ShapeKind::Edge).iter().any(|x| x.is_same(e))))
                     .filter_map(|e| height(&e).map(|h| (h, e)))
-                    .max_by(|a, b| a.0.total_cmp(&b.0));
-                if let Some((_, edge)) = reference {
-                    pairs.push((b, face, edge));
+                    .max_by(|a, b| a.0.total_cmp(&b.0))
+                    .map(|(_, e)| e)
+            };
+            // A body the parting plane cuts is split there; only the piece in front of it is drafted, and the
+            // pieces are joined again, leaving a ledge at the parting plane. (Batch 007, c019.)
+            let parting = parting_plane(model, definition)?;
+            let mut bodies: Vec<usize> = faces.iter().map(|(b, _)| *b).collect();
+            bodies.dedup();
+            for b in bodies {
+                let body_faces: Vec<Shape> = faces.iter().filter(|(g, _)| *g == b).map(|(_, f)| f.clone()).collect();
+                let shape = model.bodies[b].shape.clone();
+                let crossing = parting.filter(|plane| {
+                    shape.bounding_box_in(*plane, true).is_ok_and(|bx| bx.min.z < -1e-8 && bx.max.z > 1e-8)
+                });
+                let Some(plane) = crossing else {
+                    for face in body_faces {
+                        if let Some(edge) = reference(&shape, &face) {
+                            pairs.push((b, face, edge));
+                        }
+                    }
+                    continue;
+                };
+                let bounds = shape.bounding_box(false).map_err(occt_error)?;
+                let size = values::norm(values::sub(bounds.max, bounds.min)) * 4.0 + 1.0;
+                let cutter = occt::plane_face(plane, -size, size, -size, size).map_err(occt_error)?;
+                let split = occt::split(std::slice::from_ref(&shape), &[cutter])
+                    .map_err(|_| regen_error("BODY_DRAFT_FAILED"))?;
+                let (mut front, mut back) = (Vec::new(), Vec::new());
+                for piece in split.shape().sub_shapes(ShapeKind::Solid) {
+                    let in_front = piece.bounding_box_in(plane, true).is_ok_and(|bx| bx.min.z > -1e-8);
+                    if in_front { front.push(piece) } else { back.push(piece) }
                 }
+                let mut drafted = Vec::new();
+                for piece in front {
+                    let mut piece_faces = Vec::new();
+                    let mut neutrals = Vec::new();
+                    for face in piece.sub_shapes(ShapeKind::Face) {
+                        let selected =
+                            face.face_inner_point().ok().and_then(|p| occt::vertex(p).ok()).is_some_and(|p| {
+                                body_faces.iter().any(|f| p.distance(f).is_ok_and(|d| d.distance < 1e-8))
+                            });
+                        if !(selected && steep(&face)) {
+                            continue;
+                        }
+                        let Some(edge) = reference(&piece, &face) else { continue };
+                        let at = edge.edge_tangent(0.5, false).map_err(|_| regen_error("BODY_DRAFT_FAILED"))?.origin;
+                        neutrals.push(occt::Frame { origin: at, normal: pull, x: values::canonical_x(pull) });
+                        piece_faces.push(face);
+                    }
+                    drafted.push(if piece_faces.is_empty() {
+                        piece
+                    } else {
+                        occt::draft_each(&piece, &piece_faces, pull, angle, &neutrals)
+                            .map_err(|_| regen_error("BODY_DRAFT_FAILED"))?
+                            .shape()
+                    });
+                }
+                let (first, rest) = drafted.split_first().ok_or_else(|| regen_error("BODY_DRAFT_FAILED"))?;
+                let tools: Vec<Shape> = rest.iter().cloned().chain(back).collect();
+                let op = occt::boolean(occt::BooleanKind::Union, std::slice::from_ref(first), &tools, true)
+                    .map_err(|_| regen_error("BODY_DRAFT_FAILED"))?;
+                split_results.push((b, op));
             }
         }
         other => return Err(error(format!("@opBodyDraft: selectionType {other} isn't supported"))),
@@ -509,10 +567,10 @@ pub fn body_draft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Val
             None => groups.push((b, vec![face], vec![neutral])),
         }
     }
-    if groups.is_empty() {
+    if groups.is_empty() && split_results.is_empty() {
         return Err(regen_error("BODY_DRAFT_FAILED"));
     }
-    let mut results = Vec::new();
+    let mut results = split_results;
     for (b, faces, neutrals) in groups {
         let op = occt::draft_each(&model.bodies[b].shape, &faces, pull, angle, &neutrals)
             .map_err(|_| regen_error("BODY_DRAFT_FAILED"))?;
@@ -520,4 +578,29 @@ pub fn body_draft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Val
     }
     replace_bodies(model, &id, results);
     Ok(Value::UNDEFINED)
+}
+
+/// The plane of a body draft's parting object, if it is a planar face (or a sheet of one).
+fn parting_plane(model: &Model, definition: &Value) -> R<Option<occt::Frame>> {
+    let parting = field(definition, "partingObject");
+    if parting.is_undefined() {
+        return Ok(None);
+    }
+    if parting.get("normal").is_some() {
+        return values::plane(parting, "opBodyDraft partingObject").map(Some);
+    }
+    for r in query::evaluate(model, parting)? {
+        let face = match r.kind {
+            EntityType::Face => model.shape(r).clone(),
+            EntityType::Body => match model.bodies[r.body].faces.as_slice() {
+                [only] => only.shape.clone(),
+                _ => continue,
+            },
+            _ => continue,
+        };
+        if let Ok(plane) = face.face_plane() {
+            return Ok(Some(plane));
+        }
+    }
+    Ok(None)
 }
