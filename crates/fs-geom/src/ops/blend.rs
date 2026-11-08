@@ -150,9 +150,10 @@ fn section_fillet(model: &mut Model, id: FeatureId, definition: &Value, section:
     for (b, edges) in groups {
         let body = model.bodies[b].shape.clone();
         let vertices: Vec<Shape> = edges.iter().flat_map(|e| e.sub_shapes(ShapeKind::Vertex)).collect();
-        if vertices.iter().enumerate().any(|(i, v)| vertices[i + 1..].iter().any(|w| w.is_same(v))) {
+        // Two edges meeting at a vertex end in a mitre, their regions overlapping; three or more need a blend there.
+        if vertices.iter().any(|v| vertices.iter().filter(|w| w.is_same(v)).count() > 2) {
             return Err(error(
-                "@opFillet: conic, curvature and asymmetric fillets of edges meeting at a vertex aren't supported yet",
+                "@opFillet: conic, curvature and asymmetric fillets of three edges meeting at a vertex aren't supported yet",
             ));
         }
         let (mut cut, mut fill) = (Vec::new(), Vec::new());
@@ -206,7 +207,12 @@ fn section_fillet(model: &mut Model, id: FeatureId, definition: &Value, section:
             if !(s1 > 1e-9 && s2 > 1e-9) {
                 return Err(failed());
             }
-            let (p1, p2) = (add(start, scale(u1, s1)), add(start, scale(u2, s2)));
+            // The section is swept along the edge: to cut, from a length before it to a length past it, so its ends
+            // lie outside the part; to fill a concave edge, along just its length. It's built where the sweep
+            // starts.
+            let (corner, sweep) = if inside { (sub(start, scale(t, length)), 3.0 * length) } else { (start, length) };
+            let (p1, p2) = (add(corner, scale(u1, s1)), add(corner, scale(u2, s2)));
+            let start = corner;
             // From the second face to the first; a circular fillet's the exact arc.
             let curve = match section {
                 Section::Circular if !asymmetric => {
@@ -228,16 +234,12 @@ fn section_fillet(model: &mut Model, id: FeatureId, definition: &Value, section:
                 occt::line_edge(start, p2).map_err(crate::occt_error)?,
             ])
             .map_err(|_| failed())?;
-            // Swept along the edge: to cut, a length further each way so its ends lie outside the part; to fill a
-            // concave edge, just its length.
-            let tool = if inside {
-                let moved = occt::transform(&region, &super::translation(scale(t, -length)))
-                    .map_err(crate::occt_error)?
-                    .shape();
-                occt::prism(&moved, scale(t, 3.0 * length)).map_err(crate::occt_error)?.shape()
-            } else {
-                occt::prism(&region, scale(t, length)).map_err(crate::occt_error)?.shape()
-            };
+            let tool = occt::prism(&region, scale(t, sweep)).map_err(crate::occt_error)?.shape();
+            // A B-spline section's sweep made a B-spline surface, as Onshape's is: OCCT intersects two such
+            // surfaces (two fillets mitred at a corner) far better than two extrusions (batch 053 c013: their faces
+            // 0.17 mm² short, against 0.03 once converted).
+            let exact_arc = matches!(section, Section::Circular) && !asymmetric;
+            let tool = if exact_arc { tool } else { occt::nurbs_converted(&tool).map_err(crate::occt_error)? };
             if inside { cut.push(tool) } else { fill.push(tool) }
         }
         let mut shape = body.clone();
