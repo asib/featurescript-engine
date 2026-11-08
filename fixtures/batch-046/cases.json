@@ -1,0 +1,37 @@
+{
+  "batch": "046",
+  "title": "faces unwrapped from cylinders and cones onto planes",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "unwrap",
+      "description": "a cylinder's side, radius 10 and 20 mm tall, unwrapped onto a plane",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "unwrap",
+      "description": "a quarter cylinder sheet (radius 10, 20 mm tall, extruded from an arc) unwrapped onto a plane",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "unwrap",
+      "description": "a cone's side, radii 10 and 5 and 20 mm tall, unwrapped onto a plane",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    }
+  ]
+}

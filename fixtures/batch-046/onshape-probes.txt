@@ -1,0 +1,4 @@
+probe c001 failed ROLL_FAILED
+probe c002 { bodies : [ { area : 314.1592708728003 , bounds : [ 399.9999993576686 , -40 , -5 , 415.70796290130863 , -20 , -5 ] , edges : 4 , faces : 1 , name : c002.1 , plane : [ [ 407.8539811294886 , -30 , -5 ] , [ 0 , 0 , 1 ] , [ 1 , 0 , 0 ] ] , type : SHEET , vertices : 4 } , { area : 314.1592708728002 , bounds : [ 400 , 0 , 0 , 410.00000000000006 , 10.000000000000021 , 20 ] , edges : 4 , faces : 1 , name : c002.2 , type : SHEET , vertices : 4 } ] , construction : [] , values : { frame : [ [ 1e-6 , 1e-6 , 0 ] , [ 1 , 0 , 0 ] , [ 0 , 0 , 1 ] ] } }
+probe c003 failed INVALID_ROLL_SURFACE
+batch-046 failed cases: [ c001 , c003 ]
