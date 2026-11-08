@@ -1,0 +1,37 @@
+{
+  "batch": "040",
+  "title": "ruled surfaces with vertex overrides on curved edges",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "ruled-surface",
+      "description": "normal to a round from its top arc, 5 mm wide but 10 mm at one end",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "ruled-surface",
+      "description": "the same, blending linearly",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "ruled-surface",
+      "description": "normal to a round from its top arc, without overrides",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    }
+  ]
+}
