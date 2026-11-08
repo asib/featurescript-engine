@@ -95,6 +95,8 @@ std::unique_ptr<Shape> make_plane_face(Frame f, double umin, double umax, double
 std::unique_ptr<Shape> make_ellipse_edge(Frame f, double major, double minor, bool whole, double start, double end);
 std::unique_ptr<Shape> make_interpolated_edge(rust::Slice<const Vec3> points, rust::Slice<const Vec3> derivatives,
                                               rust::Slice<const double> parameters, bool closed);
+std::unique_ptr<Shape> make_bspline_edge(rust::Slice<const Vec3> poles, rust::Slice<const double> weights,
+                                         rust::Slice<const double> knots, int32_t degree, bool periodic);
 std::unique_ptr<Shape> make_bezier_edge(rust::Slice<const Vec3> points);
 std::unique_ptr<Shape> make_conic_edge(Vec3 a, Vec3 c, Vec3 b, double w);
 std::unique_ptr<ShapeList> connect_edges(const ShapeList &edges);
@@ -165,6 +167,9 @@ double edge_fraction_extended(const Shape &s, Vec3 p);
 Distance shape_distance(const Shape &a, const Shape &b);
 rust::Vec<double> line_crossings(const Shape &s, Vec3 origin, Vec3 direction);
 Vec3 face_inner_point(const Shape &s);
+Conic edge_curvature(const Shape &s, double t, bool arc_length);
+Vec3 edge_curvature_derivative(const Shape &s, double t, bool arc_length);
+std::unique_ptr<Operation> full_round_op(const Shape &solid, const Shape &side1, const Shape &side2, const ShapeList &centre);
 int32_t edge_convexity(const Shape &body, const Shape &edge, bool by_curvature);
 std::unique_ptr<Shape> face_feature_solid(const ShapeList &faces);
 std::unique_ptr<ShapeList> connected_shells(const Shape &s);

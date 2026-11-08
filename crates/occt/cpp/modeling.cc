@@ -19,6 +19,9 @@
 #include <BRepAlgoAPI_Defeaturing.hxx>
 #include <BRepAlgoAPI_Splitter.hxx>
 #include <BRepAdaptor_Surface.hxx>
+#include <BRepAlgoAPI_Common.hxx>
+#include <BRepPrimAPI_MakeHalfSpace.hxx>
+#include <BRepPrimAPI_MakeCylinder.hxx>
 #include <BRepAlgoAPI_Section.hxx>
 #include <BRepFeat_SplitShape.hxx>
 #include <BRepClass3d_SolidClassifier.hxx>
@@ -567,6 +570,69 @@ std::unique_ptr<Operation> split_faces_op(const Shape &body, const ShapeList &fa
   if (!any) throw std::runtime_error("split faces: the tools don't cross the faces");
   splitter.Build();
   return finish(one(body.shape), splitter, "split faces");
+}
+
+// Rounds faces between two parallel planar side faces into a half cylinder tangent to both, as wide as the gap
+// between them: the solid is kept below the plane through the cylinder's axis, and inside the cylinder above it.
+std::unique_ptr<Operation> full_round_op(const Shape &solid, const Shape &side1, const Shape &side2, const ShapeList &centre) {
+  const TopoDS_Face &f1 = TopoDS::Face(side1.shape), &f2 = TopoDS::Face(side2.shape);
+  if (BRepAdaptor_Surface(f1).GetType() != GeomAbs_Plane || BRepAdaptor_Surface(f2).GetType() != GeomAbs_Plane)
+    throw std::runtime_error("full round: the side faces must be planar");
+  gp_Pln p1 = BRepAdaptor_Surface(f1).Plane(), p2 = BRepAdaptor_Surface(f2).Plane();
+  if (!p1.Axis().Direction().IsParallel(p2.Axis().Direction(), 1e-9)) throw std::runtime_error("full round: sides aren't parallel");
+  gp_Dir n = p1.Axis().Direction();
+  double gap = p1.Distance(p2.Location());
+  double r = gap / 2;
+  // The middle plane between the sides.
+  gp_Vec across(p1.Location(), p2.Location());
+  double side = across.Dot(gp_Vec(n));
+  gp_Pnt mid = p1.Location().Translated(gp_Vec(n) * (side / 2));
+  if (centre.shapes.empty()) throw std::runtime_error("full round: no faces to round");
+  // The centre faces' outward direction (taken from the first), and how far they reach along it.
+  const TopoDS_Face &c0 = TopoDS::Face(centre.shapes[0]);
+  gp_Dir out = face_normal(c0);
+  gp_Dir axis(gp_Vec(n).Crossed(gp_Vec(out)));
+  out = gp_Dir(gp_Vec(axis).Crossed(gp_Vec(n)));
+  if (out.Dot(face_normal(c0)) < 0) out.Reverse();
+  Bnd_Box bounds;
+  BRepBndLib::Add(solid.shape, bounds);
+  double x0, y0, z0, x1, y1, z1;
+  bounds.Get(x0, y0, z0, x1, y1, z1);
+  double size = gp_Pnt(x0, y0, z0).Distance(gp_Pnt(x1, y1, z1)) + 1;
+  double top = -1e300;
+  for (const TopoDS_Shape &c : centre.shapes) {
+    Bnd_Box b;
+    BRepBndLib::AddOptimal(c, b, Standard_False, Standard_False);
+    double a0, b0, d0, a1, b1, d1;
+    b.Get(a0, b0, d0, a1, b1, d1);
+    for (double xx : {a0, a1})
+      for (double yy : {b0, b1})
+        for (double zz : {d0, d1}) top = std::max(top, gp_Vec(mid, gp_Pnt(xx, yy, zz)).Dot(gp_Vec(out)));
+  }
+  gp_Pnt axis_point = mid.Translated(gp_Vec(out) * (top - r));
+  // What's kept: the half space behind the axis plane, and the cylinder.
+  gp_Ax2 frame(axis_point.Translated(gp_Vec(axis) * -size), axis);
+  TopoDS_Shape cylinder = BRepPrimAPI_MakeCylinder(frame, r, 2 * size).Shape();
+  gp_Ax3 below(axis_point, out);
+  TopoDS_Shape half = BRepPrimAPI_MakeHalfSpace(
+                          BRepBuilderAPI_MakeFace(gp_Pln(below), -2 * size, 2 * size, -2 * size, 2 * size).Face(),
+                          axis_point.Translated(gp_Vec(out) * -1))
+                          .Solid();
+  BRepAlgoAPI_Fuse keep(half, cylinder);
+  keep.Build();
+  if (!keep.IsDone()) throw std::runtime_error("full round: building the tool failed");
+  BRepAlgoAPI_Common common(solid.shape, keep.Shape());
+  common.Build();
+  if (!common.IsDone()) throw std::runtime_error("full round failed");
+  auto op = std::make_unique<Operation>();
+  op->history = new BRepTools_History(one(solid.shape), common);
+  ShapeUpgrade_UnifySameDomain unifier(common.Shape(), Standard_True, Standard_True, Standard_False);
+  unifier.Build();
+  op->history->Merge(unifier.History());
+  op->result = unifier.Shape();
+  TopExp_Explorer first(op->result, TopAbs_SOLID);
+  if (first.More()) op->result = first.Current();
+  return op;
 }
 
 // Whether a point is inside a solid.

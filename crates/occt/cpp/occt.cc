@@ -48,6 +48,7 @@
 #include <TopTools_IndexedMapOfShape.hxx>
 #include <TopTools_MapOfShape.hxx>
 #include <TopoDS.hxx>
+#include <GCPnts_AbscissaPoint.hxx>
 #include <gp_Elips.hxx>
 #include <TopoDS_Iterator.hxx>
 #include <TopoDS_Compound.hxx>
@@ -402,10 +403,19 @@ double shape_area(const Shape &s) {
   return props.Mass();
 }
 
+// The total length of a shape's edges, integrated adaptively: GProp's fixed rule is 0.4% off on a single-span
+// cubic (batch 010, c005).
 double shape_length(const Shape &s) {
-  GProp_GProps props;
-  BRepGProp::LinearProperties(s.shape, props);
-  return props.Mass();
+  TopTools_IndexedMapOfShape edges;
+  TopExp::MapShapes(s.shape, TopAbs_EDGE, edges);
+  double total = 0;
+  for (int i = 1; i <= edges.Extent(); ++i) {
+    const TopoDS_Edge &edge = TopoDS::Edge(edges(i));
+    if (BRep_Tool::Degenerated(edge)) continue;
+    BRepAdaptor_Curve curve(edge);
+    total += GCPnts_AbscissaPoint::Length(curve, 1e-12);
+  }
+  return total;
 }
 
 Vec3 shape_centroid(const Shape &s) {

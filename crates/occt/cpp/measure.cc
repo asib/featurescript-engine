@@ -3,6 +3,8 @@
 #include "occt/cpp/occt.h"
 
 #include <BRepAdaptor_Curve.hxx>
+#include <BRepLProp_CLProps.hxx>
+#include <gp.hxx>
 #include <vector>
 #include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
 #include <BRepClass_FaceClassifier.hxx>
@@ -109,6 +111,50 @@ Axis edge_tangent(const Shape &s, double t, bool arc_length) {
   if (d.Magnitude() < 1e-300) throw std::runtime_error("no tangent");
   if (edge.Orientation() == TopAbs_REVERSED) d.Reverse();
   return Axis{vec3(p.XYZ()), vec3(gp_Dir(d).XYZ())};
+}
+
+// The Frenet frame of an edge at fraction `t`: origin the point, normal the x direction (pointing to the centre of
+// curvature; arbitrary where the curvature is zero), tangent the "normal" (z); and the curvature in `radius1`.
+Conic edge_curvature(const Shape &s, double t, bool arc_length) {
+  if (s.shape.ShapeType() != TopAbs_EDGE) throw std::runtime_error("not an edge");
+  const TopoDS_Edge &edge = TopoDS::Edge(s.shape);
+  BRepAdaptor_Curve curve(edge);
+  double u = edge_parameter_at(edge, curve, t, arc_length);
+  BRepLProp_CLProps props(curve, u, 2, 1e-9);
+  if (!props.IsTangentDefined()) throw std::runtime_error("no tangent");
+  gp_Dir tangent;
+  props.Tangent(tangent);
+  if (edge.Orientation() == TopAbs_REVERSED) tangent.Reverse();
+  double k = props.Curvature();
+  gp_Dir normal;
+  if (k > 1e-12) {
+    props.Normal(normal);
+  } else {
+    // Any direction square to the tangent.
+    gp_Dir other = std::abs(tangent.X()) < 0.9 ? gp::DX() : gp::DY();
+    normal = gp_Dir(gp_Vec(tangent).Crossed(gp_Vec(other)));
+  }
+  return Conic{0, Frame{vec3(props.Value().XYZ()), vec3(tangent.XYZ()), vec3(normal.XYZ())}, k, 0};
+}
+
+// The derivative of an edge's curvature vector with respect to arc length (its third derivative by arc length) at
+// fraction `t`, in the edge's direction.
+Vec3 edge_curvature_derivative(const Shape &s, double t, bool arc_length) {
+  if (s.shape.ShapeType() != TopAbs_EDGE) throw std::runtime_error("not an edge");
+  const TopoDS_Edge &edge = TopoDS::Edge(s.shape);
+  BRepAdaptor_Curve curve(edge);
+  double u = edge_parameter_at(edge, curve, t, arc_length);
+  gp_Pnt p;
+  gp_Vec d1, d2, d3;
+  curve.D3(u, p, d1, d2, d3);
+  double v = d1.Magnitude();
+  if (v < 1e-300) throw std::runtime_error("no tangent");
+  double a = d1.Dot(d2), b = d2.Dot(d2) + d1.Dot(d3);
+  gp_Vec k = d3 / std::pow(v, 3) - d2 * (3 * a / std::pow(v, 5)) - d1 * (b / std::pow(v, 5)) +
+             d1 * (4 * a * a / std::pow(v, 7));
+  // Walking the other way flips the third derivative.
+  if (edge.Orientation() == TopAbs_REVERSED) k.Reverse();
+  return vec3(k.XYZ());
 }
 
 // The fraction (0 to 1) along an edge, in its direction, of the point on it closest to `p`.

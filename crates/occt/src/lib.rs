@@ -112,6 +112,13 @@ mod ffi {
             closed: bool,
         ) -> Result<UniquePtr<Shape>>;
         fn make_bezier_edge(points: &[Vec3]) -> Result<UniquePtr<Shape>>;
+        fn make_bspline_edge(
+            poles: &[Vec3],
+            weights: &[f64],
+            knots: &[f64],
+            degree: i32,
+            periodic: bool,
+        ) -> Result<UniquePtr<Shape>>;
         fn make_conic_edge(a: Vec3, c: Vec3, b: Vec3, w: f64) -> Result<UniquePtr<Shape>>;
         fn connect_edges(edges: &ShapeList) -> Result<UniquePtr<ShapeList>>;
         fn offset_wire_region(wire: &Shape, normal: Vec3, o1: f64, o2: f64) -> Result<UniquePtr<Shape>>;
@@ -206,6 +213,14 @@ mod ffi {
         fn shape_distance(a: &Shape, b: &Shape) -> Result<Distance>;
         fn line_crossings(s: &Shape, origin: Vec3, direction: Vec3) -> Result<Vec<f64>>;
         fn face_inner_point(s: &Shape) -> Result<Vec3>;
+        fn edge_curvature(s: &Shape, t: f64, arc_length: bool) -> Result<Conic>;
+        fn edge_curvature_derivative(s: &Shape, t: f64, arc_length: bool) -> Result<Vec3>;
+        fn full_round_op(
+            solid: &Shape,
+            side1: &Shape,
+            side2: &Shape,
+            centre: &ShapeList,
+        ) -> Result<UniquePtr<Operation>>;
         fn edge_convexity(body: &Shape, edge: &Shape, by_curvature: bool) -> Result<i32>;
         fn face_feature_solid(faces: &ShapeList) -> Result<UniquePtr<Shape>>;
         fn connected_shells(s: &Shape) -> Result<UniquePtr<ShapeList>>;
@@ -470,6 +485,17 @@ impl Shape {
         ffi::edge_convexity(&self.0, &edge.0, by_curvature).ok().filter(|k| *k >= 0)
     }
 
+    /// The Frenet frame at a fraction along this edge (origin the point, `normal` the tangent, `x` the normal) and
+    /// the curvature (`radius1`).
+    pub fn edge_curvature(&self, t: f64, arc_length: bool) -> Result<Conic> {
+        Ok(ffi::edge_curvature(&self.0, t, arc_length)?)
+    }
+
+    /// The derivative of the curvature vector with respect to arc length at a fraction along this edge.
+    pub fn edge_curvature_derivative(&self, t: f64, arc_length: bool) -> Result<Vec3> {
+        Ok(ffi::edge_curvature_derivative(&self.0, t, arc_length)?)
+    }
+
     /// A point inside this face (not just inside its parameter range).
     pub fn face_inner_point(&self) -> Result<Vec3> {
         Ok(ffi::face_inner_point(&self.0)?)
@@ -566,6 +592,11 @@ pub fn interpolated_edge(points: &[Vec3], derivatives: &[Vec3], parameters: &[f6
 }
 
 /// A Bézier curve with these control points.
+/// An edge on a B-spline: poles, weights (empty if not rational), the full knot vector, degree and periodicity.
+pub fn bspline_edge(poles: &[Vec3], weights: &[f64], knots: &[f64], degree: i32, periodic: bool) -> Result<Shape> {
+    Ok(Shape::new(ffi::make_bspline_edge(poles, weights, knots, degree, periodic)?))
+}
+
 pub fn bezier_edge(points: &[Vec3]) -> Result<Shape> {
     Ok(Shape::new(ffi::make_bezier_edge(points)?))
 }
@@ -873,6 +904,11 @@ pub fn face_feature_solid(faces: &[Shape]) -> Result<Shape> {
 pub fn connected_shells(shape: &Shape) -> Result<Vec<Shape>> {
     let shells = ffi::connected_shells(&shape.0)?;
     Ok(from_list(&shells))
+}
+
+/// Rounds faces between two parallel planar side faces into a half cylinder tangent to both.
+pub fn full_round(solid: &Shape, side1: &Shape, side2: &Shape, centre: &[Shape]) -> Result<Operation> {
+    Ok(Operation(ffi::full_round_op(&solid.0, &side1.0, &side2.0, &to_list(centre))?))
 }
 
 /// Splits faces of a body where the tools (sheets, faces or wires) cross them.

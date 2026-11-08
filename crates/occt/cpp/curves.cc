@@ -1,6 +1,7 @@
 // Curves for sketches and wires: ellipses, interpolated and Bézier splines, conics.
 
 #include "occt/cpp/occt.h"
+#include <vector>
 
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepLib.hxx>
@@ -102,6 +103,67 @@ std::unique_ptr<Shape> make_interpolated_edge(rust::Slice<const Vec3> points, ru
 }
 
 // A Bézier curve with these control points.
+// An edge on a B-spline given as std's BSplineCurve gives it: poles, weights (none if not rational), and the full
+// knot vector with repeated knots; periodic curves list their poles without overlap.
+std::unique_ptr<Shape> make_bspline_edge(rust::Slice<const Vec3> poles, rust::Slice<const double> weights,
+                                         rust::Slice<const double> knots, int32_t degree, bool periodic) {
+  if (poles.size() < 2 || knots.empty()) throw std::invalid_argument("bspline: too few poles or knots");
+  TColgp_Array1OfPnt p(1, static_cast<int>(poles.size()));
+  for (size_t i = 0; i < poles.size(); ++i) p.SetValue(static_cast<int>(i) + 1, pnt(poles[i]));
+  std::vector<double> unique;
+  std::vector<int> mults;
+  for (double k : knots) {
+    if (!unique.empty() && std::abs(k - unique.back()) < 1e-12) {
+      ++mults.back();
+    } else {
+      unique.push_back(k);
+      mults.push_back(1);
+    }
+  }
+  if (periodic) {
+    // OCCT wants the periodic knots with as many as there are poles, plus one; std gives the full vector.
+    int n = static_cast<int>(poles.size());
+    int need = n + 1;
+    int have = 0;
+    for (int m : mults) have += m;
+    // Trim the knots std adds at each end to wrap.
+    while (have > need && !unique.empty()) {
+      int extra = have - need;
+      int cut_front = std::min(extra / 2 + extra % 2, mults.front());
+      mults.front() -= cut_front;
+      have -= cut_front;
+      if (mults.front() == 0) {
+        unique.erase(unique.begin());
+        mults.erase(mults.begin());
+      }
+      extra = have - need;
+      if (extra <= 0) break;
+      int cut_back = std::min(extra, mults.back());
+      mults.back() -= cut_back;
+      have -= cut_back;
+      if (mults.back() == 0) {
+        unique.pop_back();
+        mults.pop_back();
+      }
+    }
+  }
+  TColStd_Array1OfReal k(1, static_cast<int>(unique.size()));
+  TColStd_Array1OfInteger m(1, static_cast<int>(mults.size()));
+  for (size_t i = 0; i < unique.size(); ++i) {
+    k.SetValue(static_cast<int>(i) + 1, unique[i]);
+    m.SetValue(static_cast<int>(i) + 1, mults[i]);
+  }
+  Handle(Geom_BSplineCurve) curve;
+  if (weights.empty()) {
+    curve = new Geom_BSplineCurve(p, k, m, degree, periodic);
+  } else {
+    TColStd_Array1OfReal w(1, static_cast<int>(weights.size()));
+    for (size_t i = 0; i < weights.size(); ++i) w.SetValue(static_cast<int>(i) + 1, weights[i]);
+    curve = new Geom_BSplineCurve(p, w, k, m, degree, periodic);
+  }
+  return wrap(BRepBuilderAPI_MakeEdge(curve).Edge());
+}
+
 std::unique_ptr<Shape> make_bezier_edge(rust::Slice<const Vec3> points) {
   TColgp_Array1OfPnt poles(1, static_cast<int>(points.size()));
   for (size_t i = 0; i < points.size(); ++i) poles.SetValue(static_cast<int>(i) + 1, pnt(points[i]));
