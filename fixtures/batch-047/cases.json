@@ -1,0 +1,87 @@
+{
+  "batch": "047",
+  "title": "the coordinate systems of fillets' cylinders",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "fillet-frame",
+      "description": "a block's upright edge at (0, 0) rounded 4 mm",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "fillet-frame",
+      "description": "a block's upright edge at (30, 0) rounded 4 mm",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "fillet-frame",
+      "description": "a block's upright edge at (30, 20) rounded 4 mm",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "fillet-frame",
+      "description": "a block's upright edge at (0, 20) rounded 4 mm",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "fillet-frame",
+      "description": "a block's top edge along x at y = 0 rounded 4 mm",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "fillet-frame",
+      "description": "a block's top edge along y at x = 30 rounded 4 mm",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "fillet-frame",
+      "description": "a block's bottom edge along x at y = 20 rounded 4 mm",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c008",
+      "kind": "fillet-frame",
+      "description": "an L block's concave inside edge rounded 4 mm",
+      "slotMeters": [
+        2.8000000000000003,
+        0,
+        0
+      ]
+    }
+  ]
+}
