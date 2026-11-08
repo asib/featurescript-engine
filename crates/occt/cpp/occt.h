@@ -206,6 +206,7 @@ Vec3 face_fraction(const Shape &s, Vec3 p);
 Box3 face_uv_bounds(const Shape &s);
 std::unique_ptr<ShapeList> edge_end_vertices(const Shape &s);
 bool edges_tangent_at(const Shape &a, const Shape &b, const Shape &vertex, double angle_tolerance);
+bool wire_smooth(const Shape &wire, double angle_tolerance);
 bool faces_tangent_along(const Shape &edge, const Shape &a, const Shape &b, double angle_tolerance);
 std::unique_ptr<Shape> extended_shape(const Shape &s, double reach);
 

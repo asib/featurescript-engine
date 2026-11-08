@@ -477,6 +477,21 @@ bool edges_tangent_at(const Shape &a, const Shape &b, const Shape &vertex, doubl
   return ta.Angle(-tb) <= angle_tolerance;
 }
 
+// Whether a wire continues smoothly through every vertex two of its edges share (their tangents opposite within
+// `angle_tolerance` radians there).
+bool wire_smooth(const Shape &wire, double angle_tolerance) {
+  TopTools_IndexedDataMapOfShapeListOfShape vertex_edges;
+  TopExp::MapShapesAndAncestors(wire.shape, TopAbs_VERTEX, TopAbs_EDGE, vertex_edges);
+  for (int i = 1; i <= vertex_edges.Extent(); ++i) {
+    const TopTools_ListOfShape &edges = vertex_edges(i);
+    if (edges.Extent() != 2 || edges.First().IsSame(edges.Last())) continue;
+    const TopoDS_Vertex &v = TopoDS::Vertex(vertex_edges.FindKey(i));
+    gp_Vec ta = tangent_leaving(TopoDS::Edge(edges.First()), v), tb = tangent_leaving(TopoDS::Edge(edges.Last()), v);
+    if (ta.Magnitude() < 0.5 || tb.Magnitude() < 0.5 || ta.Angle(-tb) > angle_tolerance) return false;
+  }
+  return true;
+}
+
 // Whether two faces meet smoothly along an edge: their normals agree within `angle_tolerance` radians at points
 // along it.
 bool faces_tangent_along(const Shape &edge, const Shape &a, const Shape &b, double angle_tolerance) {

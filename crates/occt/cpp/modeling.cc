@@ -1012,8 +1012,10 @@ std::unique_ptr<Shape> remove_faces_open(const Shape &solid, const ShapeList &fa
 
 // Sweeps a profile (a face or a wire) along a path wire. `first` and `last` hold the faces at each end for a face
 // profile.
-// A sweep whose profile keeps its orientation (`mode` 1: a fixed trihedron) or turns only about `direction`
-// (`mode` 2: the trihedron's binormal along it). The caps are the faces on the first and last sections.
+// A sweep whose profile keeps its orientation (`mode` 1: a fixed trihedron), turns only about `direction` (`mode`
+// 2: the trihedron's binormal along it) or follows a path with sharp corners (`mode` 0: a corrected Frenet
+// trihedron, the pieces either side of a corner extended to meet, which mitres a constant profile, batch 034). The
+// caps are the faces on the first and last sections.
 std::unique_ptr<Operation> sweep_controlled_op(const Shape &profile, const Shape &path, int mode, Vec3 direction) {
   TopoDS_Wire spine = TopoDS::Wire(path.shape);
   {
@@ -1098,7 +1100,10 @@ std::unique_ptr<Operation> sweep_controlled_op(const Shape &profile, const Shape
   TopTools_ListOfShape inner_shapes;
   for (size_t i = 0; i < sections.size(); ++i) {
     BRepOffsetAPI_MakePipeShell maker(spine);
-    if (mode == 1) {
+    if (mode == 0) {
+      maker.SetMode(Standard_False);
+      maker.SetTransitionMode(BRepBuilderAPI_RightCorner);
+    } else if (mode == 1) {
       maker.SetMode(gp_Ax2(gp::Origin(), gp::DZ(), gp::DX()));
     } else {
       maker.SetMode(gp_Dir(direction.x, direction.y, direction.z));
@@ -1147,6 +1152,7 @@ std::unique_ptr<Operation> sweep_controlled_op(const Shape &profile, const Shape
 }
 
 std::unique_ptr<Operation> sweep_op(const Shape &profile, const Shape &path) {
+  if (!wire_smooth(path, 1e-6)) return sweep_controlled_op(profile, path, 0, Vec3{0, 0, 1});
   // The profile is swept from the end of the path it sits at: if that's the far end, sweep along the path reversed.
   TopoDS_Wire spine = TopoDS::Wire(path.shape);
   {

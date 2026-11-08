@@ -102,6 +102,11 @@ pub fn sweep(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
         .collect();
     let paths = occt::connect_edges(&path_edges).map_err(occt_error)?;
     let [path] = paths.as_slice() else { return Err(regen_error("SWEEP_PATH_NO_CONSTRAINT")) };
+    // Locked to faces, a profile can't turn a sharp corner of its path: Onshape finds the path invalid (an L of
+    // lines, batch 034), though it mitres such a corner for a profile left free.
+    if field(definition, "profileControl").as_str() == Some("LOCK_FACES") && !path.wire_smooth(1e-6) {
+        return Err(regen_error("SWEEP_INVALID_PATH"));
+    }
     let solid = !faces.is_empty();
     let profiles: Vec<Shape> = if solid {
         if faces.len() == 1 { faces } else { vec![occt::merge_faces(&faces).map_err(occt_error)?.shape()] }

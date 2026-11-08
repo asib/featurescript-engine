@@ -295,6 +295,7 @@ mod ffi {
         fn face_uv_bounds(s: &Shape) -> Result<Box3>;
         fn edge_end_vertices(s: &Shape) -> Result<UniquePtr<ShapeList>>;
         fn edges_tangent_at(a: &Shape, b: &Shape, vertex: &Shape, angle_tolerance: f64) -> Result<bool>;
+        fn wire_smooth(wire: &Shape, angle_tolerance: f64) -> Result<bool>;
         fn faces_tangent_along(edge: &Shape, a: &Shape, b: &Shape, angle_tolerance: f64) -> Result<bool>;
         fn extended_shape(s: &Shape, reach: f64) -> Result<UniquePtr<Shape>>;
 
@@ -623,6 +624,11 @@ impl Shape {
     /// Whether this edge and `other`, meeting at `vertex`, continue smoothly through it.
     pub fn tangent_at(&self, other: &Shape, vertex: &Shape, angle_tolerance: f64) -> bool {
         ffi::edges_tangent_at(&self.0, &other.0, &vertex.0, angle_tolerance).unwrap_or(false)
+    }
+
+    /// Whether this wire continues smoothly through every vertex two of its edges share.
+    pub fn wire_smooth(&self, angle_tolerance: f64) -> bool {
+        ffi::wire_smooth(&self.0, angle_tolerance).unwrap_or(false)
     }
 
     /// Whether faces `a` and `b` meet smoothly along this edge.
