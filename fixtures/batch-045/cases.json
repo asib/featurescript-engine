@@ -1,0 +1,37 @@
+{
+  "batch": "045",
+  "title": "composite parts with sheet metal derived",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "derived",
+      "description": "an open composite of a sheet metal plate and a block derived, the plate's model kept",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "derived",
+      "description": "a closed composite of a sheet metal plate and a block derived",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "derived",
+      "description": "a closed composite of two blocks and a separate sheet metal plate derived",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    }
+  ]
+}
