@@ -100,6 +100,37 @@ pub fn pattern(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
             .map_err(|_| regen_error("PATTERN_FACE_FAILED"))?;
         results.push((b, op));
     }
+    // Edges of a sheet bounding a hole in one of its faces (a sheet metal face pattern of a hole, batch 017): the
+    // hole is cut again at each transform, in the face's plane.
+    let edge_groups: Vec<(usize, Vec<occt::Shape>)> = by_body(model, entities, EntityType::Edge)?
+        .into_iter()
+        .filter(|(b, _)| model.bodies[*b].body_type == crate::model::BodyType::Sheet)
+        .collect();
+    for (b, edges) in edge_groups {
+        let body = &model.bodies[b];
+        let face = body
+            .faces
+            .iter()
+            .find(|f| {
+                let own = f.shape.sub_shapes(occt::ShapeKind::Edge);
+                edges.iter().all(|e| own.iter().any(|x| x.is_same(e)))
+            })
+            .ok_or_else(|| error("@opPattern: patterned edges must bound one face"))?;
+        let frame = face.shape.face_plane().map_err(|_| error("@opPattern: patterned edges must lie in a planar face"))?;
+        let mut tools = Vec::new();
+        for region in occt::sketch_regions(&edges, frame).map_err(occt_error)? {
+            let below = occt::transform(&region, &super::translation(values::scale(frame.normal, -1.0)))
+                .map_err(occt_error)?
+                .shape();
+            let tool = occt::prism(&below, values::scale(frame.normal, 2.0)).map_err(occt_error)?.shape();
+            for t in transforms.iter() {
+                tools.push(occt::transform(&tool, &transform(t)?).map_err(occt_error)?.shape());
+            }
+        }
+        let op = occt::boolean(occt::BooleanKind::Subtraction, std::slice::from_ref(&body.shape), &tools, false)
+            .map_err(|_| regen_error("PATTERN_FACE_FAILED"))?;
+        results.push((b, op));
+    }
     replace_bodies(model, &id, results);
     Ok(Value::UNDEFINED)
 }

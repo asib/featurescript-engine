@@ -81,6 +81,32 @@ pub fn register(m: &mut GeomBuiltins) {
         let definition = fs_interp::builtins::arg(&args, 1, "evCornerType")?.clone();
         model_mut(&args, "evCornerType", |model| sheet_metal::corner_type(&tags, model, &definition))
     });
+    // The tools behind sheet metal holes and forms a face pattern carries along. Only patterns of faces without
+    // holes made by the hole feature, or forms, are supported yet: those have none.
+    m.insert("evSheetMetalHoleToolBodies", |_, args| {
+        let definition = fs_interp::builtins::arg(&args, 1, "evSheetMetalHoleToolBodies")?.clone();
+        model_mut(&args, "evSheetMetalHoleToolBodies", |model| {
+            if !query::evaluate(model, field(&definition, "sheetMetalHoleFaces"))?.is_empty() {
+                return Err(error("@evSheetMetalHoleToolBodies: patterns of sheet metal holes aren't supported yet"));
+            }
+            let none = || Value::array(Vec::new());
+            Ok(crate::values::map(vec![
+                ("sheetMetalHoleToolBodies", none()),
+                ("sheetMetalHoleToolWalls", none()),
+                ("sheetMetalHoleToolTransforms", none()),
+            ]))
+        })
+    });
+    m.insert("evSheetMetalFormToolBodies", |_, args| {
+        let definition = fs_interp::builtins::arg(&args, 1, "evSheetMetalFormToolBodies")?.clone();
+        model_mut(&args, "evSheetMetalFormToolBodies", |model| {
+            let faces = query::evaluate(model, field(&definition, "sheetMetalFormFaces"))?;
+            if faces.iter().any(|&r| model.attributes(r).unnamed.iter().any(|a| a.tag.is_some_and(|t| &*fs_interp::types::name(t) == "FormAttribute"))) {
+                return Err(error("@evSheetMetalFormToolBodies: patterns of sheet metal forms aren't supported yet"));
+            }
+            Ok(crate::values::map(Vec::new()))
+        })
+    });
     m.insert("opRevolve", |_, args| run_op(&args, "opRevolve", revolve::revolve));
     m.insert("opSphere", |_, args| {
         run_op(&args, "opSphere", |model, id, definition| {
