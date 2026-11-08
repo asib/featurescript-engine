@@ -44,6 +44,9 @@ pub struct Features {
 pub struct OpenFeature {
     pub id: Value,
     pub token: u64,
+    /// A sheet metal feature (std's `defineSheetMetalFeature` starts features with `isSheetMetal`), or one inside
+    /// such a feature.
+    pub sheet_metal: bool,
     snapshot: Option<Box<dyn Any>>,
 }
 
@@ -98,6 +101,11 @@ fn id_in_scope(id: &Value, scope: &Value) -> bool {
     }
 }
 
+/// Whether the innermost running feature is (in) a sheet metal feature (`@isInSheetMetalFeature`).
+pub fn in_sheet_metal(context: &Context) -> bool {
+    context.features.borrow().open.last().is_some_and(|f| f.sheet_metal)
+}
+
 /// Whether a feature is running in the context: Onshape won't read properties then (`@getProperty`).
 pub fn regenerating(context: &Context) -> bool {
     !context.features.borrow().open.is_empty()
@@ -148,7 +156,9 @@ pub fn register(m: &mut HashMap<&'static str, BuiltinFn>) {
         let mut features = context.features.borrow_mut();
         features.next_token += 1;
         let token = features.next_token;
-        features.open.push(OpenFeature { id, token, snapshot });
+        let sheet_metal = features.open.last().is_some_and(|f| f.sheet_metal)
+            || args.get(2).and_then(|d| d.get("isSheetMetal")).and_then(Value::as_bool) == Some(true);
+        features.open.push(OpenFeature { id, token, sheet_metal, snapshot });
         // std keeps the token in `var token is map`.
         Ok(super::map_value(vec![("token", Value::number(token as f64))]))
     });
@@ -180,6 +190,9 @@ pub fn register(m: &mut HashMap<&'static str, BuiltinFn>) {
         Ok(features.open.last().map(|f| f.id.clone()).unwrap_or_else(|| Value::array(Vec::new())))
     });
     m.insert("endFeature", |_, args| finish(&args, "endFeature", false));
+    m.insert("isInSheetMetalFeature", |_, args| {
+        Ok(Value::bool(in_sheet_metal(context_arg(&args, 0, "isInSheetMetalFeature")?)))
+    });
     m.insert("abortFeature", |_, args| finish(&args, "abortFeature", true));
     m.insert("functionGetFeatureStatus", |_, args| {
         let context = context_arg(&args, 0, "functionGetFeatureStatus")?;

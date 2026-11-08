@@ -15,7 +15,7 @@ use crate::value::{Value, ValueMap};
 use std::collections::HashMap;
 use std::rc::Rc;
 
-pub use context::{Context, ContextState, context_arg, regenerating};
+pub use context::{Context, ContextState, context_arg, in_sheet_metal, regenerating};
 
 pub type BuiltinFn = fn(&mut Interp, Vec<Value>) -> R<Value>;
 

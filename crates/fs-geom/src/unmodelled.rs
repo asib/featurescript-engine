@@ -17,7 +17,6 @@ pub fn register(m: &mut GeomBuiltins) {
     // Converting a value to the current FeatureScript version: the engine has only one.
     m.insert("convert", |_, args| Ok(args.first().cloned().unwrap_or(Value::UNDEFINED)));
     m.insert("queryContainsFlattenedSheetMetal", |_, _| Ok(Value::bool(false)));
-    m.insert("isInSheetMetalFeature", |_, _| Ok(Value::bool(false)));
     m.insert("isInFeaturePattern", |_, _| Ok(Value::bool(false)));
     m.insert("getRemainderPatternTransform", |_, _| Ok(identity_transform()));
     m.insert("getFullPatternTransform", |_, _| Ok(identity_transform()));
