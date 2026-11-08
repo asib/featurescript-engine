@@ -210,6 +210,11 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   4), so spans are halved until within somewhere between 0.95 and 6.5 µm (the engine takes 2 µm). Onshape's own
   volumes and areas of these fillets are off any exact value by up to 6e-6 (c014's volume 0.038 mm³ above its
   B-spline's), though the exported surfaces match the engine's to the square micrometre.
+- **Fillets too big for their faces** (batch 003, c015): a 30 × 20 × 10 block's four upright edges rounded 15 mm.
+  Onshape lets the fillets eat the faces between them: the result is the block with each edge's own region
+  (between the edge and its arc, the arc's centre 15 mm in from both faces) taken away. The arcs of the corners
+  along each 20 mm side cross at its middle, 0.858 mm in (15 − √200); the 30 mm sides shrink to lines; the corners
+  at either end of a 30 mm side are rounded about one axis and become one cylinder. 4 faces, 6 edges, 4 vertices.
 - **Partial fillet bounds** each keep the fillet on the side their edge comes from (`isFlipped`: the side it goes
   to), and the fillet is where any bound keeps it: bounds at 25% and 75% of an edge fillet the outer quarters. The
   ends are square, capped with planar faces. (Batch 010, c003.)

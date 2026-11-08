@@ -22,7 +22,7 @@ Onshape.
 | `cPlane` (cplane.fs) | matches: offset, plane and point, line and angle, line and point, three points, mid plane, curve point, tangent to a cylinder | 002, 006 |
 | `cPoint` (cpoint.fs) | matches: point on an edge | 002 |
 | `assignVariable` (variable.fs) | matches: assigned lengths, numbers and angles; measured distance, length and diameter; from a table by row label and column index | 002, 020, 021 |
-| `fillet` (fillet.fs) | matches: circular fillets of edges, edge sets, every edge (vertex blends), concave edges, cylinders, holes, tangent chains; the coordinate systems of straight edges' fillet cylinders (047). Conic cross sections and asymmetric fillets of straight edges between planes (c013, c014: Onshape's cubic B-spline sections; its own volumes stray by 6e-6, so their probes are compared to 0.05). Known gaps: conic and asymmetric fillets of curved edges, between curved faces or of edges meeting at a vertex, fillets too big for the faces they round, which Onshape lets consume a face (c015). Variable (smooth) and partial fillets, full rounds: match. A sheet metal corner edge (a corner break, as in Onshape). Not yet: curvature, variable asymmetric | 003, 010, 017 |
+| `fillet` (fillet.fs) | matches: circular fillets of edges, edge sets, every edge (vertex blends), concave edges, cylinders, holes, tangent chains; the coordinate systems of straight edges' fillet cylinders (047). Conic cross sections and asymmetric fillets of straight edges between planes (c013, c014: Onshape's cubic B-spline sections; its own volumes stray by 6e-6, so their probes are compared to 0.05). Fillets too big for the faces they round, which Onshape lets consume them (c015), when the edges are straight between planes and don't meet. Known gaps: conic and asymmetric fillets of curved edges, between curved faces or of edges meeting at a vertex. Variable (smooth) and partial fillets, full rounds: match. A sheet metal corner edge (a corner break, as in Onshape). Not yet: curvature, variable asymmetric | 003, 010, 017 |
 | `chamfer` (chamfer.fs) | matches: equal offsets, two offsets (both ways), offset and angle, every edge, cylinders, concave edges, tangent chains, a sheet metal corner edge | 003, 017 |
 | `shell` (shell.fs) | matches: removing faces inwards and outwards, hollow, cylinders, an L | 003 |
 | `draft` (draft.fs) | matches: neutral plane drafts, both pull directions, cylinders; reference entity drafts (inside rib); parting line drafts, one sided either way, symmetric and two sided (049) | 003, 006, 049 |
@@ -178,6 +178,3 @@ What fixtures show Onshape doing that the engine can't yet:
   up, Onshape's surface reaches 0.05 mm (in x) and 0.09 mm (in y) past the outer points, dips to −0.015 mm and
   has an area of 1242.61 mm²; the engine's least-squares bicubic over the points' rectangle has 1255.91 mm². Both
   are within the 0.01 mm tolerance of every point.
-- **Fillets too big for their faces** (c015). A 15 mm fillet on the four vertical edges of a 30 × 20 mm block:
-  Onshape lets the two fillets on each 20 mm side consume it, leaving the lens where the cylinders meet (4 faces,
-  6 edges, 4 vertices); OCCT fails.

@@ -64,7 +64,9 @@ pub fn fillet(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> 
     let mut framed: Vec<(Shape, occt::Frame)> = Vec::new();
     for (b, edges) in groups {
         let body = model.bodies[b].shape.clone();
-        let op = occt::fillet(&body, &edges, radius).map_err(|_| regen_error("FILLET_FAILED"))?;
+        let Ok(op) = occt::fillet(&body, &edges, radius) else {
+            return section_fillet(model, id, definition, false).map_err(|_| regen_error("FILLET_FAILED"));
+        };
         for edge in &edges {
             let line_origin =
                 model.bodies[b].edges.iter().find(|e| e.shape.is_same(edge)).and_then(|e| e.info.line_origin);
@@ -104,6 +106,10 @@ pub fn fillet(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> 
 /// ellipse. Onshape makes the curve a cubic B-spline ([`Cubic::rational_quadratic`]). The region between the edge
 /// and the curve, swept along the edge, is taken away (or, at a concave edge, filled in). Each edge's region is
 /// its own, so edges meeting at a vertex aren't blended there.
+///
+/// A plain circular fillet too big for the faces it rounds (c015: a 30 × 20 block's upright edges rounded 15 mm)
+/// comes here too, when OCCT's fillet fails: Onshape lets it eat the faces, leaving what taking each edge's region
+/// away, with the exact arc, leaves (the arcs of neighbouring corners cross; corners rounded about one axis merge).
 fn section_fillet(model: &mut Model, id: FeatureId, definition: &Value, conic: bool) -> R<Value> {
     use crate::values::{add, cross, dot, norm, normalize, scale, sub};
     let radius =
@@ -178,8 +184,14 @@ fn section_fillet(model: &mut Model, id: FeatureId, definition: &Value, conic: b
             let angle = dot(u1, u2).clamp(-1.0, 1.0).acos();
             let (half_tan, weight) = ((angle / 2.0).tan(), if conic { rho / (1.0 - rho) } else { (angle / 2.0).sin() });
             let (p1, p2) = (add(start, scale(u1, first / half_tan)), add(start, scale(u2, second / half_tan)));
-            // From the second face to the first, as Onshape runs it.
-            let curve = crate::curve_extend::Cubic::rational_quadratic(p2, start, p1, weight)?.edge()?;
+            // From the second face to the first, as Onshape runs it; a circular fillet's the exact arc.
+            let curve = if conic || asymmetric {
+                crate::curve_extend::Cubic::rational_quadratic(p2, start, p1, weight)?.edge()?
+            } else {
+                let bisector = normalize(add(u1, u2)).ok_or_else(failed)?;
+                let centre = add(start, scale(bisector, radius / (angle / 2.0).sin()));
+                occt::arc_through(p2, sub(centre, scale(bisector, radius)), p1).map_err(crate::occt_error)?
+            };
             let region = occt::fill_edges(&[
                 curve,
                 occt::line_edge(p1, start).map_err(crate::occt_error)?,
