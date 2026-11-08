@@ -497,6 +497,13 @@ gp_Pnt edge_middle(const TopoDS_Edge &edge) {
 
 // A sheet with its faces turned to agree with each other across their shared edges (filleting an open shell can
 // leave the new faces turned the other way).
+std::unique_ptr<Shape> nurbs_converted(const Shape &input) {
+  BRepBuilderAPI_NurbsConvert nurbs(input.shape, Standard_True);
+  if (!nurbs.IsDone()) throw std::runtime_error("nurbs conversion failed");
+  Handle(BRepTools_History) history = new BRepTools_History;
+  return wrap(planes_recognized(nurbs.Shape(), history));
+}
+
 std::unique_ptr<Shape> orient_sheet(const Shape &input) {
   BRep_Builder builder;
   TopoDS_Compound out;

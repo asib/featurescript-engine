@@ -137,6 +137,7 @@ mod ffi {
         fn make_conic_edge(a: Vec3, c: Vec3, b: Vec3, w: f64) -> Result<UniquePtr<Shape>>;
         fn thicken_sheet(input: &Shape, t1: f64, t2: f64) -> Result<UniquePtr<Shape>>;
         fn orient_sheet(input: &Shape) -> Result<UniquePtr<Shape>>;
+        fn nurbs_converted(input: &Shape) -> Result<UniquePtr<Shape>>;
         fn make_bspline_surface_face(
             poles: &[Vec3],
             nu: i32,
@@ -1047,6 +1048,11 @@ pub fn draft_angles(solid: &Shape, faces: &[Shape], pull: Vec3, angles: &[f64], 
 }
 
 /// A sheet with its faces turned to agree with each other across their shared edges.
+/// The shape with its curved faces and edges made B-splines (planes stay planes).
+pub fn nurbs_converted(shape: &Shape) -> Result<Shape> {
+    Ok(Shape::new(ffi::nurbs_converted(&shape.0)?))
+}
+
 pub fn orient_sheet(sheet: &Shape) -> Result<Shape> {
     Ok(Shape::new(ffi::orient_sheet(&sheet.0)?))
 }
