@@ -700,20 +700,24 @@ fn planar_face_blend(model: &mut Model, id: FeatureId, definition: &Value) -> R<
         Some("CURVATURE") => Section::Curvature(field(definition, "magnitude").as_number().ok_or_else(failed)?),
         _ => Section::Circular,
     };
-    // Along the line, over both sides (a little further, then trimmed back by the sides' extent).
-    let extent = |face: &Shape| -> Vec<f64> {
+    // Along the line: over both sides (a long trim), or where they overlap (short, batch 055 c005).
+    let extent = |face: &Shape| -> (f64, f64) {
         face.sub_shapes(ShapeKind::Vertex)
             .iter()
             .filter_map(|v| v.vertex_point().ok())
             .map(|p| dot(sub(p, c), t))
-            .collect()
+            .fold((f64::MAX, f64::MIN), |(a, b), x| (a.min(x), b.max(x)))
     };
-    let along: Vec<f64> = extent(&face1).into_iter().chain(extent(&face2)).collect();
-    let (lo, hi) = along.iter().fold((f64::MAX, f64::MIN), |(a, b), &x| (a.min(x), b.max(x)));
+    let ((lo1, hi1), (lo2, hi2)) = (extent(&face1), extent(&face2));
     let trim = field(definition, "trim").as_str().unwrap_or("WALLS").to_string();
     let detach = values::opt_bool(definition, "detach")?.unwrap_or(false);
-    // Untrimmed, the blend runs on past the sides' ends by a tenth of their length at each (3 mm of 30 in batch 054
-    // c007; a guess from that one case).
+    let short = trim == "SHORT";
+    let (lo, hi) = if short { (lo1.max(lo2), hi1.min(hi2)) } else { (lo1.min(lo2), hi1.max(hi2)) };
+    if hi - lo < 1e-9 {
+        return Err(failed());
+    }
+    // Untrimmed, the blend runs on past the sides' ends by a tenth of their length at each (batch 054 c007, 055
+    // c001–c003: 3 mm of 30, 6 of 60, 5 of sides spanning 50 between them, whatever the radius).
     let (lo, hi) = if trim == "NO_TRIM" { (lo - 0.1 * (hi - lo), hi + 0.1 * (hi - lo)) } else { (lo, hi) };
     let corner = add(c, scale(t, lo));
     let (p1, p2) = (add(corner, scale(u1, s1)), add(corner, scale(u2, s2)));
@@ -732,15 +736,25 @@ fn planar_face_blend(model: &mut Model, id: FeatureId, definition: &Value) -> R<
     };
     let swept = occt::prism(&curve, scale(t, hi - lo)).map_err(crate::occt_error)?.shape();
     let blend_faces = swept.sub_shapes(ShapeKind::Face);
-    // Each side cut back to where the blend meets it: what lies at least its setback from the line.
+    // Each side cut back to where the blend meets it: what lies at least its setback from the line, or with a
+    // short trim, notched only where the blend runs.
     let trimmed = |face: &Shape, u: occt::Vec3, s: f64| -> R<Vec<Shape>> {
         let big = 10.0 * (hi - lo + s1 + s2 + 1.0);
-        let frame = occt::Frame { origin: add(c, scale(u, s)), normal: u, x: t };
-        let slab = occt::plane_face(frame, -big, big, -big, big).map_err(crate::occt_error)?;
-        let half = occt::prism(&slab, scale(u, big)).map_err(crate::occt_error)?.shape();
-        let kept = occt::boolean(occt::BooleanKind::Intersection, std::slice::from_ref(face), &[half], true)
-            .map_err(|_| failed())?;
-        Ok(kept.shape().sub_shapes(ShapeKind::Face))
+        let kept = if short {
+            let n = cross(u, t);
+            let frame = occt::Frame { origin: sub(add(c, scale(t, lo)), scale(n, big)), normal: n, x: t };
+            let y = cross(n, t);
+            let (y0, y1) = if dot(y, u) > 0.0 { (-big, s) } else { (-s, big) };
+            let slab = occt::plane_face(frame, 0.0, hi - lo, y0, y1).map_err(crate::occt_error)?;
+            let notch = occt::prism(&slab, scale(n, 2.0 * big)).map_err(crate::occt_error)?.shape();
+            occt::boolean(occt::BooleanKind::Subtraction, std::slice::from_ref(face), &[notch], true)
+        } else {
+            let frame = occt::Frame { origin: add(c, scale(u, s)), normal: u, x: t };
+            let slab = occt::plane_face(frame, -big, big, -big, big).map_err(crate::occt_error)?;
+            let half = occt::prism(&slab, scale(u, big)).map_err(crate::occt_error)?.shape();
+            occt::boolean(occt::BooleanKind::Intersection, std::slice::from_ref(face), &[half], true)
+        };
+        Ok(kept.map_err(|_| failed())?.shape().sub_shapes(ShapeKind::Face))
     };
     let info = crate::model::Info::new(id);
     if !detach {
