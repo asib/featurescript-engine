@@ -91,6 +91,10 @@ pub fn register(m: &mut GeomBuiltins) {
     });
     m.insert("opPattern", |_, args| run_op(&args, "opPattern", pattern::pattern));
     m.insert("opSplitPart", |_, args| run_op(&args, "opSplitPart", split::split_part));
+    m.insert("opSplitFace", |interp, args| {
+        let tags = crate::tags(interp)?;
+        run_op(&args, "opSplitFace", |model, id, definition| split::split_face(model, id, definition, &tags))
+    });
     m.insert("opFillet", |_, args| run_op(&args, "opFillet", blend::fillet));
     m.insert("opChamfer", |_, args| run_op(&args, "opChamfer", blend::chamfer));
     m.insert("opModifyFillet", |_, args| run_op(&args, "opModifyFillet", blend::modify_fillet));
@@ -109,10 +113,6 @@ pub fn register(m: &mut GeomBuiltins) {
     m.insert("opFitSpline", |_, args| run_op(&args, "opFitSpline", curve::fit_spline));
     m.insert("opMateConnector", |_, args| run_op(&args, "opMateConnector", crate::mate::make_connector));
     m.insert("opExtractWires", |_, args| run_op(&args, "opExtractWires", surface::extract_wires));
-    m.insert("opSplitFace", |interp, args| {
-        let tags = crate::tags(interp)?;
-        run_op(&args, "opSplitFace", |model, id, definition| split::split_face(model, id, definition, &tags))
-    });
     m.insert("opExtractSurface", |_, args| run_op(&args, "opExtractSurface", surface::extract_surface));
     m.insert("opIntersectFaces", |_, args| run_op(&args, "opIntersectFaces", surface::intersect_faces));
     m.insert("opFillSurface", |_, args| run_op(&args, "opFillSurface", surface::fill_surface));
