@@ -276,7 +276,19 @@ fn extend_revolved(body: &crate::model::Body, edges: &[Shape], distance: f64) ->
     let left = column(u0, extend[0], -1.0, false)?;
     let bottom = vec![(left[left.len() - 1].0, vb), (right[0].0, vb)];
     let top = vec![(right[right.len() - 1].0, vt), (left[0].0, vt)];
-    occt::face_from_uv(face, &[bottom, right, top, left]).map(Some).map_err(|_| failed())
+    // Past a sphere's top, Onshape keeps the old corner at the far end of the u range as a vertex, the meridian
+    // there in two edges (batch 039 c004: 5 edges; the near side's, and a cone's either side, are one).
+    let split = s.kind == 3 && extend[3] && !extend[1];
+    let mut loops = vec![bottom];
+    if split {
+        loops.push(vec![(u1, vb), (u1, v1)]);
+        loops.push(vec![(u1, v1), (u1, vt)]);
+    } else {
+        loops.push(right);
+    }
+    loops.push(top);
+    loops.push(left);
+    occt::face_from_uv(face, &loops).map(Some).map_err(|_| failed())
 }
 
 /// A sheet of one face extruded from a curve, bounded by two copies of the curve and two straight edges (batch 039):
