@@ -333,6 +333,14 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   way the material lies from the definition sheet ((20, 15, 2) to (20, 15, 0) on a plate's top; a flipped form's
   from (20, 15, 0) to (20, 15, −2)).
 
+- **Feature patterns that reapply the feature** (batch 026) run it once per instance with the instance's transform
+  pushed (`setFeaturePatternInstanceData`); std's extrude moves its profile by the remainder transform (all of it
+  when the profile isn't made inside the pattern), so a boss up to a slanted plane ends at its own height in each
+  instance. An instance that lands off the block becomes a part of its own.
+- **Clearance and tapped holes** (batch 026) belong to the newer hole: a legacy hole with `hasClearance` fails in
+  std (it compares the V2 diameters, undefined there). The V3 hole's standard table must agree with the definition,
+  `majorDiameter` included (Onshape's dialog fills it in). The hole steps from the clearance diameter to the tap
+  drill where it enters the last part within its depth.
 - **Section parts** (batch 025) delete every body they aren't given, sketches included. A jog section removes the
   side of its line towards the sketch plane's −x, whichever way the line's points run, not the +x side its
   documentation names; a partial section of a line across the whole part cuts as a full one does.
