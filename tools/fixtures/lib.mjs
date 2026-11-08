@@ -214,7 +214,17 @@ function runFixtureCase(context is Context, id is Id, name is string, slot is Ve
     }
     const everything = qCreatedBy(caseId, EntityType.BODY);
     if (!isQueryEmpty(context, everything))
-        opTransform(context, caseId + "move", { "bodies" : everything, "transform" : transform(slot) });
+    {
+        try silent
+        {
+            opTransform(context, caseId + "move", { "bodies" : everything, "transform" : transform(slot) });
+        }
+        catch
+        {
+            // Sheet metal parts can't be moved (SHEET_METAL_PARTS_PROHIBITED): such a case stays where it was built.
+            clearFeatureStatus(context, id, { "withDisplayData" : true });
+        }
+    }
     const notSketch = qSketchFilter(everything, SketchObject.NO);
     const bodies = fixtureSortedBodies(context, qConstructionFilter(notSketch, ConstructionObject.NO));
     var probes = [];
