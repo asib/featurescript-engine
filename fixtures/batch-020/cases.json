@@ -1,0 +1,127 @@
+{
+  "batch": "020",
+  "title": "more feature options: replace face, extend up to, wraps, measured diameter, curves, mate connector normal, sheet metal corner breaks",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "replace-face",
+      "description": "a block's top replaced by a curved sheet above it",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "extend-surface",
+      "description": "a sheet extended up to a plane",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "wrap",
+      "description": "a rectangle wrapped onto a cylinder as a 1 mm solid",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "wrap",
+      "description": "a rectangle wrapped onto a cylinder as an imprint",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "variable",
+      "description": "measure a cylinder's diameter",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "isoparametric-curve",
+      "description": "a curve through a point on a cylinder",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "fit-spline",
+      "description": "through three vertices, leaving along x twice as strongly",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c008",
+      "kind": "offset-curve-on-face",
+      "description": "the top edge of a cylinder offset 2 mm across its top",
+      "slotMeters": [
+        2.8000000000000003,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c009",
+      "kind": "mate-connector",
+      "description": "at a face's centroid, its normal given as y",
+      "slotMeters": [
+        3.2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c010",
+      "kind": "curve-pattern",
+      "description": "a block patterned along an arc on a cylinder's top, locked to the top",
+      "slotMeters": [
+        3.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c011",
+      "kind": "sheet-metal-corner-break",
+      "description": "a plate corner chamfered 3 mm by 6 mm",
+      "slotMeters": [
+        0,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c012",
+      "kind": "sheet-metal-corner-break",
+      "description": "a plate corner rounded by a 5 mm conic",
+      "slotMeters": [
+        0.4,
+        0.4,
+        0
+      ]
+    }
+  ]
+}
