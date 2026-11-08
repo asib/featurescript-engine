@@ -314,8 +314,14 @@ pub fn replace_face(model: &mut Model, id: FeatureId, definition: &Value) -> R<V
         return Err(regen_error("DIRECT_EDIT_REPLACE_FACE_SELECT"));
     }
     let mut results = Vec::new();
+    // The faces replaced, by body: the face on the target plane takes over what they were.
+    let mut replaced: Vec<(crate::model::Tid, Entity)> = Vec::new();
     for (b, faces) in groups {
-        let mut shape = model.bodies[b].shape.clone();
+        let body = &model.bodies[b];
+        if let Some(first) = body.faces.iter().find(|f| faces.iter().any(|g| g.is_same(&f.shape))) {
+            replaced.push((body.tid, first.clone()));
+        }
+        let mut shape = body.shape.clone();
         let mut last = None;
         for face in &faces {
             let op = occt::replace_planar_face(&shape, face, target)
@@ -328,6 +334,27 @@ pub fn replace_face(model: &mut Model, id: FeatureId, definition: &Value) -> R<V
         }
     }
     replace_bodies(model, &id, results);
+    // The new face keeps the replaced face's info, attributes and identity, as Onshape's does (frame's mitres rely on
+    // the cap faces' attributes surviving).
+    for (tid, old) in replaced {
+        let Some(b) = model.bodies.iter().position(|body| body.tid == tid) else { continue };
+        let on_target = model.bodies[b].faces.iter().position(|f| {
+            f.shape.face_plane().is_ok_and(|p| {
+                values::norm(values::cross(p.normal, target.normal)) < 1e-9
+                    && values::dot(values::sub(p.origin, target.origin), target.normal).abs() < 1e-8
+            })
+        });
+        let Some(index) = on_target else { continue };
+        model.update_body(b, |body| {
+            let face = &mut body.faces[index];
+            face.info = old.info.clone();
+            face.attributes = old.attributes.clone();
+            let mut identity: Vec<crate::model::Tid> = face.ancestry.identity.to_vec();
+            identity.push(old.tid);
+            identity.extend(old.ancestry.identity.iter().copied());
+            face.ancestry.identity = identity.into();
+        });
+    }
     Ok(Value::UNDEFINED)
 }
 
