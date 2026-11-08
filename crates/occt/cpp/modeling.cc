@@ -941,6 +941,8 @@ namespace {
 // between parallel squares has planar sides).
 TopoDS_Shape planes_recognized(const TopoDS_Shape &shape, const Handle(BRepTools_History) &history) {
   Handle(BRepTools_ReShape) reshape = new BRepTools_ReShape();
+  // Recorded apart and merged, so the history leads from the operation's inputs to the rebuilt faces.
+  Handle(BRepTools_History) rebuilt_history = new BRepTools_History;
   bool changed = false;
   for (TopExp_Explorer it(shape, TopAbs_FACE); it.More(); it.Next()) {
     const TopoDS_Face &face = TopoDS::Face(it.Current());
@@ -958,10 +960,12 @@ TopoDS_Shape planes_recognized(const TopoDS_Shape &shape, const Handle(BRepTools
     TopoDS_Face rebuilt = maker.Face();
     if (face_normal(rebuilt).Dot(before) < 0) rebuilt.Reverse();
     reshape->Replace(face, rebuilt);
-    history->AddModified(face, rebuilt);
+    rebuilt_history->AddModified(face, rebuilt);
     changed = true;
   }
-  return changed ? reshape->Apply(shape) : shape;
+  if (!changed) return shape;
+  history->Merge(rebuilt_history);
+  return reshape->Apply(shape);
 }
 
 }  // namespace
