@@ -615,6 +615,7 @@ pub fn move_curve_boundary(model: &mut Model, id: FeatureId, definition: &Value)
     // What to trim or extend to: a plane (batch 018), or a straight curve, taken as the plane through it square to
     // the curve being changed (batch 021).
     let limit_curve: Option<Shape>;
+    let mut limit_surface: Option<Shape> = None;
     let limit = if trim || up_to {
         let key = if trim { "trimTo" } else { "extendTo" };
         let found = query::evaluate(model, field(definition, key))?;
@@ -633,9 +634,14 @@ pub fn move_curve_boundary(model: &mut Model, id: FeatureId, definition: &Value)
             None
         };
         match face {
-            Some(face) => {
-                Some(face.face_plane().map_err(|_| error("@opMoveCurveBoundary: only planar limits are supported yet"))?)
-            }
+            // A curved face is met where the curve's line crosses it (batch 027).
+            Some(face) => match face.face_plane() {
+                Ok(plane) => Some(plane),
+                Err(_) => {
+                    limit_surface = Some(face);
+                    None
+                }
+            },
             None if limit_curve.is_some() => None,
             None => return Err(regen_error("CANNOT_RESOLVE_ENTITIES")),
         }
@@ -643,8 +649,8 @@ pub fn move_curve_boundary(model: &mut Model, id: FeatureId, definition: &Value)
         limit_curve = None;
         None
     };
-    let distance = match (limit, &limit_curve) {
-        (None, None) => values::length(field(definition, "extensionDistance"), "extensionDistance")?,
+    let distance = match (limit, &limit_curve, &limit_surface) {
+        (None, None, None) => values::length(field(definition, "extensionDistance"), "extensionDistance")?,
         _ => 0.0,
     };
     let flip = values::opt_bool(definition, "flipHeuristics")?.unwrap_or(false);
@@ -688,15 +694,31 @@ pub fn move_curve_boundary(model: &mut Model, id: FeatureId, definition: &Value)
             }
             _ => None,
         };
-        let (a, b2) = if let Some(plane) = limit {
-            // Where the line meets the plane.
+        // Where the line meets the limit: a plane, or a curved face, the crossing nearest the end that moves.
+        let hit = if let Some(plane) = limit {
             let d = values::sub(end.origin, start.origin);
             let rate = values::dot(d, plane.normal);
             if rate.abs() < 1e-12 {
                 return Err(regen_error("TRIM_CURVE_FAILED"));
             }
             let t = values::dot(values::sub(plane.origin, start.origin), plane.normal) / rate;
-            let hit = values::add(start.origin, values::scale(d, t));
+            Some(values::add(start.origin, values::scale(d, t)))
+        } else if let Some(surface) = &limit_surface {
+            let length = values::norm(values::sub(end.origin, start.origin));
+            let d = values::normalize(values::sub(end.origin, start.origin)).ok_or_else(|| regen_error("TRIM_CURVE_FAILED"))?;
+            let crossings = surface.line_crossings(start.origin, d).map_err(occt_error)?;
+            let moving = if near_end { length } else { 0.0 };
+            let t = crossings
+                .iter()
+                .copied()
+                .filter(|t| if trim { *t > 1e-9 && *t < length - 1e-9 } else if near_end { *t > length } else { *t < 0.0 })
+                .min_by(|a, b| (a - moving).abs().total_cmp(&(b - moving).abs()))
+                .ok_or_else(|| regen_error("TRIM_CURVE_FAILED"))?;
+            Some(values::add(start.origin, values::scale(d, t)))
+        } else {
+            None
+        };
+        let (a, b2) = if let Some(hit) = hit {
             match (trim, near_end) {
                 // Trimming keeps the side the help point is on; extending moves the end nearest it.
                 (true, true) | (false, true) => (if trim { hit } else { start.origin }, if trim { end.origin } else { hit }),
