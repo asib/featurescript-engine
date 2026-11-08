@@ -95,17 +95,42 @@ fn inferred(model: &Model, definition: &Value) -> R<Frame> {
     })
 }
 
+/// The direction an entity gives an axis: a line's, a plane's normal, a cylinder's or cone's axis.
+fn axis_direction(model: &Model, query: &Value) -> R<Vec3> {
+    let found = query::evaluate(model, query)?;
+    let r = found.first().copied().ok_or_else(|| regen_error("MATECONNECTOR_AXIS_NOT_RESOLVED"))?;
+    let shape = model.shape(r);
+    let direction = match r.kind {
+        EntityType::Face => match shape.face_plane() {
+            Ok(plane) => plane.normal,
+            Err(_) => shape.axis().map_err(occt_error)?.direction,
+        },
+        _ => shape.axis().map_err(occt_error)?.direction,
+    };
+    values::normalize(direction).ok_or_else(|| regen_error("MATECONNECTOR_AXIS_NOT_RESOLVED"))
+}
+
 fn coord_system_for(model: &Model, definition: &Value) -> R<Frame> {
-    if field(definition, "originType").as_str() == Some("BETWEEN_ENTITIES") {
-        return Err(error("@evMateConnectorCoordSystem: BETWEEN_ENTITIES isn't supported yet"));
-    }
-    if values::opt_bool(definition, "realign")?.unwrap_or(false) {
-        return Err(error("@evMateConnectorCoordSystem: realigning isn't supported yet"));
-    }
     if values::opt_bool(definition, "specifyNormal")?.unwrap_or(false) {
         return Err(error("@evMateConnectorCoordSystem: specifying the normal isn't supported yet"));
     }
     let mut f = inferred(model, definition)?;
+    // Between entities: halfway from the inferred origin to the other face, turned as the inferred frame is
+    // (batch 018).
+    if field(definition, "originType").as_str() == Some("BETWEEN_ENTITIES") {
+        let found = query::evaluate(model, field(definition, "originAdditionalQuery"))?;
+        let r = found.first().copied().ok_or_else(|| regen_error("MATECONNECTOR_ORIGIN_NOT_RESOLVED"))?;
+        let near = occt::vertex(f.origin).and_then(|v| v.distance(model.shape(r))).map_err(occt_error)?.b;
+        f.origin = values::scale(values::add(f.origin, near), 0.5);
+    }
+    // Realigned: z along the primary axis entity, x along the secondary one, square to z (batch 018).
+    if values::opt_bool(definition, "realign")?.unwrap_or(false) {
+        let z = axis_direction(model, field(definition, "primaryAxisQuery"))?;
+        let s = axis_direction(model, field(definition, "secondaryAxisQuery"))?;
+        f.normal = z;
+        f.x = values::normalize(values::sub(s, values::scale(z, values::dot(s, z))))
+            .ok_or_else(|| regen_error("MATECONNECTOR_AXES_PARALLEL"))?;
+    }
     if values::opt_bool(definition, "flipPrimary")?.unwrap_or(false) {
         f.normal = values::scale(f.normal, -1.0);
         f.x = values::scale(f.x, -1.0);
