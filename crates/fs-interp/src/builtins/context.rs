@@ -90,6 +90,19 @@ fn version_index(v: &Value) -> R<usize> {
     v.as_str().and_then(|s| types::enum_index(tag, s)).ok_or_else(|| error("expected a FeatureScriptVersionNumber"))
 }
 
+/// Whether an id is `scope` or under it.
+fn id_in_scope(id: &Value, scope: &Value) -> bool {
+    match (id.as_array(), scope.as_array()) {
+        (Some(id), Some(scope)) => id.len() >= scope.len() && id.iter().zip(scope.iter()).all(|(a, b)| a == b),
+        _ => false,
+    }
+}
+
+/// Whether a feature is running in the context: Onshape won't read properties then (`@getProperty`).
+pub fn regenerating(context: &Context) -> bool {
+    !context.features.borrow().open.is_empty()
+}
+
 pub fn register(m: &mut HashMap<&'static str, BuiltinFn>) {
     m.insert("newContext", |interp, args| {
         let version = arg(&args, 0, "newContext")?;
@@ -121,6 +134,16 @@ pub fn register(m: &mut HashMap<&'static str, BuiltinFn>) {
     m.insert("startFeature", |_, args| {
         let context = context_arg(&args, 0, "startFeature")?;
         let id = arg(&args, 1, "startFeature")?.clone();
+        // A feature started inside another must have an id in its scope (Onshape refuses a computed property's
+        // own feature inside a Part Studio feature, batch 011).
+        if let Some(outer) = context.features.borrow().open.first()
+            && !id_in_scope(&id, &outer.id)
+        {
+            return Err(crate::eval::execution_error(format!(
+                "@startFeature: starting feature {id:?} in the scope of {:?}",
+                outer.id
+            )));
+        }
         let snapshot = context.state.borrow().as_ref().map(|state| state.snapshot());
         let mut features = context.features.borrow_mut();
         features.next_token += 1;

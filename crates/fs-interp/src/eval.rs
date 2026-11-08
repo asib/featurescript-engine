@@ -26,6 +26,15 @@ pub fn error(message: impl Into<String>) -> Flow {
     Flow::Throw(Value::string(message.into()))
 }
 
+/// What Onshape throws when a builtin refuses to run, such as reading properties during regeneration: a caught
+/// error whose message is just "Execution error" (batch 011). The reason is kept alongside, for debugging.
+pub fn execution_error(detail: impl Into<String>) -> Flow {
+    let mut entries = crate::value::ValueMap::new();
+    entries.insert(Value::string("message"), Value::string("Execution error"));
+    entries.insert(Value::string("detail"), Value::string(detail.into()));
+    Flow::Throw(Value::map(entries))
+}
+
 const MAX_CALL_DEPTH: usize = 2000;
 
 /// A resolved type constraint.

@@ -55,6 +55,12 @@ pub fn register(m: &mut GeomBuiltins) {
         })
     });
     m.insert("getProperty", |_, args| {
+        // Onshape won't read a context's properties while a feature in it is running (batch 011, the hole table).
+        if fs_interp::builtins::regenerating(fs_interp::builtins::context_arg(&args, 0, "getProperty")?) {
+            return Err(fs_interp::eval::execution_error(
+                "@getProperty: cannot get properties during feature regeneration in current context",
+            ));
+        }
         let definition = arg(&args, 1, "getProperty")?.clone();
         let key = key(&definition)?;
         model_mut(&args, "getProperty", |model| {
