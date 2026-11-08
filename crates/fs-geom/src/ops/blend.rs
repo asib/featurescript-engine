@@ -34,7 +34,15 @@ fn blend_edges(model: &Model, definition: &Value) -> R<Vec<(usize, Vec<Shape>)>>
 pub fn fillet(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
     match field(definition, "crossSection").as_str() {
         None | Some("CIRCULAR") => {}
+        Some("CONIC") if !values::opt_bool(definition, "isVariable")?.unwrap_or(false) => {
+            return section_fillet(model, id, definition, true);
+        }
         Some(other) => return Err(error(format!("@opFillet: {other} cross sections aren't supported yet"))),
+    }
+    if values::opt_bool(definition, "isAsymmetric")?.unwrap_or(false)
+        && !values::opt_bool(definition, "isVariable")?.unwrap_or(false)
+    {
+        return section_fillet(model, id, definition, false);
     }
     for key in ["isAsymmetric", "createDetachedSurface"] {
         if values::opt_bool(definition, key)?.unwrap_or(false) {
@@ -84,6 +92,132 @@ pub fn fillet(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> 
             body.faces[i].info = std::rc::Rc::new(info);
         });
     }
+    Ok(Value::UNDEFINED)
+}
+
+/// A conic or asymmetric fillet of straight edges between planar faces (batch 003: c013, c014). Its cross section
+/// is a rational quadratic: from a point set back along one face to one set back along the other, the edge its
+/// middle control point. A conic fillet's setbacks are the circular fillet's, `radius / tan(α / 2)` (α the angle
+/// between the faces), its weight `rho / (1 - rho)`; an asymmetric fillet sets back `radius` on the face the edge
+/// runs forward along (as an uneven chamfer's first distance) and `otherRadius` on the other (flipped, the other
+/// way round), each over `tan(α / 2)`, weighted as a circle's arc, `sin(α / 2)` — at a right angle, a quarter
+/// ellipse. Onshape makes the curve a cubic B-spline ([`Cubic::rational_quadratic`]). The region between the edge
+/// and the curve, swept along the edge, is taken away (or, at a concave edge, filled in). Each edge's region is
+/// its own, so edges meeting at a vertex aren't blended there.
+fn section_fillet(model: &mut Model, id: FeatureId, definition: &Value, conic: bool) -> R<Value> {
+    use crate::values::{add, cross, dot, norm, normalize, scale, sub};
+    let radius =
+        values::length(field(definition, if conic { "nonCircularRadius" } else { "radius" }), "opFillet radius")?;
+    let asymmetric = values::opt_bool(definition, "isAsymmetric")?.unwrap_or(false);
+    let other =
+        if asymmetric { values::length(field(definition, "otherRadius"), "opFillet otherRadius")? } else { radius };
+    let (first, second) = if values::opt_bool(definition, "flipAsymmetric")?.unwrap_or(false) {
+        (radius, other)
+    } else {
+        (other, radius)
+    };
+    let rho = if conic {
+        field(definition, "rho").as_number().ok_or_else(|| error("@opFillet: rho must be a number"))?
+    } else {
+        0.5
+    };
+    if !(rho > 0.0 && rho < 1.0) || radius <= 0.0 || other <= 0.0 {
+        return Err(regen_error("FILLET_FAILED"));
+    }
+    let groups = blend_edges(model, definition)?;
+    if groups.is_empty() {
+        return Err(regen_error("FILLET_SELECT_EDGES"));
+    }
+    let failed = || regen_error("FILLET_FAILED");
+    let mut results = Vec::new();
+    for (b, edges) in groups {
+        let body = model.bodies[b].shape.clone();
+        let vertices: Vec<Shape> = edges.iter().flat_map(|e| e.sub_shapes(ShapeKind::Vertex)).collect();
+        if vertices.iter().enumerate().any(|(i, v)| vertices[i + 1..].iter().any(|w| w.is_same(v))) {
+            return Err(error(
+                "@opFillet: conic and asymmetric fillets of edges meeting at a vertex aren't supported yet",
+            ));
+        }
+        let (mut cut, mut fill) = (Vec::new(), Vec::new());
+        for edge in &edges {
+            if edge.curve_type().ok() != Some(occt::CurveType::Line) {
+                return Err(error("@opFillet: conic and asymmetric fillets of curved edges aren't supported yet"));
+            }
+            let (a, e) = (
+                edge.edge_tangent(0.0, false).map_err(|_| failed())?,
+                edge.edge_tangent(1.0, false).map_err(|_| failed())?,
+            );
+            let (start, length, t) = (a.origin, norm(sub(e.origin, a.origin)), a.direction);
+            let mid = add(start, scale(t, length / 2.0));
+            // Into each face from the edge, square to it: the face the edge runs forward along first.
+            let left = left_face(&body, edge);
+            let mut faces = body.ancestors(edge, ShapeKind::Face);
+            if faces.len() != 2 {
+                return Err(failed());
+            }
+            if left.as_ref().is_some_and(|l| l.is_same(&faces[1])) {
+                faces.swap(0, 1);
+            }
+            let mut into = Vec::new();
+            for face in &faces {
+                let plane = face.face_plane().map_err(|_| {
+                    error("@opFillet: conic and asymmetric fillets between curved faces aren't supported yet")
+                })?;
+                let mut u = normalize(cross(plane.normal, t)).ok_or_else(failed)?;
+                let on = |d: occt::Vec3| {
+                    occt::vertex(add(mid, scale(d, 1e-6)))
+                        .and_then(|v| v.distance(face))
+                        .is_ok_and(|x| x.distance < 1e-7)
+                };
+                if !on(u) {
+                    u = scale(u, -1.0);
+                }
+                into.push(u);
+            }
+            let [u1, u2] = into[..] else { return Err(failed()) };
+            let angle = dot(u1, u2).clamp(-1.0, 1.0).acos();
+            let (half_tan, weight) = ((angle / 2.0).tan(), if conic { rho / (1.0 - rho) } else { (angle / 2.0).sin() });
+            let (p1, p2) = (add(start, scale(u1, first / half_tan)), add(start, scale(u2, second / half_tan)));
+            // From the second face to the first, as Onshape runs it.
+            let curve = crate::curve_extend::Cubic::rational_quadratic(p2, start, p1, weight)?.edge()?;
+            let region = occt::fill_edges(&[
+                curve,
+                occt::line_edge(p1, start).map_err(crate::occt_error)?,
+                occt::line_edge(start, p2).map_err(crate::occt_error)?,
+            ])
+            .map_err(|_| failed())?;
+            // Just inside the corner, halfway along the edge (its ends lie on the part's other faces).
+            let inside = body.contains_point(add(mid, scale(add(u1, u2), first.min(second) * 0.05))).unwrap_or(true);
+            // Swept along the edge: to cut, a length further each way so its ends lie outside the part; to fill a
+            // concave edge, just its length.
+            let tool = if inside {
+                let moved = occt::transform(&region, &super::translation(scale(t, -length)))
+                    .map_err(crate::occt_error)?
+                    .shape();
+                occt::prism(&moved, scale(t, 3.0 * length)).map_err(crate::occt_error)?.shape()
+            } else {
+                occt::prism(&region, scale(t, length)).map_err(crate::occt_error)?.shape()
+            };
+            if inside { cut.push(tool) } else { fill.push(tool) }
+        }
+        let mut shape = body.clone();
+        let mut op = None;
+        if !cut.is_empty() {
+            let o = occt::boolean(occt::BooleanKind::Subtraction, std::slice::from_ref(&shape), &cut, true)
+                .map_err(|_| failed())?;
+            shape = o.shape();
+            op = Some(o);
+        }
+        if !fill.is_empty() {
+            let o = occt::boolean(occt::BooleanKind::Union, std::slice::from_ref(&shape), &fill, true)
+                .map_err(|_| failed())?;
+            op = Some(o);
+        }
+        if let Some(op) = op {
+            results.push((b, op));
+        }
+    }
+    replace_bodies(model, &id, results);
     Ok(Value::UNDEFINED)
 }
 

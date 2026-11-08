@@ -199,6 +199,17 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   bridging curve's direction at an arc depends on it. (Batch 010, c006.)
 - **Variable fillets with a smooth transition** vary the radius as 3t² − 2t³ between the vertices (level at both
   ends): the volume matches that law exactly. (Batch 010, c002.)
+- **Conic and asymmetric fillets** (batch 003, c013 and c014) have a rational quadratic cross section from a point
+  set back along one face to one along the other, the edge its middle control point. A conic fillet's setbacks
+  are the circular fillet's, its weight `rho / (1 - rho)`; an asymmetric circular fillet's are its two radii
+  (`radius` on the face the edge runs backward along in its loop, `otherRadius` on the one it runs forward along),
+  weighted as a circle's arc: a quarter ellipse at a right angle (c014's 2 × 5 mm passes through (2, 5)(1 − 1/√2)).
+  Onshape's surface is a non-rational cubic B-spline swept along the edge, through the conic at equal steps of its
+  own parameter (to 1e-12) with its exact end derivatives (`2w` times the leg): 8 equal spans for a 4 mm ρ 0.7
+  conic (6.5 µm off the conic with 4, 0.54 µm with 8), 4 for the 2 × 5 quarter ellipse (13 µm with 2, 0.95 with
+  4), so spans are halved until within somewhere between 0.95 and 6.5 µm (the engine takes 2 µm). Onshape's own
+  volumes and areas of these fillets are off any exact value by up to 6e-6 (c014's volume 0.038 mm³ above its
+  B-spline's), though the exported surfaces match the engine's to the square micrometre.
 - **Partial fillet bounds** each keep the fillet on the side their edge comes from (`isFlipped`: the side it goes
   to), and the fillet is where any bound keeps it: bounds at 25% and 75% of an edge fillet the outer quarters. The
   ends are square, capped with planar faces. (Batch 010, c003.)

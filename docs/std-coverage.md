@@ -22,7 +22,7 @@ Onshape.
 | `cPlane` (cplane.fs) | matches: offset, plane and point, line and angle, line and point, three points, mid plane, curve point, tangent to a cylinder | 002, 006 |
 | `cPoint` (cpoint.fs) | matches: point on an edge | 002 |
 | `assignVariable` (variable.fs) | matches: assigned lengths, numbers and angles; measured distance, length and diameter; from a table by row label and column index | 002, 020, 021 |
-| `fillet` (fillet.fs) | matches: circular fillets of edges, edge sets, every edge (vertex blends), concave edges, cylinders, holes, tangent chains; the coordinate systems of straight edges' fillet cylinders (047). Known gaps: conic cross sections (c013), asymmetric fillets (c014), fillets too big for the faces they round, which Onshape lets consume a face (c015). Variable (smooth) and partial fillets, full rounds: match. A sheet metal corner edge (a corner break, as in Onshape). Not yet: curvature, asymmetric | 003, 010, 017 |
+| `fillet` (fillet.fs) | matches: circular fillets of edges, edge sets, every edge (vertex blends), concave edges, cylinders, holes, tangent chains; the coordinate systems of straight edges' fillet cylinders (047). Conic cross sections and asymmetric fillets of straight edges between planes (c013, c014: Onshape's cubic B-spline sections; its own volumes stray by 6e-6, so their probes are compared to 0.05). Known gaps: conic and asymmetric fillets of curved edges, between curved faces or of edges meeting at a vertex, fillets too big for the faces they round, which Onshape lets consume a face (c015). Variable (smooth) and partial fillets, full rounds: match. A sheet metal corner edge (a corner break, as in Onshape). Not yet: curvature, variable asymmetric | 003, 010, 017 |
 | `chamfer` (chamfer.fs) | matches: equal offsets, two offsets (both ways), offset and angle, every edge, cylinders, concave edges, tangent chains, a sheet metal corner edge | 003, 017 |
 | `shell` (shell.fs) | matches: removing faces inwards and outwards, hollow, cylinders, an L | 003 |
 | `draft` (draft.fs) | matches: neutral plane drafts, both pull directions, cylinders; reference entity drafts (inside rib); parting line drafts, one sided either way, symmetric and two sided (049) | 003, 006, 049 |
@@ -152,11 +152,6 @@ filters (as if there were none).
 
 What fixtures show Onshape doing that the engine can't yet:
 
-- **Conic fillets** (batch 003, c013). Onshape's result matches a rational quadratic cross section with the
-  circular fillet's tangent points and weight `rho / (1 - rho)` to 5e-4 of the cross-section area, which is
-  within the probes' tolerance; OCCT has no conic fillets, so this needs building by hand.
-- **Asymmetric fillets** (c014). The cross section removes 2.14379 mm² for setbacks of 2 and 5 mm, close to but
-  not a quarter ellipse (2.14602 mm²); the exact curve isn't known yet.
 - **Cones and spheres extended** (batch 039 c001–c004). Onshape carries the surface on, but the distance isn't
   arc length at an obvious radius: a quarter cone (radii 10 to 5) extended 5 mm round turns 0.666633 rad more
   (5 mm of arc at radius 7.50037, not quite the edge's middle radius 7.5); a band of a sphere (radius 10, 0° to
