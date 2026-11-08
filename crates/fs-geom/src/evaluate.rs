@@ -647,6 +647,10 @@ pub fn register(m: &mut GeomBuiltins) {
                         ]),
                         "Torus",
                     ),
+                    // A surface swept straight from a curve (a sheet extruded from a spline, batch 039).
+                    _ if model.shape(*r).surface_type().ok() == Some(occt::SurfaceType::Extrusion) => {
+                        Ok(map(vec![("surfaceType", Value::string("EXTRUDED"))]))
+                    }
                     _ => Ok(map(vec![("surfaceType", Value::string("OTHER"))])),
                 }
             },
