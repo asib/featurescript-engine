@@ -88,7 +88,11 @@ fn with_context_state<T>(context: &fs_interp::builtins::Context, f: impl FnOnce(
 }
 
 fn with_context_model<T>(context: &fs_interp::builtins::Context, f: impl FnOnce(&mut Model) -> R<T>) -> R<T> {
-    with_context_state(context, |state| f(&mut state.model))
+    let sheet_metal = fs_interp::builtins::in_sheet_metal(context);
+    with_context_state(context, |state| {
+        state.model.sheet_metal_scope = sheet_metal;
+        f(&mut state.model)
+    })
 }
 
 /// Runs `f` on the state (model and variables) of the context in argument 1.

@@ -62,6 +62,14 @@ pub fn evaluate(model: &Model, query: &Value) -> R<Vec<EntityRef>> {
     Ok(found.into_iter().filter(|r| seen.insert(*r)).collect())
 }
 
+/// Leaves out sheet metal definition bodies, which only sheet metal features see.
+fn visible(model: &Model, found: Vec<EntityRef>) -> Vec<EntityRef> {
+    if model.sheet_metal_scope {
+        return found;
+    }
+    found.into_iter().filter(|r| !model.bodies[r.body].is_sheet_metal_definition()).collect()
+}
+
 fn sub(model: &Model, query: &Value, key: &str) -> R<Vec<EntityRef>> {
     evaluate(model, field(query, key))
 }
@@ -90,7 +98,7 @@ fn resolve(model: &Model, query: &Value) -> R<Vec<EntityRef>> {
         "NOTHING" => Vec::new(),
         // qBodyType folds its filter into an EVERYTHING query as `bodyType`.
         "EVERYTHING" => {
-            let found = model.everything(entity_type(field(query, "entityType"))?);
+            let found = visible(model, model.everything(entity_type(field(query, "entityType"))?));
             match field(query, "bodyType") {
                 v if v.is_undefined() => found,
                 types => {

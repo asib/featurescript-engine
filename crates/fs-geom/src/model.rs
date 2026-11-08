@@ -245,6 +245,14 @@ pub struct Body {
 }
 
 impl Body {
+    /// Whether it's a sheet metal model's definition sheet: one with a model `SMAttribute`.
+    pub fn is_sheet_metal_definition(&self) -> bool {
+        self.attributes.unnamed.iter().any(|a| {
+            a.tag.is_some_and(|t| &*fs_interp::types::name(t) == "SMAttribute")
+                && a.get("objectType").and_then(Value::as_str) == Some("MODEL")
+        })
+    }
+
     /// The name set with `@setProperty`, if any.
     pub fn name(&self) -> Option<&str> {
         self.properties.get("NAME").and_then(Value::as_str)
@@ -289,6 +297,9 @@ pub struct Model {
     pub splits: Rc<Vec<(FeatureId, Tid, bool)>>,
     /// Names given to entities (`opNameEntity`), by transient id: `qNamed` finds them and what they become.
     pub names: Rc<Vec<(Rc<str>, Tid)>>,
+    /// Whether a sheet metal feature is running, which sees the sheet metal definition bodies that `qEverything`
+    /// and `qCreatedBy` otherwise don't (batch 012). Set on every builtin call.
+    pub sheet_metal_scope: bool,
 }
 
 /// A new body: its shape and what it is. [`Model::add_body`] fills in the entities.
