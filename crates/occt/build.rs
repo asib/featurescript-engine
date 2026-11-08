@@ -44,6 +44,7 @@ fn main() {
         .file("cpp/modeling.cc")
         .file("cpp/measure.cc")
         .file("cpp/curves.cc")
+        .file("cpp/surfaces.cc")
         .std("c++17")
         // OCCT's headers aren't warning-clean; -isystem keeps their warnings out of ours.
         .flag(format!("-isystem{}", include.display()))

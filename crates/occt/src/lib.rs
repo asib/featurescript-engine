@@ -129,6 +129,16 @@ mod ffi {
         fn sweep_op(profile: &Shape, path: &Shape) -> Result<UniquePtr<Operation>>;
         fn loft_op(wires: &ShapeList, solid: bool) -> Result<UniquePtr<Operation>>;
         fn outer_wire(face: &Shape) -> Result<UniquePtr<Shape>>;
+        fn section_edges(a: &ShapeList, b: &ShapeList) -> Result<UniquePtr<ShapeList>>;
+        fn fill_edges(edges: &ShapeList) -> Result<UniquePtr<Shape>>;
+        fn enclose_shapes(shapes: &ShapeList) -> Result<UniquePtr<ShapeList>>;
+        fn extract_faces(faces: &ShapeList, offset: f64) -> Result<UniquePtr<ShapeList>>;
+        fn extend_planar_sheet(sheet: &Shape, edges: &ShapeList, distance: f64) -> Result<UniquePtr<Shape>>;
+        fn iso_curves(face: &Shape, along_u: bool, t: f64) -> Result<UniquePtr<ShapeList>>;
+        fn face_periodic(face: &Shape, along_u: bool) -> Result<bool>;
+        fn join_edges(wire: &Shape) -> Result<UniquePtr<Shape>>;
+        fn project_edges(edges: &ShapeList, faces: &ShapeList, direction: Vec3) -> Result<UniquePtr<ShapeList>>;
+        fn offset_edge_on_planar_face(edge: &Shape, face: &Shape, distance: f64) -> Result<UniquePtr<Shape>>;
 
         fn sketch_regions(edges: &ShapeList, f: Frame) -> Result<UniquePtr<ShapeList>>;
         fn merge_faces(faces: &ShapeList) -> Result<UniquePtr<Operation>>;
@@ -577,6 +587,61 @@ pub fn loft(wires: &[Shape], solid: bool) -> Result<Operation> {
 /// A face's outer wire.
 pub fn outer_wire(face: &Shape) -> Result<Shape> {
     Ok(Shape::new(ffi::outer_wire(&face.0)?))
+}
+
+/// The curves where two sets of faces meet.
+pub fn section_edges(a: &[Shape], b: &[Shape]) -> Result<Vec<Shape>> {
+    let edges = ffi::section_edges(&to_list(a), &to_list(b))?;
+    Ok(from_list(&edges))
+}
+
+/// A face filling a closed loop of edges: planar if the loop is flat.
+pub fn fill_edges(edges: &[Shape]) -> Result<Shape> {
+    Ok(Shape::new(ffi::fill_edges(&to_list(edges))?))
+}
+
+/// Solids for the regions faces and bodies enclose.
+pub fn enclose(shapes: &[Shape]) -> Result<Vec<Shape>> {
+    let solids = ffi::enclose_shapes(&to_list(shapes))?;
+    Ok(from_list(&solids))
+}
+
+/// Copies of faces, sewn where they share edges, offset along their normals.
+pub fn extract_faces(faces: &[Shape], offset: f64) -> Result<Vec<Shape>> {
+    let sheets = ffi::extract_faces(&to_list(faces), offset)?;
+    Ok(from_list(&sheets))
+}
+
+/// A planar sheet with some boundary edges moved outward by `distance`.
+pub fn extend_planar_sheet(sheet: &Shape, edges: &[Shape], distance: f64) -> Result<Shape> {
+    Ok(Shape::new(ffi::extend_planar_sheet(&sheet.0, &to_list(edges), distance)?))
+}
+
+/// The iso curve of a face at fraction `t` of its parameter range, along u or v, trimmed to the face.
+pub fn iso_curves(face: &Shape, along_u: bool, t: f64) -> Result<Vec<Shape>> {
+    let edges = ffi::iso_curves(&face.0, along_u, t)?;
+    Ok(from_list(&edges))
+}
+
+/// Whether a face's parameter is periodic along u (or v).
+pub fn face_periodic(face: &Shape, along_u: bool) -> bool {
+    ffi::face_periodic(&face.0, along_u).unwrap_or(false)
+}
+
+/// A wire's edges joined into one edge, approximating where their curves differ.
+pub fn join_edges(wire: &Shape) -> Result<Shape> {
+    Ok(Shape::new(ffi::join_edges(&wire.0)?))
+}
+
+/// Edges projected onto faces along a direction.
+pub fn project_edges(edges: &[Shape], faces: &[Shape], direction: Vec3) -> Result<Vec<Shape>> {
+    let projected = ffi::project_edges(&to_list(edges), &to_list(faces), direction)?;
+    Ok(from_list(&projected))
+}
+
+/// A straight edge of a planar face moved `distance` across the face, inwards for positive distances.
+pub fn offset_edge_on_planar_face(edge: &Shape, face: &Shape, distance: f64) -> Result<Shape> {
+    Ok(Shape::new(ffi::offset_edge_on_planar_face(&edge.0, &face.0, distance)?))
 }
 
 pub fn compound(shapes: &[Shape]) -> Shape {

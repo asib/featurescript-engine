@@ -104,6 +104,16 @@ std::unique_ptr<Shape> make_helix_edge(Vec3 origin, Vec3 direction, Vec3 start, 
 std::unique_ptr<Operation> sweep_op(const Shape &profile, const Shape &path);
 std::unique_ptr<Operation> loft_op(const ShapeList &wires, bool solid);
 std::unique_ptr<Shape> outer_wire(const Shape &face);
+std::unique_ptr<ShapeList> section_edges(const ShapeList &a, const ShapeList &b);
+std::unique_ptr<Shape> fill_edges(const ShapeList &edges);
+std::unique_ptr<ShapeList> enclose_shapes(const ShapeList &shapes);
+std::unique_ptr<ShapeList> extract_faces(const ShapeList &faces, double offset);
+std::unique_ptr<Shape> extend_planar_sheet(const Shape &sheet, const ShapeList &edges, double distance);
+std::unique_ptr<ShapeList> iso_curves(const Shape &face, bool along_u, double t);
+bool face_periodic(const Shape &face, bool along_u);
+std::unique_ptr<Shape> join_edges(const Shape &wire);
+std::unique_ptr<ShapeList> project_edges(const ShapeList &edges, const ShapeList &faces, Vec3 direction);
+std::unique_ptr<Shape> offset_edge_on_planar_face(const Shape &edge, const Shape &face, double distance);
 
 std::unique_ptr<ShapeList> sketch_regions(const ShapeList &edges, Frame f);
 std::unique_ptr<Operation> merge_faces(const ShapeList &faces);

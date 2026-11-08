@@ -1,0 +1,330 @@
+// Surface and curve operations: sections, fills, enclosures, sheet extension, iso curves, projections.
+
+#include "occt/cpp/occt.h"
+
+#include <BOPAlgo_MakerVolume.hxx>
+#include <BRepAdaptor_Curve.hxx>
+#include <BRepAdaptor_Surface.hxx>
+#include <BRepAlgoAPI_Common.hxx>
+#include <BRepAlgoAPI_Section.hxx>
+#include <BRepBuilderAPI_Copy.hxx>
+#include <BRepBuilderAPI_MakeVertex.hxx>
+#include <BRepExtrema_DistShapeShape.hxx>
+#include <BRepBuilderAPI_MakeEdge.hxx>
+#include <BRepBuilderAPI_MakeFace.hxx>
+#include <BRepBuilderAPI_MakeWire.hxx>
+#include <BRepBuilderAPI_Sewing.hxx>
+#include <BRepFill_Filling.hxx>
+#include <BRepGProp.hxx>
+#include <BRepAlgo.hxx>
+#include <BRepLib.hxx>
+#include <GeomAPI_Interpolate.hxx>
+#include <TColgp_HArray1OfPnt.hxx>
+#include <BRepLib_FindSurface.hxx>
+#include <BRepOffsetAPI_MakeOffset.hxx>
+#include <BRepOffsetAPI_MakeOffsetShape.hxx>
+#include <BRepProj_Projection.hxx>
+#include <BRepTools.hxx>
+#include <BRepTools_WireExplorer.hxx>
+#include <BRep_Builder.hxx>
+#include <BRep_Tool.hxx>
+#include <GProp_GProps.hxx>
+#include <Geom_Plane.hxx>
+#include <Geom_Surface.hxx>
+#include <ShapeAnalysis_FreeBounds.hxx>
+#include <ShapeFix_Face.hxx>
+#include <ShapeFix_Shell.hxx>
+#include <ShapeFix_Wire.hxx>
+#include <TopExp.hxx>
+#include <TopExp_Explorer.hxx>
+#include <TopTools_HSequenceOfShape.hxx>
+#include <TopTools_ListOfShape.hxx>
+#include <TopoDS.hxx>
+#include <TopoDS_Compound.hxx>
+#include <TopoDS_Shell.hxx>
+#include <gp_Pln.hxx>
+
+#include <sstream>
+
+#include "occt/src/lib.rs.h"
+#include "occt/cpp/internal.h"
+
+namespace occt {
+
+namespace {
+
+std::unique_ptr<ShapeList> edges_of(const TopoDS_Shape &shape) {
+  auto out = std::make_unique<ShapeList>();
+  TopTools_IndexedMapOfShape edges;
+  TopExp::MapShapes(shape, TopAbs_EDGE, edges);
+  for (int i = 1; i <= edges.Extent(); ++i) out->shapes.push_back(edges(i));
+  return out;
+}
+
+TopoDS_Compound compound_of(const ShapeList &l) {
+  BRep_Builder builder;
+  TopoDS_Compound c;
+  builder.MakeCompound(c);
+  for (const TopoDS_Shape &s : l.shapes) builder.Add(c, s);
+  return c;
+}
+
+}  // namespace
+
+// The curves where two sets of faces meet.
+std::unique_ptr<ShapeList> section_edges(const ShapeList &a, const ShapeList &b) {
+  BRepAlgoAPI_Section section(compound_of(a), compound_of(b), Standard_False);
+  section.ComputePCurveOn1(Standard_True);
+  section.Approximation(Standard_True);
+  section.Build();
+  if (!section.IsDone()) throw std::runtime_error("intersection failed");
+  return edges_of(section.Shape());
+}
+
+// A face filling a closed loop of edges: planar when the loop is flat, otherwise a smooth filling surface.
+std::unique_ptr<Shape> fill_edges(const ShapeList &edges) {
+  Handle(TopTools_HSequenceOfShape) input = new TopTools_HSequenceOfShape();
+  for (const TopoDS_Shape &e : edges.shapes) input->Append(e);
+  Handle(TopTools_HSequenceOfShape) wires;
+  ShapeAnalysis_FreeBounds::ConnectEdgesToWires(input, 1e-7, Standard_False, wires);
+  if (wires->Length() != 1) throw std::runtime_error("fill: the edges don't make one loop");
+  TopoDS_Wire wire = TopoDS::Wire(wires->Value(1));
+  BRepLib_FindSurface planar(wire, 1e-7, Standard_True);
+  if (planar.Found()) {
+    // The surface found is relative to the finder's location.
+    gp_Pln plane = Handle(Geom_Plane)::DownCast(planar.Surface())->Pln().Transformed(planar.Location().Transformation());
+    BRepBuilderAPI_MakeFace maker(plane, wire, Standard_True);
+    if (maker.IsDone()) {
+      ShapeFix_Face fix(maker.Face());
+      fix.Perform();
+      return wrap(fix.Face());
+    }
+  }
+  BRepFill_Filling filling;
+  for (TopExp_Explorer it(wire, TopAbs_EDGE); it.More(); it.Next())
+    filling.Add(TopoDS::Edge(it.Current()), GeomAbs_C0, Standard_True);
+  filling.Build();
+  if (!filling.IsDone()) throw std::runtime_error("fill failed");
+  return wrap(filling.Face());
+}
+
+// Solids for the regions a set of faces and bodies encloses.
+std::unique_ptr<ShapeList> enclose_shapes(const ShapeList &shapes) {
+  BOPAlgo_MakerVolume maker;
+  TopTools_ListOfShape arguments = to_list(shapes);
+  maker.SetArguments(arguments);
+  maker.SetRunParallel(Standard_False);
+  maker.SetIntersect(Standard_True);
+  maker.Perform();
+  if (maker.HasErrors()) {
+    std::ostringstream message;
+    maker.DumpErrors(message);
+    throw std::runtime_error("enclose: " + message.str());
+  }
+  auto out = std::make_unique<ShapeList>();
+  for (TopExp_Explorer it(maker.Shape(), TopAbs_SOLID); it.More(); it.Next()) out->shapes.push_back(it.Current());
+  return out;
+}
+
+// Copies of faces, sewn into sheets where they share edges, optionally offset along their normals.
+std::unique_ptr<ShapeList> extract_faces(const ShapeList &faces, double offset) {
+  BRepBuilderAPI_Sewing sewing(1e-7);
+  for (const TopoDS_Shape &f : faces.shapes) sewing.Add(BRepBuilderAPI_Copy(f).Shape());
+  sewing.Perform();
+  TopoDS_Shape sewn = sewing.SewedShape();
+  auto out = std::make_unique<ShapeList>();
+  TopTools_ListOfShape pieces;
+  for (TopExp_Explorer it(sewn, TopAbs_SHELL); it.More(); it.Next()) pieces.Append(it.Current());
+  for (TopExp_Explorer it(sewn, TopAbs_FACE, TopAbs_SHELL); it.More(); it.Next()) pieces.Append(it.Current());
+  for (const TopoDS_Shape &piece : pieces) {
+    if (offset == 0) {
+      out->shapes.push_back(piece);
+      continue;
+    }
+    BRepOffsetAPI_MakeOffsetShape maker;
+    maker.PerformByJoin(piece, offset, 1e-7, BRepOffset_Skin, Standard_False, Standard_False, GeomAbs_Intersection);
+    if (!maker.IsDone()) throw std::runtime_error("offset surface failed");
+    out->shapes.push_back(maker.Shape());
+  }
+  return out;
+}
+
+// A planar sheet with some of its boundary edges moved outward in its plane by `distance`, the edges around them
+// extended to meet (linear extension).
+std::unique_ptr<Shape> extend_planar_sheet(const Shape &sheet, const ShapeList &edges, double distance) {
+  TopExp_Explorer faces(sheet.shape, TopAbs_FACE);
+  if (!faces.More()) throw std::runtime_error("extend: no face");
+  TopoDS_Face face = TopoDS::Face(faces.Current());
+  faces.Next();
+  if (faces.More()) throw std::runtime_error("extend: only single planar faces are supported yet");
+  BRepAdaptor_Surface surface(face);
+  if (surface.GetType() != GeomAbs_Plane) throw std::runtime_error("extend: only planar sheets are supported yet");
+  gp_Pln plane = surface.Plane();
+  TopoDS_Wire outer = BRepTools::OuterWire(face);
+  // Each boundary edge is a line moved outward if selected; the new boundary joins consecutive lines.
+  std::vector<std::pair<gp_Pnt, gp_Pnt>> lines;
+  gp_Dir normal = plane.Axis().Direction();
+  if (face.Orientation() == TopAbs_REVERSED) normal.Reverse();
+  TopTools_IndexedMapOfShape selected;
+  for (const TopoDS_Shape &e : edges.shapes) selected.Add(e);
+  for (BRepTools_WireExplorer it(outer, face); it.More(); it.Next()) {
+    const TopoDS_Edge &edge = it.Current();
+    BRepAdaptor_Curve curve(edge);
+    if (curve.GetType() != GeomAbs_Line) throw std::runtime_error("extend: only straight edges are supported yet");
+    gp_Pnt a = BRep_Tool::Pnt(TopExp::FirstVertex(edge, Standard_True));
+    gp_Pnt b = BRep_Tool::Pnt(TopExp::LastVertex(edge, Standard_True));
+    if (selected.Contains(edge) || selected.Contains(edge.Reversed())) {
+      // Outward, for a face on the left of the loop.
+      gp_Vec outward = gp_Vec(a, b).Crossed(gp_Vec(normal)).Normalized() * distance;
+      a.Translate(outward);
+      b.Translate(outward);
+    }
+    lines.emplace_back(a, b);
+  }
+  // Corners where consecutive lines meet.
+  std::vector<gp_Pnt> corners;
+  size_t n = lines.size();
+  for (size_t i = 0; i < n; ++i) {
+    const auto &p = lines[(i + n - 1) % n];
+    const auto &q = lines[i];
+    gp_Vec d1(p.first, p.second), d2(q.first, q.second);
+    gp_Vec w(p.first, q.first);
+    gp_Vec cross = d1.Crossed(d2);
+    double denom = cross.SquareMagnitude();
+    if (denom < 1e-24) {
+      corners.push_back(q.first);
+      continue;
+    }
+    double t = w.Crossed(d2).Dot(cross) / denom;
+    corners.push_back(p.first.Translated(d1 * t));
+  }
+  BRepBuilderAPI_MakeWire wire;
+  for (size_t i = 0; i < n; ++i) wire.Add(BRepBuilderAPI_MakeEdge(corners[i], corners[(i + 1) % n]).Edge());
+  BRepBuilderAPI_MakeFace maker(plane, wire.Wire(), Standard_True);
+  if (!maker.IsDone()) throw std::runtime_error("extend failed");
+  TopoDS_Face result = maker.Face();
+  if (face.Orientation() == TopAbs_REVERSED) result.Reverse();
+  return wrap(result);
+}
+
+// Whether a face's parameter is periodic along u (or v).
+bool face_periodic(const Shape &face_shape, bool along_u) {
+  Handle(Geom_Surface) surface = BRep_Tool::Surface(TopoDS::Face(face_shape.shape));
+  return along_u ? surface->IsUPeriodic() : surface->IsVPeriodic();
+}
+
+// Edges that run end to end, joined into one edge (an approximation where their curves differ), as Parasolid
+// makes the curve where a projection or intersection closes on itself.
+std::unique_ptr<Shape> join_edges(const Shape &wire) {
+  // The edges may only meet within tolerance: make them share vertices first.
+  Handle(ShapeFix_Wire) fix = new ShapeFix_Wire();
+  fix->Load(TopoDS::Wire(wire.shape));
+  fix->SetPrecision(1e-6);
+  fix->FixReorder();
+  fix->FixConnected(1e-6);
+  fix->FixClosed(1e-6);
+  TopoDS_Wire fixed = fix->Wire();
+  TopoDS_Edge joined;
+  try {
+    joined = BRepAlgo::ConcatenateWireC0(fixed);
+  } catch (const Standard_Failure &) {
+    joined.Nullify();
+  }
+  if (!joined.IsNull()) return wrap(joined);
+  // Otherwise fit one spline through points sampled along the edges in order.
+  std::vector<gp_Pnt> points;
+  for (BRepTools_WireExplorer it(fixed); it.More(); it.Next()) {
+    BRepAdaptor_Curve curve(it.Current());
+    bool reversed = it.Current().Orientation() == TopAbs_REVERSED;
+    const int samples = 60;
+    for (int i = 0; i < samples; ++i) {
+      double t = static_cast<double>(i) / samples;
+      double u = reversed ? curve.LastParameter() - t * (curve.LastParameter() - curve.FirstParameter())
+                          : curve.FirstParameter() + t * (curve.LastParameter() - curve.FirstParameter());
+      gp_Pnt p = curve.Value(u);
+      if (points.empty() || points.back().Distance(p) > 1e-9) points.push_back(p);
+    }
+  }
+  bool closed = fixed.Closed() || BRep_Tool::IsClosed(fixed);
+  if (!closed && !points.empty()) {
+    TopoDS_Vertex first, last;
+    TopExp::Vertices(fixed, first, last);
+    if (!last.IsNull()) points.push_back(BRep_Tool::Pnt(last));
+  }
+  if (points.size() < 3) return wrap(wire.shape);
+  Handle(TColgp_HArray1OfPnt) poles = new TColgp_HArray1OfPnt(1, static_cast<int>(points.size()));
+  for (size_t i = 0; i < points.size(); ++i) poles->SetValue(static_cast<int>(i) + 1, points[i]);
+  GeomAPI_Interpolate interpolate(poles, closed ? Standard_True : Standard_False, 1e-12);
+  interpolate.Perform();
+  if (!interpolate.IsDone()) return wrap(wire.shape);
+  return wrap(BRepBuilderAPI_MakeEdge(interpolate.Curve()).Edge());
+}
+
+// The iso curve of a face at fraction `t` of its parameter range in u (or v), trimmed to the face.
+std::unique_ptr<ShapeList> iso_curves(const Shape &face_shape, bool along_u, double t) {
+  const TopoDS_Face &face = TopoDS::Face(face_shape.shape);
+  double u0, u1, v0, v1;
+  BRepTools::UVBounds(face, u0, u1, v0, v1);
+  Handle(Geom_Surface) surface = BRep_Tool::Surface(face);
+  Handle(Geom_Curve) curve;
+  double first, last;
+  if (along_u) {
+    // A curve along which u varies: v fixed.
+    curve = surface->VIso(v0 + t * (v1 - v0));
+    first = u0;
+    last = u1;
+  } else {
+    curve = surface->UIso(u0 + t * (u1 - u0));
+    first = v0;
+    last = v1;
+  }
+  TopoDS_Edge edge = BRepBuilderAPI_MakeEdge(curve, first, last).Edge();
+  BRepAlgoAPI_Common common(edge, face);
+  common.Build();
+  if (!common.IsDone()) throw std::runtime_error("iso curve trim failed");
+  return edges_of(common.Shape());
+}
+
+// Edges projected onto faces, along a direction or (with a zero direction) along the faces' normals.
+std::unique_ptr<ShapeList> project_edges(const ShapeList &edges, const ShapeList &faces, Vec3 direction) {
+  TopoDS_Compound targets = compound_of(faces);
+  auto out = std::make_unique<ShapeList>();
+  for (const TopoDS_Shape &e : edges.shapes) {
+    gp_Vec d(direction.x, direction.y, direction.z);
+    if (d.Magnitude() < 1e-12) throw std::runtime_error("project: projection along normals isn't supported yet");
+    BRepProj_Projection projection(e, targets, gp_Dir(d));
+    if (!projection.IsDone()) throw std::runtime_error("projection failed");
+    // OCCT projects both ways along the direction; keep only what lies ahead of the source edge.
+    for (TopExp_Explorer it(projection.Shape(), TopAbs_EDGE); it.More(); it.Next()) {
+      BRepAdaptor_Curve curve(TopoDS::Edge(it.Current()));
+      gp_Pnt mid = curve.Value((curve.FirstParameter() + curve.LastParameter()) / 2);
+      BRepExtrema_DistShapeShape closest(BRepBuilderAPI_MakeVertex(mid).Vertex(), e);
+      if (closest.IsDone() && closest.NbSolution() > 0 &&
+          gp_Vec(closest.PointOnShape2(1), mid).Dot(d) < -1e-9)
+        continue;
+      out->shapes.push_back(it.Current());
+    }
+  }
+  return out;
+}
+
+// An edge of a planar face moved `distance` across the face (towards its inside for positive distances).
+std::unique_ptr<Shape> offset_edge_on_planar_face(const Shape &edge_shape, const Shape &face_shape, double distance) {
+  const TopoDS_Face &face = TopoDS::Face(face_shape.shape);
+  BRepAdaptor_Surface surface(face);
+  if (surface.GetType() != GeomAbs_Plane) throw std::runtime_error("offset curve: only planar faces are supported yet");
+  gp_Dir normal = surface.Plane().Axis().Direction();
+  if (face.Orientation() == TopAbs_REVERSED) normal.Reverse();
+  // The edge as the face uses it: the face is on its left.
+  TopoDS_Edge edge = TopoDS::Edge(edge_shape.shape);
+  for (TopExp_Explorer it(face, TopAbs_EDGE); it.More(); it.Next())
+    if (it.Current().IsSame(edge)) edge = TopoDS::Edge(it.Current());
+  BRepAdaptor_Curve curve(edge);
+  if (curve.GetType() != GeomAbs_Line) throw std::runtime_error("offset curve: only straight edges are supported yet");
+  gp_Pnt a = BRep_Tool::Pnt(TopExp::FirstVertex(edge, Standard_True));
+  gp_Pnt b = BRep_Tool::Pnt(TopExp::LastVertex(edge, Standard_True));
+  gp_Vec inward = gp_Vec(normal).Crossed(gp_Vec(a, b)).Normalized() * distance;
+  return wrap(BRepBuilderAPI_MakeEdge(a.Translated(inward), b.Translated(inward)).Edge());
+}
+
+}  // namespace occt
