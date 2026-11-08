@@ -34,8 +34,16 @@ fn blend_edges(model: &Model, definition: &Value) -> R<Vec<(usize, Vec<Shape>)>>
 pub fn fillet(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
     match field(definition, "crossSection").as_str() {
         None | Some("CIRCULAR") => {}
-        Some("CONIC") if !values::opt_bool(definition, "isVariable")?.unwrap_or(false) => {
-            return section_fillet(model, id, definition, true);
+        Some(kind @ ("CONIC" | "CURVATURE")) if !values::opt_bool(definition, "isVariable")?.unwrap_or(false) => {
+            let key = if kind == "CONIC" { "rho" } else { "magnitude" };
+            let value = field(definition, key)
+                .as_number()
+                .ok_or_else(|| error(format!("@opFillet: {key} must be a number")))?;
+            if !(value > 0.0 && value < 1.0) {
+                return Err(regen_error("FILLET_FAILED"));
+            }
+            let section = if kind == "CONIC" { Section::Conic(value) } else { Section::Curvature(value) };
+            return section_fillet(model, id, definition, section);
         }
         Some(other) => return Err(error(format!("@opFillet: {other} cross sections aren't supported yet"))),
     }
@@ -44,7 +52,7 @@ pub fn fillet(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> 
     let asymmetric = values::opt_bool(definition, "isAsymmetric")?.unwrap_or(false)
         && !matches!((length("radius"), length("otherRadius")), (Some(a), Some(b)) if (a - b).abs() < 1e-12);
     if asymmetric && !values::opt_bool(definition, "isVariable")?.unwrap_or(false) {
-        return section_fillet(model, id, definition, false);
+        return section_fillet(model, id, definition, Section::Circular);
     }
     for (key, on) in [
         ("isAsymmetric", asymmetric),
@@ -70,7 +78,7 @@ pub fn fillet(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> 
     for (b, edges) in groups {
         let body = model.bodies[b].shape.clone();
         let Ok(op) = occt::fillet(&body, &edges, radius) else {
-            return section_fillet(model, id, definition, false).map_err(|_| regen_error("FILLET_FAILED"));
+            return section_fillet(model, id, definition, Section::Circular).map_err(|_| regen_error("FILLET_FAILED"));
         };
         for edge in &edges {
             let line_origin =
@@ -102,23 +110,26 @@ pub fn fillet(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> 
     Ok(Value::UNDEFINED)
 }
 
-/// A conic or asymmetric fillet of straight edges between planar faces (batch 003: c013, c014). Its cross section
-/// is a rational quadratic: from a point set back along one face to one set back along the other, the edge its
-/// middle control point. A conic fillet's setbacks are the circular fillet's, `radius / tan(α / 2)` (α the angle
-/// between the faces), its weight `rho / (1 - rho)`; an asymmetric fillet sets back `radius` on the face the edge
-/// runs forward along (as an uneven chamfer's first distance) and `otherRadius` on the other (flipped, the other
-/// way round), each over `tan(α / 2)`, weighted as a circle's arc, `sin(α / 2)` — at a right angle, a quarter
-/// ellipse. Onshape makes the curve a cubic B-spline ([`Cubic::rational_quadratic`]). The region between the edge
-/// and the curve, swept along the edge, is taken away (or, at a concave edge, filled in). Each edge's region is
-/// its own, so edges meeting at a vertex aren't blended there.
+/// A conic, curvature or asymmetric fillet of straight edges between planar faces (batches 003, 052, 053). Its
+/// cross section runs from a point set back along one face to one set back along the other, round the edge. The
+/// setbacks are the feet on the faces of a centre `d1` from face 1 and `d2` from face 2: `(d2 + d1 cos α) / sin α`
+/// along face 1, α the angle between the faces. A conic or curvature fillet's centre is the circular fillet's
+/// (`d1 = d2 =` its radius); an asymmetric fillet's is `radius` from the [`leading_face`] and `otherRadius` from
+/// the other at a convex edge, the other way round at a concave one (flipped, swapped), and where that leaves a
+/// setback negative (an obtuse corner, uneven radii) Onshape fails. The section is a rational quadratic with the
+/// edge its middle control point, weighted `rho / (1 - rho)` (a conic) or `sin(α / 2)` (asymmetric: at a right
+/// angle a quarter ellipse), made a cubic B-spline as Onshape does ([`Cubic::rational_quadratic`]); or a
+/// curvature fillet's quintic ([`curvature_section`]). The region between the edge and the curve, swept along the
+/// edge, is taken away (or, at a concave edge, filled in). Each edge's region is its own, so edges meeting at a
+/// vertex aren't blended there.
 ///
 /// A plain circular fillet too big for the faces it rounds (c015: a 30 × 20 block's upright edges rounded 15 mm)
 /// comes here too, when OCCT's fillet fails: Onshape lets it eat the faces, leaving what taking each edge's region
 /// away, with the exact arc, leaves (the arcs of neighbouring corners cross; corners rounded about one axis merge).
-fn section_fillet(model: &mut Model, id: FeatureId, definition: &Value, conic: bool) -> R<Value> {
+fn section_fillet(model: &mut Model, id: FeatureId, definition: &Value, section: Section) -> R<Value> {
     use crate::values::{add, cross, dot, norm, normalize, scale, sub};
-    let radius =
-        values::length(field(definition, if conic { "nonCircularRadius" } else { "radius" }), "opFillet radius")?;
+    let key = if matches!(section, Section::Circular) { "radius" } else { "nonCircularRadius" };
+    let radius = values::length(field(definition, key), "opFillet radius")?;
     let asymmetric = values::opt_bool(definition, "isAsymmetric")?.unwrap_or(false);
     let other =
         if asymmetric { values::length(field(definition, "otherRadius"), "opFillet otherRadius")? } else { radius };
@@ -127,12 +138,7 @@ fn section_fillet(model: &mut Model, id: FeatureId, definition: &Value, conic: b
     } else {
         (radius, other)
     };
-    let rho = if conic {
-        field(definition, "rho").as_number().ok_or_else(|| error("@opFillet: rho must be a number"))?
-    } else {
-        0.5
-    };
-    if !(rho > 0.0 && rho < 1.0) || radius <= 0.0 || other <= 0.0 {
+    if radius <= 0.0 || other <= 0.0 {
         return Err(regen_error("FILLET_FAILED"));
     }
     let groups = blend_edges(model, definition)?;
@@ -146,13 +152,15 @@ fn section_fillet(model: &mut Model, id: FeatureId, definition: &Value, conic: b
         let vertices: Vec<Shape> = edges.iter().flat_map(|e| e.sub_shapes(ShapeKind::Vertex)).collect();
         if vertices.iter().enumerate().any(|(i, v)| vertices[i + 1..].iter().any(|w| w.is_same(v))) {
             return Err(error(
-                "@opFillet: conic and asymmetric fillets of edges meeting at a vertex aren't supported yet",
+                "@opFillet: conic, curvature and asymmetric fillets of edges meeting at a vertex aren't supported yet",
             ));
         }
         let (mut cut, mut fill) = (Vec::new(), Vec::new());
         for edge in &edges {
             if edge.curve_type().ok() != Some(occt::CurveType::Line) {
-                return Err(error("@opFillet: conic and asymmetric fillets of curved edges aren't supported yet"));
+                return Err(error(
+                    "@opFillet: conic, curvature and asymmetric fillets of curved edges aren't supported yet",
+                ));
             }
             let (a, e) = (
                 edge.edge_tangent(0.0, false).map_err(|_| failed())?,
@@ -171,7 +179,9 @@ fn section_fillet(model: &mut Model, id: FeatureId, definition: &Value, conic: b
             let mut into = Vec::new();
             for face in &faces {
                 let plane = face.face_plane().map_err(|_| {
-                    error("@opFillet: conic and asymmetric fillets between curved faces aren't supported yet")
+                    error(
+                        "@opFillet: conic, curvature and asymmetric fillets between curved faces aren't supported yet",
+                    )
                 })?;
                 let mut u = normalize(cross(plane.normal, t)).ok_or_else(failed)?;
                 let on = |d: occt::Vec3| {
@@ -197,14 +207,20 @@ fn section_fillet(model: &mut Model, id: FeatureId, definition: &Value, conic: b
                 return Err(failed());
             }
             let (p1, p2) = (add(start, scale(u1, s1)), add(start, scale(u2, s2)));
-            let weight = if conic { rho / (1.0 - rho) } else { (angle / 2.0).sin() };
             // From the second face to the first; a circular fillet's the exact arc.
-            let curve = if conic || asymmetric {
-                crate::curve_extend::Cubic::rational_quadratic(p2, start, p1, weight)?.edge()?
-            } else {
-                let bisector = normalize(add(u1, u2)).ok_or_else(failed)?;
-                let centre = add(start, scale(bisector, radius / (angle / 2.0).sin()));
-                occt::arc_through(p2, sub(centre, scale(bisector, radius)), p1).map_err(crate::occt_error)?
+            let curve = match section {
+                Section::Circular if !asymmetric => {
+                    let bisector = normalize(add(u1, u2)).ok_or_else(failed)?;
+                    let centre = add(start, scale(bisector, radius / (angle / 2.0).sin()));
+                    occt::arc_through(p2, sub(centre, scale(bisector, radius)), p1).map_err(crate::occt_error)?
+                }
+                Section::Circular => {
+                    crate::curve_extend::Cubic::rational_quadratic(p2, start, p1, (angle / 2.0).sin())?.edge()?
+                }
+                Section::Conic(rho) => {
+                    crate::curve_extend::Cubic::rational_quadratic(p2, start, p1, rho / (1.0 - rho))?.edge()?
+                }
+                Section::Curvature(m) => curvature_section(p2, start, p1, m)?,
             };
             let region = occt::fill_edges(&[
                 curve,
@@ -279,6 +295,48 @@ fn fillet_frame(body: &Shape, edge: &Shape, face: &Shape, line_origin: Option<oc
     let p = line_origin.unwrap_or(m);
     let origin = add(s.frame.origin, scale(z, dot(sub(p, s.frame.origin), z)));
     Some(occt::Frame { origin, normal: z, x })
+}
+
+/// A fillet's cross section.
+#[derive(Clone, Copy, Debug)]
+enum Section {
+    Circular,
+    /// A conic of this rho.
+    Conic(f64),
+    /// Curvature continuous, of this magnitude.
+    Curvature(f64),
+}
+
+/// A curvature continuous fillet's cross section from `a` to `b` round the corner `c`, as Onshape makes it (batch
+/// 053, to 1e-11 in every case): the quintic B-spline on knots 0⁶ 0.5² 1⁶ whose eight poles are, as `c + α (a − c)
+/// + β (b − c)`, (1, 0), (1 − 0.3m, 0), (1 − 0.6m, 0), (α₃, β₃) and their mirror images, with
+/// β₃ = 1/3 − 7m/15 and α₃ = 2(1 − m)/3: it starts and ends straight (no curvature, nor second derivative), passes
+/// through the chord's middle moved `m` of the way to the corner, with no third derivative there. β₃ is kept to
+/// 0.001 at least (α₃ taking up the difference, m 0.8); past that (m 0.95, α₃ below 0.001) Onshape makes some
+/// other curve, which the engine doesn't.
+fn curvature_section(a: occt::Vec3, c: occt::Vec3, b: occt::Vec3, m: f64) -> R<Shape> {
+    use crate::values::{add, scale, sub};
+    let (mut alpha, mut beta) = (2.0 * (1.0 - m) / 3.0, 1.0 / 3.0 - 7.0 * m / 15.0);
+    if beta < 1e-3 {
+        beta = 1e-3;
+        alpha = 1.0 - 17.0 * m / 15.0 - 1e-3;
+    }
+    if alpha < 1e-3 {
+        return Err(error("@opFillet: curvature fillets of so great a magnitude aren't supported yet"));
+    }
+    let at = |s: f64, t: f64| add(c, add(scale(sub(a, c), s), scale(sub(b, c), t)));
+    let poles = [
+        at(1.0, 0.0),
+        at(1.0 - 0.3 * m, 0.0),
+        at(1.0 - 0.6 * m, 0.0),
+        at(alpha, beta),
+        at(beta, alpha),
+        at(0.0, 1.0 - 0.6 * m),
+        at(0.0, 1.0 - 0.3 * m),
+        at(0.0, 1.0),
+    ];
+    let knots = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5, 0.5, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0];
+    occt::bspline_edge(&poles, &[], &knots, 5, false).map_err(crate::occt_error)
 }
 
 /// Of the two faces next to an edge, the one whose normal (at the edge's middle) leans most along x, then y, then
