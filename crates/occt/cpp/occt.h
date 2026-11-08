@@ -98,6 +98,7 @@ std::unique_ptr<Shape> make_interpolated_edge(rust::Slice<const Vec3> points, ru
                                               rust::Slice<const double> parameters, bool closed);
 std::unique_ptr<Shape> orient_sheet(const Shape &input);
 std::unique_ptr<Shape> nurbs_converted(const Shape &input);
+std::unique_ptr<Shape> face_from_uv(const Shape &face, rust::Slice<const double> uv, rust::Slice<const uint32_t> counts);
 std::unique_ptr<Shape> thicken_sheet(const Shape &input, double t1, double t2);
 std::unique_ptr<Shape> make_bspline_surface_face(rust::Slice<const Vec3> poles, int32_t nu, int32_t nv,
                                                  rust::Slice<const double> knots_u, rust::Slice<const double> knots_v,

@@ -835,6 +835,55 @@ std::unique_ptr<Shape> surface_patch(const Shape &face_shape, double u0, double 
   return wrap(patch);
 }
 
+// A face on the same surface as `face_shape`, bounded by one loop of edges given in its parameter space: edge i is
+// the polyline through counts[i] (u, v) points (flattened into `uv`), each edge starting where the last ended. An
+// edge at constant u or v is the surface's iso curve there; any other is interpolated through its points. The face
+// faces the same way as `face_shape`.
+std::unique_ptr<Shape> face_from_uv(const Shape &face_shape, rust::Slice<const double> uv, rust::Slice<const uint32_t> counts) {
+  const TopoDS_Face &face = TopoDS::Face(face_shape.shape);
+  Handle(Geom_Surface) surface = BRep_Tool::Surface(face);
+  BRepBuilderAPI_MakeWire wire;
+  size_t at = 0;
+  for (uint32_t count : counts) {
+    if (count < 2 || 2 * (at + count) > uv.size()) throw std::runtime_error("face from uv: bad edge points");
+    Handle(TColgp_HArray1OfPnt2d) points = new TColgp_HArray1OfPnt2d(1, count);
+    for (uint32_t i = 0; i < count; ++i) points->SetValue(i + 1, gp_Pnt2d(uv[2 * (at + i)], uv[2 * (at + i) + 1]));
+    at += count;
+    const gp_Pnt2d a = points->Value(1), b = points->Value(count);
+    bool same_u = true, same_v = true;
+    for (uint32_t i = 1; i <= count; ++i) {
+      same_u = same_u && std::abs(points->Value(i).X() - a.X()) < 1e-12;
+      same_v = same_v && std::abs(points->Value(i).Y() - a.Y()) < 1e-12;
+    }
+    TopoDS_Edge edge;
+    if (same_u || same_v) {
+      Handle(Geom_Curve) iso = same_u ? surface->UIso(a.X()) : surface->VIso(a.Y());
+      Handle(Geom2d_Line) pcurve = same_u ? new Geom2d_Line(gp_Pnt2d(a.X(), 0), gp_Dir2d(0, 1))
+                                          : new Geom2d_Line(gp_Pnt2d(0, a.Y()), gp_Dir2d(1, 0));
+      const double p1 = same_u ? a.Y() : a.X(), p2 = same_u ? b.Y() : b.X();
+      edge = BRepBuilderAPI_MakeEdge(iso, std::min(p1, p2), std::max(p1, p2)).Edge();
+      BRep_Builder().UpdateEdge(edge, pcurve, surface, TopLoc_Location(), Precision::Confusion());
+      if (p2 < p1) edge.Reverse();
+    } else {
+      Geom2dAPI_Interpolate fit(points, Standard_False, 1e-12);
+      fit.Perform();
+      if (!fit.IsDone()) throw std::runtime_error("face from uv: an edge couldn't be fitted");
+      Handle(Geom2d_BSplineCurve) spline = fit.Curve();
+      edge = BRepBuilderAPI_MakeEdge(spline, surface, spline->FirstParameter(), spline->LastParameter()).Edge();
+      BRepLib::BuildCurves3d(edge, 1e-7, GeomAbs_C1, 14, 200);
+    }
+    wire.Add(edge);
+  }
+  if (!wire.IsDone()) throw std::runtime_error("face from uv: the loop couldn't be built");
+  BRepBuilderAPI_MakeFace maker(surface, wire.Wire(), Standard_True);
+  if (!maker.IsDone()) throw std::runtime_error("face from uv: the face couldn't be built");
+  ShapeFix_Face fix(maker.Face());
+  fix.Perform();
+  TopoDS_Face built = fix.Face();
+  if (face.Orientation() == TopAbs_REVERSED) built.Reverse();
+  return wrap(built);
+}
+
 // A planar face with corners at some of its vertices rounded to `size` (or, for `chamfer`, cut back `size` along
 // both edges), as a 2D fillet in its plane.
 std::unique_ptr<Shape> face_corners_2d(const Shape &face_shape, const ShapeList &vertices, double size, bool chamfer) {

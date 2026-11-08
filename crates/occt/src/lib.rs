@@ -138,6 +138,7 @@ mod ffi {
         fn thicken_sheet(input: &Shape, t1: f64, t2: f64) -> Result<UniquePtr<Shape>>;
         fn orient_sheet(input: &Shape) -> Result<UniquePtr<Shape>>;
         fn nurbs_converted(input: &Shape) -> Result<UniquePtr<Shape>>;
+        fn face_from_uv(face: &Shape, uv: &[f64], counts: &[u32]) -> Result<UniquePtr<Shape>>;
         fn make_bspline_surface_face(
             poles: &[Vec3],
             nu: i32,
@@ -161,7 +162,12 @@ mod ffi {
             spiral: f64,
         ) -> Result<UniquePtr<Shape>>;
         fn sweep_op(profile: &Shape, path: &Shape) -> Result<UniquePtr<Operation>>;
-        fn sweep_controlled_op(profile: &Shape, path: &Shape, mode: i32, direction: Vec3) -> Result<UniquePtr<Operation>>;
+        fn sweep_controlled_op(
+            profile: &Shape,
+            path: &Shape,
+            mode: i32,
+            direction: Vec3,
+        ) -> Result<UniquePtr<Operation>>;
         fn loft_op(wires: &ShapeList, solid: bool) -> Result<UniquePtr<Operation>>;
         fn outer_wire(face: &Shape) -> Result<UniquePtr<Shape>>;
         fn section_edges(a: &ShapeList, b: &ShapeList) -> Result<UniquePtr<ShapeList>>;
@@ -174,7 +180,14 @@ mod ffi {
         fn cylinder_face(frame: Frame, radius: f64, half_height: f64) -> Result<UniquePtr<Shape>>;
         fn surface_patch(face: &Shape, u0: f64, u1: f64, v0: f64, v1: f64) -> Result<UniquePtr<Shape>>;
         fn face_corners_2d(face: &Shape, vertices: &ShapeList, size: f64, chamfer: bool) -> Result<UniquePtr<Shape>>;
-        fn face_corner_2d(face: &Shape, vertex: &Shape, kind: i32, d1: f64, d2: f64, rho: f64) -> Result<UniquePtr<Shape>>;
+        fn face_corner_2d(
+            face: &Shape,
+            vertex: &Shape,
+            kind: i32,
+            d1: f64,
+            d2: f64,
+            rho: f64,
+        ) -> Result<UniquePtr<Shape>>;
         fn iso_curves(face: &Shape, along_u: bool, t: f64) -> Result<UniquePtr<ShapeList>>;
         fn face_periodic(face: &Shape, along_u: bool) -> Result<bool>;
         fn join_edges(wire: &Shape) -> Result<UniquePtr<Shape>>;
@@ -234,7 +247,12 @@ mod ffi {
         fn remove_faces_open(solid: &Shape, faces: &ShapeList) -> Result<UniquePtr<Shape>>;
         fn solid_from(s: &Shape) -> Result<UniquePtr<Shape>>;
         fn replace_planar_face_op(solid: &Shape, face: &Shape, target: Frame) -> Result<UniquePtr<Operation>>;
-        fn replace_face_with_surface_op(solid: &Shape, face: &Shape, template_face: &Shape, offset: f64) -> Result<UniquePtr<Operation>>;
+        fn replace_face_with_surface_op(
+            solid: &Shape,
+            face: &Shape,
+            template_face: &Shape,
+            offset: f64,
+        ) -> Result<UniquePtr<Operation>>;
 
         fn operation_shape(op: &Operation) -> UniquePtr<Shape>;
         fn operation_modified(op: &Operation, s: &Shape) -> Result<UniquePtr<ShapeList>>;
@@ -1043,7 +1061,13 @@ pub fn draft_each(solid: &Shape, faces: &[Shape], pull: Vec3, angle: f64, neutra
 }
 
 /// Faces of a solid drafted each about its own neutral plane, at its own angle.
-pub fn draft_angles(solid: &Shape, faces: &[Shape], pull: Vec3, angles: &[f64], neutrals: &[Frame]) -> Result<Operation> {
+pub fn draft_angles(
+    solid: &Shape,
+    faces: &[Shape],
+    pull: Vec3,
+    angles: &[f64],
+    neutrals: &[Frame],
+) -> Result<Operation> {
     Ok(Operation(ffi::draft_angles_op(&solid.0, &to_list(faces), pull, angles, neutrals)?))
 }
 
@@ -1051,6 +1075,14 @@ pub fn draft_angles(solid: &Shape, faces: &[Shape], pull: Vec3, angles: &[f64], 
 /// The shape with its curved faces and edges made B-splines (planes stay planes).
 pub fn nurbs_converted(shape: &Shape) -> Result<Shape> {
     Ok(Shape::new(ffi::nurbs_converted(&shape.0)?))
+}
+
+/// A face on the same surface as `face`, bounded by one loop of edges in its parameter space, each the polyline
+/// through its (u, v) points (an edge at constant u or v is the surface's iso curve there), facing the same way.
+pub fn face_from_uv(face: &Shape, edges: &[Vec<(f64, f64)>]) -> Result<Shape> {
+    let uv: Vec<f64> = edges.iter().flatten().flat_map(|&(u, v)| [u, v]).collect();
+    let counts: Vec<u32> = edges.iter().map(|e| e.len() as u32).collect();
+    Ok(Shape::new(ffi::face_from_uv(&face.0, &uv, &counts)?))
 }
 
 pub fn orient_sheet(sheet: &Shape) -> Result<Shape> {
