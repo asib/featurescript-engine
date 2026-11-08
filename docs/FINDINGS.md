@@ -154,8 +154,25 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   block's edge splits the block's edge there, one vertex on the boss's circle. (Batch 006, c012–c014.)
 - **A revolved sheet faces along tangent × sweep direction**, as an extruded one faces along tangent × direction;
   thin revolve thickens it along that normal. (Batch 006, c018.)
-- **A cylinder extruded from z = 0 to 20 has its surface origin at z = 20** (`evSurfaceDefinition`, seen through a
-  tangent `cPlane`). (Batch 006, c016.)
+- **Cylinders' and cones' coordinate systems** (`evSurfaceDefinition`) depend on how they were made. An extruded
+  cylinder has its origin on the axis at the far end of the extrude, z pointing back along it, and x = the
+  circle's y × z (so x is the sketch's −x for an extrude along the sketch normal). A revolved cylinder has its
+  origin at the axis's origin, z against the axis, x from the profile towards the axis. A revolved cone has its
+  origin at the apex, z against the axis, y from the axis towards the profile. A sphere's is the global frame at
+  its centre. (Batch 006, c016; batch 007, c001–c006.)
+- **Selection queries** (batch 007, c008–c012): convex (concave) connected faces flood across convex (concave)
+  edges, counting a fillet's smooth edges by how the faces bend; `qEdgeConvexityTypeFilter` counts them as smooth.
+  Hole faces of a simple hole are just its wall. `qFilletFaces` takes only `EQUAL`, `LESS_EQUAL` and
+  `GREATER_EQUAL`. `qLoopEdges` of a two-sided edge is empty. `qFaceOrEdgeBoundedFaces` floods around a single
+  bounding edge to every face; `qLoopBoundedFaces` floods everything on the edge's side but the bounding face.
+- **Holes up to the next part stop where the hole leaves the first part**; holes up to a face stop the shaft at the
+  face, the tip going on past it. Both need `holeDepthComputed` set (positive) when called from code, as the UI
+  sets it. (Batch 007, c014–c015.)
+- **Body draft across the parting plane**: the part is split there; only the faces in front are drafted about their
+  top edges, leaving a ledge at the parting plane. (Batch 007, c019.)
+- **Revolve up-to offsets** turn the bound further along the revolve unless flipped. (Batch 007, c022.)
+- **Isoclines** are where the angle between the face's tangent plane and the direction (like a draft angle) is the
+  given angle: latitude circles on a sphere, two circles at the same height on a torus. (Batch 007, c026–c027.)
 - **A closed composite part** owns its bodies' entities (`qOwnedByBody` of it finds them); the bodies stay in the
   context as solids, but Onshape's STEP export writes them without their names. (Batch 006, c017.)
 - **Mutual trim** splits each sheet's faces with the other (`opSplitFace` with `mutualImprint`), keeps the pieces
