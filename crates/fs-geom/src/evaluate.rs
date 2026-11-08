@@ -167,6 +167,40 @@ pub fn register(m: &mut GeomBuiltins) {
             Ok(Value::array(out))
         })
     });
+    // The centroid of entities together, each weighted by its volume, area or length (an internal end cap's
+    // drive point, batch 019).
+    m.insert("evApproximateCentroid", |interp, args| {
+        let tags = tags(interp)?;
+        measure(
+            args,
+            "evApproximateCentroid",
+            "entities",
+            |tags, model, found| {
+                let mut total = 0.0;
+                let mut sum = Vec3::new(0.0, 0.0, 0.0);
+                for r in &found {
+                    let shape = if r.kind == EntityType::Body { model.bodies[r.body].shape.clone() } else { model.shape(*r).clone() };
+                    let weight = match r.kind {
+                        EntityType::Face => shape.area().unwrap_or(0.0),
+                        EntityType::Edge => shape.length().unwrap_or(0.0),
+                        EntityType::Vertex => 1.0,
+                        EntityType::Body => shape.volume().ok().filter(|v| *v > 0.0).or(shape.area().ok()).unwrap_or(1.0),
+                    };
+                    let c = match r.kind {
+                        EntityType::Vertex => shape.vertex_point().map_err(occt_error)?,
+                        _ => shape.centroid().map_err(occt_error)?,
+                    };
+                    sum = values::add(sum, values::scale(c, weight));
+                    total += weight;
+                }
+                if total <= 0.0 {
+                    return Err(regen_error("CANNOT_RESOLVE_ENTITIES"));
+                }
+                Ok(tags.length_vector(values::scale(sum, 1.0 / total)))
+            },
+            &tags,
+        )
+    });
     m.insert("evPlane", |interp, args| {
         let tags = tags(interp)?;
         measure(
@@ -494,9 +528,6 @@ pub fn register(m: &mut GeomBuiltins) {
     m.insert("evDistance", |interp, args| {
         let tags = tags(interp)?;
         let definition = definition(&args, "evDistance")?;
-        if values::opt_bool(&definition, "maximum")?.unwrap_or(false) {
-            return Err(error("@evDistance: maximum isn't supported yet"));
-        }
         let arc_length = values::opt_bool(&definition, "arcLengthParameterization")?.unwrap_or(true);
         model_mut(&args, "evDistance", |model| distance(&tags, model, &definition, arc_length))
     });
@@ -697,11 +728,17 @@ fn distance(tags: &Tags, model: &Model, definition: &Value, arc_length: bool) ->
     let extend = |key| values::opt_bool(definition, key).map(|b| b.unwrap_or(false));
     let (side0, shapes0) = side(model, field(definition, "side0"), "evDistance side0", extend("extendSide0")?)?;
     let (side1, shapes1) = side(model, field(definition, "side1"), "evDistance side1", extend("extendSide1")?)?;
+    let maximum = values::opt_bool(definition, "maximum")?.unwrap_or(false);
     let mut best: Option<(f64, usize, usize, occt::Distance)> = None;
     for (i, a) in shapes0.iter().enumerate() {
         for (j, b) in shapes1.iter().enumerate() {
-            let d = a.distance(b).map_err(occt_error)?;
-            if best.as_ref().is_none_or(|(min, ..)| d.distance < *min - 1e-12) {
+            let d = if maximum { farthest(a, b)? } else { a.distance(b).map_err(occt_error)? };
+            let better = match &best {
+                None => true,
+                Some((m, ..)) if maximum => d.distance > *m + 1e-12,
+                Some((m, ..)) => d.distance < *m - 1e-12,
+            };
+            if better {
                 best = Some((d.distance, i, j, d));
             }
         }
@@ -730,6 +767,48 @@ fn distance(tags: &Tags, model: &Model, definition: &Value, arc_length: bool) ->
     };
     let sides = vec![describe(&side0, i, d.a)?, describe(&side1, j, d.b)?];
     tags.tagged(map(vec![("distance", tags.length(d.distance)), ("sides", Value::array(sides))]), "DistanceResult")
+}
+
+/// The greatest distance from a point to a vertex or edge (`evDistance` with `maximum`, an end cap's circle,
+/// batch 019): over the edge's ends and samples along it, refined round the best.
+fn farthest(a: &occt::Shape, b: &occt::Shape) -> R<occt::Distance> {
+    let point_of = |s: &occt::Shape| s.vertex_point().ok();
+    let (p, other, flipped) = match (point_of(a), point_of(b)) {
+        (Some(p), _) => (p, b, false),
+        (None, Some(q)) => (q, a, true),
+        _ => return Err(error("@evDistance: the maximum distance needs a point on one side")),
+    };
+    let at = |t: f64| -> Option<Vec3> {
+        match other.kind() {
+            Some(occt::ShapeKind::Vertex) => other.vertex_point().ok(),
+            _ => other.edge_tangent(t, false).ok().map(|a| a.origin),
+        }
+    };
+    let dist = |q: Vec3| values::norm(values::sub(q, p));
+    let n = 256;
+    let mut best = (f64::MIN, 0.0, p);
+    for k in 0..=n {
+        let t = k as f64 / n as f64;
+        if let Some(q) = at(t)
+            && dist(q) > best.0
+        {
+            best = (dist(q), t, q);
+        }
+    }
+    // Golden-section search round the best sample.
+    let (mut lo, mut hi) = ((best.1 - 1.0 / n as f64).max(0.0), (best.1 + 1.0 / n as f64).min(1.0));
+    for _ in 0..60 {
+        let (m1, m2) = (lo + (hi - lo) * 0.382, lo + (hi - lo) * 0.618);
+        let (d1, d2) = (at(m1).map_or(f64::MIN, dist), at(m2).map_or(f64::MIN, dist));
+        if d1 < d2 { lo = m1 } else { hi = m2 }
+    }
+    if let Some(q) = at((lo + hi) / 2.0)
+        && dist(q) > best.0
+    {
+        best = (dist(q), (lo + hi) / 2.0, q);
+    }
+    let (a_point, b_point) = if flipped { (best.2, p) } else { (p, best.2) };
+    Ok(occt::Distance { distance: best.0, a: a_point, b: b_point })
 }
 
 /// A B-spline or Bezier edge that is straight: its start and direction.
