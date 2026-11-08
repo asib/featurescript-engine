@@ -333,6 +333,11 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   way the material lies from the definition sheet ((20, 15, 2) to (20, 15, 0) on a plate's top; a flipped form's
   from (20, 15, 0) to (20, 15, −2)).
 
+- **Sheet metal form patterns** (batch 033): std copies each form's parts and placement mate connector by the
+  pattern's transforms (found by the ids the wall's form records, and by tracking the copies) and registers them;
+  the copied mate connectors stay where they were copied to, at the material. The form's own faces on the part are
+  created by the form feature. A cup tool's part to remove doesn't cut into its boss here, in Onshape as in the
+  engine.
 - **Sheet metal hole patterns** (batch 032): std finds a hole's faces on the part by the names `@opHole` gave its
   tool's faces (the part's faces cut by a registered tool carry them), attributes them, and on a face pattern asks
   `evSheetMetalHoleToolBodies` for the tools, copies them by the pattern's transforms (`PROPAGATE_NEW_HOLE`) and
