@@ -261,6 +261,16 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   bend laid flat, (inner radius + K-factor × thickness) × angle long (2.9845 mm for a 90° bend of radius 1, 2 mm
   thick, K 0.45), the far wall carried round into the held wall's plane. Refolding gives the folded part back.
 
+- **Bend reliefs** (batch 016). Where a bend covers only part of its base wall's edge, the rest of the edge is
+  cut back as the bend is, and each end of the bend gets a slot in the base wall: as wide as the width scale ×
+  the thickness, reaching from the edge to the depth scale × the bend's inner radius at the centre of an
+  obround's round end (a rectangle goes half its width further; a tear cuts nothing more). The depth doesn't
+  depend on the thickness (1, 2 and 3 mm with a 1 mm radius agree), but triples with a 3 mm radius. The flange
+  isn't notched.
+- **Corner reliefs** (batch 016) are cut in the flat pattern, centred where the two bends' centre lines cross:
+  round, a circle of radius scale × flat length / √2; rectangular, a square of side scale × flat length; sized,
+  the given diameter or width. This fits the base wall's relief faces in every case to 1e-3 mm.
+
 ## STEP export
 
 - **Part names** are written on each `MANIFOLD_SOLID_BREP` (`MANIFOLD_SOLID_BREP('c030.1', ...)`), as well as on
