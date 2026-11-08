@@ -19,6 +19,8 @@
 #include <BRepAlgoAPI_Defeaturing.hxx>
 #include <BRepAlgoAPI_Splitter.hxx>
 #include <BRepAdaptor_Surface.hxx>
+#include <BRepAlgoAPI_Section.hxx>
+#include <BRepFeat_SplitShape.hxx>
 #include <BRepClass3d_SolidClassifier.hxx>
 #include <ShapeFix_Solid.hxx>
 #include <ShapeAnalysis_FreeBounds.hxx>
@@ -511,10 +513,69 @@ std::unique_ptr<Shape> face_feature_solid(const ShapeList &faces) {
   return wrap(solid);
 }
 
+// Splits faces of a body where tools (sheets, faces, wires) cross them, leaving the rest of the body as it is.
+std::unique_ptr<Operation> split_faces_op(const Shape &body, const ShapeList &faces, const ShapeList &tools) {
+  BRepFeat_SplitShape splitter(body.shape);
+  bool any = false;
+  TopoDS_Compound tool;
+  BRep_Builder builder;
+  builder.MakeCompound(tool);
+  for (const TopoDS_Shape &t : tools.shapes) builder.Add(tool, t);
+  for (const TopoDS_Shape &f : faces.shapes) {
+    BRepAlgoAPI_Section section(f, tool, Standard_False);
+    section.ComputePCurveOn1(Standard_True);
+    section.Approximation(Standard_True);
+    section.Build();
+    if (!section.IsDone()) continue;
+    for (TopExp_Explorer it(section.Shape(), TopAbs_EDGE); it.More(); it.Next()) {
+      splitter.Add(TopoDS::Edge(it.Current()), TopoDS::Face(f));
+      any = true;
+    }
+  }
+  if (!any) throw std::runtime_error("split faces: the tools don't cross the faces");
+  splitter.Build();
+  return finish(one(body.shape), splitter, "split faces");
+}
+
 // Whether a point is inside a solid.
 bool point_in_solid(const Shape &solid, Vec3 p) {
   BRepClass3d_SolidClassifier classifier(solid.shape, pnt(p), 1e-9);
   return classifier.State() == TopAbs_IN;
+}
+
+// The sheets of a shape: its faces, grouped into one shell for each set connected through shared edges.
+std::unique_ptr<ShapeList> connected_shells(const Shape &s) {
+  TopTools_IndexedMapOfShape faces;
+  TopExp::MapShapes(s.shape, TopAbs_FACE, faces);
+  TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
+  TopExp::MapShapesAndUniqueAncestors(s.shape, TopAbs_EDGE, TopAbs_FACE, edge_faces);
+  std::vector<bool> placed(faces.Extent() + 1, false);
+  auto out = std::make_unique<ShapeList>();
+  BRep_Builder builder;
+  for (int i = 1; i <= faces.Extent(); ++i) {
+    if (placed[i]) continue;
+    TopoDS_Shell shell;
+    builder.MakeShell(shell);
+    std::vector<int> stack{i};
+    placed[i] = true;
+    while (!stack.empty()) {
+      int f = stack.back();
+      stack.pop_back();
+      builder.Add(shell, faces(f));
+      for (TopExp_Explorer it(faces(f), TopAbs_EDGE); it.More(); it.Next())
+        if (const TopTools_ListOfShape *neighbours = edge_faces.Seek(it.Current()))
+          for (const TopoDS_Shape &g : *neighbours) {
+            int j = faces.FindIndex(g);
+            if (j > 0 && !placed[j]) {
+              placed[j] = true;
+              stack.push_back(j);
+            }
+          }
+    }
+    shell.Closed(BRep_Tool::IsClosed(shell));
+    out->shapes.push_back(shell);
+  }
+  return out;
 }
 
 // The faces of a solid other than `faces`, sewn into a sheet: deleting faces and leaving the hole open.

@@ -3,6 +3,8 @@
 #include "occt/cpp/occt.h"
 
 #include <BRepAdaptor_Curve.hxx>
+#include <BRepClass_FaceClassifier.hxx>
+#include <gp_Pnt2d.hxx>
 #include <IntCurvesFace_ShapeIntersector.hxx>
 #include <algorithm>
 #include <BRepBuilderAPI_MakeEdge.hxx>
@@ -233,6 +235,25 @@ Frame face_tangent_plane(const Shape &s, double fu, double fv) {
 }
 
 // The fractions (u in x, v in y) of a face's parameter-space bounding box at the point on it closest to `p`.
+// A point inside a face, not just inside its parameter box: the middle of the box if that's on the face, else the
+// first point of finer and finer grids over the box that is.
+Vec3 face_inner_point(const Shape &s) {
+  if (s.shape.ShapeType() != TopAbs_FACE) throw std::runtime_error("not a face");
+  const TopoDS_Face &face = TopoDS::Face(s.shape);
+  double u0, u1, v0, v1;
+  BRepTools::UVBounds(face, u0, u1, v0, v1);
+  Handle(Geom_Surface) surface = BRep_Tool::Surface(face);
+  BRepClass_FaceClassifier classifier;
+  for (int n : {1, 3, 5, 9, 17, 33})
+    for (int i = 0; i < n; ++i)
+      for (int j = 0; j < n; ++j) {
+        double u = u0 + (i + 0.5) / n * (u1 - u0), v = v0 + (j + 0.5) / n * (v1 - v0);
+        classifier.Perform(face, gp_Pnt2d(u, v), 1e-9);
+        if (classifier.State() == TopAbs_IN) return vec3(surface->Value(u, v).XYZ());
+      }
+  throw std::runtime_error("no point inside the face");
+}
+
 Vec3 face_fraction(const Shape &s, Vec3 p) {
   if (s.shape.ShapeType() != TopAbs_FACE) throw std::runtime_error("not a face");
   const TopoDS_Face &face = TopoDS::Face(s.shape);

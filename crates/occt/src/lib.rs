@@ -205,7 +205,10 @@ mod ffi {
         fn edge_fraction_extended(s: &Shape, p: Vec3) -> Result<f64>;
         fn shape_distance(a: &Shape, b: &Shape) -> Result<Distance>;
         fn line_crossings(s: &Shape, origin: Vec3, direction: Vec3) -> Result<Vec<f64>>;
+        fn face_inner_point(s: &Shape) -> Result<Vec3>;
         fn face_feature_solid(faces: &ShapeList) -> Result<UniquePtr<Shape>>;
+        fn connected_shells(s: &Shape) -> Result<UniquePtr<ShapeList>>;
+        fn split_faces_op(body: &Shape, faces: &ShapeList, tools: &ShapeList) -> Result<UniquePtr<Operation>>;
         fn point_in_solid(solid: &Shape, p: Vec3) -> Result<bool>;
         fn curve_definition(s: &Shape) -> Result<Conic>;
         fn surface_definition(s: &Shape) -> Result<Conic>;
@@ -458,6 +461,11 @@ impl Shape {
     /// sorted distances along it.
     pub fn line_crossings(&self, origin: Vec3, direction: Vec3) -> Result<Vec<f64>> {
         Ok(ffi::line_crossings(&self.0, origin, direction)?)
+    }
+
+    /// A point inside this face (not just inside its parameter range).
+    pub fn face_inner_point(&self) -> Result<Vec3> {
+        Ok(ffi::face_inner_point(&self.0)?)
     }
 
     /// Whether a point is inside this solid.
@@ -852,6 +860,17 @@ pub fn replace_planar_face(solid: &Shape, face: &Shape, target: Frame) -> Result
 /// or a pocket's void.
 pub fn face_feature_solid(faces: &[Shape]) -> Result<Shape> {
     Ok(Shape::new(ffi::face_feature_solid(&to_list(faces))?))
+}
+
+/// The faces of a shape grouped into a shell for each set connected through shared edges.
+pub fn connected_shells(shape: &Shape) -> Result<Vec<Shape>> {
+    let shells = ffi::connected_shells(&shape.0)?;
+    Ok(from_list(&shells))
+}
+
+/// Splits faces of a body where the tools (sheets, faces or wires) cross them.
+pub fn split_faces(body: &Shape, faces: &[Shape], tools: &[Shape]) -> Result<Operation> {
+    Ok(Operation(ffi::split_faces_op(&body.0, &to_list(faces), &to_list(tools))?))
 }
 
 pub fn solid_from(shape: &Shape) -> Result<Shape> {
