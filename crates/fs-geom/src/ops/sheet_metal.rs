@@ -774,6 +774,51 @@ struct BendRelief {
     thickness: f64,
 }
 
+
+/// Corner breaks std keeps on the definition's vertices (a fillet or chamfer of a sheet metal part's corner, batch
+/// 017): each rounds or chamfers its wall's corner at the vertex, in the wall's plane.
+fn break_corners(def: &Body, wall_attributes: &Attributes, wall: Shape) -> R<Shape> {
+    let Some(wall_id) = sm_attribute(wall_attributes, "WALL").and_then(|a| a.get("attributeId")).and_then(Value::as_str)
+    else {
+        return Ok(wall);
+    };
+    let mut breaks: Vec<(Vec3, f64, bool)> = Vec::new();
+    for v in &def.vertices {
+        let Some(corner) = sm_attribute(&v.attributes, "CORNER") else { continue };
+        let Some(list) = corner.get("cornerBreaks").and_then(Value::as_array) else { continue };
+        for entry in list.iter() {
+            let b = entry.get("value").unwrap_or(entry);
+            if b.get("wallId").and_then(Value::as_str) != Some(wall_id) {
+                continue;
+            }
+            let size = values::length(field(b, "range"), "corner break range")?;
+            let chamfer = b.get("cornerBreakStyle").and_then(Value::as_str) == Some("CHAMFER");
+            breaks.push((v.shape.vertex_point().map_err(occt_error)?, size, chamfer));
+        }
+    }
+    if breaks.is_empty() {
+        return Ok(wall);
+    }
+    let mut faces = Vec::new();
+    for mut face in wall.sub_shapes(ShapeKind::Face) {
+        for &(p, size, chamfer) in &breaks {
+            let at: Vec<Shape> = face
+                .sub_shapes(ShapeKind::Vertex)
+                .into_iter()
+                .filter(|v| v.vertex_point().is_ok_and(|q| norm(sub(q, p)) < 1e-7))
+                .collect();
+            if !at.is_empty() {
+                face = occt::face_corners_2d(&face, &at, size, chamfer)
+                    .map_err(|_| regen_error("SHEET_METAL_CORNER_BREAK_FAILED"))?;
+            }
+        }
+        faces.push(face);
+    }
+    if faces.len() == 1 {
+        return Ok(faces.remove(0));
+    }
+    occt::sew_faces(&faces, 1e-7).map_err(occt_error)
+}
 /// The bend reliefs a wall needs where bends cover only part of its edges: the rest of each such edge is cut back
 /// as the bend is, and at each end of the bend a slot is cut, as wide as the width scale × the thickness, reaching
 /// the depth scale × the bend's radius in from the edge to the centre of an obround's round end (a rectangle goes
@@ -900,11 +945,14 @@ fn build_part(
                 distances.push(-setback);
             }
         }
-        let cut = if (edges.is_empty() && slots.is_empty()) || !planar {
+        let mut cut = if (edges.is_empty() && slots.is_empty()) || !planar {
             wall.shape.clone()
         } else {
             cut_back(&wall.shape, &edges, &distances, &slots)?
         };
+        if planar {
+            cut = break_corners(def, &wall.attributes, cut)?;
+        }
         for face in cut.sub_shapes(ShapeKind::Face) {
             let solid =
                 occt::thicken(&face, front, back).map_err(|_| regen_error("SHEET_METAL_CANNOT_THICKEN"))?.shape();
