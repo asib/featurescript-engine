@@ -441,3 +441,26 @@ pub fn wrap(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
     }
     Ok(Value::UNDEFINED)
 }
+
+/// `@opConstrainedSurface`: a smooth sheet within `tolerance` of the points (see [`crate::bspline::fit_surface`]).
+/// Normals at the points aren't supported yet.
+pub fn constrained_surface(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
+    let entries = field(definition, "points")
+        .as_array()
+        .ok_or_else(|| error("@opConstrainedSurface: points must be an array"))?;
+    if entries.iter().any(|e| !field(e, "normal").is_undefined()) {
+        return Err(error("@opConstrainedSurface: normals at the points aren't supported yet"));
+    }
+    let points =
+        entries.iter().map(|e| values::vec3(field(e, "point"), "constrained surface point")).collect::<R<Vec<_>>>()?;
+    let tolerance = match field(definition, "tolerance") {
+        v if v.is_undefined() => 1e-6,
+        v => values::length(v, "constrained surface tolerance")?,
+    };
+    let smooth = values::opt_bool(definition, "smooth")?.unwrap_or(false);
+    let fit = crate::bspline::fit_surface(&points, tolerance, smooth)?;
+    let face =
+        occt::bspline_surface_face(&fit.poles, fit.counts, &fit.knots_u, &fit.knots_v, (3, 3)).map_err(occt_error)?;
+    add(model, &id, face, BodyType::Sheet);
+    Ok(Value::UNDEFINED)
+}
