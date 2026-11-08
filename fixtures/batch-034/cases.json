@@ -1,0 +1,87 @@
+{
+  "batch": "034",
+  "title": "more feature options: locked sweeps, routing through vertices, frame overrides, tagged frame profiles, cone isoclines, ANSI threads",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "sweep",
+      "description": "a square swept along an L on a block's top, locked to the top",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "routing-curve",
+      "description": "a polyline through three corners of a block, with 3 mm bends",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "cutlist",
+      "description": "the tubes of a mitred L, the Description of the first overridden",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "frame",
+      "description": "a tagged square tube profile along an L, at its extra alignment point",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "isocline",
+      "description": "the 20 degree isoclines of a cone lying along y, as curves",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "external-thread",
+      "description": "a 3/8-16 thread 12 mm down two shafts at once",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "sweep",
+      "description": "a square swept along a sharp L",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c008",
+      "kind": "sweep",
+      "description": "a square swept along an L rounded 10 mm on a block's top, locked to the top",
+      "slotMeters": [
+        2.8000000000000003,
+        0,
+        0
+      ]
+    }
+  ]
+}
