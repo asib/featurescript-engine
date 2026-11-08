@@ -405,7 +405,19 @@ fn regenerate(model: &mut Model, id: &FeatureId, def_index: usize) -> R<()> {
             .unwrap_or(0.0),
     };
     let corners = corner_reliefs(&def, &bends, &corner_defaults)?;
-    let solid = build_part(&def, &bends, &rips, front, back, clearance, &relief, &corners)?;
+    // The bodies registered to cut each wall: besides the outline they leave in the definition, they're cut from
+    // the wall's piece of the part, which takes what doesn't go through it (a counterbore, batch 018).
+    let tools: Vec<Vec<Shape>> = def
+        .faces
+        .iter()
+        .map(|f| {
+            wall_tool_tids(&f.attributes)
+                .iter()
+                .filter_map(|t| model.bodies.iter().find(|b| b.tid == *t).map(|b| b.shape.clone()))
+                .collect()
+        })
+        .collect();
+    let solid = build_part(&def, &bends, &rips, front, back, clearance, &relief, &corners, &tools)?;
 
     // Replace the model's part, keeping its identity, or make one.
     // Replace the model's parts (one for each piece a rip cuts off), keeping their identities, or make them.
@@ -1002,6 +1014,7 @@ fn build_part(
     clearance: f64,
     relief: &BendRelief,
     corners: &[CornerRelief],
+    tools: &[Vec<Shape>],
 ) -> R<Shape> {
     let faces_of_edge = |edge: &Shape| -> Vec<&Shape> {
         def.faces
@@ -1097,7 +1110,13 @@ fn build_part(
         for face in cut.sub_shapes(ShapeKind::Face) {
             let solid =
                 occt::thicken(&face, front, back).map_err(|_| regen_error("SHEET_METAL_CANNOT_THICKEN"))?.shape();
-            pieces.push(place(solid, w)?);
+            let mut solid = place(solid, w)?;
+            if !tools[w].is_empty() {
+                solid = occt::boolean(occt::BooleanKind::Subtraction, std::slice::from_ref(&solid), &tools[w], true)
+                    .map_err(|_| regen_error("SHEET_METAL_REBUILD_ERROR"))?
+                    .shape();
+            }
+            pieces.push(solid);
         }
         cut_walls.push(cut);
     }
@@ -1271,19 +1290,48 @@ pub fn update(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> 
 /// The new entities get association attributes, as std gives the entities it makes.
 fn cut_registered_tools(model: &mut Model, id: &FeatureId, index: usize) -> R<()> {
     let def = model.bodies[index].clone();
+    let model_attribute = sm_attribute(&def.attributes, "MODEL").cloned();
+    let thickness_of = |key: &str| -> R<f64> {
+        match model_attribute.as_ref().and_then(|m| attribute_value(m, key)) {
+            Some(v) => values::length(v, "sheet metal thickness"),
+            None => Ok(0.0),
+        }
+    };
+    let (front, back) = (thickness_of("frontThickness")?, thickness_of("backThickness")?);
     let mut tool_bodies: Vec<usize> = Vec::new();
-    for tid in def.faces.iter().flat_map(|f| wall_tool_tids(&f.attributes)) {
-        let Some(b) = model.bodies.iter().position(|b| b.tid == tid) else { continue };
-        let tool = &model.bodies[b].shape;
-        let already = def.edges.iter().any(|e| lies_on(&samples(&e.shape), tool));
-        if !already && !tool_bodies.contains(&b) {
+    // Each tool and its moved copies.
+    let mut moved: Vec<(usize, Vec<Shape>)> = Vec::new();
+    // Each tool's outline in the sheet: what of it goes through the material, from one face to the other (a
+    // counterbore leaves only its hole, batch 018). The tool is moved so its sections at the wall's two faces
+    // fall on the sheet, and the two copies' common part cut.
+    let mut tools: Vec<Shape> = Vec::new();
+    for wall in &def.faces {
+        let Ok(plane) = wall.shape.face_plane() else { continue };
+        for tid in wall_tool_tids(&wall.attributes) {
+            let Some(b) = model.bodies.iter().position(|b| b.tid == tid) else { continue };
+            if tool_bodies.contains(&b) {
+                continue;
+            }
+            let tool = &model.bodies[b].shape;
+            if def.edges.iter().any(|e| lies_on(&samples(&e.shape), tool)) {
+                continue;
+            }
+            let shifted = |by: f64| -> R<Shape> {
+                Ok(occt::transform(tool, &super::translation(scale(plane.normal, by))).map_err(occt_error)?.shape())
+            };
+            let inset = 1e-7;
+            let (top, bottom) = (shifted(-(front - inset))?, shifted(back - inset)?);
+            let through = occt::boolean(occt::BooleanKind::Intersection, std::slice::from_ref(&top), std::slice::from_ref(&bottom), false)
+                .map_err(|_| regen_error("SHEET_METAL_REBUILD_ERROR"))?
+                .shape();
             tool_bodies.push(b);
+            tools.push(through);
+            moved.push((b, vec![top, bottom]));
         }
     }
     if tool_bodies.is_empty() {
         return Ok(());
     }
-    let tools: Vec<Shape> = tool_bodies.iter().map(|&b| model.bodies[b].shape.clone()).collect();
     let op = occt::boolean(occt::BooleanKind::Subtraction, std::slice::from_ref(&def.shape), &tools, false)
         .map_err(|_| regen_error("SHEET_METAL_REBUILD_ERROR"))?;
     let mut inputs: Vec<&Body> = vec![&def];
@@ -1292,9 +1340,37 @@ fn cut_registered_tools(model: &mut Model, id: &FeatureId, index: usize) -> R<()
     let origins = Origins::of_operation(&op, &inputs);
     let shape = op.shape();
     let shape = shape.sub_shapes(ShapeKind::Shell).into_iter().next().unwrap_or(shape);
+    // The tools' faces (and their moved copies' faces, in the same order), and what they came from: the cut's edges
+    // are tracked back to the faces they lie on.
+    let mut tool_faces: Vec<(Shape, Vec<crate::model::Tid>)> = Vec::new();
+    for (b, copies) in &moved {
+        let body = &model.bodies[*b];
+        let tids: Vec<Vec<crate::model::Tid>> = body
+            .faces
+            .iter()
+            .map(|f| std::iter::once(f.tid).chain(f.ancestry.all.iter().copied()).collect())
+            .collect();
+        for shape in std::iter::once(&body.shape).chain(copies.iter()) {
+            for (face, t) in shape.sub_shapes(ShapeKind::Face).into_iter().zip(&tids) {
+                tool_faces.push((face, t.clone()));
+            }
+        }
+    }
     model.remove_bodies(&[index]);
     let info = Info::new(id.clone());
     let new = model.add_body(NewBody::replacing(&def, shape), &origins, &info, &|_| None);
+    for i in 0..model.bodies[new].edges.len() {
+        let r = EntityRef { body: new, kind: EntityType::Edge, index: i };
+        if !model.info(r).is_created_by(id) {
+            continue;
+        }
+        let points = samples(&model.bodies[new].edges[i].shape);
+        let from: Vec<crate::model::Tid> =
+            tool_faces.iter().filter(|(face, _)| lies_on(&points, face)).flat_map(|(_, tids)| tids.iter().copied()).collect();
+        if !from.is_empty() {
+            model.add_ancestors(r, &from);
+        }
+    }
     // Association attributes for what the cut made.
     let Some(tag) = fs_interp::types::find("SMAssociationAttribute") else { return Ok(()) };
     for kind in [EntityType::Face, EntityType::Edge, EntityType::Vertex] {
