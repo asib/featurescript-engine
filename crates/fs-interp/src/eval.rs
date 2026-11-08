@@ -901,7 +901,10 @@ impl Interp {
             }
             StmtKind::Block(block) => self.exec_predicate_block(block),
             StmtKind::If { cond, then, otherwise } => {
+                // A predicate found false in the condition just picks the branch: it isn't why anything failed.
+                let before = self.failed_predicate.clone();
                 let c = self.eval(cond)?;
+                self.failed_predicate = before;
                 if self.condition(c)? {
                     self.in_scope(|this| this.exec_predicate(then))
                 } else if let Some(otherwise) = otherwise {
