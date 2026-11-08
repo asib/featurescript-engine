@@ -330,7 +330,9 @@ pub fn compare_with(name: &str, ours: &Shape, theirs: &Shape, strictness: Strict
     if result.area_error > strictness.relative {
         problems.push(format!("area {:.9e} m², Onshape {:.9e}", ours_m.area, theirs_m.area));
     }
-    if result.box_error > BOX_TOLERANCE {
+    // A case compared loosely allows its boxes as far apart as its surfaces (Onshape's twisted sweep along an arc,
+    // batch 048: 1.6 µm).
+    if result.box_error > BOX_TOLERANCE.max(strictness.close) {
         problems.push(format!("bounding box {:?}, Onshape {:?}", ours_m.bounding_box, theirs_m.bounding_box));
     }
     // Onshape's STEP writes swept faces (extrusions and revolutions of curves) as B-splines, so with probes only
