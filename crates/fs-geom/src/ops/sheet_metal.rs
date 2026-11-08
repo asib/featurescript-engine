@@ -339,7 +339,15 @@ fn regenerate(model: &mut Model, id: &FeatureId, def_index: usize) -> R<()> {
         Some(v) => values::length(v, "minimal clearance")?,
         None => 2e-5,
     };
-    let solid = build_part(&def, &bends, &rips, front, back, clearance)?;
+    let scale =
+        |key: &str, default: f64| attribute_value(&model_attribute, key).and_then(Value::as_number).unwrap_or(default);
+    let relief = BendRelief {
+        style: model_attribute.get("defaultBendReliefStyle").and_then(Value::as_str).unwrap_or("OBROUND").to_string(),
+        depth_scale: scale("defaultBendReliefDepthScale", 1.5),
+        width_scale: scale("defaultBendReliefScale", 1.0625),
+        thickness,
+    };
+    let solid = build_part(&def, &bends, &rips, front, back, clearance, &relief)?;
 
     // Replace the model's part, keeping its identity, or make one.
     // Replace the model's parts (one for each piece a rip cuts off), keeping their identities, or make them.
@@ -450,7 +458,7 @@ fn rip_setback(wall: &Shape, other: &Shape, edge: &Shape, front: f64, back: f64,
 /// A planar wall cut back from some of its straight edges, each by its own distance: a strip that deep is taken
 /// off along each edge, running on past corners but not into a straight continuation of the edge (a bend covering
 /// part of an edge leaves the rest, such as the stubs a converted part's rips leave at its ends, batch 014).
-fn cut_back(wall: &Shape, edges: &[Shape], distances: &[f64]) -> R<Shape> {
+fn cut_back(wall: &Shape, edges: &[Shape], distances: &[f64], extra: &[Shape]) -> R<Shape> {
     let plane = wall.face_plane().map_err(occt_error)?;
     let n = plane.normal;
     let bounds = wall.bounding_box(false).map_err(occt_error)?;
@@ -480,6 +488,7 @@ fn cut_back(wall: &Shape, edges: &[Shape], distances: &[f64]) -> R<Shape> {
         let frame = occt::Frame { origin: a, normal: n, x: e };
         strips.push(occt::plane_face(frame, u0, u1, v0, v1).map_err(occt_error)?);
     }
+    strips.extend(extra.iter().cloned());
     if strips.is_empty() {
         return Ok(wall.clone());
     }
@@ -643,7 +652,80 @@ fn placements(def: &Body, bends: &[Bend], wall_index: &dyn Fn(&Shape) -> usize) 
 /// The folded part, piece by piece: each wall cut back where it meets bends and rips and thickened, and each bend
 /// a ring sector along the stretch both its walls still reach; the pieces fused. Where bends meet at a corner,
 /// each stops where the other cuts its walls back, leaving the corner open (Onshape's simple corner).
-fn build_part(def: &Body, bends: &[Bend], rips: &[usize], front: f64, back: f64, clearance: f64) -> R<Shape> {
+/// How the ends of a bend shorter than its wall's edge are relieved (the model's defaults).
+struct BendRelief {
+    style: String,
+    depth_scale: f64,
+    width_scale: f64,
+    thickness: f64,
+}
+
+/// The bend reliefs a wall needs where bends cover only part of its edges: the rest of each such edge is cut back
+/// as the bend is, and at each end of the bend a slot is cut, as wide as the width scale × the thickness, reaching
+/// the depth scale × the bend's radius in from the edge to the centre of an obround's round end (a rectangle goes
+/// half its width further; a tear cuts nothing more). Fitted to fixture batch 016.
+/// Edges to cut back (with how far), and slots to cut out.
+type Reliefs = (Vec<(Shape, f64)>, Vec<Shape>);
+
+fn bend_reliefs(wall: &Shape, bends: &[Bend], relief: &BendRelief) -> R<Reliefs> {
+    let mut stubs = Vec::new();
+    let mut slots = Vec::new();
+    let edges = wall.sub_shapes(ShapeKind::Edge);
+    let n = wall.face_plane().map_err(occt_error)?.normal;
+    for bend in bends {
+        if !edges.iter().any(|e| e.is_same(&bend.edge)) {
+            continue;
+        }
+        let Some((a, b)) = segment(&bend.edge) else { continue };
+        let Some(e) = normalize(sub(b, a)) else { continue };
+        let on_line = |p: Vec3| norm(sub(sub(p, a), scale(e, dot(sub(p, a), e)))) < 1e-9;
+        let into = into_face(wall, scale(add(a, b), 0.5), e)?;
+        for edge in &edges {
+            if edge.is_same(&bend.edge) {
+                continue;
+            }
+            let Some((c, d)) = segment(edge) else { continue };
+            if !(on_line(c) && on_line(d)) {
+                continue;
+            }
+            stubs.push((edge.clone(), bend.setback));
+            if relief.style == "TEAR" {
+                continue;
+            }
+            // The end of the bend this stub carries on from, and the way out along it.
+            let (end, out) =
+                if norm(sub(c, a)) < 1e-9 || norm(sub(d, a)) < 1e-9 { (a, scale(e, -1.0)) } else { (b, e) };
+            let width = relief.width_scale * relief.thickness;
+            let depth = relief.depth_scale * bend.radii.0;
+            let reach = if relief.style == "RECTANGLE" { depth + width / 2.0 } else { depth };
+            let v_axis = cross(n, out);
+            let far = norm(sub(b, a)) + 1.0;
+            let (v0, v1) = if dot(v_axis, into) > 0.0 { (-far, reach) } else { (-reach, far) };
+            slots.push(
+                occt::plane_face(occt::Frame { origin: end, normal: n, x: out }, 0.0, width, v0, v1)
+                    .map_err(occt_error)?,
+            );
+            if relief.style == "OBROUND" {
+                let centre = add(add(end, scale(out, width / 2.0)), scale(into, depth));
+                let circle = occt::circle_edge(occt::Frame { origin: centre, normal: n, x: out }, width / 2.0)
+                    .map_err(occt_error)?;
+                slots.push(occt::fill_edges(&[circle]).map_err(occt_error)?);
+            }
+        }
+    }
+    Ok((stubs, slots))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_part(
+    def: &Body,
+    bends: &[Bend],
+    rips: &[usize],
+    front: f64,
+    back: f64,
+    clearance: f64,
+    relief: &BendRelief,
+) -> R<Shape> {
     let faces_of_edge = |edge: &Shape| -> Vec<&Shape> {
         def.faces
             .iter()
@@ -678,10 +760,18 @@ fn build_part(def: &Body, bends: &[Bend], rips: &[usize], front: f64, back: f64,
             }
         }
         // A rolled wall, or a bend the model already rounds (std's bend wraps one in), is thickened as it is.
-        let cut = if edges.is_empty() || wall.shape.surface_type().ok() != Some(occt::SurfaceType::Plane) {
+        let planar = wall.shape.surface_type().ok() == Some(occt::SurfaceType::Plane);
+        let (stubs, slots) = if planar { bend_reliefs(&wall.shape, bends, relief)? } else { (Vec::new(), Vec::new()) };
+        for (edge, setback) in stubs {
+            if !edges.iter().any(|e| e.is_same(&edge)) {
+                edges.push(edge);
+                distances.push(-setback);
+            }
+        }
+        let cut = if (edges.is_empty() && slots.is_empty()) || !planar {
             wall.shape.clone()
         } else {
-            cut_back(&wall.shape, &edges, &distances)?
+            cut_back(&wall.shape, &edges, &distances, &slots)?
         };
         for face in cut.sub_shapes(ShapeKind::Face) {
             let solid =
@@ -709,12 +799,18 @@ fn build_part(def: &Body, bends: &[Bend], rips: &[usize], front: f64, back: f64,
                     if off(a) < 1e-7 && off(b) < 1e-7 {
                         let (ta, tb) =
                             (dot(sub(a, bend.at), bend.axis_direction), dot(sub(b, bend.at), bend.axis_direction));
-                        reach = Some((ta.min(tb), ta.max(tb)));
+                        let (lo, hi) = reach.unwrap_or((f64::MAX, f64::MIN));
+                        reach = Some((lo.min(ta.min(tb)), hi.max(ta.max(tb))));
                     }
                 }
             }
             let (lo, hi) = reach.ok_or_else(|| regen_error("SHEET_METAL_REBUILD_ERROR"))?;
             span = (span.0.max(lo), span.1.min(hi));
+        }
+        // No further than the bend's own edge (a wall's edge can run on past a bend that covers part of it).
+        if let Some((a, b)) = segment(&bend.edge) {
+            let (ta, tb) = (dot(sub(a, bend.at), bend.axis_direction), dot(sub(b, bend.at), bend.axis_direction));
+            span = (span.0.max(ta.min(tb)), span.1.min(ta.max(tb)));
         }
         if span.1 - span.0 <= 1e-9 {
             continue;
