@@ -181,6 +181,40 @@ fn resolve(model: &Model, query: &Value) -> R<Vec<EntityRef>> {
             let name = field(query, "name").as_str();
             let identity = match field(query, "identity") {
                 v if v.is_undefined() => None,
+        // The faces a split put in front of (or behind) its tool.
+        "SPLIT" => {
+            let feature = values::feature_id(field(query, "operationId"), "qSplitBy operationId")?;
+            let back = field(query, "isFromBackBody").as_bool() == Some(true);
+            let kind = entity_type(field(query, "entityType"))?;
+            let tids: Vec<Tid> = model
+                .splits
+                .iter()
+                .filter(|(f, _, b)| f.starts_with(&feature) && *b == back)
+                .map(|(_, t, _)| *t)
+                .collect();
+            filter_type(tids.iter().filter_map(|t| model.find_tid(*t)).collect(), kind)
+        }
+        // Edges by how many faces they join: none (a wire's), one (a sheet's boundary), or two.
+        "EDGE_TOPOLOGY_FILTER" => {
+            let wanted = field(query, "edgeTopologyType").as_str().unwrap_or("TWO_SIDED");
+            sub(model, query, "subquery")?
+                .into_iter()
+                .filter(|r| r.kind == EntityType::Edge)
+                .filter(|r| {
+                    let edge = model.shape(*r);
+                    let faces = model.bodies[r.body]
+                        .faces
+                        .iter()
+                        .filter(|f| f.shape.sub_shapes(occt::ShapeKind::Edge).iter().any(|e| e.is_same(edge)))
+                        .count();
+                    match wanted {
+                        "WIRE" => faces == 0,
+                        "ONE_SIDED" | "LAMINAR" => faces == 1,
+                        _ => faces >= 2,
+                    }
+                })
+                .collect()
+        }
                 v => Some(resolve(model, v)?.first().map(|r| model.tid(*r))),
             };
             let kind = if kind == "OP_HOLE_FACE" { EntityType::Face } else { EntityType::Edge };

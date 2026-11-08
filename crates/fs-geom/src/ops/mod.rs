@@ -91,6 +91,10 @@ pub fn register(m: &mut GeomBuiltins) {
     m.insert("opFitSpline", |_, args| run_op(&args, "opFitSpline", curve::fit_spline));
     m.insert("opMateConnector", |_, args| run_op(&args, "opMateConnector", crate::mate::make_connector));
     m.insert("opExtractWires", |_, args| run_op(&args, "opExtractWires", surface::extract_wires));
+    m.insert("opSplitFace", |interp, args| {
+        let tags = crate::tags(interp)?;
+        run_op(&args, "opSplitFace", |model, id, definition| split::split_face(model, id, definition, &tags))
+    });
     m.insert("opExtractSurface", |_, args| run_op(&args, "opExtractSurface", surface::extract_surface));
     m.insert("opIntersectFaces", |_, args| run_op(&args, "opIntersectFaces", surface::intersect_faces));
     m.insert("opFillSurface", |_, args| run_op(&args, "opFillSurface", surface::fill_surface));
@@ -362,7 +366,13 @@ pub(crate) fn boolean_bodies(
         origins.add_derived(&op, &kept_tool_entities);
         let origins = Rc::new(origins);
         let mut claimed = Vec::new();
-        for solid in op.shape().sub_shapes(ShapeKind::Solid) {
+        // Solids, or for sheets, shells of the faces connected through shared edges.
+        let result = op.shape();
+        let mut pieces = result.sub_shapes(ShapeKind::Solid);
+        if pieces.is_empty() {
+            pieces = occt::connected_shells(&result).map_err(occt_error)?;
+        }
+        for solid in pieces {
             // The result takes the identity of the first input with a face in it.
             let faces = solid.sub_shapes(ShapeKind::Face);
             let owner = input_bodies.iter().position(|body| {
@@ -380,7 +390,7 @@ pub(crate) fn boolean_bodies(
     }
     model.remove_bodies(&consumed);
     for (solid, body, tid, origins) in results {
-        let new = NewBody { body_type: BodyType::Solid, tid, ..NewBody::replacing(&body, solid) };
+        let new = NewBody { body_type: BodyType::of(&solid), tid, ..NewBody::replacing(&body, solid) };
         model.add_body(new, &origins, &default, &|_| None);
     }
     Ok(())

@@ -271,6 +271,9 @@ pub struct Model {
 /// A new body: its shape and what it is. [`Model::add_body`] fills in the entities.
 pub struct NewBody {
     pub shape: Shape,
+    /// For each face a split made, the split's id, the face's transient id, and whether it is behind the tool (on
+    /// the side opposite its normal): `qSplitBy`.
+    pub splits: Rc<Vec<(FeatureId, Tid, bool)>>,
     pub body_type: BodyType,
     pub info: Rc<Info>,
     /// Keep this transient id, for a body an operation changed.

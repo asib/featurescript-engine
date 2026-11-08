@@ -266,24 +266,69 @@ pub fn register(m: &mut GeomBuiltins) {
         let definition = definition(&args, "evEdgeTangentLines")?;
         let parameters = values::numbers(field(&definition, "parameters"), "evEdgeTangentLines parameters")?;
         let arc_length = values::opt_bool(&definition, "arcLengthParameterization")?.unwrap_or(true);
-        if !field(&definition, "face").is_undefined() {
-            return Err(error("@evEdgeTangentLines: face isn't supported yet"));
-        }
+        let face_query = field(&definition, "face").clone();
         measure(
             args,
             "evEdgeTangentLines",
             "edge",
             |tags, model, found| {
                 let edge = single_edge(model, &found).ok_or_else(|| regen_error("NO_TANGENT_LINE"))?;
+                // With a face, the edge runs the way the face's boundary uses it: with the face on its left.
+                let mut reversed = false;
+                if !face_query.is_undefined() {
+                    let faces = query::evaluate(model, &face_query)?;
+                    let face = faces
+                        .iter()
+                        .find(|r| r.kind == EntityType::Face)
+                        .ok_or_else(|| regen_error("NO_TANGENT_LINE"))?;
+                    let used = model.shape(*face).sub_shapes(ShapeKind::Edge);
+                    let used = used.iter().find(|e| e.is_same(&edge)).ok_or_else(|| regen_error("NO_TANGENT_LINE"))?;
+                    reversed = used.is_reversed() != edge.is_reversed();
+                }
                 let mut lines = Vec::new();
                 for t in parameters {
+                    let t = if reversed { 1.0 - t } else { t };
                     let tangent = edge.edge_tangent(t, arc_length).map_err(|_| regen_error("NO_TANGENT_LINE"))?;
-                    lines.push(tags.line(tangent.origin, tangent.direction));
+                    let direction = if reversed { values::scale(tangent.direction, -1.0) } else { tangent.direction };
+                    lines.push(tags.line(tangent.origin, direction));
                 }
                 Ok(Value::array(lines))
             },
             &tags,
         )
+    });
+    m.insert("evFaceTangentPlanesAtEdge", |interp, args| {
+        let tags = tags(interp)?;
+        let definition = definition(&args, "evFaceTangentPlanesAtEdge")?;
+        let parameters = values::numbers(field(&definition, "parameters"), "evFaceTangentPlanesAtEdge parameters")?;
+        let arc_length = values::opt_bool(&definition, "arcLengthParameterization")?.unwrap_or(true);
+        let face_orientation = values::opt_bool(&definition, "usingFaceOrientation")?.unwrap_or(false);
+        model_mut(&args, "evFaceTangentPlanesAtEdge", |model| {
+            let edges = query::evaluate(model, field(&definition, "edge"))?;
+            let edge = single_edge(model, &edges).ok_or_else(|| regen_error("NO_TANGENT_PLANE"))?;
+            let faces = query::evaluate(model, field(&definition, "face"))?;
+            let face =
+                faces.first().filter(|r| r.kind == EntityType::Face).ok_or_else(|| regen_error("NO_TANGENT_PLANE"))?;
+            let face = model.shape(*face).clone();
+            // With the face's orientation, the edge runs with the face on its left.
+            let reversed = face_orientation && {
+                let used = face.sub_shapes(ShapeKind::Edge);
+                let used = used.iter().find(|e| e.is_same(&edge)).ok_or_else(|| regen_error("NO_TANGENT_PLANE"))?;
+                used.is_reversed() != edge.is_reversed()
+            };
+            let mut planes = Vec::new();
+            for t in parameters {
+                let t = if reversed { 1.0 - t } else { t };
+                let tangent = edge.edge_tangent(t, arc_length).map_err(|_| regen_error("NO_TANGENT_PLANE"))?;
+                let direction = if reversed { values::scale(tangent.direction, -1.0) } else { tangent.direction };
+                let (fu, fv) = face.face_fraction(tangent.origin).map_err(|_| regen_error("NO_TANGENT_PLANE"))?;
+                let normal = face.face_tangent_plane(fu, fv).map_err(|_| regen_error("NO_TANGENT_PLANE"))?.normal;
+                let x = values::sub(direction, values::scale(normal, values::dot(direction, normal)));
+                let x = values::normalize(x).ok_or_else(|| regen_error("NO_TANGENT_PLANE"))?;
+                planes.push(tags.plane(occt::Frame { origin: tangent.origin, normal, x }));
+            }
+            Ok(Value::array(planes))
+        })
     });
     m.insert("evDistance", |interp, args| {
         let tags = tags(interp)?;

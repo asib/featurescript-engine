@@ -105,3 +105,143 @@ pub fn split_part(model: &mut Model, id: FeatureId, definition: &Value) -> R<Val
     }
     Ok(Value::UNDEFINED)
 }
+
+/// `@opSplitFace`: splits faces where tools cross them, leaving the rest of their bodies as they are. Edge tools
+/// are swept along the projection direction (for faces of planes, their normal by default) into cutting sheets;
+/// plane tools are infinite. Returns the edges the split made (`splittingEdges`).
+pub fn split_face(model: &mut Model, id: FeatureId, definition: &Value, tags: &values::Tags) -> R<Value> {
+    let groups = super::by_body(model, field(definition, "faceTargets"), EntityType::Face)?;
+    if groups.is_empty() {
+        return Err(crate::regen_error("SPLIT_FACE_SELECT_TARGETS"));
+    }
+    let optional = |key: &str| -> R<Vec<crate::model::EntityRef>> {
+        match field(definition, key) {
+            v if v.is_undefined() => Ok(Vec::new()),
+            v => query::evaluate(model, v),
+        }
+    };
+    let bounds = union_box(model.bodies.iter().filter_map(|b| b.shape.bounding_box(false).ok()))
+        .ok_or_else(|| error("@opSplitFace: nothing to split"))?;
+    let reach = values::norm(values::sub(bounds.max, bounds.min)) * 2.0 + 1.0;
+    let direction = match field(definition, "direction") {
+        v if v.is_undefined() => None,
+        v => Some(values::normalize(values::vec3(v, "opSplitFace direction")?).ok_or_else(|| error("zero direction"))?),
+    };
+    let mut tools: Vec<Shape> = Vec::new();
+    for r in optional("edgeTools")? {
+        let edge = model.shape(r).clone();
+        let d = match direction {
+            Some(d) => d,
+            // Normal to the target: the target's plane normal.
+            None => groups
+                .iter()
+                .flat_map(|(_, faces)| faces.iter())
+                .find_map(|f| f.face_plane().ok())
+                .map(|p| p.normal)
+                .ok_or_else(|| error("@opSplitFace: projecting edges onto curved faces isn't supported yet"))?,
+        };
+        let back = occt::transform(&edge, &super::translation(values::scale(d, -reach))).map_err(occt_error)?.shape();
+        tools.push(occt::prism(&back, values::scale(d, 2.0 * reach)).map_err(occt_error)?.shape());
+    }
+    for r in optional("planeTools")? {
+        let plane = model.shape(r).face_plane().map_err(|_| crate::regen_error("SPLIT_FACE_FAILED"))?;
+        tools.push(plane_through(plane, &bounds)?);
+    }
+    for r in optional("faceTools")? {
+        tools.push(model.shape(r).clone());
+    }
+    let body_tools = optional("bodyTools")?;
+    for r in &body_tools {
+        tools.push(model.bodies[r.body].shape.clone());
+    }
+    if tools.is_empty() {
+        return Err(crate::regen_error("SPLIT_FACE_SELECT_TOOLS"));
+    }
+    let mut groups = groups;
+    // With mutual imprint and only body tools, the tools' faces are split by the targets' bodies too.
+    let mutual = values::opt_bool(definition, "mutualImprint")?.unwrap_or(false);
+    let mut tool_groups: Vec<(usize, Vec<Shape>, Vec<Shape>)> = Vec::new();
+    if mutual && !body_tools.is_empty() && tools.len() == body_tools.len() {
+        let target_shapes: Vec<Shape> = groups.iter().map(|(b, _)| model.bodies[*b].shape.clone()).collect();
+        let mut seen = Vec::new();
+        for r in &body_tools {
+            if seen.contains(&r.body) || groups.iter().any(|(b, _)| *b == r.body) {
+                continue;
+            }
+            seen.push(r.body);
+            let faces: Vec<Shape> = model.bodies[r.body].faces.iter().map(|f| f.shape.clone()).collect();
+            if !faces.is_empty() {
+                tool_groups.push((r.body, faces, target_shapes.clone()));
+            }
+        }
+    }
+    let mut results = Vec::new();
+    let mut split_tids = Vec::new();
+    // The faces split, by transient id, and the tools to tell their pieces' sides by.
+    let mut sided: Vec<(Vec<crate::model::Tid>, Vec<Shape>)> = Vec::new();
+    let face_tids = |model: &Model, b: usize, faces: &[Shape]| -> Vec<crate::model::Tid> {
+        model.bodies[b].faces.iter().filter(|f| faces.iter().any(|g| g.is_same(&f.shape))).map(|f| f.tid).collect()
+    };
+    for (b, faces, cutters) in tool_groups {
+        if let Ok(op) = occt::split_faces(&model.bodies[b].shape, &faces, &cutters) {
+            split_tids.push(model.bodies[b].tid);
+            sided.push((face_tids(model, b, &faces), cutters));
+            results.push((b, op));
+        }
+    }
+    for (b, faces) in groups.drain(..) {
+        let op = occt::split_faces(&model.bodies[b].shape, &faces, &tools)
+            .map_err(|_| crate::regen_error("SPLIT_FACE_FAILED"))?;
+        split_tids.push(model.bodies[b].tid);
+        sided.push((face_tids(model, b, &faces), tools.clone()));
+        results.push((b, op));
+    }
+    super::replace_bodies(model, &id, results);
+    // Which side of the tools each piece of a split face is on.
+    let mut sides = Vec::new();
+    for (tids, cutters) in &sided {
+        for r in model.everything(Some(EntityType::Face)) {
+            let entity = model.entity(r).expect("a face");
+            if !(tids.contains(&entity.tid) || entity.ancestry.identity.iter().any(|t| tids.contains(t))) {
+                continue;
+            }
+            if let Some(back) = behind(&entity.shape, cutters) {
+                sides.push((id.clone(), entity.tid, back));
+            }
+        }
+    }
+    std::rc::Rc::make_mut(&mut model.splits).extend(sides);
+    if !values::opt_bool(definition, "keepToolSurfaces")?.unwrap_or(true) {
+        let mut consumed: Vec<usize> = body_tools.iter().map(|r| r.body).collect();
+        consumed.dedup();
+        model.remove_bodies(&consumed);
+    }
+    // The new edges: those this operation made on the split bodies.
+    let mut edges = Vec::new();
+    for r in model.everything(Some(EntityType::Edge)) {
+        if split_tids.contains(&model.bodies[r.body].tid) && model.info(r).is_created_by(&id) {
+            edges.push(tags.transient_query(&query::tid_string(model.tid(r))));
+        }
+    }
+    Ok(values::map(vec![("splittingEdges", Value::array(edges))]))
+}
+
+/// Whether a face is behind the nearest of some tools: on the side opposite its normal there.
+fn behind(face: &Shape, tools: &[Shape]) -> Option<bool> {
+    let p = face.face_inner_point().ok()?;
+    let point = occt::vertex(p).ok()?;
+    let mut nearest: Option<(f64, Shape, Vec3)> = None;
+    for tool in tools {
+        for f in tool.sub_shapes(ShapeKind::Face) {
+            if let Ok(d) = point.distance(&f)
+                && nearest.as_ref().is_none_or(|(best, _, _)| d.distance < *best)
+            {
+                nearest = Some((d.distance, f, d.b));
+            }
+        }
+    }
+    let (_, f, q) = nearest?;
+    let (fu, fv) = f.face_fraction(q).ok()?;
+    let normal = f.face_tangent_plane(fu, fv).ok()?.normal;
+    Some(values::dot(values::sub(p, q), normal) < 0.0)
+}
