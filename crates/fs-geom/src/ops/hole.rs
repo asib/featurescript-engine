@@ -19,6 +19,9 @@ struct Profile {
     position: f64,
     radius: f64,
     name: Option<Rc<str>>,
+    /// Skipped when its reference's target is the first target (a clearance hole's step into its tapped part when
+    /// the hole is in one part only).
+    not_for_first: bool,
 }
 
 /// Where the infinite hole cylinder meets one target, as distances along the axis.
@@ -32,10 +35,12 @@ struct Extremes {
     next_exit: (f64, f64),
 }
 
-/// Where a hole's cylinder meets each target, and its end bound entity, if any.
+/// Where a hole's cylinder meets each target, and its end bound entity, if any; and how deep the hole goes, for
+/// references within its depth.
 struct Hits {
     targets: Vec<(usize, Extremes)>,
     entity: Option<(f64, f64)>,
+    depth: f64,
 }
 
 /// A reference's range along the axis and the target that defines it.
@@ -58,6 +63,7 @@ pub fn hole(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
             position,
             radius: values::length(field(&p, "radius"), "opHole profile radius")?,
             name: field(&p, "name").as_str().map(Rc::from),
+            not_for_first: field(&p, "notApplicableForFirstTarget").as_bool() == Some(true),
         });
     }
     if profiles.is_empty() {
@@ -107,7 +113,8 @@ pub fn hole(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
             .filter_map(|&t| extremes(&model.bodies[t].shape, axis, max_radius).map(|e| (t, e)))
             .collect();
         let entity = end_bound.and_then(|e| entity_hits(model, e, axis, max_radius));
-        let hits = Hits { targets: extremes, entity };
+        let mut hits = Hits { targets: extremes, entity, depth: f64::INFINITY };
+        hits.depth = depth(&profiles, &hits)?;
         let Some(placed) = place_profiles(&profiles, &hits)? else {
             results.push(map(vec![("success", Value::bool(false))]));
             continue;
@@ -257,16 +264,38 @@ fn reference(name: &str, hits: &Hits) -> R<Option<Reference>> {
         }),
         // Where the hole meets the end bound entity. (Batch 007, c015.)
         "UP_TO_ENTITY" => hits.entity.map(|(start, end)| Reference { start, end, target: None }),
+        // The last target the hole enters within its depth (a clearance hole's tapped part, batch 026).
+        "LAST_TARGET_START_IN_DEPTH" => extremes
+            .iter()
+            .copied()
+            .filter(|(_, e)| e.first_entrance < hits.depth - 1e-9)
+            .reduce(|a, b| if b.1.first_entrance > a.1.first_entrance { b } else { a })
+            .map(|(t, e)| Reference { start: e.first_entrance, end: e.full_entrance, target: Some(t) }),
         other => return Err(error(format!("@opHole: HolePositionReference.{other} isn't supported yet"))),
     })
+}
+
+/// How far along the axis the hole goes: its deepest profile, apart from those placed within its depth.
+fn depth(profiles: &[Profile], hits: &Hits) -> R<f64> {
+    let mut deepest = f64::NEG_INFINITY;
+    for p in profiles.iter().filter(|p| &*p.reference != "LAST_TARGET_START_IN_DEPTH") {
+        if let Some(r) = reference(&p.reference, hits)? {
+            deepest = deepest.max(if p.before { r.start } else { r.end } + p.position);
+        }
+    }
+    Ok(if deepest.is_finite() { deepest } else { f64::INFINITY })
 }
 
 /// Each profile's distance along the axis and radius, with each profile identical to the one before it dropped, and
 /// the index of the profile it came from. `None` if a reference the profiles need meets no target.
 fn place_profiles(profiles: &[Profile], hits: &Hits) -> R<Option<Vec<(f64, f64, usize)>>> {
     let mut placed: Vec<(f64, f64, usize)> = Vec::new();
+    let first = reference("TARGET_START", hits)?.and_then(|r| r.target);
     for (k, p) in profiles.iter().enumerate() {
         let Some(r) = reference(&p.reference, hits)? else { return Ok(None) };
+        if p.not_for_first && r.target == first {
+            continue;
+        }
         let at = if p.before { r.start } else { r.end } + p.position;
         if let Some(last) = placed.last()
             && (last.0 - at).abs() < 1e-9
