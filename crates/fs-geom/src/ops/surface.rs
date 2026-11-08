@@ -401,7 +401,14 @@ pub fn ruled_surface(model: &mut Model, id: FeatureId, definition: &Value) -> R<
         v if v.is_undefined() => 0.0,
         v => values::angle(v, "opRuledSurface angle")?,
     };
-    let kind = field(definition, "ruledSurfaceType").as_str().unwrap_or("ANGLE_FROM_FACE").to_string();
+    let mut kind = field(definition, "ruledSurfaceType").as_str().unwrap_or("ANGLE_FROM_FACE").to_string();
+    // No angle from the vector is along it (batch 018); other angles aren't checked against Onshape yet.
+    if kind == "ANGLE_FROM_VECTOR" {
+        if angle.abs() > 1e-12 {
+            return Err(error("@opRuledSurface: angles from a vector aren't supported yet"));
+        }
+        kind = "ALIGNED_WITH_VECTOR".to_string();
+    }
     let path = shapes(model, field(definition, "path"), EntityType::Edge)?;
     if path.is_empty() {
         return Err(regen_error("RULED_SURFACE_SELECT_EDGES"));
