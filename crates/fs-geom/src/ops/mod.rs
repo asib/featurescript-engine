@@ -75,6 +75,7 @@ pub fn register(m: &mut GeomBuiltins) {
     m.insert("opSplitPart", |_, args| run_op(&args, "opSplitPart", split::split_part));
     m.insert("opFillet", |_, args| run_op(&args, "opFillet", blend::fillet));
     m.insert("opChamfer", |_, args| run_op(&args, "opChamfer", blend::chamfer));
+    m.insert("opModifyFillet", |_, args| run_op(&args, "opModifyFillet", blend::modify_fillet));
     m.insert("opShell", |_, args| run_op(&args, "opShell", direct::shell));
     m.insert("opDraft", |_, args| run_op(&args, "opDraft", direct::draft));
     m.insert("opThicken", |_, args| run_op(&args, "opThicken", direct::thicken));
