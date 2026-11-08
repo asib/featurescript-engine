@@ -62,6 +62,8 @@ pub fn pattern(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
             let mut new = NewBody::new(op.shape(), body.body_type, info.clone());
             new.construction = body.construction;
             new.frame = body.frame.map(|f| super::transform_frame(&f, &t));
+            // A sketch's sheet copied is still a sketch's (an aligned section copies one, batch 037).
+            new.sketch_plane = body.sketch_plane.map(|f| super::transform_frame(&f, &t));
             // Each copy is made from the body it copies, for tracking (std finds patterned form tools so, batch 033).
             new.ancestry = crate::model::Ancestry::copy_of_body(&body);
             // Each copy is tracked back to what it copies, and takes its attributes too unless told not to.
