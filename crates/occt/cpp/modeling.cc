@@ -368,14 +368,16 @@ std::unique_ptr<Operation> thicken_op(const Shape &input, double t1, double t2) 
   TopoDS_Shape base = sheet;
   if (t2 != 0) {
     BRepOffset_MakeOffset back;
-    back.Initialize(sheet, -t2, 1e-7, BRepOffset_Skin, Standard_False, Standard_False, GeomAbs_Arc);
+    back.Initialize(sheet, -t2, 1e-7, BRepOffset_Skin, Standard_False, Standard_False, GeomAbs_Intersection);
     back.MakeOffsetShape();
     if (!back.IsDone()) throw std::runtime_error("thicken: offset failed");
     op->history->Merge(one(sheet), back);
     base = back.Shape();
   }
+  // Offset faces meet where they intersect, not round an arc: a thin loft between squares has sharp corners in
+  // Onshape (batch 028).
   BRepOffset_MakeOffset maker;
-  maker.Initialize(base, t1 + t2, 1e-7, BRepOffset_Skin, Standard_False, Standard_False, GeomAbs_Arc,
+  maker.Initialize(base, t1 + t2, 1e-7, BRepOffset_Skin, Standard_False, Standard_False, GeomAbs_Intersection,
                    Standard_True);
   maker.MakeOffsetShape();
   if (!maker.IsDone()) throw std::runtime_error("thicken failed");
