@@ -219,16 +219,28 @@ pub fn register(m: &mut GeomBuiltins) {
                 let face = found.first().filter(|r| r.kind == EntityType::Face);
                 let frame = face.and_then(|r| model.shape(*r).face_plane().ok());
                 let frame = frame.map(|f| occt::Frame { x: values::canonical_x(f.normal), ..f });
-                // The origin in the middle of the face's box in the plane's own axes.
+                // The origin in the middle of the face's box in the plane's own axes: the frame Onshape gave the
+                // face's surface if it's known (a ruled sheet from a curved edge, batch 040), else the canonical.
                 let frame = match (face, frame) {
-                    (Some(r), Some(f)) => model.shape(*r).bounding_box_in(f, true).ok().map(|b| {
-                        let y = values::cross(f.normal, f.x);
-                        let (u, v) = ((b.min.x + b.max.x) / 2.0, (b.min.y + b.max.y) / 2.0);
-                        occt::Frame {
-                            origin: values::add(f.origin, values::add(values::scale(f.x, u), values::scale(y, v))),
-                            ..f
-                        }
-                    }),
+                    (Some(r), Some(f)) => {
+                        let axes = match model.info(*r).surface_frame {
+                            Some(s) if values::norm(values::cross(s.normal, f.normal)) < 1e-9 => {
+                                occt::Frame { x: s.x, ..f }
+                            }
+                            _ => f,
+                        };
+                        model.shape(*r).bounding_box_in(axes, true).ok().map(|b| {
+                            let y = values::cross(axes.normal, axes.x);
+                            let (u, v) = ((b.min.x + b.max.x) / 2.0, (b.min.y + b.max.y) / 2.0);
+                            occt::Frame {
+                                origin: values::add(
+                                    axes.origin,
+                                    values::add(values::scale(axes.x, u), values::scale(y, v)),
+                                ),
+                                ..f
+                            }
+                        })
+                    }
                     (_, f) => f,
                 };
                 frame.map(|f| tags.plane(f)).ok_or_else(|| regen_error("CANNOT_RESOLVE_PLANE"))
