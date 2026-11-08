@@ -280,7 +280,23 @@ pub fn compare_with(name: &str, ours: &Shape, theirs: &Shape, strictness: Strict
     if result.box_error > BOX_TOLERANCE {
         problems.push(format!("bounding box {:?}, Onshape {:?}", ours_m.bounding_box, theirs_m.bounding_box));
     }
-    if ours_m.faces != theirs_m.faces {
+    // Onshape's STEP writes swept faces (extrusions and revolutions of curves) as B-splines, so with probes only
+    // the analytic surface types are told apart.
+    let face_types = |m: &Metrics| -> BTreeMap<String, usize> {
+        if strictness.topology {
+            return m.faces.clone();
+        }
+        let mut out = BTreeMap::new();
+        for (kind, count) in &m.faces {
+            let kind = match kind.as_str() {
+                "Plane" | "Cylinder" | "Cone" | "Sphere" | "Torus" => kind.clone(),
+                _ => "FreeForm".to_string(),
+            };
+            *out.entry(kind).or_insert(0) += count;
+        }
+        out
+    };
+    if face_types(&ours_m) != face_types(&theirs_m) {
         problems.push(format!("faces {:?}, Onshape {:?}", ours_m.faces, theirs_m.faces));
     }
     if strictness.topology && ours_m.edges != theirs_m.edges {
