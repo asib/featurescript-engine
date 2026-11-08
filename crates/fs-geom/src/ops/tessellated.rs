@@ -36,19 +36,24 @@ fn profile_points(model: &Model, profile: &Value) -> R<(Points, bool)> {
         segments.push([a, b]);
     }
     let point = |r: EntityRef| model.shape(r).vertex_point().map_err(occt_error);
-    let count = |v: EntityRef| segments.iter().flatten().filter(|&&x| x == v).count();
-    let start = segments.iter().flatten().copied().find(|&v| count(v) == 1);
+    // Vertices meet where they coincide: a sketch's lines are wire bodies of their own (an L profile, batch 044).
+    let points: Vec<[Vec3; 2]> = segments.iter().map(|[a, b]| Ok([point(*a)?, point(*b)?])).collect::<R<_>>()?;
+    let same = |p: Vec3, q: Vec3| values::norm(values::sub(p, q)) < 1e-9;
+    let count = |p: Vec3| points.iter().flatten().filter(|&&q| same(p, q)).count();
+    let start = (0..segments.len()).flat_map(|i| [(i, 0), (i, 1)]).find(|&(i, k)| count(points[i][k]) == 1);
     let closed = start.is_none();
-    let mut current = start.unwrap_or(segments[0][0]);
+    let (i0, k0) = start.unwrap_or((0, 0));
+    let mut current = (points[i0][k0], segments[i0][k0]);
     let mut used = vec![false; segments.len()];
-    let mut out = vec![(point(current)?, current)];
-    while let Some(i) = (0..segments.len()).find(|&i| !used[i] && segments[i].contains(&current)) {
+    let mut out = vec![current];
+    while let Some(i) = (0..segments.len()).find(|&i| !used[i] && points[i].iter().any(|&q| same(q, current.0))) {
         used[i] = true;
-        current = if segments[i][0] == current { segments[i][1] } else { segments[i][0] };
-        if closed && current == out[0].1 {
+        let k = if same(points[i][0], current.0) { 1 } else { 0 };
+        current = (points[i][k], segments[i][k]);
+        if closed && same(current.0, out[0].0) {
             break;
         }
-        out.push((point(current)?, current));
+        out.push(current);
     }
     if used.iter().any(|u| !u) {
         return Err(error("@opTessellatedLoft: a profile must be one chain of edges"));
