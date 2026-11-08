@@ -731,14 +731,43 @@ std::unique_ptr<Operation> split_faces_op(const Shape &body, const ShapeList &fa
   section.ComputePCurveOn1(Standard_True);
   section.Approximation(Standard_True);
   section.Build();
+  // Whether an edge runs along one of a face's own edges: the tool meets the face where it's already cut.
+  auto on_boundary = [](const TopoDS_Edge &edge, const TopoDS_Shape &face) {
+    BRepAdaptor_Curve curve(edge);
+    double t0 = curve.FirstParameter(), t1 = curve.LastParameter();
+    for (TopExp_Explorer e(face, TopAbs_EDGE); e.More(); e.Next()) {
+      bool along = true;
+      for (double f : {0.0, 0.25, 0.5, 0.75, 1.0}) {
+        TopoDS_Vertex v = BRepBuilderAPI_MakeVertex(curve.Value(t0 + f * (t1 - t0)));
+        BRepExtrema_DistShapeShape d(v, e.Current());
+        if (!d.IsDone() || d.Value() > 1e-7) {
+          along = false;
+          break;
+        }
+      }
+      if (along) return true;
+    }
+    return false;
+  };
+  bool crossed = false;
   if (section.IsDone())
     for (TopExp_Explorer it(section.Shape(), TopAbs_EDGE); it.More(); it.Next()) {
+      // Edges where the tools meet the faces' edges have no single face to go to.
+      crossed = true;
       TopoDS_Shape face;
       if (!section.HasAncestorFaceOn1(it.Current(), face)) continue;
+      if (on_boundary(TopoDS::Edge(it.Current()), face)) continue;
       splitter.Add(TopoDS::Edge(it.Current()), TopoDS::Face(face));
       any = true;
     }
-  if (!any) throw std::runtime_error("split faces: the tools don't cross the faces");
+  if (!crossed) throw std::runtime_error("split faces: the tools don't cross the faces");
+  if (!any) {
+    // The tools only meet the faces along edges they already have: nothing changes.
+    auto op = std::make_unique<Operation>();
+    op->history = new BRepTools_History;
+    op->result = body.shape;
+    return op;
+  }
   splitter.Build();
   return finish(one(body.shape), splitter, "split faces");
 }

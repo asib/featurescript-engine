@@ -210,16 +210,28 @@ pub fn split_face(model: &mut Model, id: FeatureId, definition: &Value, tags: &v
         results.push((b, op));
     }
     super::replace_bodies(model, &id, results);
-    // Which side of the tools each piece of a split face is on.
+    // Which side of the tools each piece of a split face is on. Faces the tools didn't cut aren't split: jogs
+    // split their faces up front and then expect the bends' own splits to split nothing (batch 013).
     let mut sides = Vec::new();
     for (tids, cutters) in &sided {
+        let mut pieces: Vec<(crate::model::Tid, crate::model::Tid, Shape)> = Vec::new();
         for r in model.everything(Some(EntityType::Face)) {
             let entity = model.entity(r).expect("a face");
-            if !(tids.contains(&entity.tid) || entity.ancestry.identity.iter().any(|t| tids.contains(t))) {
+            let source = if tids.contains(&entity.tid) {
+                entity.tid
+            } else if let Some(t) = entity.ancestry.identity.iter().find(|t| tids.contains(t)) {
+                *t
+            } else {
+                continue;
+            };
+            pieces.push((source, entity.tid, entity.shape.clone()));
+        }
+        for (source, tid, shape) in &pieces {
+            if pieces.iter().filter(|(s, _, _)| s == source).count() < 2 {
                 continue;
             }
-            if let Some(back) = behind(&entity.shape, cutters) {
-                sides.push((id.clone(), entity.tid, back));
+            if let Some(back) = behind(shape, cutters) {
+                sides.push((id.clone(), *tid, back));
             }
         }
     }
@@ -230,9 +242,11 @@ pub fn split_face(model: &mut Model, id: FeatureId, definition: &Value, tags: &v
         model.remove_bodies(&consumed);
     }
     // The new edges depend on the tool faces they lie on (std tracks them from the tools, partial dependency).
+    // With `ownExistingImprints`, so do edges already there that lie on the tools.
+    let own_existing = values::opt_bool(definition, "ownExistingImprints")?.unwrap_or(false);
     if !tool_faces.is_empty() {
         for r in model.everything(Some(EntityType::Edge)) {
-            if !split_tids.contains(&model.bodies[r.body].tid) || !model.info(r).is_created_by(&id) {
+            if !split_tids.contains(&model.bodies[r.body].tid) || !(own_existing || model.info(r).is_created_by(&id)) {
                 continue;
             }
             let shape = model.shape(r).clone();
