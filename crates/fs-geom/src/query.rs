@@ -554,6 +554,14 @@ fn tracking(model: &Model, query: &Value) -> R<Vec<EntityRef>> {
     let identity_only = field(query, "identityPreservingOnly").as_bool() == Some(true);
     let mut out = Vec::new();
     for (b, body) in model.bodies.iter().enumerate() {
+        // Bodies made from a tracked body: the pieces a split or boolean left of it.
+        if !first.contains(&body.tid) {
+            let ancestors = if identity_only { &body.ancestry.identity } else { &body.ancestry.all };
+            let from = |tids: &[crate::model::Tid]| tids.iter().any(|t| ancestors.contains(t));
+            if from(&first) && second.as_deref().is_none_or(from) {
+                out.push(EntityRef::body(b));
+            }
+        }
         for kind in [EntityType::Face, EntityType::Edge, EntityType::Vertex] {
             for (index, entity) in body.entities(kind).iter().enumerate() {
                 if first.contains(&entity.tid) {

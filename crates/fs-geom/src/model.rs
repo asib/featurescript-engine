@@ -198,6 +198,13 @@ impl Ancestry {
         Ancestry { all, identity }
     }
 
+    /// The ancestry of a body made from `parent`, carrying on its identity.
+    fn of_body(parent: &Body) -> Ancestry {
+        let all = std::iter::once(parent.tid).chain(parent.ancestry.all.iter().copied()).collect();
+        let identity = std::iter::once(parent.tid).chain(parent.ancestry.identity.iter().copied()).collect();
+        Ancestry { all, identity }
+    }
+
     fn merge(&mut self, other: &Ancestry) {
         let join = |a: &Rc<[Tid]>, b: &Rc<[Tid]>| -> Rc<[Tid]> {
             let mut out: Vec<Tid> = a.to_vec();
@@ -228,6 +235,8 @@ pub struct Body {
     pub frame: Option<Frame>,
     /// For a composite part, the transient ids of the bodies in it, and whether it is closed (consumes them).
     pub composite: Option<(Rc<[Tid]>, bool)>,
+    /// The bodies it was made from (a piece a split or boolean left of a body), for tracking queries.
+    pub ancestry: Ancestry,
     pub faces: Vec<Entity>,
     pub edges: Vec<Entity>,
     pub vertices: Vec<Entity>,
@@ -295,6 +304,7 @@ pub struct NewBody {
     pub frame: Option<Frame>,
     /// For a composite part, the bodies in it and whether it is closed.
     pub composite: Option<(Rc<[Tid]>, bool)>,
+    pub ancestry: Ancestry,
 }
 
 impl NewBody {
@@ -311,6 +321,7 @@ impl NewBody {
             attributes: Rc::default(),
             frame: None,
             composite: None,
+            ancestry: Ancestry::default(),
         }
     }
 
@@ -327,6 +338,7 @@ impl NewBody {
             attributes: old.attributes.clone(),
             frame: old.frame,
             composite: old.composite.clone(),
+            ancestry: Ancestry::of_body(old),
         }
     }
 }
@@ -381,6 +393,7 @@ impl Model {
             attributes: new.attributes,
             frame: new.frame,
             composite: new.composite,
+            ancestry: new.ancestry,
             faces,
             edges,
             vertices,
