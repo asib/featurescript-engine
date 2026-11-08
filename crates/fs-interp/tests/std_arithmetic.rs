@@ -32,6 +32,8 @@ const CHECKS: &[&str] = &[
     "canBeBoundSpec({ (meter) : [0, 1, 2], (inch) : 3 })",
     "!canBeBoundSpec({ (meter) : [2, 1, 0] })",
     "boundsRange({ (meter) : [0, 1, 2], (inch) : 3 }) == [0 * meter, 2 * meter]",
+    // A named function can be called but not used as a value (batch 008).
+    "try silent(normalize) == undefined",
     "[1, 2, 3]->filter(x => x > 1)->size() == 2",
     "replace(\"a~~aa~a\", \"a.\", \"X\") == \"X~X~a\"",
     "match(\"a.b[12].c\", \"(.+)(\\\\[[0-9]+\\\\]\\\\.)(.*)\").captures[2] == \"[12].\"",

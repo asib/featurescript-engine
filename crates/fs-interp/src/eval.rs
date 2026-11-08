@@ -152,8 +152,9 @@ impl Interp {
                 Symbol::Type(_) => {}
             }
         }
+        // A named function can only be called: Onshape rejects using one as a value (batch 008's first build).
         if !functions.is_empty() {
-            return Ok(Value::function(FunctionKind::Named { name: name.into(), candidates: Rc::new(functions) }));
+            return Err(error(format!("Cannot reference function {name} as a variable.")));
         }
         Err(error(format!("Variable {name} not found")))
     }
