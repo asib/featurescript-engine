@@ -495,25 +495,40 @@ pub fn ruled_surface(model: &mut Model, id: FeatureId, definition: &Value) -> R<
 pub fn move_curve_boundary(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
     let trim = field(definition, "moveBoundaryType").as_str() == Some("TRIM");
     let up_to = !trim && field(definition, "endCondition").as_str() == Some("UP_TO_ENTITY");
-    // The plane to trim or extend to (batch 018).
+    // What to trim or extend to: a plane (batch 018), or a straight curve, taken as the plane through it square to
+    // the curve being changed (batch 021).
+    let limit_curve: Option<Shape>;
     let limit = if trim || up_to {
         let key = if trim { "trimTo" } else { "extendTo" };
         let found = query::evaluate(model, field(definition, key))?;
-        let face = found
-            .iter()
-            .find_map(|r| match r.kind {
-                EntityType::Face => Some(model.shape(*r).clone()),
-                EntityType::Body => model.bodies[r.body].faces.first().map(|f| f.shape.clone()),
+        let face = found.iter().find_map(|r| match r.kind {
+            EntityType::Face => Some(model.shape(*r).clone()),
+            EntityType::Body => model.bodies[r.body].faces.first().map(|f| f.shape.clone()),
+            _ => None,
+        });
+        limit_curve = if face.is_none() {
+            found.iter().find_map(|r| match r.kind {
+                EntityType::Edge => Some(model.shape(*r).clone()),
+                EntityType::Body => model.bodies[r.body].edges.first().map(|e| e.shape.clone()),
                 _ => None,
             })
-            .ok_or_else(|| regen_error("CANNOT_RESOLVE_ENTITIES"))?;
-        Some(face.face_plane().map_err(|_| error("@opMoveCurveBoundary: only planar limits are supported yet"))?)
+        } else {
+            None
+        };
+        match face {
+            Some(face) => {
+                Some(face.face_plane().map_err(|_| error("@opMoveCurveBoundary: only planar limits are supported yet"))?)
+            }
+            None if limit_curve.is_some() => None,
+            None => return Err(regen_error("CANNOT_RESOLVE_ENTITIES")),
+        }
     } else {
+        limit_curve = None;
         None
     };
-    let distance = match limit {
-        Some(_) => 0.0,
-        None => values::length(field(definition, "extensionDistance"), "extensionDistance")?,
+    let distance = match (limit, &limit_curve) {
+        (None, None) => values::length(field(definition, "extensionDistance"), "extensionDistance")?,
+        _ => 0.0,
     };
     let flip = values::opt_bool(definition, "flipHeuristics")?.unwrap_or(false);
     let help = query::evaluate(model, field(definition, "helpPoint"))?;
@@ -540,6 +555,22 @@ pub fn move_curve_boundary(model: &mut Model, id: FeatureId, definition: &Value)
             }
             None => true,
         } != flip;
+        // A straight limit curve: the plane through it, square to this curve within the plane they share.
+        let limit = match (&limit, &limit_curve) {
+            (Some(p), _) => Some(*p),
+            (None, Some(curve)) => {
+                let (c0, c1) = (
+                    curve.edge_tangent(0.0, false).map_err(occt_error)?.origin,
+                    curve.edge_tangent(1.0, false).map_err(occt_error)?.origin,
+                );
+                let along = values::normalize(values::sub(c1, c0)).ok_or_else(|| regen_error("TRIM_CURVE_FAILED"))?;
+                let d = values::normalize(values::sub(end.origin, start.origin)).ok_or_else(|| regen_error("TRIM_CURVE_FAILED"))?;
+                let shared = values::cross(along, d);
+                let normal = values::normalize(values::cross(shared, along)).ok_or_else(|| regen_error("TRIM_CURVE_FAILED"))?;
+                Some(occt::Frame { origin: c0, normal, x: along })
+            }
+            _ => None,
+        };
         let (a, b2) = if let Some(plane) = limit {
             // Where the line meets the plane.
             let d = values::sub(end.origin, start.origin);
