@@ -1,0 +1,87 @@
+{
+  "batch": "027",
+  "title": "more curve and surface options: offset curves on curved faces and extended, curves and sheets extended up to entities, curvature, periodic curves, reapplied mirrors",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "offset-curve-on-face",
+      "description": "a cylinder's top edge offset 5 mm down its side",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "trim-curve",
+      "description": "a curve extended up to a cylinder",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "extend-surface",
+      "description": "a sheet extended up to a part",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "fit-spline",
+      "description": "through three vertices, leaving along x and matching a curvature there",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "edit-curve",
+      "description": "a closed fit spline raised to degree 4",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "fit-spline",
+      "description": "closed through three vertices, as built",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "edit-curve",
+      "description": "an open fit spline through four vertices raised to degree 4",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c008",
+      "kind": "feature-pattern",
+      "description": "a boss up to a slanted plane mirrored across a block, reapplied",
+      "slotMeters": [
+        2.8000000000000003,
+        0,
+        0
+      ]
+    }
+  ]
+}
