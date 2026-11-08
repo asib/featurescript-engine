@@ -333,6 +333,12 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   way the material lies from the definition sheet ((20, 15, 2) to (20, 15, 0) on a plate's top; a flipped form's
   from (20, 15, 0) to (20, 15, −2)).
 
+- **Sweeps round sharp corners** (batch 034): a profile left free sweeps round a sharp corner of its path and is
+  mitred there (a 6 mm square along an L of 100 and 60 mm lines: 36 mm² × 160 mm, 8 planar faces, the L's top
+  and bottom one face each). Locked to a face, it can't: Onshape finds the path invalid (`SWEEP_INVALID_PATH`).
+  Along a path rounded at the corner, a locked sweep's faces on one plane are one face too.
+- **ANSI threads** (batch 034): std's lookup table parser can't evaluate a "16 tpi" pitch (`tpi` isn't among its
+  units) and catches the error, in Onshape as on the engine; the thread is built from the table all the same.
 - **Sheet metal form patterns** (batch 033): std copies each form's parts and placement mate connector by the
   pattern's transforms (found by the ids the wall's form records, and by tracking the copies) and registers them;
   the copied mate connectors stay where they were copied to, at the material. The form's own faces on the part are
