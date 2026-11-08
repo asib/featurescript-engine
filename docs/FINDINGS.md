@@ -333,12 +333,15 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   way the material lies from the definition sheet ((20, 15, 2) to (20, 15, 0) on a plate's top; a flipped form's
   from (20, 15, 0) to (20, 15, −2)).
 
+- **Fillets' cylinders** (batch 047): z runs along the filleted edge as the edge runs in the loop (anticlockwise
+  about the normal) of its neighbouring face whose normal leans most along x, then y, then z; x is y × z (x × z for
+  an edge along y); the origin is where the edge's line is placed, brought onto the axis: an edge an extrude swept
+  from a vertex has its line at the far end (a block's upright edges, at the top), other edges at their middle.
 - **Unwrapping** (batch 046): `opWrap` from a cylinder's face onto a plane inverts the wrap: arc length round the
   cylinder from the anchor goes along the destination's anchor direction, height along the cylinder's outward
   normal × the source anchor direction (whichever way the face is turned). A face all the way round fails
   (`ROLL_FAILED`). A sheet extruded from an arc has its cylinder's origin at the near end and z along the extrude
-  (a solid's is at the far end, z back). A fillet's cylinder (a block's upright edge rounded) has its origin at
-  the edge's top, z down and x away from the corner's side (not yet matched; std anchors unwraps on it).
+  (a solid's is at the far end, z back).
 - **Composites derived** (batch 045): an open composite holding a sheet metal part comes across with its parts,
   the model kept; a closed one holding sheet metal is refused (`DERIVED_NO_CLOSED_COMPOSITE_WITH_SM_ERROR`); a
   closed composite of plain parts is instantiated. The copied composite holds the copies of its members.
