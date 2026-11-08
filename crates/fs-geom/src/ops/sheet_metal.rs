@@ -52,6 +52,14 @@ struct Bend {
     sheet_radius: f64,
     axis_origin: Vec3,
     axis_direction: Vec3,
+    /// A point of the edge (where the axis was found), from which positions along the axis are measured.
+    at: Vec3,
+    /// How far each wall is cut back from the edge to where the bend leaves it.
+    setback: f64,
+    /// The part's inner and outer radii.
+    radii: (f64, f64),
+    /// From the axis towards where the bend meets each wall.
+    toward: (Vec3, Vec3),
 }
 
 fn normal_at(face: &Shape, p: Vec3) -> R<Vec3> {
@@ -69,6 +77,7 @@ fn into_face(face: &Shape, m: Vec3, along: Vec3) -> R<Vec3> {
 }
 
 fn bend_of(def: &Body, edge_index: usize, radius: f64, front: f64, back: f64) -> R<Bend> {
+    let thickness = front + back;
     let edge = def.edges[edge_index].shape.clone();
     let faces: Vec<&Shape> = def
         .faces
@@ -88,7 +97,14 @@ fn bend_of(def: &Body, edge_index: usize, radius: f64, front: f64, back: f64) ->
     let alpha = dot(d1, d2).clamp(-1.0, 1.0).acos();
     let bisector = normalize(add(d1, d2)).ok_or_else(|| regen_error("SHEET_METAL_NO_0_ANGLE_BEND"))?;
     let axis_origin = add(m, scale(bisector, sheet_radius / (alpha / 2.0).sin()));
-    Ok(Bend { edge, sheet_radius, axis_origin, axis_direction: along })
+    let setback = sheet_radius / (alpha / 2.0).tan();
+    let leaves = |d: Vec3| normalize(sub(add(m, scale(d, setback)), axis_origin));
+    let toward = (
+        leaves(d1).ok_or_else(|| regen_error("SHEET_METAL_REBUILD_ERROR"))?,
+        leaves(d2).ok_or_else(|| regen_error("SHEET_METAL_REBUILD_ERROR"))?,
+    );
+    let radii = (sheet_radius - inside, sheet_radius - inside + thickness);
+    Ok(Bend { edge, sheet_radius, axis_origin, axis_direction: along, at: m, setback, radii, toward })
 }
 
 fn distance_to_segment(p: Vec3, a: Vec3, b: Vec3) -> f64 {
@@ -223,6 +239,7 @@ fn regenerate(model: &mut Model, id: &FeatureId, def_index: usize) -> R<()> {
         }
     }
     let mut bends = Vec::new();
+    let mut rips = Vec::new();
     for (i, edge) in def.edges.iter().enumerate() {
         let Some(joint) = sm_attribute(&edge.attributes, "JOINT") else { continue };
         match attribute_value(joint, "jointType").and_then(Value::as_str) {
@@ -233,40 +250,24 @@ fn regenerate(model: &mut Model, id: &FeatureId, def_index: usize) -> R<()> {
                 )?;
                 bends.push(bend_of(&def, i, radius, front, back)?);
             }
+            Some("RIP") => {
+                let style = attribute_value(joint, "jointStyle").and_then(Value::as_str).unwrap_or("EDGE");
+                if style != "EDGE" {
+                    return Err(error(format!("@updateSheetMetalGeometry: {style} rips aren't supported yet")));
+                }
+                rips.push(i);
+            }
             Some("TANGENT") | None => {}
             Some(other) => {
                 return Err(error(format!("@updateSheetMetalGeometry: {other} joints aren't supported yet")));
             }
         }
     }
-    if def.vertices.iter().any(|v| sm_attribute(&v.attributes, "CORNER").is_some()) && !bends.is_empty() {
-        // Corners where bends meet each other need reliefs.
-        let corner_bends = def.vertices.iter().any(|v| {
-            bends.iter().filter(|b| b.edge.sub_shapes(ShapeKind::Vertex).iter().any(|x| x.is_same(&v.shape))).count()
-                > 1
-        });
-        if corner_bends {
-            return Err(error("@updateSheetMetalGeometry: corners between bends aren't supported yet"));
-        }
-    }
-    // Round the sheet at each bend, then thicken it.
-    let mut sheet = def.shape.clone();
-    let mut radii: Vec<f64> = bends.iter().map(|b| b.sheet_radius).collect();
-    radii.sort_by(f64::total_cmp);
-    radii.dedup_by(|a, b| (*a - *b).abs() < 1e-12);
-    for radius in radii {
-        let edges: Vec<Shape> = sheet
-            .sub_shapes(ShapeKind::Edge)
-            .into_iter()
-            .filter(|e| bends.iter().any(|b| (b.sheet_radius - radius).abs() < 1e-12 && same_line(e, &b.edge)))
-            .collect();
-        sheet = occt::fillet(&sheet, &edges, radius).map_err(|_| regen_error("SHEET_METAL_REBUILD_ERROR"))?.shape();
-    }
-    // Rounding can turn faces over: make them agree, then thicken against the definition's own normals.
-    let sheet = occt::orient_sheet(&sheet).map_err(occt_error)?;
-    let (along, against) = if sheet_agrees(&def, &sheet)? { (front, back) } else { (back, front) };
-    let solid = occt::thicken_sheet(&sheet, along, against).map_err(|_| regen_error("SHEET_METAL_CANNOT_THICKEN"))?;
-    let solid = solid.sub_shapes(ShapeKind::Solid).into_iter().next().unwrap_or(solid);
+    let clearance = match attribute_value(&model_attribute, "minimalClearance") {
+        Some(v) => values::length(v, "minimal clearance")?,
+        None => 2e-5,
+    };
+    let solid = build_part(&def, &bends, &rips, front, back, clearance)?;
 
     // Replace the model's part, keeping its identity, or make one.
     let def_association = association(&def.attributes).cloned();
@@ -312,26 +313,116 @@ fn regenerate(model: &mut Model, id: &FeatureId, def_index: usize) -> R<()> {
     Ok(())
 }
 
-/// Whether the rounded sheet's normals point the way the definition's do, judged at a point of its first wall.
-fn sheet_agrees(def: &Body, sheet: &Shape) -> R<bool> {
-    let wall = &def.faces.first().ok_or_else(|| regen_error("SHEET_METAL_REBUILD_ERROR"))?.shape;
-    let p = wall.face_inner_point().map_err(occt_error)?;
-    let n = normal_at(wall, p)?;
-    let point = occt::vertex(p).map_err(occt_error)?;
-    for face in sheet.sub_shapes(ShapeKind::Face) {
-        if point.distance(&face).map_err(occt_error)?.distance < 1e-7 {
-            return Ok(dot(normal_at(&face, p)?, n) > 0.0);
-        }
+/// How far a wall is cut back at a rip (edge-to-edge style): to clear the other wall's material, and the minimal
+/// clearance more. Two walls meeting at a right angle with their material outside both stop that clearance short
+/// of the corner, leaving it open (batch 012, c007).
+fn rip_setback(wall: &Shape, other: &Shape, edge: &Shape, front: f64, back: f64, clearance: f64) -> R<f64> {
+    let tangent = edge.edge_tangent(0.5, true).map_err(occt_error)?;
+    let (m, along) = (tangent.origin, tangent.direction);
+    let into = into_face(wall, m, along)?;
+    let n = normal_at(other, m)?;
+    // The other wall's material lies between its definition offset by -back and +front along its normal; along
+    // `into`, that's between these distances from the edge.
+    let c = dot(into, n);
+    if c.abs() < 1e-12 {
+        return Ok(clearance);
     }
-    Err(regen_error("SHEET_METAL_REBUILD_ERROR"))
+    let reach = (front / c).max(-back / c).max(0.0);
+    Ok(reach + clearance)
 }
 
-/// Whether two straight edges lie along the same line and overlap.
-fn same_line(a: &Shape, b: &Shape) -> bool {
-    let (Some((a0, a1)), Some((b0, b1))) = (segment(a), segment(b)) else { return false };
-    let Some(d) = normalize(sub(b1, b0)) else { return false };
-    let off = |p: Vec3| norm(sub(sub(p, b0), scale(d, dot(sub(p, b0), d))));
-    off(a0) < 1e-7 && off(a1) < 1e-7 && distance_to_segment(scale(add(a0, a1), 0.5), b0, b1) < 1e-7
+/// The folded part, piece by piece: each wall cut back where it meets bends and rips and thickened, and each bend
+/// a ring sector along the stretch both its walls still reach; the pieces fused. Where bends meet at a corner,
+/// each stops where the other cuts its walls back, leaving the corner open (Onshape's simple corner).
+fn build_part(def: &Body, bends: &[Bend], rips: &[usize], front: f64, back: f64, clearance: f64) -> R<Shape> {
+    let faces_of_edge = |edge: &Shape| -> Vec<&Shape> {
+        def.faces
+            .iter()
+            .map(|f| &f.shape)
+            .filter(|f| f.sub_shapes(ShapeKind::Edge).iter().any(|e| e.is_same(edge)))
+            .collect()
+    };
+    let mut pieces: Vec<Shape> = Vec::new();
+    let mut cut_walls: Vec<Shape> = Vec::new();
+    for wall in &def.faces {
+        let mut edges = Vec::new();
+        let mut distances = Vec::new();
+        for edge in wall.shape.sub_shapes(ShapeKind::Edge) {
+            if let Some(bend) = bends.iter().find(|b| b.edge.is_same(&edge)) {
+                edges.push(edge);
+                distances.push(-bend.setback);
+            } else if rips.iter().any(|&r| def.edges[r].shape.is_same(&edge)) {
+                let other = faces_of_edge(&edge).into_iter().find(|f| !f.is_same(&wall.shape));
+                let Some(other) = other else { continue };
+                let setback = rip_setback(&wall.shape, other, &edge, front, back, clearance)?;
+                edges.push(edge);
+                distances.push(-setback);
+            }
+        }
+        let cut = if edges.is_empty() {
+            wall.shape.clone()
+        } else {
+            occt::extend_planar_face(&wall.shape, &edges, &distances)
+                .map_err(|_| regen_error("SHEET_METAL_REBUILD_ERROR"))?
+        };
+        let solid = occt::thicken(&cut, front, back).map_err(|_| regen_error("SHEET_METAL_CANNOT_THICKEN"))?.shape();
+        pieces.push(solid);
+        cut_walls.push(cut);
+    }
+    for bend in bends {
+        // Where the cut-back walls' edges along the bend run: the bend covers the stretch both reach.
+        let mut span = (f64::MIN, f64::MAX);
+        let walls = faces_of_edge(&bend.edge);
+        for wall in &walls {
+            let index = def.faces.iter().position(|f| f.shape.is_same(wall)).expect("a wall of the model");
+            let line_point = |toward: Vec3| add(bend.axis_origin, scale(toward, bend.sheet_radius));
+            let mut reach: Option<(f64, f64)> = None;
+            for edge in cut_walls[index].sub_shapes(ShapeKind::Edge) {
+                let Some((a, b)) = segment(&edge) else { continue };
+                for toward in [bend.toward.0, bend.toward.1] {
+                    let p = line_point(toward);
+                    let off = |q: Vec3| {
+                        let d = sub(q, p);
+                        norm(sub(d, scale(bend.axis_direction, dot(d, bend.axis_direction))))
+                    };
+                    if off(a) < 1e-7 && off(b) < 1e-7 {
+                        let (ta, tb) =
+                            (dot(sub(a, bend.at), bend.axis_direction), dot(sub(b, bend.at), bend.axis_direction));
+                        reach = Some((ta.min(tb), ta.max(tb)));
+                    }
+                }
+            }
+            let (lo, hi) = reach.ok_or_else(|| regen_error("SHEET_METAL_REBUILD_ERROR"))?;
+            span = (span.0.max(lo), span.1.min(hi));
+        }
+        if span.1 - span.0 <= 1e-9 {
+            continue;
+        }
+        let centre = add(bend.axis_origin, scale(bend.axis_direction, span.0));
+        let (r_in, r_out) = bend.radii;
+        let (u1, u2) = bend.toward;
+        let um = normalize(add(u1, u2)).ok_or_else(|| regen_error("SHEET_METAL_REBUILD_ERROR"))?;
+        let at = |u: Vec3, r: f64| add(centre, scale(u, r));
+        let edges = [
+            occt::arc_through(at(u1, r_in), at(um, r_in), at(u2, r_in)).map_err(occt_error)?,
+            occt::line_edge(at(u2, r_in), at(u2, r_out)).map_err(occt_error)?,
+            occt::arc_through(at(u2, r_out), at(um, r_out), at(u1, r_out)).map_err(occt_error)?,
+            occt::line_edge(at(u1, r_out), at(u1, r_in)).map_err(occt_error)?,
+        ];
+        let section = occt::fill_edges(&edges).map_err(occt_error)?;
+        let piece = occt::prism(&section, scale(bend.axis_direction, span.1 - span.0)).map_err(occt_error)?.shape();
+        pieces.push(piece);
+    }
+    let first = pieces.remove(0);
+    let solid = if pieces.is_empty() {
+        first
+    } else {
+        occt::boolean(occt::BooleanKind::Union, &[first], &pieces, false)
+            .map_err(|_| regen_error("SHEET_METAL_REBUILD_ERROR"))?
+            .shape()
+    };
+    let solids = solid.sub_shapes(ShapeKind::Solid);
+    Ok(if solids.len() == 1 { solids.into_iter().next().expect("one solid") } else { solid })
 }
 
 /// `@updateSheetMetalGeometry`: rebuilds the parts of the models whose definition entities changed.
