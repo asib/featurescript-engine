@@ -40,11 +40,6 @@ fn attribute_value<'a>(attribute: &'a Value, key: &str) -> Option<&'a Value> {
     attribute.get(key).and_then(|v| v.get("value"))
 }
 
-/// Whether a body is a sheet metal part: one carrying an association attribute, which only sheet metal gives.
-pub fn is_sheet_metal_body(body: &Body) -> bool {
-    body.is_sheet_metal_definition() || association(&body.attributes).is_some()
-}
-
 /// A bend of the definition sheet: its edge, the inner radius, the radius at the sheet (the inner radius plus
 /// the thickness on the inside), and the axis of the rounded sheet.
 struct Bend {
@@ -270,28 +265,32 @@ fn regenerate(model: &mut Model, id: &FeatureId, def_index: usize) -> R<()> {
     let solid = build_part(&def, &bends, &rips, front, back, clearance)?;
 
     // Replace the model's part, keeping its identity, or make one.
+    // Replace the model's parts (one for each piece a rip cuts off), keeping their identities, or make them.
     let def_association = association(&def.attributes).cloned();
-    let old = model.bodies.iter().position(|b| {
-        b.body_type == BodyType::Solid
-            && def_association.is_some()
-            && association(&b.attributes) == def_association.as_ref()
-    });
+    let old: Vec<usize> =
+        (0..model.bodies.len()).filter(|&b| is_part_of(&model.bodies[b], def_association.as_ref())).collect();
+    let old_bodies: Vec<Rc<Body>> = old.iter().map(|&b| model.bodies[b].clone()).collect();
+    model.remove_bodies(&old);
     let mut attributes = Attributes::default();
     if let Some(a) = &def_association {
         attributes.unnamed.push(a.clone());
     }
-    let new = match old {
-        Some(o) => {
-            let old_body = model.bodies[o].clone();
-            model.remove_bodies(&[o]);
-            NewBody { attributes: Rc::new(attributes), ..NewBody::replacing(&old_body, solid) }
-        }
-        None => {
-            NewBody { attributes: Rc::new(attributes), ..NewBody::new(solid, BodyType::Solid, Info::new(id.clone())) }
-        }
-    };
     let info = Info::new(id.clone());
-    let index = model.add_body(new, &Origins::default(), &info, &|_| None);
+    let pieces = solid.sub_shapes(ShapeKind::Solid);
+    let pieces = if pieces.is_empty() { vec![solid] } else { pieces };
+    let mut indices = Vec::new();
+    for (k, piece) in pieces.into_iter().enumerate() {
+        let new = match old_bodies.get(k) {
+            Some(old_body) => {
+                NewBody { attributes: Rc::new(attributes.clone()), ..NewBody::replacing(old_body, piece) }
+            }
+            None => NewBody {
+                attributes: Rc::new(attributes.clone()),
+                ..NewBody::new(piece, BodyType::Solid, info.clone())
+            },
+        };
+        indices.push(model.add_body(new, &Origins::default(), &info, &|_| None));
+    }
     // The definition may have moved in the list.
     let def = model
         .bodies
@@ -299,18 +298,58 @@ fn regenerate(model: &mut Model, id: &FeatureId, def_index: usize) -> R<()> {
         .find(|b| b.tid == def.tid)
         .cloned()
         .ok_or_else(|| regen_error("SHEET_METAL_REBUILD_ERROR"))?;
-    for kind in [EntityType::Face, EntityType::Edge] {
-        for i in 0..model.bodies[index].entities(kind).len() {
-            let shape = model.bodies[index].entities(kind)[i].shape.clone();
-            let Some(from) = associate(&def, &bends, thickness, kind, &shape) else { continue };
-            let Some(a) = association(&def.entities(from.kind)[from.index].attributes).cloned() else { continue };
-            model.update_attributes(EntityRef { body: index, kind, index: i }, |attributes| {
-                attributes.unnamed.retain(|v| !is_type(v, "SMAssociationAttribute"));
-                attributes.unnamed.push(a);
-            });
+    for index in indices {
+        for kind in [EntityType::Face, EntityType::Edge] {
+            for i in 0..model.bodies[index].entities(kind).len() {
+                let shape = model.bodies[index].entities(kind)[i].shape.clone();
+                let Some(from) = associate(&def, &bends, thickness, kind, &shape) else { continue };
+                let Some(a) = association(&def.entities(from.kind)[from.index].attributes).cloned() else { continue };
+                model.update_attributes(EntityRef { body: index, kind, index: i }, |attributes| {
+                    attributes.unnamed.retain(|v| !is_type(v, "SMAssociationAttribute"));
+                    attributes.unnamed.push(a);
+                });
+            }
         }
     }
     Ok(())
+}
+
+/// Whether a body is one of the parts of the model with this association attribute.
+fn is_part_of(body: &Body, def_association: Option<&Value>) -> bool {
+    body.body_type == BodyType::Solid && def_association.is_some() && association(&body.attributes) == def_association
+}
+
+/// Whether a model is active: sheet metal features work on it and keep its parts up to date (`sheetMetalEnd`
+/// makes it inactive).
+fn is_active(def: &Body) -> bool {
+    sm_attribute(&def.attributes, "MODEL").and_then(|m| m.get("active")).and_then(Value::as_bool) != Some(false)
+}
+
+/// Whether an entity belongs to an active sheet metal model: its definition sheet, or one of its parts.
+pub fn in_active_model(model: &Model, body: usize) -> bool {
+    let b = &model.bodies[body];
+    if b.is_sheet_metal_definition() {
+        return is_active(b);
+    }
+    let Some(a) = association(&b.attributes) else { return false };
+    model.bodies.iter().any(|d| d.is_sheet_metal_definition() && association(&d.attributes) == Some(a) && is_active(d))
+}
+
+/// A model made inactive leaves its parts as ordinary parts, without association attributes.
+fn release_parts(model: &mut Model, def_index: usize) {
+    let def_association = association(&model.bodies[def_index].attributes).cloned();
+    for b in 0..model.bodies.len() {
+        if !is_part_of(&model.bodies[b], def_association.as_ref()) {
+            continue;
+        }
+        let strip = |attributes: &mut Attributes| attributes.unnamed.retain(|v| !is_type(v, "SMAssociationAttribute"));
+        model.update_body(b, |body| {
+            strip(Rc::make_mut(&mut body.attributes));
+            for entity in body.faces.iter_mut().chain(body.edges.iter_mut()).chain(body.vertices.iter_mut()) {
+                strip(Rc::make_mut(&mut entity.attributes));
+            }
+        });
+    }
 }
 
 /// How far a wall is cut back at a rip (edge-to-edge style): to clear the other wall's material, and the minimal
@@ -436,7 +475,11 @@ pub fn update(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> 
     }
     for tid in defs {
         let Some(index) = model.bodies.iter().position(|b| b.tid == tid) else { continue };
-        regenerate(model, &id, index)?;
+        if is_active(&model.bodies[index]) {
+            regenerate(model, &id, index)?;
+        } else {
+            release_parts(model, index);
+        }
     }
     Ok(Value::UNDEFINED)
 }

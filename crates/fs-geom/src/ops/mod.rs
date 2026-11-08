@@ -215,7 +215,7 @@ fn transform_bodies(model: &mut Model, id: FeatureId, definition: &Value) -> R<V
     let transform = transform(field(definition, "transform"))?;
     let bodies = owner_bodies(model, field(definition, "bodies"))?;
     // Sheet metal parts move only with their model, which opTransform can't do (batch 012).
-    if bodies.iter().any(|&b| sheet_metal::is_sheet_metal_body(&model.bodies[b])) {
+    if bodies.iter().any(|&b| sheet_metal::in_active_model(model, b)) {
         return Err(regen_error("SHEET_METAL_PARTS_PROHIBITED"));
     }
     let mut replacements = Vec::new();

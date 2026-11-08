@@ -211,7 +211,13 @@ fn resolve(model: &Model, query: &Value) -> R<Vec<EntityRef>> {
         "PARTS_ATTACHED_TO" => Vec::new(),
         "SM_FLAT_FILTER" => keep_if(sub(model, query, "subquery")?, !yes_no(query, "flatFilter")?),
         "SM_FORM_FILTER" => keep_if(sub(model, query, "subquery")?, !yes_no(query, "formFilter")?),
-        "ACTIVE_SM_FILTER" => keep_if(sub(model, query, "subquery")?, !yes_no(query, "activeSheetMetal")?),
+        "ACTIVE_SM_FILTER" => {
+            let active = yes_no(query, "activeSheetMetal")?;
+            sub(model, query, "subquery")?
+                .into_iter()
+                .filter(|r| crate::ops::sheet_metal::in_active_model(model, r.body) == active)
+                .collect()
+        }
         // No sheet metal: nothing is a flat's counterpart or a sheet metal definition entity.
         "SM_APPLICATION_TYPE_FILTER" | "CORRESPONDING_IN_FLAT" | "SM_DEFINITION_ENTITY_FILTER" => Vec::new(),
         // Entities of bodies a closed composite part consumes (or not).
