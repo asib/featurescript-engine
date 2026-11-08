@@ -261,6 +261,13 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   bend laid flat, (inner radius + K-factor × thickness) × angle long (2.9845 mm for a 90° bend of radius 1, 2 mm
   thick, K 0.45), the far wall carried round into the held wall's plane. Refolding gives the folded part back.
 
+- **Jogs** (batch 013). When the offset is too small for the bend angle, std turns both bends down until they meet
+  with no wall between (a 5 mm jog anchored outside, 2 mm thick, radius 1: 75.52°, from cos θ = 1 − 3 / 4). It
+  splits the plate up front, stretches the strip it cuts out to the bends' flat lengths, and joins it back with
+  `eraseImprintedEdges : false`, which keeps the strip's faces apart from the plate's on one plane. The bends' own
+  splits then cut nothing: `ownExistingImprints` makes the edges already on the tools theirs, and no face is
+  `qSplitBy` them. The second bend line is a spline fitted through two points, which `evLine` takes as a line.
+
 - **Bend reliefs** (batch 016). Where a bend covers only part of its base wall's edge, the rest of the edge is
   cut back as the bend is, and each end of the bend gets a slot in the base wall: as wide as the width scale ×
   the thickness, reaching from the edge to the depth scale × the bend's inner radius at the centre of an

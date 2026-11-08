@@ -81,7 +81,7 @@ Onshape.
 | `sheetMetalJoint` (sheetMetalJoint.fs) | matches: a bend made a rip (the model falls into two parts), a bend given another radius | 013 |
 | `sheetMetalTab` (sheetMetalTab.fs) | matches: a tab merged into a plate's edge | 013 |
 | `sheetMetalEnd` (sheetMetalEnd.fs) | matches: the parts become ordinary parts | 013 |
-| `sheetMetalJog` (sheetMetalJog.fs) | Known gap: std finds the jog's second split badly decomposed (c003) | 013 |
+| `sheetMetalJog` (sheetMetalJog.fs) | matches: a 5 mm jog anchored outside, whose bends std turns to 75.5° to meet with no wall between | 013 |
 | `sheetMetalCorner` (sheetMetalCorner.fs) | matches: a round relief where two flanges meet, cut in the flat pattern and folded back through the plate, the bends and the flanges (area and volume within 0.05) | 013 |
 | `sheetMetalHem` (sheetMetalHem.fs) | matches: straight hems (with a radius, closed to the minimal gap, aligned in place or outside), a rolled hem. Not yet: tear drops (their profile needs the sketch solved), closed corners | 014 |
 | `sheetMetalRip` (sheetMetalRip.fs) | matches: a plate ripped corner to corner (Onshape leaves it whole) | 014 |
@@ -157,8 +157,6 @@ What fixtures show Onshape doing that the engine can't yet:
   for the rule. A cylinder cut through all has its origin at the far end of Onshape's own through-all depth
   (2108.986 mm from the profile in that case), which the engine doesn't reproduce.
 - **Closed corners** (batch 016, c013). Onshape extends the two bends to meet at the corner; the engine fails.
-- **Sheet metal jogs** (batch 013, c003). The jog's second split leaves a fixed edge with no moving face beside
-  it, by std's check.
 - **Relieved bends** (batch 013 c006; batch 016 c007–c011). Corner reliefs leave Onshape's bends B-spline faces;
   the engine wraps its flat bend onto the cylinder, which gives areas and volumes 0.007 mm² and 0.04 mm³ away
   (1e-5 of them). Those cases are compared to 0.05.
