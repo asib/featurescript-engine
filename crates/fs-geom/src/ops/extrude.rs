@@ -277,10 +277,88 @@ pub fn extrude(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
             None
         }
     };
+    let origins = swept_origins(model, definition, &made, direction)?;
     for (shape, body_type) in made {
-        model.add_body(NewBody::new(shape, body_type, created.clone()), &Origins::default(), &created, &special);
+        model.add_body(NewBody::new(shape, body_type, created.clone()), &origins, &created, &special);
     }
     Ok(Value::UNDEFINED)
+}
+
+/// Where an extrusion's faces and edges came from, for tracking: side faces from the profile edges swept, edges
+/// along the direction from the profile vertices swept, caps and their edges from the profile's faces and edges
+/// (std's hem tracks a sketch arc's end point into the side edge it sweeps).
+fn swept_origins(model: &Model, definition: &Value, made: &[(Shape, BodyType)], direction: Vec3) -> R<Origins> {
+    use crate::values::{add, cross, dot, norm, scale, sub};
+    let mut sources: Vec<crate::model::Entity> = Vec::new();
+    for r in query::evaluate(model, field(definition, "entities"))? {
+        let shape = model.shape(r).clone();
+        for entity in model.bodies[r.body].all_entities() {
+            let kind = entity.shape.kind();
+            let inside = entity.shape.is_same(&shape)
+                || kind.is_some_and(|k| shape.sub_shapes(k).iter().any(|x| x.is_same(&entity.shape)));
+            if inside && !sources.iter().any(|e| e.tid == entity.tid) {
+                sources.push(entity.clone());
+            }
+        }
+    }
+    let on =
+        |p: Vec3, target: &Shape| occt::vertex(p).and_then(|v| v.distance(target)).is_ok_and(|d| d.distance < 1e-8);
+    let samples = |s: &Shape| -> Vec<Vec3> {
+        [0.0, 0.5, 1.0].iter().filter_map(|&t| s.edge_tangent(t, false).ok().map(|a| a.origin)).collect()
+    };
+    let mut origins = Origins::default();
+    for (shape, _) in made {
+        for edge in shape.sub_shapes(ShapeKind::Edge) {
+            let along = edge.curve_type().ok() == Some(occt::CurveType::Line)
+                && edge.edge_tangent(0.5, false).is_ok_and(|a| norm(cross(a.direction, direction)) < 1e-9);
+            let points = samples(&edge);
+            let Some(&mid) = points.get(1) else { continue };
+            for source in &sources {
+                match source.shape.kind() {
+                    Some(ShapeKind::Vertex) if along => {
+                        let Ok(v) = source.shape.vertex_point() else { continue };
+                        let d = sub(v, mid);
+                        if norm(sub(d, scale(direction, dot(d, direction)))) < 1e-9 {
+                            origins.derive(&edge, source, false);
+                        }
+                    }
+                    Some(ShapeKind::Edge) if !along => {
+                        let from = samples(&source.shape);
+                        let Some(&smid) = from.get(1) else { continue };
+                        let t = dot(sub(mid, smid), direction);
+                        if from.iter().all(|p| on(add(*p, scale(direction, t)), &edge)) {
+                            origins.derive(&edge, source, true);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        for face in shape.sub_shapes(ShapeKind::Face) {
+            let Ok(p) = face.face_inner_point() else { continue };
+            for source in &sources {
+                match source.shape.kind() {
+                    Some(ShapeKind::Edge) => {
+                        let from = samples(&source.shape);
+                        let Some(&smid) = from.get(1) else { continue };
+                        let t = dot(sub(p, smid), direction);
+                        if from.iter().all(|q| on(add(*q, scale(direction, t)), &face)) {
+                            origins.derive(&face, source, false);
+                        }
+                    }
+                    Some(ShapeKind::Face) => {
+                        let Ok(q) = source.shape.face_inner_point() else { continue };
+                        let t = dot(sub(p, q), direction);
+                        if on(add(q, scale(direction, t)), &face) && on(sub(p, scale(direction, t)), &source.shape) {
+                            origins.derive(&face, source, true);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    Ok(origins)
 }
 
 fn boxes_meet(a: &Box3, b: &Box3) -> bool {
