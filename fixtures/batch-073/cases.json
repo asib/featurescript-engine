@@ -1,0 +1,97 @@
+{
+  "batch": "073",
+  "title": "sketch fit splines, isoparametric curves on a torus, variable curvature, asymmetric and conic fillets",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "sketch-curve",
+      "description": "a fit spline through (0, 0), (30, 10), (60, 0)",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "sketch-curve",
+      "description": "a fit spline through (0, 0), (20, 15), (60, 0)",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "sketch-curve",
+      "description": "a fit spline through (0, 0), (10, 10), (40, 5), (50, 20)",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "isoparametric-curve",
+      "description": "three isoparametric curves in the U direction on a quarter torus, and its periodicity",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "isoparametric-curve",
+      "description": "three isoparametric curves in the V direction on a quarter torus, and its periodicity",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "fillet",
+      "description": "a variable fillet, 2 mm to 5 mm along a block's top edge, curvature (magnitude 0.5)",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "fillet",
+      "description": "a variable asymmetric fillet along a block's top edge: 2 and 3 mm at one end, 4 and 5 mm at the other",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c008",
+      "kind": "fillet",
+      "description": "a variable conic fillet (rho 0.7), 2 mm to 5 mm along a block's top edge, changing straight",
+      "slotMeters": [
+        2.8000000000000003,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c009",
+      "kind": "fillet",
+      "description": "a variable conic fillet (rho 0.7), 2 mm to 4 mm, on an edge where the faces meet at 60 degrees",
+      "slotMeters": [
+        3.2,
+        0,
+        0
+      ]
+    }
+  ]
+}

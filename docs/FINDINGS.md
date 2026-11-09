@@ -799,15 +799,25 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   on radius 20).
 - **A cut list of a tube along an arc** (batch 072 c001): Onshape's table has no length, and angles of 7e-9 and
   6e-8 rad: its curves drawn on the swept faces (its torus's periodic way) evidently run round the tube.
-- **A three-point sketch fit spline** (through (0, 0), (30, 10), (60, 0); batch 072 c002) isn't the natural cubic:
-  a tube swept along it has a top face 10 × 63.8446 mm² (the natural cubic is 63.8271 long) and edges whose ends
-  turn a total of 0.9241 rad (the natural cubic's 0.9273: end slopes 0.5).
+- **Sketch fit splines** through three and four points (batch 073 c001–c003) are the engine's: the clamped cubic
+  through them at their chord lengths' fractions with natural ends, the same knots and poles. A tube swept along
+  the three-point one (072 c002) differs only by Onshape's fit of the sweep: its top face 10 × 63.8446 mm² where
+  the exact sweep's is 10 × 63.8271, its volume 3e-4 over.
 - **A sweep twisted along a line and a spline** fails: `SWEEP_FAILED` (batch 072 c006).
 - **No offset curve on a sphere** (batch 072 c007): a hemisphere's equator offset 3 mm up its sphere gives nothing,
   as a cone's top circle down its side doesn't (067 c001).
 - **A variable conic fillet** (batch 072 c009): rho 0.7 from 2 to 5 mm along a block's top edge, smoothly: the
   fillet's area is the exact rational surface's (246.5854), the top and front lose exactly 40 × 3.5 mm², the end
   faces 0.002 and 0.003 mm² more than the exact conics' (Onshape's cubic fits of its sections).
+- **Isoparametric curves on a quarter torus** (batch 073 c004, c005): three in the U direction give one, the tube's
+  circle halfway round (the others lie on the ends); three in the V direction the circles at 60°, 180° and 300°
+  round the tube, as the engine's. Trimmed, the face is periodic round its tube only ([false, true]); its surface
+  both ways. Onshape's V curves run from the y axis to the x axis and its tube circle starts on the inside.
+- **Variable fillets beyond a conic** (batch 073 c006–c009): curvature (magnitude 0.5) and conic sections changing
+  smoothly or straight, at 90° and 60°, set the faces back as constant fillets do (1/tan(θ/2) times the radius);
+  asymmetric, `vertexRadius` sets back the face that isn't leading (a block's front 2 to 4 mm, its top 3 to 5 by
+  `vertexOtherRadius`), the other way round from a constant asymmetric fillet. The fillet faces' areas are the
+  exact surfaces'; the end faces differ by Onshape's fits of the sections (to 0.013 mm²).
 - **`derivedMirror` in a Part Studio feature** (batch 060 c001): Onshape fails with "Execution error". It builds
   its source twice, once by `@convert` and again in `instantiate` (no loaded context), which Onshape evidently
   refuses for a build function defined in the studio (it won't derive one source twice in a Part Studio, batch
