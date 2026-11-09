@@ -875,11 +875,18 @@ std::unique_ptr<Shape> face_from_uv(const Shape &face_shape, rust::Slice<const d
     wire.Add(edge);
   }
   if (!wire.IsDone()) throw std::runtime_error("face from uv: the loop couldn't be built");
-  BRepBuilderAPI_MakeFace maker(surface, wire.Wire(), Standard_True);
-  if (!maker.IsDone()) throw std::runtime_error("face from uv: the face couldn't be built");
-  ShapeFix_Face fix(maker.Face());
-  fix.Perform();
-  TopoDS_Face built = fix.Face();
+  auto make = [&](const TopoDS_Wire &w) {
+    BRepBuilderAPI_MakeFace maker(surface, w, Standard_True);
+    if (!maker.IsDone()) throw std::runtime_error("face from uv: the face couldn't be built");
+    ShapeFix_Face fix(maker.Face());
+    fix.Perform();
+    return fix.Face();
+  };
+  TopoDS_Face built = make(wire.Wire());
+  // A loop that runs clockwise in the surface's parameters (a torus's, say) bounds the outside: the other way round.
+  GProp_GProps props;
+  BRepGProp::SurfaceProperties(built, props);
+  if (props.Mass() < 0) built = make(TopoDS::Wire(wire.Wire().Reversed()));
   if (face.Orientation() == TopAbs_REVERSED) built.Reverse();
   return wrap(built);
 }

@@ -211,19 +211,21 @@ pub fn extend_sheet(model: &mut Model, id: FeatureId, definition: &Value) -> R<V
     Ok(Value::UNDEFINED)
 }
 
-/// A sheet of one face on a cone or sphere, bounded by two generators or meridians (a constant u) and two circles
-/// round the axis (a constant v), extended as Onshape extends it (batch 039): each point of an edge carried the
-/// distance along the surface's circle or line through it, square to the edge. Across a generator or meridian
-/// every point goes the distance round its own circle, so the new edge is a curve (a turn of d / r at radius r):
+/// A sheet of one face on a cone, sphere or torus, bounded by two generators, meridians or tube circles (a constant
+/// u) and two circles round the axis (a constant v), extended as Onshape extends it (batch 039): each point of an
+/// edge carried the distance along the surface's circle or line through it, square to the edge. Across a generator
+/// or meridian every point goes the distance round its own circle, so the new edge is a curve (d / r at radius r):
 /// on a quarter cone, Onshape's new edge reaches exactly 0.5 rad round at radius 10 for 5 mm. Past a circle the
 /// edge moves the distance along the generators or meridians. (Onshape's new edges are its own approximations,
 /// off this by up to 0.03 mm²; a sphere's extended round strays further, turning 1.106 rad at radius 5 for 5 mm.)
+/// A torus turns uniformly round its axis, as far as its innermost circle would for the distance, and goes the
+/// distance round its tube (batch 057).
 fn extend_revolved(body: &crate::model::Body, edges: &[Shape], distance: f64) -> R<Option<Shape>> {
     use crate::values::{dot, norm, scale, sub};
     let [face] = &body.faces[..] else { return Ok(None) };
     let face = &face.shape;
     let Ok(s) = face.surface_definition() else { return Ok(None) };
-    if s.kind != 2 && s.kind != 3 {
+    if !matches!(s.kind, 2..=4) {
         return Ok(None);
     }
     let ((u0, v0), (u1, v1)) = face.face_uv_bounds().map_err(occt_error)?;
@@ -247,10 +249,23 @@ fn extend_revolved(body: &crate::model::Body, edges: &[Shape], distance: f64) ->
         let d = sub(p, s.frame.origin);
         Ok(norm(sub(d, scale(s.frame.normal, dot(d, s.frame.normal)))))
     };
-    // Along a cone's generators v is length; along a sphere's meridians, angle.
-    let dv = if s.kind == 2 { distance } else { distance / s.radius1 };
+    // Along a cone's generators v is length; along a sphere's meridians, or a torus's tube, angle.
+    let dv = match s.kind {
+        2 => distance,
+        3 => distance / s.radius1,
+        _ => distance / s.radius2,
+    };
+    // Round a torus, every point turns as far as the torus's innermost circle would for the distance (batch 057
+    // c011: 5 mm round a torus of radii 10 and 3 turns 5/7 rad all along the tube).
+    let torus_turn = if s.kind == 4 { Some(distance / (s.radius1 - s.radius2)) } else { None };
+    if torus_turn.is_some_and(|t| !t.is_finite() || t <= 0.0) {
+        return Ok(None);
+    }
     let (vb, vt) = (if extend[2] { v0 - dv } else { v0 }, if extend[3] { v1 + dv } else { v1 });
     let side = |v: f64, at: f64, out: bool, sign: f64| -> R<f64> {
+        if let (Some(turn), true) = (torus_turn, out) {
+            return Ok(at + sign * turn);
+        }
         Ok(if out {
             let r = radius_at(v)?;
             if r < 1e-9 {
@@ -263,7 +278,7 @@ fn extend_revolved(body: &crate::model::Body, edges: &[Shape], distance: f64) ->
     };
     let samples = 32;
     let column = |at: f64, out: bool, sign: f64, up: bool| -> R<Vec<(f64, f64)>> {
-        let n = if out { samples } else { 1 };
+        let n = if out && torus_turn.is_none() { samples } else { 1 };
         (0..=n)
             .map(|i| {
                 let f = i as f64 / n as f64;
