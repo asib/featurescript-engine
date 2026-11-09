@@ -739,10 +739,23 @@ pub fn geometry_type(model: &Model, r: EntityRef) -> Option<&'static str> {
                 }
             }
             occt::CurveType::Ellipse => "ELLIPSE",
+            // A straight B-spline (a loft's side edge between straight ones) is a line to Onshape (batch 074 c001).
+            occt::CurveType::BSpline | occt::CurveType::Bezier if straight_bspline(shape) => "LINE",
             _ => "OTHER_CURVE",
         }),
         _ => None,
     }
+}
+
+/// Whether a B-spline edge's poles all lie on the line through its first and last.
+fn straight_bspline(edge: &occt::Shape) -> bool {
+    let Ok(data) = edge.edge_bspline(1e-7, false, false) else { return false };
+    let (Some(&a), Some(&b)) = (data.poles.first(), data.poles.last()) else { return false };
+    let Some(d) = crate::values::normalize(crate::values::sub(b, a)) else { return false };
+    data.poles.iter().all(|&p| {
+        let r = crate::values::sub(p, a);
+        crate::values::norm(crate::values::sub(r, crate::values::scale(d, crate::values::dot(r, d)))) < 1e-10
+    })
 }
 
 /// The region faces of the sketches `feature` created. With `filter_inner`, regions that fill a hole in another
