@@ -643,6 +643,21 @@ pub fn face_blend(model: &mut Model, id: FeatureId, definition: &Value) -> R<Val
     let shapes = |refs: &[EntityRef]| -> Vec<Shape> { refs.iter().map(|r| model.shape(*r).clone()).collect() };
     let reverse1 = !values::opt_bool(definition, "flipSide1Normal")?.unwrap_or(false);
     let reverse2 = !values::opt_bool(definition, "flipSide2Normal")?.unwrap_or(false);
+    if let Some(sheet) = floor_wall_blend(&shapes(&side1), reverse1, &shapes(&side2), reverse2, radius)? {
+        let first = model.bodies[side1[0].body].clone();
+        let mut bodies: Vec<usize> = side1.iter().chain(&side2).map(|r| r.body).collect();
+        bodies.sort_unstable();
+        bodies.dedup();
+        let info = crate::model::Info::new(id);
+        model.remove_bodies(&bodies);
+        let new = crate::model::NewBody {
+            tid: Some(first.tid),
+            body_type: crate::model::BodyType::Sheet,
+            ..crate::model::NewBody::replacing(&first, sheet)
+        };
+        model.add_body(new, &crate::model::Origins::default(), &info, &|_| None);
+        return Ok(Value::UNDEFINED);
+    }
     let Ok(op) = occt::face_blend(&shapes(&side1), reverse1, &shapes(&side2), reverse2, radius) else {
         // Sheets apart: OCCT only rounds an edge they share.
         return planar_face_blend(model, id, definition);
@@ -665,6 +680,127 @@ pub fn face_blend(model: &mut Model, id: FeatureId, definition: &Value) -> R<Val
         model.add_body(new, &crate::model::Origins::default(), &info, &|_| None);
     }
     Ok(Value::UNDEFINED)
+}
+
+/// A rolling ball blend between a planar floor (side 1) and walls standing square on it (side 2: planes square to
+/// it and cylinders about axes square to it, batch 071 c004–c007): along the walls' base curves, offset the radius
+/// towards the blend over the floor, the ball's centre runs at the radius above it, sweeping a quarter cylinder
+/// along each line and a quarter torus round each arc. The floor keeps what lies beyond the offset curves (the
+/// pieces not touching the walls), the walls what lies more than the radius above the floor, all sewn into one
+/// sheet. Each side's normal, reversed if asked, points away from the blend. `None` if the sides aren't so.
+fn floor_wall_blend(side1: &[Shape], reverse1: bool, side2: &[Shape], reverse2: bool, r: f64) -> R<Option<Shape>> {
+    use crate::values::{add, cross, dot, norm, normalize, scale, sub};
+    let failed = || regen_error("FACE_BLEND_FAILED");
+    let [floor] = side1 else { return Ok(None) };
+    let Ok(plane) = floor.face_plane() else { return Ok(None) };
+    // A single planar wall is blended as two planes are, with their trims (batch 055 c004).
+    if let [wall] = side2
+        && wall.face_plane().is_ok()
+    {
+        return Ok(None);
+    }
+    let n_floor = if reverse1 { scale(plane.normal, -1.0) } else { plane.normal };
+    // Towards the blend.
+    let up = scale(n_floor, -1.0);
+    let height = |p: occt::Vec3| dot(sub(p, plane.origin), up);
+    let mut pieces = Vec::new();
+    let mut offsets = Vec::new();
+    let mut bases = Vec::new();
+    for wall in side2 {
+        let Ok(s) = wall.surface_definition() else { return Ok(None) };
+        // The wall's normal towards the blend at a point.
+        let towards = |p: occt::Vec3| -> Option<occt::Vec3> {
+            let (fu, fv) = wall.face_fraction(p).ok()?;
+            let n = wall.face_tangent_plane(fu, fv).ok()?.normal;
+            Some(if reverse2 { n } else { scale(n, -1.0) })
+        };
+        // Its edge on the floor's plane.
+        let base = wall.sub_shapes(ShapeKind::Edge).into_iter().find(|e| {
+            [0.0, 0.5, 1.0].iter().all(|t| e.edge_tangent(*t, false).is_ok_and(|a| height(a.origin).abs() < 1e-9))
+        });
+        // (On the floor itself: sheets apart are blended otherwise, batch 054 c009.)
+        let Some(base) = base.filter(|b| floor.distance(b).is_ok_and(|d| d.distance < 1e-9)) else { return Ok(None) };
+        let a = base.edge_tangent(0.0, false).map_err(crate::occt_error)?;
+        let b = base.edge_tangent(1.0, false).map_err(crate::occt_error)?;
+        let Some(w) = towards(add(a.origin, scale(up, r))) else { return Ok(None) };
+        match s.kind {
+            0 if dot(s.frame.normal, up).abs() < 1e-9 && base.curve_type().ok() == Some(occt::CurveType::Line) => {
+                let w = scale(s.frame.normal, if dot(s.frame.normal, w) >= 0.0 { 1.0 } else { -1.0 });
+                // A quarter circle about the centre line, from the floor (−up) round to the wall (−w).
+                let centre = add(a.origin, add(scale(w, r), scale(up, r)));
+                let frame = occt::Frame { origin: centre, normal: cross(scale(up, -1.0), scale(w, -1.0)), x: scale(up, -1.0) };
+                let arc = occt::arc_edge(frame, r, 0.0, std::f64::consts::FRAC_PI_2).map_err(|_| failed())?;
+                pieces.push(occt::prism(&arc, sub(b.origin, a.origin)).map_err(|_| failed())?.shape());
+                offsets.push(occt::line_edge(add(a.origin, scale(w, r)), add(b.origin, scale(w, r))).map_err(|_| failed())?);
+            }
+            1 if norm(cross(s.frame.normal, up)) < 1e-9 => {
+                let axis_point = add(s.frame.origin, scale(up, -height(s.frame.origin)));
+                let radial = normalize(sub(a.origin, axis_point)).ok_or_else(failed)?;
+                let outward = dot(radial, w) > 0.0;
+                let w = if outward { radial } else { scale(radial, -1.0) };
+                let centre = add(a.origin, add(scale(w, r), scale(up, r)));
+                let frame = occt::Frame { origin: centre, normal: cross(scale(up, -1.0), scale(w, -1.0)), x: scale(up, -1.0) };
+                let arc = occt::arc_edge(frame, r, 0.0, std::f64::consts::FRAC_PI_2).map_err(|_| failed())?;
+                // How far round the axis the base runs, from its start towards its end.
+                let closed = norm(sub(a.origin, b.origin)) < 1e-9;
+                let turn = if closed {
+                    2.0 * std::f64::consts::PI
+                } else {
+                    let (u, v) = (sub(a.origin, axis_point), sub(b.origin, axis_point));
+                    let mut t = dot(cross(u, v), up).atan2(dot(u, v));
+                    // The way the edge runs at its start.
+                    let sense = dot(cross(u, a.direction), up);
+                    if sense < 0.0 {
+                        t = -t;
+                    }
+                    if t <= 0.0 {
+                        t += 2.0 * std::f64::consts::PI;
+                    }
+                    if sense < 0.0 { -t } else { t }
+                };
+                let axis = occt::Axis { origin: axis_point, direction: up };
+                pieces.push(occt::revolve(&arc, axis, turn).map_err(|_| failed())?.shape());
+                let start = add(a.origin, scale(w, r));
+                let rho = norm(sub(start, axis_point));
+                let x = normalize(sub(start, axis_point)).ok_or_else(failed)?;
+                let (frame, lo, hi) = if turn > 0.0 {
+                    (occt::Frame { origin: axis_point, normal: up, x }, 0.0, turn)
+                } else {
+                    (occt::Frame { origin: axis_point, normal: scale(up, -1.0), x }, 0.0, -turn)
+                };
+                offsets.push(occt::arc_edge(frame, rho, lo, hi).map_err(|_| failed())?);
+            }
+            _ => return Ok(None),
+        }
+        bases.push(base);
+    }
+    // The floor beyond the offset curves.
+    let split = occt::split(std::slice::from_ref(floor), &offsets).map_err(|_| failed())?.shape();
+    let kept_floor: Vec<Shape> = split
+        .sub_shapes(ShapeKind::Face)
+        .into_iter()
+        .filter(|piece| bases.iter().all(|b| piece.distance(b).is_ok_and(|d| d.distance > 1e-7)))
+        .collect();
+    // The walls above the radius.
+    let mut kept_walls = Vec::new();
+    for wall in side2 {
+        let bounds = wall.bounding_box(false).map_err(crate::occt_error)?;
+        let size = norm(sub(bounds.max, bounds.min)) * 2.0 + 1e-3;
+        let level = occt::Frame { origin: add(plane.origin, scale(up, r)), normal: up, x: plane.x };
+        let cutter = occt::plane_face(level, -size, size, -size, size).map_err(crate::occt_error)?;
+        let split = occt::split(std::slice::from_ref(wall), &[cutter]).map_err(|_| failed())?.shape();
+        kept_walls.extend(
+            split
+                .sub_shapes(ShapeKind::Face)
+                .into_iter()
+                .filter(|p| p.face_inner_point().is_ok_and(|q| height(q) > r)),
+        );
+    }
+    let mut all = kept_floor;
+    all.extend(pieces);
+    all.extend(kept_walls);
+    let sheet = occt::sew_faces(&all, 1e-7).map_err(|_| failed())?;
+    Ok(Some(sheet))
 }
 
 /// A face blend between two planar sides, meeting or not: the section runs round the line where their planes meet,
