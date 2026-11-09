@@ -483,23 +483,41 @@ pub fn curves_on_face(model: &mut Model, id: FeatureId, definition: &Value) -> R
 }
 
 pub fn boundary_surface(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
-    let v = field(definition, "vProfileSubqueries");
-    if v.as_array().is_some_and(|a| !a.is_empty()) {
-        return Err(error("@opBoundarySurface: v profiles aren't supported yet"));
-    }
-    let u = field(definition, "uProfileSubqueries")
-        .as_array()
-        .ok_or_else(|| error("uProfileSubqueries must be an array"))?;
-    let mut wires = Vec::new();
-    for q in u.iter() {
-        let edges = shapes(model, q, EntityType::Edge)?;
-        let mut connected = occt::connect_edges(&edges).map_err(occt_error)?;
-        if connected.len() != 1 {
-            return Err(regen_error("BOUNDARY_SURFACE_FAILED"));
+    let profiles = |key: &str| -> R<Vec<Shape>> {
+        let mut wires = Vec::new();
+        for q in field(definition, key).as_array().map(|a| a.to_vec()).unwrap_or_default() {
+            let edges = shapes(model, &q, EntityType::Edge)?;
+            let mut connected = occt::connect_edges(&edges).map_err(occt_error)?;
+            if connected.len() != 1 {
+                return Err(regen_error("BOUNDARY_SURFACE_FAILED"));
+            }
+            wires.push(connected.remove(0));
         }
-        wires.push(connected.remove(0));
+        Ok(wires)
+    };
+    let (u, v) = (profiles("uProfileSubqueries")?, profiles("vProfileSubqueries")?);
+    // Profiles one way only make the surface ruled between them; v profiles along the u profiles' ruled surface's
+    // sides change nothing (batch 062 c002: the same poles as without them).
+    let both = !u.is_empty() && !v.is_empty();
+    let wires = if u.is_empty() { &v } else { &u };
+    let op = occt::loft(wires, false).map_err(|_| regen_error("BOUNDARY_SURFACE_FAILED"))?;
+    if both {
+        let sides = op.shape();
+        for wire in &v {
+            let on_side = wire.sub_shapes(ShapeKind::Edge).iter().all(|e| {
+                [0.0, 0.25, 0.5, 0.75, 1.0].iter().all(|&t| {
+                    e.edge_tangent(t, false)
+                        .ok()
+                        .and_then(|a| occt::vertex(a.origin).ok())
+                        .and_then(|p| p.distance(&sides).ok())
+                        .is_some_and(|d| d.distance < 1e-7)
+                })
+            });
+            if !on_side {
+                return Err(error("@opBoundarySurface: v profiles off the u profiles' ruled surface aren't supported yet"));
+            }
+        }
     }
-    let op = occt::loft(&wires, false).map_err(|_| regen_error("BOUNDARY_SURFACE_FAILED"))?;
     for piece in op
         .shape()
         .sub_shapes(ShapeKind::Shell)
