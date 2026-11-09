@@ -674,6 +674,16 @@ pub fn offset_curve_on_face(model: &mut Model, id: FeatureId, definition: &Value
         });
         let into_by_default = !(target_planar && other_curved);
         let outward = into_by_default == opposite;
+        // Across a B-spline face, along geodesics (batch 066 c004).
+        if matches!(face_shape.surface_type(), Ok(occt::SurfaceType::BSpline | occt::SurfaceType::Bezier)) {
+            if outward {
+                continue;
+            }
+            if let Some(offset) = geodesic_offset(&face_shape, edge, distance)? {
+                made.push((offset, face));
+            }
+            continue;
+        }
         let signed = if outward { -distance } else { distance };
         let offset = match occt::offset_edge_on_planar_face(edge, &face_shape, signed) {
             Ok(offset) => offset,
@@ -1296,6 +1306,112 @@ fn extended_cubic(
         }
     }
     Ok(if at_end { extended } else { extended.reversed() })
+}
+
+/// An edge of a face offset across it along geodesics (batch 066 c004: a loft's bottom edge offset up its B-spline
+/// side): from points along the edge, walks of the distance into the face square to the edge, staying on its
+/// surface; where a walk leaves the face the curve stops at its boundary. None if every walk leaves it.
+fn geodesic_offset(face: &Shape, edge: &Shape, distance: f64) -> R<Option<Shape>> {
+    use crate::values::{add, cross, dot, norm, normalize, scale, sub};
+    const SAMPLES: usize = 48;
+    const STEPS: usize = 64;
+    let on_face = |x: occt::Vec3| -> Option<occt::Frame> {
+        let (fu, fv) = face.face_fraction(x).ok()?;
+        face.face_tangent_plane(fu.clamp(0.0, 1.0), fv.clamp(0.0, 1.0)).ok()
+    };
+    let inside = |x: occt::Vec3| occt::vertex(x).and_then(|v| v.distance(face)).is_ok_and(|d| d.distance < 1e-6);
+    // The walk from the point at fraction t of the edge: its end, or None if it leaves the face.
+    let walk = |t: f64| -> Option<Option<occt::Vec3>> {
+        let a = edge.edge_tangent(t, false).ok()?;
+        let start = on_face(a.origin)?;
+        let mut dir = normalize(cross(start.normal, a.direction))?;
+        if !inside(add(a.origin, scale(dir, distance * 1e-3))) {
+            dir = scale(dir, -1.0);
+        }
+        let h = distance / STEPS as f64;
+        let mut x = a.origin;
+        for _ in 0..STEPS {
+            let y = add(x, scale(dir, h));
+            // Past the face's edge the step projects back onto it, well short or onto the edge itself.
+            let f = on_face(y)?;
+            let (fu, fv) = face.face_fraction(y).ok()?;
+            let at_edge = [fu, fv].iter().any(|t| *t <= 1e-9 || *t >= 1.0 - 1e-9);
+            if norm(sub(f.origin, y)) > 0.25 * h || at_edge {
+                return Some(None);
+            }
+            let step = sub(f.origin, x);
+            dir = normalize(sub(step, scale(f.normal, dot(step, f.normal))))?;
+            x = f.origin;
+        }
+        Some(Some(x))
+    };
+    let mut ends: Vec<(f64, Option<occt::Vec3>)> = Vec::new();
+    for k in 0..=SAMPLES {
+        let t = k as f64 / SAMPLES as f64;
+        ends.push((t, walk(t).ok_or_else(|| regen_error("OFFSET_CURVE_ON_FACE_FAILED"))?));
+    }
+    let first = ends.iter().position(|e| e.1.is_some());
+    let last = ends.iter().rposition(|e| e.1.is_some());
+    let (Some(first), Some(last)) = (first, last) else { return Ok(None) };
+    // Where walks leave the face, the curve runs on to its boundary: the last walks' ends carried on in the face's
+    // parameter plane, straight on from the last two, until they reach it (Onshape's ends lie on the face's edges,
+    // batch 066 c004).
+    let inner: Vec<occt::Vec3> = ends[first..=last].iter().filter_map(|e| e.1).collect();
+    let to_boundary = |a: occt::Vec3, b: occt::Vec3, c: occt::Vec3| -> Option<occt::Vec3> {
+        let uv = |p: occt::Vec3| face.face_fraction(p).ok();
+        let (pa, pb, pc) = (uv(a)?, uv(b)?, uv(c)?);
+        // Straight on from b through c (s = 0 at c, 1 a step further).
+        let _ = pa;
+        let at = |s: f64| (pc.0 + s * (pc.0 - pb.0), pc.1 + s * (pc.1 - pb.1));
+        let outside = |s: f64| {
+            let (u, v) = at(s);
+            !(0.0..=1.0).contains(&u) || !(0.0..=1.0).contains(&v)
+        };
+        let mut hi = 1.0;
+        while !outside(hi) {
+            hi *= 2.0;
+            if hi > 64.0 {
+                return None;
+            }
+        }
+        let mut lo = 0.0;
+        for _ in 0..60 {
+            let m = (lo + hi) / 2.0;
+            if outside(m) { hi = m } else { lo = m }
+        }
+        let (u, v) = at(lo);
+        face.face_tangent_plane(u.clamp(0.0, 1.0), v.clamp(0.0, 1.0)).ok().map(|f| f.origin)
+    };
+    let mut points: Vec<occt::Vec3> = Vec::new();
+    if first > 0 && inner.len() >= 3 {
+        points.extend(to_boundary(inner[2], inner[1], inner[0]));
+    }
+    points.extend(inner.iter().copied());
+    if last < SAMPLES && inner.len() >= 3 {
+        let n = inner.len();
+        points.extend(to_boundary(inner[n - 3], inner[n - 2], inner[n - 1]));
+    }
+    points.dedup_by(|a, b| norm(sub(*a, *b)) < 1e-9);
+    if points.len() < 2 {
+        return Ok(None);
+    }
+    // Along the edge as the face's loop runs it (batch 066 c004).
+    let in_face = face.sub_shapes(ShapeKind::Edge).into_iter().find(|e| e.is_same(edge));
+    if in_face.is_some_and(|e| e.is_reversed() != edge.is_reversed()) {
+        points.reverse();
+    }
+    let mut parameters = vec![0.0];
+    for w in points.windows(2) {
+        parameters.push(parameters.last().copied().unwrap_or(0.0) + norm(sub(w[1], w[0])));
+    }
+    let n = points.len();
+    let derivatives: Vec<occt::Vec3> = (0..n)
+        .map(|k| {
+            let (a, b) = if k == 0 { (0, 1) } else if k == n - 1 { (n - 2, n - 1) } else { (k - 1, k + 1) };
+            scale(sub(points[b], points[a]), 1.0 / (parameters[b] - parameters[a]))
+        })
+        .collect();
+    occt::interpolated_edge(&points, &derivatives, &parameters, false).map(Some).map_err(occt_error)
 }
 
 /// How far along a ray from `p` along `d` it first meets a curve, found from samples along the curve.
