@@ -1438,6 +1438,85 @@ pub fn flat_operation(model: &mut Model, id: FeatureId, definition: &Value) -> R
     Ok(Value::UNDEFINED)
 }
 
+/// `@opCreateOutline` (std's sheet metal booleans, batch 072 c003–c005): the outline of tools projected onto a face's
+/// surface along its normal, as sheets on it. On a plane, the tools' outline seen along its normal (a sphere's
+/// equator, a slanted cylinder's two ends and the lines joining them). On a cylinder, each tool's faces on the
+/// offset cylinders (`offsetFaces`, two a tool) carried radially onto it, and joined: what the tool covers through
+/// the wall's thickness.
+pub fn create_outline(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
+    let failed = || regen_error("SHEET_METAL_REBUILD_ERROR");
+    let tools: Vec<usize> = super::owner_bodies(model, field(definition, "tools"))?;
+    let target = query::evaluate(model, field(definition, "target"))?
+        .into_iter()
+        .find(|r| r.kind == EntityType::Face)
+        .ok_or_else(|| regen_error("CANNOT_RESOLVE_ENTITIES"))?;
+    let face = model.shape(target).clone();
+    let info = Info::new(id.clone());
+    if let Ok(plane) = face.face_plane() {
+        let solids: Vec<Shape> = tools.iter().map(|&b| model.bodies[b].shape.clone()).collect();
+        let outline = occt::outline_on_plane(&solids, plane).map_err(|e| error(format!("@opCreateOutline: {e}")))?;
+        super::add_simple(model, outline, BodyType::Sheet, &info, false);
+        return Ok(Value::UNDEFINED);
+    }
+    let s = face.surface_definition().map_err(occt_error)?;
+    if s.kind != 1 {
+        return Err(error("@opCreateOutline: targets other than planes and cylinders aren't supported yet"));
+    }
+    let offset: Vec<EntityRef> = query::evaluate(model, field(definition, "offsetFaces"))?
+        .into_iter()
+        .filter(|r| r.kind == EntityType::Face)
+        .collect();
+    let ((u0, v0), (u1, v1)) = face.face_uv_bounds().map_err(occt_error)?;
+    let raw = |p: Vec3| -> R<(f64, f64)> {
+        let (fu, fv) = face.face_fraction(p).map_err(occt_error)?;
+        Ok((u0 + fu * (u1 - u0), v0 + fv * (v1 - v0)))
+    };
+    let mut pieces = Vec::new();
+    for &b in &tools {
+        let mine: Vec<Shape> = offset.iter().filter(|r| r.body == b).map(|r| model.shape(*r).clone()).collect();
+        if mine.len() != 2 {
+            return Err(regen_error("SHEET_METAL_TOOL_DOES_NOT_CUT_THROUGH"));
+        }
+        let mut carried = Vec::new();
+        for f in &mine {
+            let wires = f.sub_shapes(ShapeKind::Wire);
+            let Some(outer) = wires.first() else { continue };
+            // Each edge's points, chained end to end round the loop.
+            let mut polylines: Vec<Vec<(f64, f64)>> = Vec::new();
+            for e in outer.sub_shapes(ShapeKind::Edge) {
+                const SAMPLES: usize = 16;
+                let points = (0..=SAMPLES)
+                    .map(|k| e.edge_tangent(k as f64 / SAMPLES as f64, false).map_err(occt_error).and_then(|a| raw(a.origin)))
+                    .collect::<R<Vec<_>>>()?;
+                polylines.push(points);
+            }
+            let close = |a: (f64, f64), b: (f64, f64)| (a.0 - b.0).abs() + (a.1 - b.1).abs() < 1e-9;
+            let mut chain = vec![polylines.remove(0)];
+            while !polylines.is_empty() {
+                let end = *chain.last().and_then(|c| c.last()).ok_or_else(failed)?;
+                let k = polylines
+                    .iter()
+                    .position(|p| close(p[0], end) || close(*p.last().expect("points"), end))
+                    .ok_or_else(failed)?;
+                let mut next = polylines.remove(k);
+                if !close(next[0], end) {
+                    next.reverse();
+                }
+                chain.push(next);
+            }
+            carried.push(occt::face_from_uv(&face, &chain).map_err(|_| failed())?);
+        }
+        let [a, b] = &carried[..] else { return Err(failed()) };
+        let joined = occt::boolean(occt::BooleanKind::Union, std::slice::from_ref(a), std::slice::from_ref(b), true)
+            .map_err(|_| failed())?
+            .shape();
+        pieces.extend(joined.sub_shapes(ShapeKind::Face));
+    }
+    let sheet = occt::sew_faces(&pieces, 1e-7).map_err(|_| failed())?;
+    super::add_simple(model, sheet, BodyType::Sheet, &info, false);
+    Ok(Value::UNDEFINED)
+}
+
 /// A model made inactive leaves its parts as ordinary parts, without association attributes.
 fn release_parts(model: &mut Model, def_index: usize) {
     let def_association = association(&model.bodies[def_index].attributes).cloned();

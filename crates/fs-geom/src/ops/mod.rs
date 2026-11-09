@@ -79,6 +79,7 @@ pub fn register(m: &mut GeomBuiltins) {
     m.insert("opEdgeChange", |_, args| run_op(&args, "opEdgeChange", sheet_metal::edge_change));
     m.insert("sheetMetalApplyInFlat", |_, args| run_op(&args, "sheetMetalApplyInFlat", sheet_metal::apply_in_flat));
     m.insert("opSMFlatOperation", |_, args| run_op(&args, "opSMFlatOperation", sheet_metal::flat_operation));
+    m.insert("opCreateOutline", |_, args| run_op(&args, "opCreateOutline", sheet_metal::create_outline));
     m.insert("evCornerType", |interp, args| {
         let tags = crate::tags(interp)?;
         let definition = fs_interp::builtins::arg(&args, 1, "evCornerType")?.clone();

@@ -1,5 +1,12 @@
 // Surface and curve operations: sections, fills, enclosures, sheet extension, iso curves, projections.
 
+#include <HLRBRep_Algo.hxx>
+#include <BRepBndLib.hxx>
+#include <BRepAlgoAPI_Splitter.hxx>
+#include <ShapeUpgrade_UnifySameDomain.hxx>
+#include <HLRBRep_HLRToShape.hxx>
+#include <HLRAlgo_Projector.hxx>
+#include <IntCurvesFace_ShapeIntersector.hxx>
 #include "occt/cpp/occt.h"
 #include <BRepFilletAPI_MakeFillet2d.hxx>
 #include <GeomConvert.hxx>
@@ -1059,6 +1066,82 @@ std::unique_ptr<Shape> face_corner_2d(const Shape &face_shape, const Shape &vert
   TopExp_Explorer first(cut.Shape(), TopAbs_FACE);
   if (!first.More()) throw std::runtime_error("corner: nothing left");
   return wrap(first.Current());
+}
+
+// The outline of solids projected along a plane's normal onto it (std's opCreateOutline for a planar target): their
+// edges and silhouettes seen along the normal, drawn on the plane, split a face covering them; the pieces whose
+// line along the normal passes through a solid are kept and joined.
+std::unique_ptr<Shape> outline_on_plane(const ShapeList &tools, Frame plane) {
+  gp_Ax2 axes = ax2(plane);
+  Handle(HLRBRep_Algo) algo = new HLRBRep_Algo();
+  for (const TopoDS_Shape &t : tools.shapes) algo->Add(t);
+  algo->Projector(HLRAlgo_Projector(axes));
+  algo->Update();
+  algo->Hide();
+  HLRBRep_HLRToShape lines(algo);
+  // The projector's drawing is in its own plane's coordinates: carried onto the plane.
+  gp_Trsf onto;
+  onto.SetTransformation(gp_Ax3(axes), gp_Ax3());
+  TopoDS_Compound edges;
+  BRep_Builder builder;
+  builder.MakeCompound(edges);
+  bool any = false;
+  for (const TopoDS_Shape &c : {lines.VCompound(), lines.HCompound(), lines.OutLineVCompound(), lines.OutLineHCompound(),
+                                lines.Rg1LineVCompound(), lines.Rg1LineHCompound()}) {
+    if (c.IsNull()) continue;
+    BRepLib::BuildCurves3d(c);
+    for (TopExp_Explorer e(c, TopAbs_EDGE); e.More(); e.Next()) {
+      TopoDS_Shape moved = BRepBuilderAPI_Transform(e.Current(), onto, Standard_True).Shape();
+      builder.Add(edges, moved);
+      any = true;
+    }
+  }
+  if (!any) throw std::runtime_error("outline: nothing to project");
+  Bnd_Box box;
+  BRepBndLib::Add(edges, box);
+  double x0, y0, z0, x1, y1, z1;
+  box.Get(x0, y0, z0, x1, y1, z1);
+  const double size = gp_Pnt(x0, y0, z0).Distance(gp_Pnt(x1, y1, z1)) + 1.0;
+  gp_Pln pln(axes.Location(), axes.Direction());
+  TopoDS_Face big = BRepBuilderAPI_MakeFace(pln, -size * 4, size * 4, -size * 4, size * 4).Face();
+  // Centre the face on the drawing.
+  gp_Pnt centre((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
+  gp_Pnt at = pln.Location();
+  gp_Vec shift(at, centre);
+  shift -= gp_Vec(axes.Direction()) * shift.Dot(gp_Vec(axes.Direction()));
+  gp_Trsf move;
+  move.SetTranslation(shift);
+  big = TopoDS::Face(BRepBuilderAPI_Transform(big, move, Standard_True).Shape());
+  BRepAlgoAPI_Splitter splitter;
+  TopTools_ListOfShape args, cutters;
+  args.Append(big);
+  for (TopExp_Explorer e(edges, TopAbs_EDGE); e.More(); e.Next()) cutters.Append(e.Current());
+  splitter.SetArguments(args);
+  splitter.SetTools(cutters);
+  splitter.Build();
+  if (!splitter.IsDone()) throw std::runtime_error("outline: the drawing doesn't split the plane");
+  TopoDS_Compound tool_compound;
+  builder.MakeCompound(tool_compound);
+  for (const TopoDS_Shape &t : tools.shapes) builder.Add(tool_compound, t);
+  IntCurvesFace_ShapeIntersector through;
+  through.Load(tool_compound, 1e-7);
+  TopoDS_Compound kept;
+  builder.MakeCompound(kept);
+  int count = 0;
+  for (TopExp_Explorer f(splitter.Shape(), TopAbs_FACE); f.More(); f.Next()) {
+    TopoDS_Face face = TopoDS::Face(f.Current());
+    gp_Pnt p = pnt(face_inner_point(Shape(face)));
+    gp_Lin ray(p.Translated(gp_Vec(axes.Direction()) * (-size * 4)), axes.Direction());
+    through.Perform(ray, 0, size * 8);
+    if (through.IsDone() && through.NbPnt() > 0) {
+      builder.Add(kept, face);
+      ++count;
+    }
+  }
+  if (count == 0) throw std::runtime_error("outline: no piece lies under the tools");
+  ShapeUpgrade_UnifySameDomain unifier(kept, Standard_True, Standard_True, Standard_False);
+  unifier.Build();
+  return wrap(unifier.Shape());
 }
 
 }  // namespace occt
