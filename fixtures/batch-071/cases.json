@@ -1,0 +1,127 @@
+{
+  "batch": "071",
+  "title": "face blends limited, capped, on a cylinder and walls of several faces; Béziers; a tilted half torus split; a PCB bend unfolded; a cut in a rolled flat with a flange",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "face-blend",
+      "description": "batch 054's corner blended 5 mm, limited by the plane x = 10",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "face-blend",
+      "description": "the same, limited by the planes x = 10 and x = 20",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "face-blend",
+      "description": "the same, capped by a sheet across it at x = 15",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "face-blend",
+      "description": "a floor sheet and an upright cylinder sheet of radius 10 on it, blended 3 mm (the cylinder's side not flipped)",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "face-blend",
+      "description": "the same, the cylinder's side flipped",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "face-blend",
+      "description": "a floor sheet and a wall of a line, an arc and a line standing on it, blended 3 mm (the wall not flipped)",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "face-blend",
+      "description": "the same, the wall flipped",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c008",
+      "kind": "sketch-curve",
+      "description": "a quadratic Bézier from (0, 0) through the control point (10, 20) to (30, 0), and a curve made of it",
+      "slotMeters": [
+        2.8000000000000003,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c009",
+      "kind": "trim-curve",
+      "description": "a quartic Bézier from (0, 0) to (30, 0) extended 10 mm at its end, straight on",
+      "slotMeters": [
+        3.2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c010",
+      "kind": "isocline",
+      "description": "half a torus (revolved 180°) split at its 20 degree isoclines, the direction tilted 30° from its axis",
+      "slotMeters": [
+        3.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c011",
+      "kind": "pcb",
+      "description": "a flex PCB plate (0.2 mm) with flanges on two sides, finished with one bend unfolded holding its top, and its bend lines",
+      "slotMeters": [
+        0,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c012",
+      "kind": "sheet-metal-flat",
+      "description": "batch 069's half tube with a flange, a 6 mm circle cut out of the middle of its flat pattern",
+      "slotMeters": [
+        0.4,
+        0.4,
+        0
+      ]
+    }
+  ]
+}

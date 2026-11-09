@@ -749,8 +749,10 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   polynomial (p₀ + p₁x + p₂x²/2 − p₂x³/(6Δ)) as far as 10 mm along it, its knot at the old end single. Its Δ is 1,
   the conic's whole parameter range, where turning 3° would take 1.57: the blend runs on for at most the curve's
   range (one case shows it). std's `evCurveDefinition` of a sketch conic isn't a `BSplineCurve`.
-- **A quadratic Bézier** (three points) can't be extended: `MOVE_CURVE_BOUNDARY_EXTEND_REQUIRES_OPEN_CURVE` (batch
-  070 c001, c002), though it runs from (0, 0) to (30, 0).
+- **A sketch's Bézier comes with its control polygon** (batch 071 c008): construction lines between its points, each
+  a wire body as the curve is, so a curve made of the sketch's edges is closed (the Bézier, then the lines in order)
+  and can't be extended: `MOVE_CURVE_BOUNDARY_EXTEND_REQUIRES_OPEN_CURVE` (batch 070 c001, c002, a quadratic; 071
+  c009, a quartic). That curve keeps the sketch's edges in their order and directions.
 - **Half a torus tilted to the direction** (batch 070 c005): its 20° isoclines are two open curves from one cut end
   to the other, each running along n × d (the outward normal crossed with the direction).
 - **Both sides of a curved parting sheet, matching at it** (batch 070 c006): `BODY_DRAFT_MITER_FAILED`. Each side's
@@ -771,6 +773,20 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   sketch on `qCorrespondingInFlat` of its outer face) wraps back onto the tube at the neutral radius: the faces
   lose (22/21) and (20/21) of its area (Onshape's 0.017% more: its fit of the curve), and the hole's wall is a
   B-spline across the thickness.
+- **Face blends limited by planes** (batch 071 c001, c002): each limit plane keeps the side its normal points to;
+  the blend runs where all of them do (planes at x = 10 and x = 20 both facing +x: x ≥ 20). The sides are notched
+  only there, meeting at their old edge beyond, and a planar face closes each end a plane limits, between the
+  sides and the blend (r² − πr²/4: 5.365 mm² for 5 mm). A cap sheet across the middle of a blend, the sides running
+  on past it both ways, fails: `FACE_BLEND_INCONSISTENT_DATA` (c003).
+- **Face blends between a floor and walls standing on it** (batch 071 c004–c007): along the walls' base curves
+  offset the radius over the floor, a quarter cylinder along each line and a quarter torus round each arc (a full
+  one round a cylinder), inside or outside by the wall's flip; the floor keeps only what lies beyond the offset
+  curves on the blend's side, the walls what lies more than the radius up.
+- **Half a tilted torus split at its isoclines** (batch 071 c010): two toroidal faces (349.35 and 242.82 mm²), the
+  curves running end to end, the end circles each in two arcs.
+- **A flex PCB with one of two flanges' bends unfolded** (batch 071 c011) keeps both bend lines; where the bends meet
+  at the corner each line stops at the other's setback (from (39.864, 0) to (39.864, 29), and from (39, 29.864)
+  to (0, 29.864)).
 - **`derivedMirror` in a Part Studio feature** (batch 060 c001): Onshape fails with "Execution error". It builds
   its source twice, once by `@convert` and again in `instantiate` (no loaded context), which Onshape evidently
   refuses for a build function defined in the studio (it won't derive one source twice in a Part Studio, batch
