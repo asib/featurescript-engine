@@ -1690,63 +1690,112 @@ std::unique_ptr<Operation> loft_clamped_op(const ShapeList &wires, bool solid, V
     // Along the travel from the first profile to the last.
     if (travel.Dot(end.v) < 0) end.v.Reverse();
   }
-  // Two polygons with their tangency set at an end, tangent to its plane (batch 060 c006–c008, batch 056 c003):
-  // each side is Onshape's bicubic exactly. Along the edge it has knots at thirds, the edge's points at the
-  // Greville abscissae; across, one cubic span, natural at a free end. At a tangent end its derivative across is,
-  // along the edge, the natural cubic spline through its values at the knots: there the chord to the other profile
-  // projected into the end's plane, as long as that chord times the magnitude, in the corners' directions blended
-  // by h = 3u² − 2u³ (an end condition at the last profile likewise, the chord still from the first to the last).
-  bool exact = n == 2 && !start_curvature && !end_curvature && start_faces.shapes.empty() &&
-               end_faces.shapes.empty() && (has_start || has_end) && (!has_start || start_tangent) &&
-               (!has_end || end_tangent);
+  // Polygons with their tangency set at an end, tangent to its plane (batch 056 c003; 060 c006–c008; 061; 062
+  // c008): each side is Onshape's bicubic exactly. Along the edge it has knots at thirds, the edge's points at the
+  // Greville abscissae; across, the cubic spline through the profiles, knots spaced as the chords between the
+  // edges' middles, natural at a free end. At a tangent end its derivative across is, along the edge, the natural
+  // cubic spline through its values at the knots: there the start (or end) tangent of the natural spline through
+  // the profiles projected into the end's plane, times the magnitude, as long, in the corners' directions blended
+  // by h = 3u² − 2u³. Between two profiles that tangent is the chord.
+  bool exact = !start_curvature && !end_curvature && start_faces.shapes.empty() && end_faces.shapes.empty() &&
+               (has_start || has_end) && (!has_start || start_tangent) && (!has_end || end_tangent);
   std::vector<TopoDS_Face> exact_faces;
   if (exact) {
     const double greville[6] = {0, 1.0 / 9, 1.0 / 3, 2.0 / 3, 8.0 / 9, 1};
-    std::vector<double> flat_u = {0, 0, 0, 0, 1.0 / 3, 2.0 / 3, 1, 1, 1, 1};
-    const TColStd_Array1OfReal flat_knots(flat_u[0], 1, 10);
-    auto basis = [&](double x, int order) {
-      std::vector<double> row(6, 0.0);
+    // Each side's corners on each profile, its u running round the first profile anticlockwise about the travel.
+    struct Corners {
+      std::vector<gp_Pnt> a, b;
+    };
+    std::vector<Corners> corners;
+    const gp_Pnt c0 = centre(wires.shapes[0]);
+    for (const Side &side : sides) {
+      Corners c;
+      const double um = (side.u1 + side.u2) / 2;
+      for (size_t k = 0; k < n && exact; ++k) {
+        const gp_Pnt a = side.surface->Value(side.u1, side.v[k]), b = side.surface->Value(side.u2, side.v[k]);
+        exact = a.Distance(b) > 1e-9 && side.surface->Value(um, side.v[k]).Distance(gp_Pnt((a.XYZ() + b.XYZ()) / 2)) < 1e-9;
+        c.a.push_back(a);
+        c.b.push_back(b);
+      }
+      if (!exact) break;
+      if (gp_Vec(c.a[0], c.b[0]).Crossed(gp_Vec(c.a[0], c.a[1])).Dot(gp_Vec(c0, gp_Pnt((c.a[0].XYZ() + c.b[0].XYZ()) / 2))) < 0)
+        std::swap(c.a, c.b);
+      corners.push_back(c);
+    }
+    // Across: knots spaced as the chords between the edges' middles, over all the sides.
+    std::vector<double> tk(n, 0.0);
+    if (exact) {
+      std::vector<double> chord(n - 1, 0.0);
+      for (const Corners &c : corners)
+        for (size_t k = 0; k + 1 < n; ++k)
+          chord[k] += gp_Pnt((c.a[k].XYZ() + c.b[k].XYZ()) / 2).Distance(gp_Pnt((c.a[k + 1].XYZ() + c.b[k + 1].XYZ()) / 2));
+      double total = 0;
+      for (double x : chord) total += x;
+      for (size_t k = 0; k + 1 < n; ++k) tk[k + 1] = tk[k] + chord[k] / total;
+      tk[n - 1] = 1;
+    }
+    const int mv = static_cast<int>(n) + 2;
+    std::vector<double> flat_v;
+    for (size_t k = 0; k < n; ++k) for (int r = 0; r < (k == 0 || k == n - 1 ? 4 : 1); ++r) flat_v.push_back(tk[k]);
+    auto basis_in = [](const std::vector<double> &flat, int count, double x, int order) {
+      std::vector<double> row(count, 0.0);
       math_Matrix ders(1, order + 1, 1, 4);
       int first = 0;
-      BSplCLib::EvalBsplineBasis(order, 4, flat_knots, x, first, ders);
+      BSplCLib::EvalBsplineBasis(order, 4, TColStd_Array1OfReal(flat[0], 1, static_cast<int>(flat.size())), x, first, ders);
       for (int j = 0; j < 4; ++j)
-        if (first + j - 1 >= 0 && first + j - 1 < 6) row[first + j - 1] = ders(order + 1, j + 1);
+        if (first + j - 1 >= 0 && first + j - 1 < count) row[first + j - 1] = ders(order + 1, j + 1);
       return row;
     };
+    // Systems across: through the profiles, natural at both ends (for the tangents the conditions are measured from),
+    // and with the loft's own conditions.
+    auto system_with = [&](bool clamp_start, bool clamp_end) {
+      math_Matrix m(1, mv, 1, mv, 0.0);
+      int row = 1;
+      auto put = [&](const std::vector<double> &r) {
+        for (int j = 0; j < mv; ++j) m(row, j + 1) = r[j];
+        ++row;
+      };
+      for (size_t k = 0; k < n; ++k) put(basis_in(flat_v, mv, tk[k], 0));
+      put(basis_in(flat_v, mv, tk[0], clamp_start ? 1 : 2));
+      put(basis_in(flat_v, mv, tk[n - 1], clamp_end ? 1 : 2));
+      return m;
+    };
+    math_Gauss natural_across(system_with(false, false)), clamped_across(system_with(has_start, has_end));
+    const std::vector<double> flat_u = {0, 0, 0, 0, 1.0 / 3, 2.0 / 3, 1, 1, 1, 1};
     math_Matrix natural(1, 6, 1, 6, 0.0);
     {
       const double at[4] = {0, 1.0 / 3, 2.0 / 3, 1};
       for (int k = 0; k < 4; ++k) {
-        const auto r = basis(at[k], 0);
+        const auto r = basis_in(flat_u, 6, at[k], 0);
         for (int j = 0; j < 6; ++j) natural(k + 1, j + 1) = r[j];
       }
-      const auto r0 = basis(0, 2), r1 = basis(1, 2);
+      const auto r0 = basis_in(flat_u, 6, 0, 2), r1 = basis_in(flat_u, 6, 1, 2);
       for (int j = 0; j < 6; ++j) natural(5, j + 1) = r0[j], natural(6, j + 1) = r1[j];
     }
-    math_Gauss natural_solver(natural);
-    const gp_Pnt c0 = centre(wires.shapes[0]);
-    for (const Side &side : sides) {
-      gp_Pnt a0 = side.surface->Value(side.u1, side.v[0]), b0 = side.surface->Value(side.u2, side.v[0]);
-      gp_Pnt a1 = side.surface->Value(side.u1, side.v[1]), b1 = side.surface->Value(side.u2, side.v[1]);
-      const double um = (side.u1 + side.u2) / 2;
-      auto straight = [&](const gp_Pnt &p, const gp_Pnt &q, double v) {
-        return p.Distance(q) > 1e-9 && side.surface->Value(um, v).Distance(gp_Pnt((p.XYZ() + q.XYZ()) / 2)) < 1e-9;
+    math_Gauss natural_along(natural);
+    exact = exact && natural_along.IsDone() && natural_across.IsDone() && clamped_across.IsDone();
+    for (size_t si = 0; exact && si < corners.size(); ++si) {
+      const Corners &c = corners[si];
+      auto at = [&](size_t k, double u) { return gp_Pnt(c.a[k].XYZ() + (c.b[k].XYZ() - c.a[k].XYZ()) * u); };
+      // The tangent at an end of the natural spline through the profiles' points at u.
+      auto natural_tangent = [&](double u, bool at_start) {
+        gp_Vec d;
+        for (int coord = 1; coord <= 3; ++coord) {
+          math_Vector rhs(1, mv, 0.0), x(1, mv);
+          for (size_t k = 0; k < n; ++k) rhs(static_cast<int>(k) + 1) = at(k, u).Coord(coord);
+          natural_across.Solve(rhs, x);
+          const auto r = basis_in(flat_v, mv, at_start ? 0.0 : 1.0, 1);
+          double value = 0;
+          for (int j = 0; j < mv; ++j) value += r[j] * x(j + 1);
+          d.SetCoord(coord, value);
+        }
+        return d;
       };
-      if (!natural_solver.IsDone() || !straight(a0, b0, side.v[0]) || !straight(a1, b1, side.v[1])) {
-        exact = false;
-        break;
-      }
-      // Along u the profile goes round anticlockwise about the travel, so the side faces out.
-      if (gp_Vec(a0, b0).Crossed(gp_Vec(a0, a1)).Dot(gp_Vec(c0, gp_Pnt((a0.XYZ() + b0.XYZ()) / 2))) < 0) {
-        std::swap(a0, b0);
-        std::swap(a1, b1);
-      }
-      auto chord = [&](double u) { return gp_Vec(a0.XYZ() + (b0.XYZ() - a0.XYZ()) * u, a1.XYZ() + (b1.XYZ() - a1.XYZ()) * u); };
       // An end's derivative poles along u.
-      auto derivative_poles = [&](const End &end) {
+      auto derivative_poles = [&](const End &end, bool at_start) {
         auto projected = [&](double u) {
-          const gp_Vec c = chord(u);
-          return (c - end.v * c.Dot(end.v)) * end.mag;
+          const gp_Vec d = natural_tangent(u, at_start);
+          return (d - end.v * d.Dot(end.v)) * end.mag;
         };
         // The corners' directions (batch 061 c010: not their derivatives, which differ in length off the axis).
         const gp_Vec a = projected(0).Normalized(), b = projected(1).Normalized();
@@ -1757,40 +1806,40 @@ std::unique_ptr<Operation> loft_clamped_op(const ShapeList &wires, bool solid, V
           values.push_back(d.Magnitude() > 1e-12 ? d.Normalized() * projected(u).Magnitude() : d);
         }
         std::vector<gp_Vec> poles(6);
-        for (int c = 1; c <= 3; ++c) {
+        for (int coord = 1; coord <= 3; ++coord) {
           math_Vector rhs(1, 6, 0.0), x(1, 6);
-          for (int k = 0; k < 4; ++k) rhs(k + 1) = values[k].Coord(c);
-          natural_solver.Solve(rhs, x);
-          for (int j = 0; j < 6; ++j) poles[j].SetCoord(c, x(j + 1));
+          for (int k = 0; k < 4; ++k) rhs(k + 1) = values[k].Coord(coord);
+          natural_along.Solve(rhs, x);
+          for (int j = 0; j < 6; ++j) poles[j].SetCoord(coord, x(j + 1));
         }
         return poles;
       };
-      TColgp_Array2OfPnt poles(1, 6, 1, 4);
+      std::vector<gp_Vec> ds(6), de(6);
+      if (has_start) ds = derivative_poles(ends[0], true);
+      if (has_end) de = derivative_poles(ends[1], false);
+      TColgp_Array2OfPnt poles(1, 6, 1, mv);
       for (int i = 0; i < 6; ++i) {
-        poles(i + 1, 1) = gp_Pnt(a0.XYZ() + (b0.XYZ() - a0.XYZ()) * greville[i]);
-        poles(i + 1, 4) = gp_Pnt(a1.XYZ() + (b1.XYZ() - a1.XYZ()) * greville[i]);
-      }
-      std::vector<gp_Vec> ds, de;
-      if (has_start) ds = derivative_poles(ends[0]);
-      if (has_end) de = derivative_poles(ends[1]);
-      for (int i = 1; i <= 6; ++i) {
-        const gp_XYZ p0 = poles(i, 1).XYZ(), p3 = poles(i, 4).XYZ();
-        gp_XYZ p1, p2;
-        if (has_start && has_end) {
-          p1 = p0 + ds[i - 1].XYZ() / 3, p2 = p3 - de[i - 1].XYZ() / 3;
-        } else if (has_start) {
-          p1 = p0 + ds[i - 1].XYZ() / 3, p2 = (p1 + p3) / 2;
-        } else {
-          p2 = p3 - de[i - 1].XYZ() / 3, p1 = (p0 + p2) / 2;
+        for (int coord = 1; coord <= 3; ++coord) {
+          math_Vector rhs(1, mv, 0.0), x(1, mv);
+          for (size_t k = 0; k < n; ++k) rhs(static_cast<int>(k) + 1) = at(k, greville[i]).Coord(coord);
+          rhs(static_cast<int>(n) + 1) = ds[i].Coord(coord);
+          rhs(static_cast<int>(n) + 2) = de[i].Coord(coord);
+          clamped_across.Solve(rhs, x);
+          for (int j = 0; j < mv; ++j) {
+            gp_XYZ p = poles(i + 1, j + 1).XYZ();
+            p.SetCoord(coord, x(j + 1));
+            poles(i + 1, j + 1) = gp_Pnt(p);
+          }
         }
-        poles(i, 2) = gp_Pnt(p1);
-        poles(i, 3) = gp_Pnt(p2);
       }
-      TColStd_Array1OfReal uk(1, 4), vk(1, 2);
-      TColStd_Array1OfInteger umult(1, 4), vmult(1, 2);
+      TColStd_Array1OfReal uk(1, 4), vk(1, static_cast<int>(n));
+      TColStd_Array1OfInteger umult(1, 4), vmult(1, static_cast<int>(n));
       uk(1) = 0, uk(2) = 1.0 / 3, uk(3) = 2.0 / 3, uk(4) = 1;
       umult(1) = umult(4) = 4, umult(2) = umult(3) = 1;
-      vk(1) = 0, vk(2) = 1, vmult(1) = vmult(2) = 4;
+      for (size_t k = 0; k < n; ++k) {
+        vk(static_cast<int>(k) + 1) = tk[k];
+        vmult(static_cast<int>(k) + 1) = (k == 0 || k == n - 1) ? 4 : 1;
+      }
       Handle(Geom_BSplineSurface) surface = new Geom_BSplineSurface(poles, uk, vk, umult, vmult, 3, 3);
       exact_faces.push_back(BRepBuilderAPI_MakeFace(surface, 0, 1, 0, 1, 1e-7).Face());
     }
