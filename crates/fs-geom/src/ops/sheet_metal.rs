@@ -520,11 +520,16 @@ fn regenerate(model: &mut Model, id: &FeatureId, def_index: usize) -> R<()> {
     let pieces = if pieces.is_empty() { vec![solid] } else { pieces };
     let mut indices = Vec::new();
     for (k, piece) in pieces.into_iter().enumerate() {
-        let new = match old_bodies.get(k) {
-            Some(old_body) => {
+        let new = match (old_bodies.get(k), old_bodies.first()) {
+            (Some(old_body), _) => {
                 NewBody { attributes: Rc::new(attributes.clone()), ..NewBody::replacing(old_body, piece) }
             }
-            None => NewBody {
+            // A piece cut off an existing part is still made by what made the part, as a boolean's pieces are
+            // (batch 062 c005: both halves of a channel cut through are created by its sheet metal feature).
+            (None, Some(first)) => {
+                NewBody { tid: None, attributes: Rc::new(attributes.clone()), ..NewBody::replacing(first, piece) }
+            }
+            (None, None) => NewBody {
                 attributes: Rc::new(attributes.clone()),
                 ..NewBody::new(piece, BodyType::Solid, info.clone())
             },
