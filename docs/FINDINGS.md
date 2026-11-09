@@ -667,12 +667,23 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   created by its sheet metal feature. A circle across a bend is wrapped onto the bend, its wall there B-spline
   faces. The flange's outer face in the flat is on the flat's far side, z = −2 with normal −z (origin at its
   middle, (20, 35.4845, −2)), and the top's at z = 0: Onshape's flat pattern lies on the far side of the
-  definition's plane from the folded part.
+  definition's plane from the folded part. In the engine's terms (std puts this plate's definition on its top,
+  z = 2) the flat is the folded wall moved a thickness further towards its material: faces on the definition's
+  plane lie on the flat's near face (z = 0), faces a thickness off it on its far face (z = −2). The engine builds
+  that flat as a hidden body of each model (walls cut back by the setbacks and laid flat, bends their flat length
+  between), carrying the model's association attribute (std finds a flat sketch's model by it). Batch 064: a 60°
+  bend's flat starts the setback (the sheet's radius times tan 30°) short of the definition's corner, so the
+  base's flat face ends at 29.42265; a flange bent down and a channel's other flange lie as that model has them.
 - **Curvature fillets past 0.979** (batch 055 c019; 063 c001–c003): the section still passes through the
   shoulder, 0.125 α₂ + 0.375 (α₃ + β₃) = (1 − m)/2, but α₂ and β₃ follow a law not found: α₂ = 0.038195,
   0.0206525, 0.0107388, 0.005 and β₃ = 0.0006525, 0.0031158, 0.003103, 0.0014263 at m = 0.98, 0.985, 0.99, 0.995
   (α₂ = 1 − m exactly at 0.995; a cubic through them turns negative just outside them, so it isn't the law).
-  Magnitude 1 is out of range (`PARAMETER_OUT_OF_RANGE`).
+  Magnitude 1 is out of range (`PARAMETER_OUT_OF_RANGE`). Batch 064 (0.975 to 0.9975) shows constraints switching
+  on and off: from 0.9925, α₂ = 1 − m exactly (so α₃ + β₃ = 1 − m; β₃/(1 − m) = 0.3217, 0.2853, 0.1471 at 0.9925,
+  0.995, 0.9975); from 0.9825 to 0.9875, α₃ = 2(1 − m)/3 exactly with α₂ + 3β₃ = 2(1 − m), the first regime's
+  family split otherwise (α₂ = 0.027748, 0.0206525, 0.0160015); at 0.975 and 0.9775, α₂ still the third regime's
+  but β₃ about 7.3e-5 (0.000073, 0.000074) where its line gives 1.7e-4 and 2.9e-5; 0.98 and 0.99 lie between.
+  The construction looks like a constrained optimisation whose objective isn't known.
 - **Polygon lofts normal to a profile** (batch 063 c005–c007): the derivative is along the normal, at each corner
   the magnitude times 0.9 of the chord along the normal plus 0.1 of its length (as the engine had fitted); along
   the edge it is blended between the corners by a rule not found: halfway it is the corners' mean, but at a third
