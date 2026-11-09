@@ -635,7 +635,9 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   coaxial circles of radius 10, 14 and 8: 14110.2910 mm³ against Onshape's 14110.2866; uniform spacing gives
   14111.36); an end condition replaces the natural end. A point can be either end profile: a square or a circle to
   a point is a pyramid or a cone (ruled), a point through a circle to a point the spline through them. To a point,
-  Onshape's rows bulge between corner and middle of each edge by up to 0.003 mm (c004).
+  Onshape's rows bulge between corner and middle of each edge by up to 0.003 mm (c004). A circle lofted to a
+  square is split where the rays from its centre through the square's corners meet it, an arc to each edge (batch
+  004 c039: 12 edges, 8 vertices, the volume to 4e-8).
 - **Sweeps twisted or scaled along a chain of lines and arcs** (batch 057 c009, c010): the twist and scale grow
   with the distance along the whole path (at the joint of a 20 mm line and a quarter circle of radius 20, the line's
   share, 0.389, of the quarter turn); the profile is carried along each edge in turn, and each edge's piece is one
