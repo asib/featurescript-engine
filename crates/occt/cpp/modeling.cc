@@ -1690,6 +1690,111 @@ std::unique_ptr<Operation> loft_clamped_op(const ShapeList &wires, bool solid, V
     // Along the travel from the first profile to the last.
     if (travel.Dot(end.v) < 0) end.v.Reverse();
   }
+  // Two polygons with their tangency set at an end, tangent to its plane (batch 060 c006–c008, batch 056 c003):
+  // each side is Onshape's bicubic exactly. Along the edge it has knots at thirds, the edge's points at the
+  // Greville abscissae; across, one cubic span, natural at a free end. At a tangent end its derivative across is,
+  // along the edge, the natural cubic spline through its values at the knots: there the chord to the other profile
+  // projected into the end's plane, as long as that chord times the magnitude, in the corners' directions blended
+  // by h = 3u² − 2u³ (an end condition at the last profile likewise, the chord still from the first to the last).
+  bool exact = n == 2 && !start_curvature && !end_curvature && start_faces.shapes.empty() &&
+               end_faces.shapes.empty() && (has_start || has_end) && (!has_start || start_tangent) &&
+               (!has_end || end_tangent);
+  std::vector<TopoDS_Face> exact_faces;
+  if (exact) {
+    const double greville[6] = {0, 1.0 / 9, 1.0 / 3, 2.0 / 3, 8.0 / 9, 1};
+    std::vector<double> flat_u = {0, 0, 0, 0, 1.0 / 3, 2.0 / 3, 1, 1, 1, 1};
+    const TColStd_Array1OfReal flat_knots(flat_u[0], 1, 10);
+    auto basis = [&](double x, int order) {
+      std::vector<double> row(6, 0.0);
+      math_Matrix ders(1, order + 1, 1, 4);
+      int first = 0;
+      BSplCLib::EvalBsplineBasis(order, 4, flat_knots, x, first, ders);
+      for (int j = 0; j < 4; ++j)
+        if (first + j - 1 >= 0 && first + j - 1 < 6) row[first + j - 1] = ders(order + 1, j + 1);
+      return row;
+    };
+    math_Matrix natural(1, 6, 1, 6, 0.0);
+    {
+      const double at[4] = {0, 1.0 / 3, 2.0 / 3, 1};
+      for (int k = 0; k < 4; ++k) {
+        const auto r = basis(at[k], 0);
+        for (int j = 0; j < 6; ++j) natural(k + 1, j + 1) = r[j];
+      }
+      const auto r0 = basis(0, 2), r1 = basis(1, 2);
+      for (int j = 0; j < 6; ++j) natural(5, j + 1) = r0[j], natural(6, j + 1) = r1[j];
+    }
+    math_Gauss natural_solver(natural);
+    const gp_Pnt c0 = centre(wires.shapes[0]);
+    for (const Side &side : sides) {
+      gp_Pnt a0 = side.surface->Value(side.u1, side.v[0]), b0 = side.surface->Value(side.u2, side.v[0]);
+      gp_Pnt a1 = side.surface->Value(side.u1, side.v[1]), b1 = side.surface->Value(side.u2, side.v[1]);
+      const double um = (side.u1 + side.u2) / 2;
+      auto straight = [&](const gp_Pnt &p, const gp_Pnt &q, double v) {
+        return p.Distance(q) > 1e-9 && side.surface->Value(um, v).Distance(gp_Pnt((p.XYZ() + q.XYZ()) / 2)) < 1e-9;
+      };
+      if (!natural_solver.IsDone() || !straight(a0, b0, side.v[0]) || !straight(a1, b1, side.v[1])) {
+        exact = false;
+        break;
+      }
+      // Along u the profile goes round anticlockwise about the travel, so the side faces out.
+      if (gp_Vec(a0, b0).Crossed(gp_Vec(a0, a1)).Dot(gp_Vec(c0, gp_Pnt((a0.XYZ() + b0.XYZ()) / 2))) < 0) {
+        std::swap(a0, b0);
+        std::swap(a1, b1);
+      }
+      auto chord = [&](double u) { return gp_Vec(a0.XYZ() + (b0.XYZ() - a0.XYZ()) * u, a1.XYZ() + (b1.XYZ() - a1.XYZ()) * u); };
+      // An end's derivative poles along u.
+      auto derivative_poles = [&](const End &end) {
+        auto projected = [&](double u) {
+          const gp_Vec c = chord(u);
+          return (c - end.v * c.Dot(end.v)) * end.mag;
+        };
+        // The corners' directions (batch 061 c010: not their derivatives, which differ in length off the axis).
+        const gp_Vec a = projected(0).Normalized(), b = projected(1).Normalized();
+        std::vector<gp_Vec> values;
+        for (double u : {0.0, 1.0 / 3, 2.0 / 3, 1.0}) {
+          const double h = 3 * u * u - 2 * u * u * u;
+          gp_Vec d = a * (1 - h) + b * h;
+          values.push_back(d.Magnitude() > 1e-12 ? d.Normalized() * projected(u).Magnitude() : d);
+        }
+        std::vector<gp_Vec> poles(6);
+        for (int c = 1; c <= 3; ++c) {
+          math_Vector rhs(1, 6, 0.0), x(1, 6);
+          for (int k = 0; k < 4; ++k) rhs(k + 1) = values[k].Coord(c);
+          natural_solver.Solve(rhs, x);
+          for (int j = 0; j < 6; ++j) poles[j].SetCoord(c, x(j + 1));
+        }
+        return poles;
+      };
+      TColgp_Array2OfPnt poles(1, 6, 1, 4);
+      for (int i = 0; i < 6; ++i) {
+        poles(i + 1, 1) = gp_Pnt(a0.XYZ() + (b0.XYZ() - a0.XYZ()) * greville[i]);
+        poles(i + 1, 4) = gp_Pnt(a1.XYZ() + (b1.XYZ() - a1.XYZ()) * greville[i]);
+      }
+      std::vector<gp_Vec> ds, de;
+      if (has_start) ds = derivative_poles(ends[0]);
+      if (has_end) de = derivative_poles(ends[1]);
+      for (int i = 1; i <= 6; ++i) {
+        const gp_XYZ p0 = poles(i, 1).XYZ(), p3 = poles(i, 4).XYZ();
+        gp_XYZ p1, p2;
+        if (has_start && has_end) {
+          p1 = p0 + ds[i - 1].XYZ() / 3, p2 = p3 - de[i - 1].XYZ() / 3;
+        } else if (has_start) {
+          p1 = p0 + ds[i - 1].XYZ() / 3, p2 = (p1 + p3) / 2;
+        } else {
+          p2 = p3 - de[i - 1].XYZ() / 3, p1 = (p0 + p2) / 2;
+        }
+        poles(i, 2) = gp_Pnt(p1);
+        poles(i, 3) = gp_Pnt(p2);
+      }
+      TColStd_Array1OfReal uk(1, 4), vk(1, 2);
+      TColStd_Array1OfInteger umult(1, 4), vmult(1, 2);
+      uk(1) = 0, uk(2) = 1.0 / 3, uk(3) = 2.0 / 3, uk(4) = 1;
+      umult(1) = umult(4) = 4, umult(2) = umult(3) = 1;
+      vk(1) = 0, vk(2) = 1, vmult(1) = vmult(2) = 4;
+      Handle(Geom_BSplineSurface) surface = new Geom_BSplineSurface(poles, uk, vk, umult, vmult, 3, 3);
+      exact_faces.push_back(BRepBuilderAPI_MakeFace(surface, 0, 1, 0, 1, 1e-7).Face());
+    }
+  }
   // The direction an end's derivative takes at a point of its profile: its vector; matching faces, where the faces
   // next to the profile there meet (a corner of two, batch 058 c006), or across the one face square to the profile.
   auto direction_at = [&](const End &end, const gp_Pnt &q, const gp_Vec &along) {
@@ -1838,7 +1943,8 @@ std::unique_ptr<Operation> loft_clamped_op(const ShapeList &wires, bool solid, V
   BRepBuilderAPI_Sewing sewing(1e-6);
   for (const TopoDS_Shape &cap : kept) sewing.Add(cap);
   const int spans = 64;
-  for (const Side &side : sides) {
+  for (const TopoDS_Face &face : exact ? exact_faces : std::vector<TopoDS_Face>()) sewing.Add(face);
+  for (const Side &side : exact ? std::vector<Side>() : sides) {
     // At each span end along u: the poles across, and how they change along u.
     std::vector<std::vector<gp_Pnt>> value(spans + 1, std::vector<gp_Pnt>(m));
     std::vector<std::vector<gp_Vec>> slope(spans + 1, std::vector<gp_Vec>(m));
