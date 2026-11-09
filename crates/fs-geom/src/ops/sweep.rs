@@ -242,6 +242,11 @@ fn twisted_or_scaled(
         out
     };
     let identity = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+    if let [path] = path_edges
+        && !matches!(path.curve_type().ok(), Some(occt::CurveType::Line | occt::CurveType::Circle))
+    {
+        return twisted_along_curve(model, id, profiles, path, twist, scale, solid);
+    }
     if path_edges.iter().any(|e| !matches!(e.curve_type().ok(), Some(occt::CurveType::Line | occt::CurveType::Circle)))
     {
         return Err(unsupported());
@@ -380,6 +385,113 @@ fn twisted_or_scaled(
             occt::loft_pieces(&groups, solid).map_err(|_| regen_error("SWEEP_FAILED"))?
         };
         add_with_caps(model, id, &op, solid)?;
+    }
+    Ok(Value::UNDEFINED)
+}
+
+/// A sweep twisted or scaled along one curve other than a line or arc (a spline, batch 065): the profile carried
+/// along it by the rotation-minimising frame (double reflection; round a planar curve, turned about its plane's
+/// normal as round an arc), turned about the path by `twist` and grown to `scale` in proportion to the distance
+/// along it, and lofted through copies spaced evenly along the path, one every 2.8° of twist or of turn.
+fn twisted_along_curve(
+    model: &mut Model,
+    id: &FeatureId,
+    profiles: &[Shape],
+    path: &Shape,
+    twist: f64,
+    scale: f64,
+    solid: bool,
+) -> R<Value> {
+    use values::{add, cross, dot, norm, normalize, sub};
+    let failed = || regen_error("SWEEP_FAILED");
+    let rot3 = |axis: Vec3, angle: f64| -> [[f64; 3]; 3] {
+        let r = super::rotation(occt::Axis { origin: Vec3::new(0.0, 0.0, 0.0), direction: axis }, angle).m;
+        [[r[0], r[1], r[2]], [r[4], r[5], r[6]], [r[8], r[9], r[10]]]
+    };
+    let apply = |m: &[[f64; 3]; 3], v: Vec3| {
+        Vec3::new(
+            m[0][0] * v.x + m[0][1] * v.y + m[0][2] * v.z,
+            m[1][0] * v.x + m[1][1] * v.y + m[1][2] * v.z,
+            m[2][0] * v.x + m[2][1] * v.y + m[2][2] * v.z,
+        )
+    };
+    let mul = |a: &[[f64; 3]; 3], b: &[[f64; 3]; 3]| {
+        let mut out = [[0.0; 3]; 3];
+        for (i, row) in out.iter_mut().enumerate() {
+            for (j, x) in row.iter_mut().enumerate() {
+                *x = (0..3).map(|k| a[i][k] * b[k][j]).sum();
+            }
+        }
+        out
+    };
+    // The frame's columns as a matrix taking the start frame to it.
+    let frame_matrix = |t: Vec3, r: Vec3| {
+        let s = cross(t, r);
+        [[t.x, r.x, s.x], [t.y, r.y, s.y], [t.z, r.z, s.z]]
+    };
+    let transpose = |m: [[f64; 3]; 3]| [[m[0][0], m[1][0], m[2][0]], [m[0][1], m[1][1], m[2][1]], [m[0][2], m[1][2], m[2][2]]];
+    for profile in profiles {
+        let wire = if profile.kind() == Some(ShapeKind::Face) {
+            occt::outer_wire(profile).map_err(occt_error)?
+        } else {
+            profile.clone()
+        };
+        let centre = profile.centroid().map_err(occt_error)?;
+        let (a, b) = (path.edge_tangent(0.0, true).map_err(occt_error)?, path.edge_tangent(1.0, true).map_err(occt_error)?);
+        // From the end nearest the profile.
+        let back = norm(sub(b.origin, centre)) < norm(sub(a.origin, centre));
+        let sample = |t: f64| -> R<(Vec3, Vec3)> {
+            let ax = path.edge_tangent(if back { 1.0 - t } else { t }, false).map_err(occt_error)?;
+            Ok((ax.origin, if back { values::scale(ax.direction, -1.0) } else { ax.direction }))
+        };
+        // How far the tangent turns, to space the copies.
+        let mut turning = 0.0;
+        let mut previous = sample(0.0)?.1;
+        for k in 1..=256 {
+            let t = sample(k as f64 / 256.0)?.1;
+            turning += dot(previous, t).clamp(-1.0, 1.0).acos();
+            previous = t;
+        }
+        let step = std::f64::consts::PI / 64.0;
+        let steps = (((twist.abs().max(turning)) / step).ceil() as usize).max(16);
+        let (p0, t0) = sample(0.0)?;
+        let r0 = normalize(cross(t0, cross(Vec3::new(0.0, 0.0, 1.0), t0)))
+            .or_else(|| normalize(cross(t0, cross(Vec3::new(1.0, 0.0, 0.0), t0))))
+            .ok_or_else(failed)?;
+        let start = transpose(frame_matrix(t0, r0));
+        let (mut x, mut t, mut r) = (p0, t0, r0);
+        let mut wires = Vec::new();
+        for k in 0..=steps {
+            let f = k as f64 / steps as f64;
+            if k > 0 {
+                // Double reflection (Wang, Jüttler, Zheng and Liu 2008).
+                let (x1, t1) = sample(f)?;
+                let v1 = sub(x1, x);
+                let c1 = dot(v1, v1);
+                let rl = sub(r, values::scale(v1, 2.0 * dot(v1, r) / c1));
+                let tl = sub(t, values::scale(v1, 2.0 * dot(v1, t) / c1));
+                let v2 = sub(t1, tl);
+                let c2 = dot(v2, v2);
+                r = if c2 > 1e-24 { sub(rl, values::scale(v2, 2.0 * dot(v2, rl) / c2)) } else { rl };
+                r = normalize(sub(r, values::scale(t1, dot(r, t1)))).ok_or_else(failed)?;
+                (x, t) = (x1, t1);
+            }
+            let carry = mul(&frame_matrix(t, r), &start);
+            let turn = rot3(t, twist * f);
+            let s = 1.0 + (scale - 1.0) * f;
+            // A point y goes to x + s turn carry (y − p0).
+            let m3 = mul(&turn, &carry);
+            let off = sub(x, values::scale(apply(&m3, p0), s));
+            let m = [
+                s * m3[0][0], s * m3[0][1], s * m3[0][2], off.x,
+                s * m3[1][0], s * m3[1][1], s * m3[1][2], off.y,
+                s * m3[2][0], s * m3[2][1], s * m3[2][2], off.z,
+            ];
+            wires.push(occt::transform(&wire, &occt::Transform { m }).map_err(occt_error)?.shape());
+        }
+        let op = occt::loft(&wires, solid).map_err(|_| failed())?;
+        add_with_caps(model, id, &op, solid)?;
+        let _ = add;
     }
     Ok(Value::UNDEFINED)
 }
