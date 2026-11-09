@@ -759,6 +759,17 @@ pub fn offset_curve_on_face(model: &mut Model, id: FeatureId, definition: &Value
         });
         let into_by_default = !(target_planar && other_curved);
         let outward = into_by_default == opposite;
+        // A circle round a cone's or a sphere's axis offset across it: Onshape makes no curve (a cone's top circle,
+        // batch 067 c001; a hemisphere's equator, 072 c007), though it does across a torus (067 c002).
+        if let Ok(s) = face_shape.surface_definition()
+            && (s.kind == 2 || s.kind == 3)
+            && edge.curve_type().ok() == Some(occt::CurveType::Circle)
+            && let Ok(c) = edge.curve_definition()
+            && values::norm(values::cross(c.frame.normal, s.frame.normal)) < 1e-9
+            && values::norm(values::cross(values::sub(c.frame.origin, s.frame.origin), s.frame.normal)) < 1e-7
+        {
+            continue;
+        }
         // Across a B-spline face, along geodesics (batch 066 c004).
         if matches!(face_shape.surface_type(), Ok(occt::SurfaceType::BSpline | occt::SurfaceType::Bezier)) {
             if outward {

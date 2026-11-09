@@ -3,11 +3,9 @@
 
 use std::path::PathBuf;
 
-/// Cases the engine and Onshape don't agree on (see docs/std-coverage.md): a cone's top circle offset down its
-/// side, where Onshape makes no curve (its offset evidently goes off the face) and the engine makes one (c001); a
-/// block's top replaced up to a lofted sheet, which Onshape fails (`DIRECT_EDIT_REPLACE_FACE_FAILED`) and the
-/// engine builds (c005).
-const KNOWN_GAPS: &[&str] = &["c001", "c005"];
+/// Cases the engine and Onshape don't agree on (see docs/std-coverage.md): a block's top replaced up to a lofted
+/// sheet, which Onshape fails (`DIRECT_EDIT_REPLACE_FACE_FAILED`) and the engine builds (c005).
+const KNOWN_GAPS: &[&str] = &["c005"];
 
 /// The torus's offset: the engine's closed curve is the same parallel (radius 7.917666) but starts where its
 /// samples do, not where Onshape's does (at 7.5° round, c002). The ruled band: Onshape's surface is its own fit of
