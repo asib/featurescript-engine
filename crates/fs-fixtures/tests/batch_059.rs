@@ -3,10 +3,8 @@
 
 use std::path::PathBuf;
 
-/// Cases the engine can't build as Onshape does yet (see docs/std-coverage.md): where two cylinders cross, Onshape
-/// splits each closed curve into two edges when the cross cylinder is an extruded circle, by a rule not found
-/// (c001).
-const KNOWN_GAPS: &[&str] = &["c001"];
+/// Cases the engine can't build as Onshape does yet (see docs/std-coverage.md): none.
+const KNOWN_GAPS: &[&str] = &[];
 
 /// Onshape's offset of a circle across a plane is an approximation, 0.0015 mm shorter than the exact circle (c003).
 /// The curvature fillets' areas and volumes stray from Onshape's quintics as in batch 053 (c010–c012).

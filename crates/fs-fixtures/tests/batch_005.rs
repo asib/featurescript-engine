@@ -3,9 +3,8 @@
 
 use std::path::PathBuf;
 
-/// Cases that differ (see docs/std-coverage.md): how many edges Onshape splits a closed intersection curve into
-/// (c006); and a boundary surface's parameterization (c019).
-const KNOWN_GAPS: &[&str] = &["c006", "c019"];
+/// Cases that differ (see docs/std-coverage.md): a boundary surface's parameterization (c019).
+const KNOWN_GAPS: &[&str] = &["c019"];
 
 #[test]
 fn batch_005_matches_onshape() {
