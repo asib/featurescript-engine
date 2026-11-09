@@ -642,7 +642,12 @@ pub fn curves_on_face(model: &mut Model, id: FeatureId, definition: &Value) -> R
             let dir = values::add(values::scale(frame.x, a.cos()), values::scale(y, a.sin()));
             face.face_fraction(values::add(frame.origin, dir)).ok().map(|(fu, _)| fu)
         };
-        let periodic = occt::face_periodic(&face, !along_u);
+        // Round a face that wraps (a quarter torus wraps round its tube, not round its axis, batch 073 c004).
+        let periodic = occt::face_periodic(&face, !along_u) && {
+            let ((u0, v0), (u1, v1)) = face.face_uv_bounds().map_err(occt_error)?;
+            let span = if !along_u { u1 - u0 } else { v1 - v0 };
+            span >= 2.0 * std::f64::consts::PI - 1e-9
+        };
         let parameters: Vec<f64> = if auto {
             let n = field(group, "nCurves").as_number().unwrap_or(1.0).max(1.0) as usize;
             if periodic && round_face(0.0).is_some() {
