@@ -206,6 +206,8 @@ mod ffi {
         fn iso_curves(face: &Shape, along_u: bool, t: f64) -> Result<UniquePtr<ShapeList>>;
         fn face_periodic(face: &Shape, along_u: bool) -> Result<bool>;
         fn join_edges(wire: &Shape) -> Result<UniquePtr<Shape>>;
+        fn ordered_wire(edges: &ShapeList) -> Result<UniquePtr<Shape>>;
+        fn edge_between(edge: &Shape, f0: f64, f1: f64, reverse: bool) -> Result<UniquePtr<Shape>>;
         fn project_edges(edges: &ShapeList, faces: &ShapeList, direction: Vec3) -> Result<UniquePtr<ShapeList>>;
         fn offset_edge_on_planar_face(edge: &Shape, face: &Shape, distance: f64) -> Result<UniquePtr<Shape>>;
 
@@ -937,6 +939,17 @@ pub fn face_periodic(face: &Shape, along_u: bool) -> bool {
 /// A wire's edges joined into one edge, approximating where their curves differ.
 pub fn join_edges(wire: &Shape) -> Result<Shape> {
     Ok(Shape::new(ffi::join_edges(&wire.0)?))
+}
+
+/// A wire of edges in the order given, their ends joined where they nearly meet.
+pub fn ordered_wire(edges: &[Shape]) -> Result<Shape> {
+    Ok(Shape::new(ffi::ordered_wire(&to_list(edges))?))
+}
+
+/// The piece of an edge from fraction `f0` to `f1` of its parameter range, along the edge's direction (its curve
+/// reversed if `reverse`); on a closed edge, `f0` past `f1` goes round through its end.
+pub fn edge_between(edge: &Shape, f0: f64, f1: f64, reverse: bool) -> Result<Shape> {
+    Ok(Shape::new(ffi::edge_between(&edge.0, f0, f1, reverse)?))
 }
 
 /// Edges projected onto faces along a direction.

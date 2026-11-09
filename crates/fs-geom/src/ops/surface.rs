@@ -139,7 +139,24 @@ pub fn intersect_faces(model: &mut Model, id: FeatureId, definition: &Value) -> 
     if edges.is_empty() {
         return Err(regen_error("INTERSECTION_CURVE_NO_INTERSECTION"));
     }
-    add_joined_curves(model, &id, &edges)?;
+    // Each curve joined into one edge, then split where Onshape splits it.
+    let mut curves: Vec<(Shape, f64)> = Vec::new();
+    for wire in occt::connect_edges(&edges).map_err(occt_error)? {
+        let joined =
+            if wire.sub_shapes(ShapeKind::Edge).len() > 1 { occt::join_edges(&wire).unwrap_or(wire) } else { wire };
+        let single = joined.kind() == Some(ShapeKind::Edge) || joined.sub_shapes(ShapeKind::Edge).len() == 1;
+        let edge = if single { joined.sub_shapes(ShapeKind::Edge).into_iter().next() } else { None };
+        match edge.and_then(|e| super::intersection::split_curve(model, &e, &tools, &targets)) {
+            Some((pieces, key)) => {
+                curves.push((occt::ordered_wire(&pieces).map_err(occt_error)?, key));
+            }
+            None => curves.push((joined, f64::MAX)),
+        }
+    }
+    curves.sort_by(|a, b| a.1.total_cmp(&b.1));
+    for (curve, _) in curves {
+        add(model, &id, curve, BodyType::Wire);
+    }
     Ok(Value::UNDEFINED)
 }
 

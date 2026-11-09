@@ -2,6 +2,9 @@
 
 #include "occt/cpp/occt.h"
 #include <BRepFilletAPI_MakeFillet2d.hxx>
+#include <GeomConvert.hxx>
+#include <GeomConvert_CompCurveToBSplineCurve.hxx>
+#include <Geom_TrimmedCurve.hxx>
 #include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
 #include <BRepTools_History.hxx>
@@ -255,6 +258,55 @@ std::unique_ptr<Shape> extend_planar_face(const Shape &sheet, const ShapeList &e
 bool face_periodic(const Shape &face_shape, bool along_u) {
   Handle(Geom_Surface) surface = BRep_Tool::Surface(TopoDS::Face(face_shape.shape));
   return along_u ? surface->IsUPeriodic() : surface->IsVPeriodic();
+}
+
+// A wire of edges in the order given, their ends joined where they nearly meet.
+std::unique_ptr<Shape> ordered_wire(const ShapeList &edges) {
+  BRep_Builder builder;
+  TopoDS_Wire wire;
+  builder.MakeWire(wire);
+  for (const TopoDS_Shape &e : edges.shapes) builder.Add(wire, e);
+  Handle(ShapeFix_Wire) fix = new ShapeFix_Wire();
+  fix->Load(wire);
+  fix->SetPrecision(1e-6);
+  fix->FixConnected(1e-5);
+  fix->FixClosed(1e-5);
+  return wrap(fix->Wire());
+}
+
+// The piece of an edge from fraction `f0` to fraction `f1` of its parameter range, both counted along the edge's
+// own direction and the piece running that way, or the other way if `reverse`. On a closed edge, `f0` past `f1`
+// goes round through the end.
+std::unique_ptr<Shape> edge_between(const Shape &edge, double f0, double f1, bool reverse) {
+  if (edge.shape.ShapeType() != TopAbs_EDGE) throw std::runtime_error("not an edge");
+  const TopoDS_Edge &e = TopoDS::Edge(edge.shape);
+  double a, b;
+  Handle(Geom_Curve) curve = BRep_Tool::Curve(e, a, b);
+  if (curve.IsNull()) throw std::runtime_error("no curve");
+  const bool reversed = e.Orientation() == TopAbs_REVERSED;
+  // A fraction along the edge's direction to the curve's parameter.
+  auto at = [&](double f) { return reversed ? b - f * (b - a) : a + f * (b - a); };
+  auto piece = [&](double u0, double u1) -> Handle(Geom_BSplineCurve) {
+    Handle(Geom_TrimmedCurve) t = new Geom_TrimmedCurve(curve, std::min(u0, u1), std::max(u0, u1));
+    Handle(Geom_BSplineCurve) spline = GeomConvert::CurveToBSplineCurve(t);
+    if (u0 > u1) spline->Reverse();
+    return spline;
+  };
+  // A piece from the very end or to the very start doesn't wrap.
+  if (f0 > 1.0 - 1e-9) f0 = 0.0;
+  if (f1 < 1e-9) f1 = 1.0;
+  Handle(Geom_BSplineCurve) result;
+  if (f0 < f1) {
+    result = piece(at(f0), at(f1));
+  } else {
+    GeomConvert_CompCurveToBSplineCurve join(piece(at(f0), at(1.0)));
+    if (!join.Add(piece(at(0.0), at(f1)), 1e-5, Standard_True)) throw std::runtime_error("the edge isn't closed");
+    result = join.BSplineCurve();
+  }
+  if (reverse) result->Reverse();
+  BRepBuilderAPI_MakeEdge make(result);
+  if (!make.IsDone()) throw std::runtime_error("couldn't make the edge");
+  return wrap(make.Edge());
 }
 
 // Edges that run end to end, joined into one edge (an approximation where their curves differ), as Parasolid

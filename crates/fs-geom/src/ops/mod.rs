@@ -6,6 +6,7 @@ mod direct;
 mod extrude;
 mod frames;
 mod hole;
+mod intersection;
 mod isocline;
 mod merge;
 mod pattern;
