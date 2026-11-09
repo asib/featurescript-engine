@@ -637,6 +637,68 @@ fn match_circles_to_corners(wires: &mut [Shape]) -> R<()> {
     Ok(())
 }
 
+/// The corners of a closed wire of straight edges, in order round it.
+fn polygon_corners(wire: &Shape) -> Option<Vec<Vec3>> {
+    let edges = wire.sub_shapes(ShapeKind::Edge);
+    if edges.len() < 3 || edges.iter().any(|e| e.curve_type().ok() != Some(occt::CurveType::Line)) {
+        return None;
+    }
+    let ends: Vec<(Vec3, Vec3)> = edges
+        .iter()
+        .map(|e| Some((e.edge_tangent(0.0, false).ok()?.origin, e.edge_tangent(1.0, false).ok()?.origin)))
+        .collect::<Option<_>>()?;
+    let close = |a: Vec3, b: Vec3| values::norm(values::sub(a, b)) < 1e-9;
+    let mut corners = vec![ends[0].0, ends[0].1];
+    let mut used = vec![false; ends.len()];
+    used[0] = true;
+    while corners.len() < ends.len() {
+        let last = *corners.last()?;
+        let k = (0..ends.len()).find(|&k| !used[k] && (close(ends[k].0, last) || close(ends[k].1, last)))?;
+        used[k] = true;
+        corners.push(if close(ends[k].0, last) { ends[k].1 } else { ends[k].0 });
+    }
+    Some(corners)
+}
+
+/// Two polygons with as many corners, matched corner to corner as Onshape lofts them (batch 074 c001): running the
+/// same way round the loft's axis, each corner to the other's nearest (least total distance), and where two
+/// matchings are as near (a square to one turned 45°), each corner to the one anticlockwise of it seen along the
+/// axis. The second polygon is rebuilt from its matching corner. `None` for other profiles.
+fn matched_polygons(wires: &[Shape]) -> R<Option<Vec<Shape>>> {
+    use values::{add, cross, dot, norm, normalize, scale, sub};
+    let [first, second] = wires else { return Ok(None) };
+    let (Some(p), Some(mut q)) = (polygon_corners(first), polygon_corners(second)) else { return Ok(None) };
+    if p.len() != q.len() {
+        return Ok(None);
+    }
+    let n = p.len();
+    let centre = |c: &[Vec3]| scale(c.iter().fold(Vec3::new(0.0, 0.0, 0.0), |s, x| add(s, *x)), 1.0 / c.len() as f64);
+    let (cp, cq) = (centre(&p), centre(&q));
+    let Some(axis) = normalize(sub(cq, cp)) else { return Ok(None) };
+    // Which way round the axis a polygon runs.
+    let sense = |c: &[Vec3], o: Vec3| dot(cross(sub(c[0], o), sub(c[1], o)), axis);
+    if sense(&p, cp) * sense(&q, cq) < 0.0 {
+        q.reverse();
+    }
+    let cost = |k: usize| (0..n).map(|i| norm(sub(p[i], q[(i + k) % n])).powi(2)).sum::<f64>();
+    let best = (0..n).map(cost).fold(f64::INFINITY, f64::min);
+    let ties: Vec<usize> = (0..n).filter(|&k| cost(k) <= best * (1.0 + 1e-9) + 1e-18).collect();
+    // Of equal matchings, the one turning anticlockwise about the axis from p's first corner to its match.
+    let turn = |k: usize| {
+        let (a, b) = (sub(p[0], cp), sub(q[k % n], cq));
+        let (a, b) = (sub(a, scale(axis, dot(a, axis))), sub(b, scale(axis, dot(b, axis))));
+        dot(cross(a, b), axis).atan2(dot(a, b))
+    };
+    let Some(&k) = ties.iter().max_by(|&&a, &&b| turn(a).total_cmp(&turn(b))) else { return Ok(None) };
+    let rotated: Vec<Vec3> = (0..n).map(|i| q[(i + k) % n]).collect();
+    let rebuild = |c: &[Vec3]| -> R<Shape> {
+        let edges: Vec<Shape> =
+            (0..c.len()).map(|i| occt::line_edge(c[i], c[(i + 1) % c.len()])).collect::<Result<_, _>>().map_err(occt_error)?;
+        occt::ordered_wire(&edges).map_err(occt_error)
+    };
+    Ok(Some(vec![rebuild(&p)?, rebuild(&rotated)?]))
+}
+
 pub fn loft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
     let has = |key: &str| field(definition, key).as_array().is_some_and(|a| !a.is_empty());
     let (has_guides, has_connections) = (has("guideSubqueries"), has("connections"));
@@ -735,6 +797,8 @@ pub fn loft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
     // profiles itself (natural cubic splines at chord-length parameters, as Onshape's).
     let op = if ends.iter().any(Option::is_some) || wires.len() > 2 {
         occt::loft_clamped(&wires, solid, ends[0].clone(), ends[1].clone()).map_err(|_| regen_error("LOFT_FAILED"))?
+    } else if let Some(matched) = matched_polygons(&wires)? {
+        occt::loft_as_given(&matched, solid).map_err(|_| regen_error("LOFT_FAILED"))?
     } else {
         occt::loft(&wires, solid).map_err(|_| regen_error("LOFT_FAILED"))?
     };

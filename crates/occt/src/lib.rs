@@ -198,6 +198,7 @@ mod ffi {
             direction: Vec3,
         ) -> Result<UniquePtr<Operation>>;
         fn loft_op(wires: &ShapeList, solid: bool) -> Result<UniquePtr<Operation>>;
+        fn loft_op_matching(wires: &ShapeList, solid: bool, check: bool) -> Result<UniquePtr<Operation>>;
         fn loft_pieces_op(wires: &ShapeList, counts: &[u32], solid: bool) -> Result<UniquePtr<Operation>>;
         fn loft_clamped_op(
             wires: &ShapeList,
@@ -861,6 +862,11 @@ pub fn sweep(profile: &Shape, path: &Shape) -> Result<Operation> {
 /// Lofts through wires in order, into a solid or a sheet.
 pub fn loft(wires: &[Shape], solid: bool) -> Result<Operation> {
     Ok(Operation(ffi::loft_op(&to_list(wires), solid)?))
+}
+
+/// A loft through wires whose starts and directions already line up, without OpenCascade's own matching.
+pub fn loft_as_given(wires: &[Shape], solid: bool) -> Result<Operation> {
+    Ok(Operation(ffi::loft_op_matching(&to_list(wires), solid, false)?))
 }
 
 /// Lofts end to end through groups of sections (each group's first section the last one's last), sewn into one

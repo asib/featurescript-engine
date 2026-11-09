@@ -1537,9 +1537,12 @@ static void add_sections(BRepOffsetAPI_ThruSections &maker, const ShapeList &sec
   }
 }
 
-std::unique_ptr<Operation> loft_op(const ShapeList &wires, bool solid) {
+std::unique_ptr<Operation> loft_op(const ShapeList &wires, bool solid) { return loft_op_matching(wires, solid, true); }
+
+// A loft, its sections matched by OpenCascade (`check`) or as given: each wire's start and direction already line up.
+std::unique_ptr<Operation> loft_op_matching(const ShapeList &wires, bool solid, bool check) {
   BRepOffsetAPI_ThruSections maker(solid ? Standard_True : Standard_False, Standard_False, 1e-7);
-  maker.CheckCompatibility(Standard_True);
+  maker.CheckCompatibility(check ? Standard_True : Standard_False);
   add_sections(maker, wires);
   maker.Build();
   auto op = finish(to_list(wires), maker, "loft");
