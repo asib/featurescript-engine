@@ -1,0 +1,67 @@
+{
+  "batch": "066",
+  "title": "isocline splits and offsets on B-spline faces, sheet and curve extensions, sweeps along chains with splines, ruled surfaces off B-spline faces",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "isocline",
+      "description": "the sides of batch 065 c003's loft split at 30° to z",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "extend-surface",
+      "description": "batch 065 c004's sheet extended 3 mm past its straight side at x = 30",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "trim-curve",
+      "description": "a quarter circle of radius 10 extended at its end up to a circle of radius 5 about (-5, 8)",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "offset-curve-on-face",
+      "description": "the bottom edge of a side of batch 065 c003's loft offset 4 mm across the side",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "sweep",
+      "description": "a 4 x 6 rectangle along a 10 mm line then a fit spline on through (25, 5), (40, 0), twisted a quarter turn",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "ruled-surface",
+      "description": "a ruled surface 4 mm wide normal to a side of batch 065 c003's loft from its bottom edge",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    }
+  ]
+}

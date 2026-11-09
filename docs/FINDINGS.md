@@ -705,6 +705,16 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   across, its knots running past 1), bounded the distance on along each ruling (its fitted edge within 0.0014 mm),
   its straight sides keeping vertices where the old corners were. An arc trimmed by a circle stays an arc, from
   the kept end (by the help point) to where they meet. An offset up a sphere from its equator fails in Onshape.
+- **A second survey of B-spline cases** (batch 066): an isocline split cuts each of a loft's B-spline sides in two
+  along its isocline (the engine draws the traced curve on the surface and splits with the general splitter, so
+  the cuts meet at the shared edges). A curve extended straight on up to another curve runs to where the ray first
+  meets it (an arc up to a circle). An edge offset across a B-spline face is the geodesic offset (its middle the
+  distance up the face along the geodesic square to the edge), trimmed where it crosses the face's edges, running
+  as the face's loop runs the edge. A fit spline takes a start derivative alone; a sweep twisted along a line and a
+  spline after it fails (`SWEEP_FAILED`). A ruled surface normal to a B-spline face from one of its edges faces
+  along the edge as the face's loop runs it × the ruling. A lofted sheet extended past its straight side carries
+  its arcs on straight, along the surface, by the distance. Onshape's loft runs its edges along its sides' u and
+  lists the sides before the caps; the engine now sews its exact sides first, so its faces come in that order.
 - **`derivedMirror` in a Part Studio feature** (batch 060 c001): Onshape fails with "Execution error". It builds
   its source twice, once by `@convert` and again in `instantiate` (no loaded context), which Onshape evidently
   refuses for a build function defined in the studio (it won't derive one source twice in a Part Studio, batch
