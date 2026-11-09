@@ -72,7 +72,7 @@ enum Geometry {
     /// point parameters.
     FitSpline {
         points: Vec<P2>,
-        derivatives: Option<(P2, P2)>,
+        derivatives: (Option<P2>, Option<P2>),
         parameters: Vec<f64>,
     },
     Bezier(Vec<P2>),
@@ -211,11 +211,8 @@ pub fn register(m: &mut GeomBuiltins) {
                     d => values::vec2(d, key).map(Some),
                 }
             };
-            let derivatives = match (derivative("startDerivative")?, derivative("endDerivative")?) {
-                (Some(a), Some(b)) => Some((a, b)),
-                (None, None) => None,
-                _ => return Err(error("@skFitSpline: give both end derivatives or neither")),
-            };
+            // Either end's derivative, or neither (Onshape takes one alone, batch 066 c005).
+            let derivatives = (derivative("startDerivative")?, derivative("endDerivative")?);
             let parameters = match field(v, "parameters") {
                 p if p.is_undefined() => Vec::new(),
                 p => values::numbers(p, "skFitSpline parameters")?,
@@ -358,8 +355,10 @@ fn solve(model: &mut Model, sketch: &Sketch) -> R<()> {
                 }
                 let ends = match derivatives {
                     _ if closed => crate::splines::Ends::Periodic,
-                    Some((a, b)) => crate::splines::Ends::Clamped(direction(*a), direction(*b)),
-                    None => crate::splines::Ends::Natural,
+                    (Some(a), Some(b)) => crate::splines::Ends::Clamped(direction(*a), direction(*b)),
+                    (Some(a), None) => crate::splines::Ends::StartClamped(direction(*a)),
+                    (None, Some(b)) => crate::splines::Ends::EndClamped(direction(*b)),
+                    (None, None) => crate::splines::Ends::Natural,
                 };
                 let parameters = (!parameters.is_empty()).then(|| parameters.clone());
                 crate::splines::spline(&through, ends, parameters)?
