@@ -879,6 +879,11 @@ pub fn body_draft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Val
             // A curved parting sheet (batch 058 c001) splits the body as a plane does: the pieces on the pull side
             // of it are in front.
             let sheet = if parting.is_none() { parting_sheet(model, definition)? } else { None };
+            // Both sides of a curved parting sheet, matching at it: each side's faces turn about their far edges,
+            // so they meet the sheet at different lines, and Onshape's mitre between them fails (batch 070 c006).
+            if both_sides && sheet.is_some() && values::opt_bool(definition, "matchFacesAtParting")?.unwrap_or(false) {
+                return Err(regen_error("BODY_DRAFT_MITER_FAILED"));
+            }
             let mut bodies: Vec<usize> = faces.iter().map(|(b, _)| *b).collect();
             bodies.dedup();
             for b in bodies {
