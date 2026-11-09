@@ -47,6 +47,7 @@
 #include <Law_S.hxx>
 #include <BRepAlgoAPI_Common.hxx>
 #include <BRepPrimAPI_MakeHalfSpace.hxx>
+#include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
 #include <BRepAlgoAPI_Section.hxx>
 #include <BRepFeat_SplitShape.hxx>
@@ -680,6 +681,9 @@ std::unique_ptr<Operation> replace_planar_face_op(const Shape &solid, const Shap
   }
   TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
   TopExp::MapShapesAndUniqueAncestors(solid.shape, TopAbs_EDGE, TopAbs_FACE, edge_faces);
+  // The faces round it: perpendicular to it (planes or cylinders along its normal), or planes leaning.
+  std::vector<TopoDS_Face> neighbours;
+  bool square = true;
   for (TopExp_Explorer it(f, TopAbs_EDGE); it.More(); it.Next()) {
     const TopTools_ListOfShape *faces = edge_faces.Seek(it.Current());
     if (faces == nullptr) continue;
@@ -687,12 +691,14 @@ std::unique_ptr<Operation> replace_planar_face_op(const Shape &solid, const Shap
       if (g.IsSame(f)) continue;
       BRepAdaptor_Surface surface(TopoDS::Face(g));
       if (surface.GetType() == GeomAbs_Plane) {
-        if (std::abs(surface.Plane().Axis().Direction().Dot(n)) > 1e-9)
-          throw std::runtime_error("replace face: a neighbouring face isn't perpendicular (" +
-                                   std::to_string(surface.Plane().Axis().Direction().Dot(n)) + ")");
+        if (std::abs(surface.Plane().Axis().Direction().Dot(n)) > 1e-9) square = false;
+        neighbours.push_back(TopoDS::Face(g));
       } else if (surface.GetType() == GeomAbs_Cylinder) {
         if (!surface.Cylinder().Axis().Direction().IsParallel(n, 1e-9))
           throw std::runtime_error("replace face: a neighbouring face isn't perpendicular");
+        square = false;
+        neighbours.clear();
+        break;
       } else {
         throw std::runtime_error("replace face: a neighbouring face isn't planar or cylindrical");
       }
@@ -705,10 +711,37 @@ std::unique_ptr<Operation> replace_planar_face_op(const Shape &solid, const Shap
   double size = gp_Pnt(x0, y0, z0).Distance(gp_Pnt(x1, y1, z1));
   gp_Pnt origin = pnt(target.origin);
   double reach = 10 * size + 10 * origin.Distance(gp_Pnt((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2)) + 1;
-  // Extend the solid along the face's normal, past the target plane however it's tilted.
-  TopoDS_Shape copy = BRepBuilderAPI_Copy(f).Shape();
-  BRepPrimAPI_MakePrism prism(copy, gp_Vec(n) * reach, Standard_True);
-  BRepAlgoAPI_Fuse fuse(solid.shape, prism.Shape());
+  // Extend the solid past the target plane, however it's tilted: along the face's normal when the faces round it
+  // are square to it; otherwise, where leaning planes are round it, by the region inside all their planes and
+  // beyond the face's (batch 058 c003, a trapezoid prism's top).
+  TopoDS_Shape extension;
+  if (square || neighbours.empty()) {
+    TopoDS_Shape copy = BRepBuilderAPI_Copy(f).Shape();
+    extension = BRepPrimAPI_MakePrism(copy, gp_Vec(n) * reach, Standard_True).Shape();
+  } else {
+    const gp_Pnt c((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
+    extension = BRepPrimAPI_MakeBox(gp_Pnt(c.X() - reach, c.Y() - reach, c.Z() - reach), 2 * reach, 2 * reach, 2 * reach).Shape();
+    auto keep_side = [&](const TopoDS_Face &plane_face, const gp_Pnt &inside) {
+      BRepAdaptor_Surface surface(plane_face);
+      TopoDS_Face big = BRepBuilderAPI_MakeFace(surface.Plane(), -4 * reach, 4 * reach, -4 * reach, 4 * reach).Face();
+      BRepAlgoAPI_Common common(extension, BRepPrimAPI_MakeHalfSpace(big, inside).Solid());
+      common.SetRunParallel(Standard_False);
+      common.Build();
+      if (!common.IsDone()) throw std::runtime_error("replace face: extending failed");
+      extension = common.Shape();
+    };
+    for (const TopoDS_Face &g : neighbours) {
+      // A point just inside the solid from the neighbour.
+      const gp_Dir gn = face_normal(g);
+      GProp_GProps props;
+      BRepGProp::SurfaceProperties(g, props);
+      keep_side(g, props.CentreOfMass().Translated(gp_Vec(gn) * (-1e-3 * size)));
+    }
+    GProp_GProps props;
+    BRepGProp::SurfaceProperties(f, props);
+    keep_side(f, props.CentreOfMass().Translated(gp_Vec(n) * (1e-3 * size)));
+  }
+  BRepAlgoAPI_Fuse fuse(solid.shape, extension);
   fuse.SetRunParallel(Standard_False);
   fuse.Build();
   if (!fuse.IsDone()) throw std::runtime_error("replace face: extending failed");
@@ -740,7 +773,7 @@ std::unique_ptr<Operation> replace_planar_face_op(const Shape &solid, const Shap
   auto op = std::make_unique<Operation>();
   // Keep the identities of faces that survive: track the fuse, the split and the merge.
   TopTools_ListOfShape arguments = one(solid.shape);
-  arguments.Append(prism.Shape());
+  arguments.Append(extension);
   op->history = new BRepTools_History(arguments, fuse);
   op->history->Merge(one(fuse.Shape()), splitter);
   op->history->Merge(unifier.History());

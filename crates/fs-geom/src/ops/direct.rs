@@ -603,6 +603,47 @@ fn parallel_offset(face: &occt::Shape, template: &occt::Shape) -> R<Option<f64>>
 }
 
 /// Planar faces replaced by a curved template face's surface (batch 020): see `occt::replace_face_with_surface`.
+/// A solid of a cylindrical side and two planar caps square to its axis, its side replaced by a cylinder parallel to
+/// it but off its axis: the template's cylinder (its radius plus `offset`) between the caps. `None` otherwise.
+fn off_axis_cylinder(
+    solid: &occt::Shape,
+    face: &occt::Shape,
+    template: &occt::Shape,
+    offset: f64,
+) -> R<Option<occt::Operation>> {
+    use values::{add, cross, dot, norm, scale, sub};
+    let (Ok(a), Ok(b)) = (face.surface_definition(), template.surface_definition()) else { return Ok(None) };
+    if a.kind != 1 || b.kind != 1 || norm(cross(a.frame.normal, b.frame.normal)) > 1e-9 {
+        return Ok(None);
+    }
+    let axis = b.frame.normal;
+    if norm(cross(sub(a.frame.origin, b.frame.origin), axis)) < 1e-9 {
+        return Ok(None);
+    }
+    let faces = solid.sub_shapes(occt::ShapeKind::Face);
+    if faces.len() != 3 {
+        return Ok(None);
+    }
+    let mut heights = Vec::new();
+    for f in faces.iter().filter(|f| !f.is_same(face)) {
+        let Ok(plane) = f.face_plane() else { return Ok(None) };
+        if norm(cross(plane.normal, axis)) > 1e-9 {
+            return Ok(None);
+        }
+        heights.push(dot(sub(plane.origin, b.frame.origin), axis));
+    }
+    let [h0, h1] = heights[..] else { return Ok(None) };
+    let (lo, hi) = (h0.min(h1), h0.max(h1));
+    let radius = b.radius1 + offset;
+    if radius <= 0.0 || hi - lo < 1e-9 {
+        return Ok(None);
+    }
+    let frame = occt::Frame { origin: add(b.frame.origin, scale(axis, lo)), normal: axis, x: b.frame.x };
+    let circle = occt::circle_edge(frame, radius).map_err(occt_error)?;
+    let disc = occt::fill_edges(&[circle]).map_err(occt_error)?;
+    Ok(Some(occt::prism(&disc, scale(axis, hi - lo)).map_err(occt_error)?))
+}
+
 fn replace_with_surface(model: &mut Model, id: FeatureId, definition: &Value, offset: f64) -> R<Value> {
     let template = query::evaluate(model, field(definition, "templateFace"))?
         .into_iter()
@@ -618,6 +659,13 @@ fn replace_with_surface(model: &mut Model, id: FeatureId, definition: &Value, of
         let mut shape = model.bodies[b].shape.clone();
         let mut last = None;
         for face in &faces {
+            // A plain cylinder's side replaced by a parallel cylinder off its axis: that cylinder between the
+            // caps (batch 058 c002).
+            if let Some(op) = off_axis_cylinder(&shape, face, &template, offset)? {
+                shape = op.shape();
+                last = Some(op);
+                continue;
+            }
             // A cylinder replaced by a coaxial one (or a sphere by a concentric one) moves out or in by the
             // difference of their radii (batch 028).
             let op = match parallel_offset(face, &template)? {
