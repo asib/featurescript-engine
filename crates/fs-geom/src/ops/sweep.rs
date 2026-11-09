@@ -665,6 +665,12 @@ fn polygon_corners(wire: &Shape) -> Option<Vec<Vec3>> {
 /// matchings are as near (a square to one turned 45°), each corner to the one anticlockwise of it seen along the
 /// axis. The second polygon is rebuilt from its matching corner. `None` for other profiles.
 fn matched_polygons(wires: &[Shape]) -> R<Option<Vec<Shape>>> {
+    matched_polygons_with(wires, None)
+}
+
+/// [`matched_polygons`], or with the corners nearest two points (a connection's, batch 075 c001–c003) matched to
+/// each other and the rest in turn from them.
+fn matched_polygons_with(wires: &[Shape], forced: Option<(Vec3, Vec3)>) -> R<Option<Vec<Shape>>> {
     use values::{add, cross, dot, norm, normalize, scale, sub};
     let [first, second] = wires else { return Ok(None) };
     let (Some(p), Some(mut q)) = (polygon_corners(first), polygon_corners(second)) else { return Ok(None) };
@@ -689,7 +695,17 @@ fn matched_polygons(wires: &[Shape]) -> R<Option<Vec<Shape>>> {
         let (a, b) = (sub(a, scale(axis, dot(a, axis))), sub(b, scale(axis, dot(b, axis))));
         dot(cross(a, b), axis).atan2(dot(a, b))
     };
-    let Some(&k) = ties.iter().max_by(|&&a, &&b| turn(a).total_cmp(&turn(b))) else { return Ok(None) };
+    let nearest = |c: &[Vec3], x: Vec3| (0..c.len()).min_by(|&a, &b| norm(sub(c[a], x)).total_cmp(&norm(sub(c[b], x))));
+    let k = match forced {
+        Some((a, b)) => {
+            let (Some(i), Some(j)) = (nearest(&p, a), nearest(&q, b)) else { return Ok(None) };
+            (j + n - i) % n
+        }
+        None => {
+            let Some(&k) = ties.iter().max_by(|&&a, &&b| turn(a).total_cmp(&turn(b))) else { return Ok(None) };
+            k
+        }
+    };
     let rotated: Vec<Vec3> = (0..n).map(|i| q[(i + k) % n]).collect();
     let rebuild = |c: &[Vec3]| -> R<Shape> {
         let edges: Vec<Shape> =
@@ -779,7 +795,27 @@ pub fn loft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
                 return Err(regen_error("LOFT_CONNECTION_MATCHING"));
             }
         }
-        return Err(error("@opLoft: connections isn't supported yet"));
+        // Two polygons connected corner to corner: that matching (batch 075 c001–c003).
+        let first = field(definition, "connections").as_array().and_then(|a| a.first().cloned()).unwrap_or(Value::UNDEFINED);
+        let entities: Vec<Shape> =
+            query::evaluate(model, field(&first, "connectionEntities"))?.into_iter().map(|r| model.shape(r).clone()).collect();
+        let point = |w: &Shape| -> Option<Vec3> {
+            let e = entities.iter().find(|e| touches(e, w))?;
+            e.vertex_point().ok().or_else(|| e.edge_tangent(0.5, false).ok().map(|a| a.origin))
+        };
+        let forced = match (wires.len(), point(&wires[0]), wires.get(1).and_then(point)) {
+            (2, Some(a), Some(b)) => Some((a, b)),
+            _ => None,
+        };
+        let Some(matched) = forced.map(|f| matched_polygons_with(&wires, Some(f))).transpose()?.flatten() else {
+            return Err(error("@opLoft: connections other than between two polygons aren't supported yet"));
+        };
+        if ends.iter().any(Option::is_some) {
+            return Err(error("@opLoft: connections with end conditions aren't supported yet"));
+        }
+        let op = occt::loft_as_given(&matched, solid).map_err(|_| regen_error("LOFT_FAILED"))?;
+        add_with_caps_facing(model, &id, &op, solid, !solid)?;
+        return Ok(Value::UNDEFINED);
     }
     // Each guide meets every profile (074 c005: guides missing them are `LOFT_GUIDE_PROFILE_INTERSECTION`).
     if has_guides {
@@ -790,7 +826,6 @@ pub fn loft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
                 return Err(regen_error("LOFT_GUIDE_PROFILE_INTERSECTION"));
             }
         }
-        return Err(error("@opLoft: guideSubqueries isn't supported yet"));
     }
     match_circles_to_corners(&mut wires)?;
     // Through more than two profiles, or with conditions at the ends, the engine builds the sides across the
@@ -802,6 +837,25 @@ pub fn loft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
     } else {
         occt::loft(&wires, solid).map_err(|_| regen_error("LOFT_FAILED"))?
     };
+    // Guides lying on the loft as it is change nothing (straight ones along a square loft's corners, batch 075
+    // c004); others aren't supported yet.
+    if has_guides {
+        let result = op.shape();
+        for q in field(definition, "guideSubqueries").as_array().map(|a| a.to_vec()).unwrap_or_default() {
+            for r in query::evaluate(model, &q)?.into_iter().filter(|r| r.kind == EntityType::Edge) {
+                let edge = model.shape(r);
+                let on = (0..=8).all(|k| {
+                    edge.edge_tangent(k as f64 / 8.0, false)
+                        .ok()
+                        .and_then(|a| occt::vertex(a.origin).ok())
+                        .is_some_and(|v| v.distance(&result).is_ok_and(|d| d.distance < 1e-6))
+                });
+                if !on {
+                    return Err(error("@opLoft: guides that change the loft aren't supported yet"));
+                }
+            }
+        }
+    }
     // A sheet lofted from wires faces the other way from OCCT's, as an extruded one does: outward from a loop
     // (a thin loft thickens outward, batch 028).
     add_with_caps_facing(model, &id, &op, solid, !solid)?;
