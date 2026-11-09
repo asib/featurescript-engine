@@ -632,9 +632,12 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   frustum's leaning corner edge carried on: 0.9 × 20.3999 + 0.1 × 20.445 = 20.4044 mm, Onshape's exactly), from
   corner to corner in proportion (its sideways part 1.3088 a third of the way, as linear interpolation gives), and
   on a circle across its one face (a cylinder's top: 2e-8 of the volume). Onshape's sides there are one cubic along
-  each edge and bulge between the corners (up to 1.4e-4 of the volume). Matching curvature makes the sides quintic
-  across, P1 and P2 a fifth and two fifths of the derivative from P0 and the far end free (P4 midway between P3 and
-  P5), P3 by no rule found yet.
+  each edge and bulge between the corners (up to 1.4e-4 of the volume). Matching curvature (batch 057 c007) makes
+  the sides the tangency-matched cubics raised to quintics across, with the second row from the matched end moved
+  so the curvature there is the face's along the loft: P2 = 2 P1 − P0 + (κ |r'|² / 20) n (κ the face's normal
+  curvature, none for a plane): exact at the corners. Between them Onshape's sides (quintic along each edge too)
+  bulge by a rule not found: the second row 0.015 mm higher mid-edge, and at twice the magnitude the tangent case's
+  rise is half as much (3.6e-4 of the volume).
 - **Lofts through more than two profiles** (batch 004 c038, 057 c003) are, across the profiles, the natural cubic
   spline through them (no second derivative at the ends) at parameters spaced as the chords between them (three
   coaxial circles of radius 10, 14 and 8: 14110.2910 mm³ against Onshape's 14110.2866; uniform spacing gives
