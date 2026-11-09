@@ -341,7 +341,8 @@ fn associate(def: &Body, bends: &[Bend], front: f64, back: f64, kind: EntityType
             let n = normal_at(shape, p).ok()?;
             if shape.surface_type().ok()? == occt::SurfaceType::Plane {
                 for (i, wall) in def.faces.iter().enumerate() {
-                    let plane = wall.shape.face_plane().ok()?;
+                    // Past rolled walls (a flange beside one, batch 069).
+                    let Ok(plane) = wall.shape.face_plane() else { continue };
                     let off = dot(sub(p, plane.origin), plane.normal);
                     if dot(n, plane.normal).abs() > 1.0 - 1e-9 && off.abs() <= reach {
                         let foot = sub(p, scale(plane.normal, off));
