@@ -732,7 +732,13 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   its axis, joined by a bend; std finds the bend's angle from a detached fillet of the definition's edge
   (`opFillet` with `createDetachedSurface`: only the fillet's surface, as a sheet). Unfolding the rolled wall
   holding the flange lays it straight on from the bend, its middle's length (65.94 mm for radius 20, thickness 2);
-  `sheetMetalRefold` of the part leaves it unfolded; unfolding everything lays the part flat.
+  `sheetMetalRefold` of the part leaves it unfolded; unfolding everything lays the part flat. The bend: in the
+  plane across the edge its circle (the sheet's radius, 1 here) touches the flange's line on the wall's side and
+  the rolled wall's circle (inside it, the bend being on the wall's concave side: its centre 20 − 1 from the axis,
+  at (18.9737, 1)); the rolled wall is cut back to where the circle touches it (0.0527 rad, its faces spanning
+  3.0889), the flange to where it touches its line, and the bend turns between the two, 1.6234 rad (90° and the
+  cut-back); the flange's far end is its distance from the rolled wall's outer face (x = 22 − 10). The engine
+  builds the folded part so exactly.
 - **`derivedMirror` in a Part Studio feature** (batch 060 c001): Onshape fails with "Execution error". It builds
   its source twice, once by `@convert` and again in `instantiate` (no loaded context), which Onshape evidently
   refuses for a build function defined in the studio (it won't derive one source twice in a Part Studio, batch
