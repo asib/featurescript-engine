@@ -4,11 +4,10 @@
 use crate::values::{add, cross, dot, normalize, scale, sub};
 use occt::{Frame, Shape, Vec3};
 
-/// A circle of a profile: its centre, normal, x direction and radius.
+/// A circle of a profile: its centre, normal and radius.
 pub(crate) struct Circle {
     centre: Vec3,
     normal: Vec3,
-    x: Vec3,
     radius: f64,
 }
 
@@ -21,7 +20,7 @@ pub(crate) fn circles(profiles: &[Shape]) -> Vec<Circle> {
                 continue;
             }
             if let Ok(c) = edge.curve_definition() {
-                out.push(Circle { centre: c.frame.origin, normal: c.frame.normal, x: c.frame.x, radius: c.radius1 });
+                out.push(Circle { centre: c.frame.origin, normal: c.frame.normal, radius: c.radius1 });
             }
         }
     }
@@ -29,8 +28,10 @@ pub(crate) fn circles(profiles: &[Shape]) -> Vec<Circle> {
 }
 
 /// A cylinder an extrude swept along `direction` from one of `circles`: its origin is on the axis at the face's far
-/// end, z points back along the extrude, and x is the circle's y × z. A sheet's is the other way about: its origin
-/// at the near end, z along the extrude (a quarter cylinder swept from an arc, batch 046).
+/// end, z points back along the extrude, and x is y × z, y being the world's y axis square to the axis however the
+/// circle was drawn (batch 060: cylinders about x sketched with their x along y or z both have x along +z; batch
+/// 061: tilted axes), or the world's x if the axis is along y (batch 061 c004). A sheet's is the other way about:
+/// its origin at the near end, z along the extrude (a quarter cylinder swept from an arc, batch 046).
 pub(crate) fn extruded(face: &Shape, circles: &[Circle], direction: Vec3, sheet: bool) -> Option<Frame> {
     let s = face.surface_definition().ok()?;
     if s.kind != 1 {
@@ -45,7 +46,11 @@ pub(crate) fn extruded(face: &Shape, circles: &[Circle], direction: Vec3, sheet:
             && crate::values::norm(cross(c.normal, a)) < 1e-9
     })?;
     let z = if sheet { direction } else { scale(direction, -1.0) };
-    let x = normalize(cross(cross(circle.normal, circle.x), z))?;
+    let world_y = Vec3 { x: 0.0, y: 1.0, z: 0.0 };
+    let y = normalize(sub(world_y, scale(z, dot(world_y, z))))
+        .filter(|_| crate::values::norm(cross(world_y, z)) > 1e-9)
+        .unwrap_or(Vec3 { x: 1.0, y: 0.0, z: 0.0 });
+    let x = normalize(cross(y, z))?;
     let local = Frame { origin: circle.centre, normal: direction, x: crate::values::canonical_x(direction) };
     let bounds = face.bounding_box_in(local, true).ok()?;
     let along = if sheet { bounds.min.z } else { bounds.max.z };
