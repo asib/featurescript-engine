@@ -625,7 +625,30 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   length at the thirds of each edge but turns from it (25.7° from the edge's normal at a third where the chord is
   18.4°): no rule found. Normal to a direction (`NORMAL_DIRECTION`) fails in Onshape (`LOFT_INVALID`, c006).
   Onshape's profiles are cubic Hermite fits (64 spans for a circle), and a square's rows rise and fall along each
-  edge by up to 0.0008 mm about the exact construction's (0.05 mm³ of volume).
+  edge by up to 0.0008 mm about the exact construction's (0.05 mm³ of volume). Matching the tangency of the faces
+  next to the profile (batch 057 c005–c008) gives the chord rule's value at the corners along the faces, but rows
+  that sit higher between them (7e-5 of the volume over); matching curvature makes the sides quintic across, P1
+  and P2 a fifth and two fifths of the derivative from P0 and the far end free (P4 midway between P3 and P5), P3
+  by no rule found yet.
+- **Lofts through more than two profiles** (batch 004 c038, 057 c003) are, across the profiles, the natural cubic
+  spline through them (no second derivative at the ends) at parameters spaced as the chords between them (three
+  coaxial circles of radius 10, 14 and 8: 14110.2910 mm³ against Onshape's 14110.2866; uniform spacing gives
+  14111.36); an end condition replaces the natural end. A point can be either end profile: a square or a circle to
+  a point is a pyramid or a cone (ruled), a point through a circle to a point the spline through them. To a point,
+  Onshape's rows bulge between corner and middle of each edge by up to 0.003 mm (c004).
+- **Sweeps twisted or scaled along a chain of lines and arcs** (batch 057 c009, c010): the twist and scale grow
+  with the distance along the whole path (at the joint of a 20 mm line and a quarter circle of radius 20, the line's
+  share, 0.389, of the quarter turn); the profile is carried along each edge in turn, and each edge's piece is one
+  face per profile edge, kept a B-spline even where it is flat.
+- **A torus sheet extended** (batch 057 c011, c012): round the torus, every point turns the distance over the
+  torus's innermost radius (R − r: 5/7 rad for 5 mm, radii 10 and 3), so the new edge is a tube circle; round the
+  tube, the distance over r.
+- **Isoclines of a torus tilted to the direction** (batch 057 c013): n·d = sin(angle) for the outward normal, two
+  closed curves round the torus (for each angle round it, two tube angles), 79.44052 and 47.10938 mm long for 20°
+  with the direction 30° off the axis (Onshape's to 2e-7).
+- **Spheres extended round, more bands** (batch 056 c019–c021): no per-point rule can do: latitude 60° turns
+  exactly d/r on a band from 30° to 60° but 1.106 rad on one from 0° to 60°, and a band from −30° to 30° turns 1.1%
+  over d/r at both corners and 0.2% under at the equator: Onshape's new edge depends on the whole band.
 
 ## STEP export
 
