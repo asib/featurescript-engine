@@ -982,7 +982,30 @@ pub fn ruled_surface(model: &mut Model, id: FeatureId, definition: &Value) -> R<
         }
         if start.is_none() && end.is_none() {
             let op = occt::prism(edge, ruling).map_err(|_| regen_error("RULED_SURFACE_FAILED"))?;
-            sheets.extend(op.shape().sub_shapes(ShapeKind::Face).into_iter().map(|f| f.reversed()));
+            let faces: Vec<Shape> = op.shape().sub_shapes(ShapeKind::Face).into_iter().map(|f| f.reversed()).collect();
+            // Along a B-spline reference face, facing along the edge as that face's loop runs it × the ruling (batch
+            // 066 c006); otherwise as OCCT's prism has it, reversed.
+            let in_face = references
+                .iter()
+                .filter(|f| matches!(f.surface_type(), Ok(occt::SurfaceType::BSpline | occt::SurfaceType::Bezier)))
+                .find_map(|f| f.sub_shapes(ShapeKind::Edge).into_iter().find(|e| e.is_same(edge)));
+            match in_face {
+                Some(used) => {
+                    let mid = edge.edge_tangent(0.5, false).map_err(occt_error)?;
+                    let along = if used.is_reversed() != edge.is_reversed() {
+                        values::scale(mid.direction, -1.0)
+                    } else {
+                        mid.direction
+                    };
+                    let facing = values::cross(along, ruling);
+                    for f in faces {
+                        let (fu, fv) = f.face_fraction(mid.origin).map_err(occt_error)?;
+                        let n = f.face_tangent_plane(fu, fv).map_err(occt_error)?.normal;
+                        sheets.push(if values::dot(n, facing) < 0.0 { f.reversed() } else { f });
+                    }
+                }
+                None => sheets.extend(faces),
+            }
             continue;
         }
         if edge.curve_type().ok() != Some(occt::CurveType::Line) {
