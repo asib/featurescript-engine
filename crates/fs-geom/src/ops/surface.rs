@@ -1298,6 +1298,43 @@ fn extended_cubic(
     Ok(if at_end { extended } else { extended.reversed() })
 }
 
+/// How far along a ray from `p` along `d` it first meets a curve, found from samples along the curve.
+fn ray_meets_curve(p: occt::Vec3, d: occt::Vec3, curve: &Shape) -> Option<f64> {
+    use crate::values::{dot, norm, scale, sub};
+    const SAMPLES: usize = 400;
+    let point = |s: f64| curve.edge_tangent(s, false).ok().map(|a| a.origin);
+    // The curve's distance from the ray's line.
+    let off = |s: f64| {
+        point(s).map_or(f64::MAX, |q| {
+            let r = sub(q, p);
+            norm(sub(r, scale(d, dot(r, d))))
+        })
+    };
+    let h: Vec<f64> = (0..=SAMPLES).map(|i| off(i as f64 / SAMPLES as f64)).collect();
+    let mut best: Option<f64> = None;
+    for i in 0..=SAMPLES {
+        let (before, after) = (if i > 0 { h[i - 1] } else { f64::MAX }, if i < SAMPLES { h[i + 1] } else { f64::MAX });
+        if h[i] > before || h[i] > after {
+            continue;
+        }
+        let (mut a, mut b) = ((i as f64 - 1.0).max(0.0) / SAMPLES as f64, (i as f64 + 1.0).min(SAMPLES as f64) / SAMPLES as f64);
+        let g = (5f64.sqrt() - 1.0) / 2.0;
+        for _ in 0..80 {
+            let (c, e) = (b - g * (b - a), a + g * (b - a));
+            if off(c) < off(e) { b = e } else { a = c }
+        }
+        let s = (a + b) / 2.0;
+        if off(s) > 1e-7 {
+            continue;
+        }
+        let t = dot(sub(point(s)?, p), d);
+        if t > 1e-9 && best.is_none_or(|b| t < b) {
+            best = Some(t);
+        }
+    }
+    best
+}
+
 /// Where an edge meets another curve: the meeting nearest its end (or its start), found from samples along it.
 fn curve_meeting(edge: &Shape, curve: &Shape, at_end: bool) -> Option<occt::Vec3> {
     const SAMPLES: usize = 400;
@@ -1346,9 +1383,9 @@ fn curved_boundary_moved(
     use crate::curve_extend::arc_frame;
     use crate::values::{add, cross, dot, norm, normalize, scale, sub};
     let curved_limit = limit_curve.filter(|c| c.curve_type().ok() != Some(occt::CurveType::Line));
-    if curved_limit.is_some() && !trim {
+    if curved_limit.is_some() && !trim && curving {
         return Err(error(
-            "@opMoveCurveBoundary: curves other than lines extended up to curves other than lines aren't supported yet",
+            "@opMoveCurveBoundary: curving extensions up to curves other than lines aren't supported yet",
         ));
     }
     // The chain's ends: points only one edge reaches.
@@ -1386,7 +1423,7 @@ fn curved_boundary_moved(
     let as_cubic = |edge: &Shape, _: &occt::Axis, _: &occt::Axis| edge_as_cubic(edge);
     // Trimmed by a curve: cut where they meet (an arc trimmed by a circle, batch 065), keeping the side the help
     // point is on; an arc stays an arc.
-    if let (Some(curve), [_]) = (curved_limit, edges) {
+    if let (true, Some(curve), [_]) = (trim, curved_limit, edges) {
         let cut = curve_meeting(edge, curve, at_end).ok_or_else(|| regen_error("TRIM_CURVE_FAILED"))?;
         if circle {
             let centre = edge.curve_definition().map_err(occt_error)?.frame.origin;
@@ -1407,6 +1444,8 @@ fn curved_boundary_moved(
     // batch 038).
     let limit = match (limit, limit_curve) {
         (Some(p), _) => Some(p),
+        // Extended straight on up to a curve: the ray meets it (an arc up to a circle, batch 066 c003).
+        (None, Some(_)) if curved_limit.is_some() => None,
         (None, Some(line)) => {
             let (a, b) = (
                 line.edge_tangent(0.0, false).map_err(occt_error)?.origin,
@@ -1479,6 +1518,8 @@ fn curved_boundary_moved(
                 .filter(|t| *t > 1e-9)
                 .min_by(f64::total_cmp)
                 .ok_or_else(|| regen_error("TRIM_CURVE_FAILED"))?
+        } else if let Some(curve) = curved_limit {
+            ray_meets_curve(p, d, curve).ok_or_else(|| regen_error("TRIM_CURVE_FAILED"))?
         } else {
             distance - already
         };
