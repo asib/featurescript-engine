@@ -56,6 +56,32 @@ fn entity_type(v: &Value) -> R<Option<EntityType>> {
 }
 
 /// Resolves a query to bodies and entities, in model order without duplicates.
+/// Whether a query is of entities in a sheet metal flat pattern: it asks for counterparts in a flat
+/// (`qCorrespondingInFlat`) or finds sketch entities drawn in one.
+pub fn is_flat(model: &Model, query: &Value) -> R<bool> {
+    Ok(asks_for_flat(query) || evaluate(model, query)?.iter().any(|r| model.bodies[r.body].flat_of.is_some()))
+}
+
+/// Whether a query asks for counterparts in a flat pattern (`qCorrespondingInFlat`) anywhere in it.
+pub fn asks_for_flat(v: &Value) -> bool {
+    if v.get("queryType").and_then(Value::as_str) == Some("CORRESPONDING_IN_FLAT") {
+        return true;
+    }
+    match v.as_map() {
+        Some(entries) => entries.values().any(asks_for_flat),
+        None => v.as_array().is_some_and(|a| a.iter().any(asks_for_flat)),
+    }
+}
+
+/// The sheet metal part whose flat pattern a query's entities lie in: the part a flat sketch is attached to, or the
+/// part whose counterparts in its flat are asked for.
+pub fn flat_part(model: &Model, query: &Value) -> R<Option<crate::model::Tid>> {
+    if !is_flat(model, query)? {
+        return Ok(None);
+    }
+    Ok(evaluate(model, query)?.first().map(|r| model.bodies[r.body].flat_of.unwrap_or(model.bodies[r.body].tid)))
+}
+
 pub fn evaluate(model: &Model, query: &Value) -> R<Vec<EntityRef>> {
     let found = resolve(model, query)?;
     let mut seen = BTreeSet::new();
@@ -217,10 +243,26 @@ fn resolve(model: &Model, query: &Value) -> R<Vec<EntityRef>> {
                 .filter(|r| model.body(*r).sketch_plane.is_some() == sketch)
                 .collect()
         }
-        // Sheet metal isn't modelled, so nothing is flattened, formed or active sheet metal.
-        // No sheet metal, so nothing is attached to any.
-        "PARTS_ATTACHED_TO" => Vec::new(),
-        "SM_FLAT_FILTER" => keep_if(sub(model, query, "subquery")?, !yes_no(query, "flatFilter")?),
+        // Sketches drawn in a sheet metal part's flat pattern are attached to that part (batch 059).
+        "PARTS_ATTACHED_TO" => {
+            let parts: Vec<crate::model::Tid> =
+                sub(model, query, "subquery")?.into_iter().filter_map(|r| model.bodies[r.body].flat_of).collect();
+            model
+                .bodies
+                .iter()
+                .enumerate()
+                .filter(|(_, b)| parts.contains(&b.tid))
+                .map(|(i, _)| EntityRef { body: i, kind: EntityType::Body, index: 0 })
+                .collect()
+        }
+        // What lies in a flat pattern: sketches drawn there.
+        "SM_FLAT_FILTER" => {
+            let flat = yes_no(query, "flatFilter")?;
+            sub(model, query, "subquery")?
+                .into_iter()
+                .filter(|r| model.bodies[r.body].flat_of.is_some() == flat)
+                .collect()
+        }
         "SM_FORM_FILTER" => keep_if(sub(model, query, "subquery")?, !yes_no(query, "formFilter")?),
         "ACTIVE_SM_FILTER" => {
             let active = yes_no(query, "activeSheetMetal")?;
@@ -229,8 +271,15 @@ fn resolve(model: &Model, query: &Value) -> R<Vec<EntityRef>> {
                 .filter(|r| crate::ops::sheet_metal::in_active_model(model, r.body) == active)
                 .collect()
         }
-        // No sheet metal: nothing is a flat's counterpart or a sheet metal definition entity.
-        "SM_APPLICATION_TYPE_FILTER" | "CORRESPONDING_IN_FLAT" | "SM_DEFINITION_ENTITY_FILTER" => Vec::new(),
+        // A plate without bends is its own flat pattern: its faces along the sheet stand for their counterparts
+        // there, to sketch on (batch 059). Nothing else of a flat pattern is modelled: its bodies, edges, vertices
+        // and other faces (a hole's, which std attributes in the flat too) are nothing, as are flat patterns of
+        // parts with bends.
+        "CORRESPONDING_IN_FLAT" => sub(model, query, "subquery")?
+            .into_iter()
+            .filter(|r| r.kind == EntityType::Face && crate::ops::sheet_metal::is_flat_sheet_face(model, *r))
+            .collect(),
+        "SM_APPLICATION_TYPE_FILTER" | "SM_DEFINITION_ENTITY_FILTER" => Vec::new(),
         // Entities of bodies a closed composite part consumes (or not).
         "CONSUMED" => {
             let consumed = field(query, "consumed").as_str() == Some("YES");

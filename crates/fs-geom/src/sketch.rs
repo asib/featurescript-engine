@@ -29,6 +29,8 @@ pub struct Sketch {
     entities: RefCell<Vec<SketchEntity>>,
     constraints: RefCell<Vec<Value>>,
     solved: std::cell::Cell<bool>,
+    /// Drawn in this sheet metal part's flat pattern (its plane is a flat face, `qCorrespondingInFlat`).
+    flat_of: Option<crate::model::Tid>,
 }
 
 impl Native for Sketch {
@@ -140,6 +142,12 @@ pub fn register(m: &mut GeomBuiltins) {
         let id = values::feature_id(arg(&args, 1, "newSketch")?, "@newSketch id")?;
         let value = arg(&args, 2, "newSketch")?;
         let plane = values::plane(field(value, "sketchPlane"), "sketchPlane")?;
+        let reference = field(value, "planeReference");
+        let flat_of = if reference.is_undefined() {
+            None
+        } else {
+            crate::with_model(&context, |model| crate::query::flat_part(model, reference)).transpose()?.flatten()
+        };
         Ok(Value::builtin(Rc::new(Sketch {
             serial: next_serial(),
             context,
@@ -148,6 +156,7 @@ pub fn register(m: &mut GeomBuiltins) {
             entities: RefCell::new(Vec::new()),
             constraints: RefCell::new(Vec::new()),
             solved: std::cell::Cell::new(false),
+            flat_of,
         })))
     });
     m.insert("isSketch", |_, args| {
@@ -379,7 +388,11 @@ fn solve(model: &mut Model, sketch: &Sketch) -> R<()> {
         regions
     };
     for sheet in sheets {
-        let new = NewBody { sketch_plane: Some(plane), ..NewBody::new(sheet, BodyType::Sheet, created.clone()) };
+        let new = NewBody {
+            sketch_plane: Some(plane),
+            flat_of: sketch.flat_of,
+            ..NewBody::new(sheet, BodyType::Sheet, created.clone())
+        };
         model.add_body(new, &none, &created, &|_| None);
     }
     // Curves: a wire body each; a construction curve's edge and vertices are construction.
@@ -392,7 +405,11 @@ fn solve(model: &mut Model, sketch: &Sketch) -> R<()> {
             construction,
             ..Default::default()
         });
-        let new = NewBody { sketch_plane: Some(plane), ..NewBody::new(edge, BodyType::Wire, info.clone()) };
+        let new = NewBody {
+            sketch_plane: Some(plane),
+            flat_of: sketch.flat_of,
+            ..NewBody::new(edge, BodyType::Wire, info.clone())
+        };
         // Its end vertices are "<id>.start" and "<id>.end".
         let named_ends: Vec<(occt::Vec3, Rc<Info>)> = ends
             .iter()
@@ -424,8 +441,12 @@ fn solve(model: &mut Model, sketch: &Sketch) -> R<()> {
             ..Default::default()
         });
         let shape = occt::vertex(p).map_err(occt_error)?;
-        let new =
-            NewBody { construction, sketch_plane: Some(plane), ..NewBody::new(shape, BodyType::Point, info.clone()) };
+        let new = NewBody {
+            construction,
+            sketch_plane: Some(plane),
+            flat_of: sketch.flat_of,
+            ..NewBody::new(shape, BodyType::Point, info.clone())
+        };
         model.add_body(new, &none, &info, &|_| None);
     }
     Ok(())

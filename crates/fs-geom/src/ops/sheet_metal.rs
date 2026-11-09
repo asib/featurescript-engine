@@ -594,6 +594,78 @@ pub fn definition_of_part(model: &Model, body: usize) -> Option<usize> {
     model.bodies.iter().position(|d| d.is_sheet_metal_definition() && association(&d.attributes) == Some(a))
 }
 
+/// Whether a sheet metal part is its own flat pattern: a part of an active model whose definition sheet is flat
+/// (one plane, so no bends). The engine models flat patterns only of those (batch 059).
+pub fn flat_is_folded(model: &Model, body: usize) -> bool {
+    if !in_active_model(model, body) {
+        return false;
+    }
+    let Some(def) = definition_of_part(model, body) else { return false };
+    let planes: Vec<occt::Frame> = model.bodies[def].faces.iter().filter_map(|f| f.shape.face_plane().ok()).collect();
+    let Some(first) = planes.first() else { return false };
+    planes.len() == model.bodies[def].faces.len()
+        && planes.iter().all(|p| {
+            norm(cross(p.normal, first.normal)) < 1e-9 && dot(sub(p.origin, first.origin), first.normal).abs() < 1e-9
+        })
+}
+
+/// Whether a face is one of a flat plate's faces along its sheet (top or bottom): planar and parallel to the plate's
+/// definition sheet, in a plate that is its own flat pattern.
+pub fn is_flat_sheet_face(model: &Model, r: EntityRef) -> bool {
+    if !flat_is_folded(model, r.body) {
+        return false;
+    }
+    let Some(def) = definition_of_part(model, r.body) else { return false };
+    let Some(sheet) = model.bodies[def].faces.first().and_then(|f| f.shape.face_plane().ok()) else { return false };
+    model.shape(r).face_plane().is_ok_and(|p| norm(cross(p.normal, sheet.normal)) < 1e-9)
+}
+
+/// `@opSMFlatOperation` (std's `SMFlatOp`, extruding in a flat pattern, batch 059): faces drawn in a plate's flat
+/// pattern added to its definition sheet or cut from it. The plate is its own flat pattern, so the faces only drop
+/// onto the sheet along its normal. Added faces that don't reach the sheet add nothing, as in Onshape.
+pub fn flat_operation(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
+    let failed = || regen_error("SHEET_METAL_FLAT_OP_FAILED");
+    let faces: Vec<EntityRef> = query::evaluate(model, field(definition, "faces"))?
+        .into_iter()
+        .filter(|r| r.kind == EntityType::Face)
+        .collect();
+    let union = field(definition, "operationType").as_str() == Some("UNION");
+    let mut by_definition: Vec<(usize, Vec<Shape>)> = Vec::new();
+    for r in faces {
+        let Some(part_tid) = model.bodies[r.body].flat_of else { continue };
+        let Some(part) = model.bodies.iter().position(|b| b.tid == part_tid) else { continue };
+        if !flat_is_folded(model, part) {
+            return Err(error("@opSMFlatOperation: flat patterns of parts with bends aren't supported yet"));
+        }
+        let def = definition_of_part(model, part).ok_or_else(failed)?;
+        let plane = model.bodies[def].faces.first().and_then(|f| f.shape.face_plane().ok()).ok_or_else(failed)?;
+        let face = model.shape(r).clone();
+        let at = face.face_inner_point().map_err(occt_error)?;
+        let drop = scale(plane.normal, -dot(sub(at, plane.origin), plane.normal));
+        let shift = occt::Transform { m: [1.0, 0.0, 0.0, drop.x, 0.0, 1.0, 0.0, drop.y, 0.0, 0.0, 1.0, drop.z] };
+        let dropped = occt::transform(&face, &shift).map_err(occt_error)?.shape();
+        match by_definition.iter_mut().find(|(d, _)| *d == def) {
+            Some((_, shapes)) => shapes.push(dropped),
+            None => by_definition.push((def, vec![dropped])),
+        }
+    }
+    let mut results = Vec::new();
+    for (def, mut tools) in by_definition {
+        let sheet = model.bodies[def].shape.clone();
+        if union {
+            tools.retain(|t| t.distance(&sheet).is_ok_and(|d| d.distance < 1e-9));
+            if tools.is_empty() {
+                continue;
+            }
+        }
+        let kind = if union { occt::BooleanKind::Union } else { occt::BooleanKind::Subtraction };
+        let op = occt::boolean(kind, std::slice::from_ref(&sheet), &tools, true).map_err(|_| failed())?;
+        results.push((def, op));
+    }
+    super::replace_bodies(model, &id, results);
+    Ok(Value::UNDEFINED)
+}
+
 /// A model made inactive leaves its parts as ordinary parts, without association attributes.
 fn release_parts(model: &mut Model, def_index: usize) {
     let def_association = association(&model.bodies[def_index].attributes).cloned();

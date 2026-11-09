@@ -251,6 +251,8 @@ pub struct Body {
     pub ancestry: Ancestry,
     /// For a mate connector, the transient id of the part that owns it (`qMateConnectorsOfParts`).
     pub owner: Option<Tid>,
+    /// For a sketch drawn in a sheet metal part's flat pattern, that part's transient id (`qPartsAttachedTo`).
+    pub flat_of: Option<Tid>,
     pub faces: Vec<Entity>,
     pub edges: Vec<Entity>,
     pub vertices: Vec<Entity>,
@@ -334,6 +336,8 @@ pub struct NewBody {
     pub ancestry: Ancestry,
     /// For a mate connector, the part that owns it.
     pub owner: Option<Tid>,
+    /// For a sketch in a sheet metal part's flat pattern, that part.
+    pub flat_of: Option<Tid>,
 }
 
 impl NewBody {
@@ -352,6 +356,7 @@ impl NewBody {
             composite: None,
             ancestry: Ancestry::default(),
             owner: None,
+            flat_of: None,
         }
     }
 
@@ -370,6 +375,7 @@ impl NewBody {
             composite: old.composite.clone(),
             ancestry: Ancestry::of_body(old),
             owner: old.owner,
+            flat_of: old.flat_of,
         }
     }
 }
@@ -426,6 +432,7 @@ impl Model {
             composite: new.composite,
             ancestry: new.ancestry,
             owner: new.owner,
+            flat_of: new.flat_of,
             faces,
             edges,
             vertices,
