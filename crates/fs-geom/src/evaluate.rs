@@ -288,6 +288,11 @@ pub fn register(m: &mut GeomBuiltins) {
                     }
                     (_, f) => f,
                 };
+                // Nothing to resolve is its own error (batch 060 c009, c010); a first entity that isn't a plane
+                // is CANNOT_RESOLVE_PLANE.
+                if found.is_empty() {
+                    return Err(regen_error("CANNOT_RESOLVE_ENTITIES"));
+                }
                 frame.map(|f| tags.plane(f)).ok_or_else(|| regen_error("CANNOT_RESOLVE_PLANE"))
             },
             &tags,
