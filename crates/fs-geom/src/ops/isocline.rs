@@ -177,13 +177,27 @@ fn tilted_torus_cutters(face: &Shape, direction: Vec3, angle: f64) -> R<Option<V
 /// and the normal's derivative.
 #[allow(clippy::type_complexity)]
 fn tilted_torus_samples(face: &Shape, direction: Vec3, angle: f64) -> R<Option<Vec<Vec<(Vec3, Vec3, Vec3, Vec3)>>>> {
+    Ok(tilted_torus_samples_over(face, direction, angle, false)?.map(|(curves, _)| curves))
+}
+
+/// [`tilted_torus_samples`], also on part of a torus round its axis (the whole way round the tube) if `partial`:
+/// then each curve runs from one end of the face's angle round the axis to the other, sampled at both ends, and
+/// the angles of the samples come too.
+#[allow(clippy::type_complexity)]
+fn tilted_torus_samples_over(
+    face: &Shape,
+    direction: Vec3,
+    angle: f64,
+    partial: bool,
+) -> R<Option<(Vec<Vec<(Vec3, Vec3, Vec3, Vec3)>>, Vec<f64>)>> {
     let s = face.surface_definition().map_err(occt_error)?;
     if s.kind != 4 || norm(cross(s.frame.normal, direction)) < 1e-9 {
         return Ok(None);
     }
     let ((u0, v0), (u1, v1)) = face.face_uv_bounds().map_err(occt_error)?;
     let full = |a: f64, b: f64| ((b - a) - 2.0 * std::f64::consts::PI).abs() < 1e-9;
-    if !full(u0, u1) || !full(v0, v1) {
+    let whole = full(u0, u1);
+    if !full(v0, v1) || !(whole || partial) {
         return Ok(None);
     }
     let (c0, a, u) = (s.frame.origin, s.frame.normal, s.frame.x);
@@ -198,8 +212,13 @@ fn tilted_torus_samples(face: &Shape, direction: Vec3, angle: f64) -> R<Option<V
     let (du, dv, da) = (dot(direction, u), dot(direction, v), dot(direction, a));
     let samples = TORUS_SAMPLES;
     let mut curves: Vec<Vec<(Vec3, Vec3, Vec3, Vec3)>> = vec![Vec::new(), Vec::new()];
-    for i in 0..samples {
-        let th = 2.0 * std::f64::consts::PI * i as f64 / samples as f64;
+    // The angles round the axis, in the face's parameter (its frame's x, towards its y).
+    let thetas: Vec<f64> = if whole {
+        (0..samples).map(|i| 2.0 * std::f64::consts::PI * i as f64 / samples as f64).collect()
+    } else {
+        (0..=samples).map(|i| u0 + (u1 - u0) * i as f64 / samples as f64).collect()
+    };
+    for &th in &thetas {
         let big_a = du * th.cos() + dv * th.sin();
         let reach = big_a.hypot(da);
         if c.abs() >= reach {
@@ -225,7 +244,31 @@ fn tilted_torus_samples(face: &Shape, direction: Vec3, angle: f64) -> R<Option<V
             curves[k].push((point, tangent, normal, dnormal));
         }
     }
-    Ok(Some(curves))
+    Ok(Some((curves, thetas)))
+}
+
+/// The isoclines of part of a torus round its axis, tilted to the direction (batch 070 c005): open curves from one
+/// end of the face to the other, each running along n × d (the face's outward normal crossed with the direction),
+/// as Onshape's do.
+fn partial_tilted_torus_isoclines(face: &Shape, direction: Vec3, angle: f64) -> R<Option<Vec<Shape>>> {
+    let Some((curves, thetas)) = tilted_torus_samples_over(face, direction, angle, true)? else { return Ok(None) };
+    if thetas.len() != TORUS_SAMPLES + 1 {
+        return Ok(None);
+    }
+    let mut out = Vec::new();
+    for samples in curves {
+        let mut points: Vec<Vec3> = samples.iter().map(|s| s.0).collect();
+        let mut tangents: Vec<Vec3> = samples.iter().map(|s| s.1).collect();
+        let mut parameters = thetas.clone();
+        let (_, t, n, _) = samples[samples.len() / 2];
+        if dot(t, cross(n, direction)) < 0.0 {
+            points.reverse();
+            tangents = tangents.into_iter().rev().map(|t| scale(t, -1.0)).collect();
+            parameters = parameters.iter().rev().map(|p| -p).collect();
+        }
+        out.push(occt::interpolated_edge(&points, &tangents, &parameters, false).map_err(occt_error)?);
+    }
+    Ok(Some(out))
 }
 
 /// Large planar faces standing in for the isocline planes of some faces.
@@ -361,7 +404,11 @@ pub fn create(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> 
             }
             continue;
         }
-        if let Some(curves) = tilted_torus_isoclines(face, direction, angle)? {
+        let curves = match tilted_torus_isoclines(face, direction, angle)? {
+            Some(curves) => Some(curves),
+            None => partial_tilted_torus_isoclines(face, direction, angle)?,
+        };
+        if let Some(curves) = curves {
             for edge in curves {
                 for wire in occt::connect_edges(&[edge]).map_err(occt_error)? {
                     model.add_body(
