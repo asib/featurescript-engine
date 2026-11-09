@@ -657,9 +657,10 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   between the caps.
 - **A sweep locked to a cylinder's side along a circle round its axis** (batch 058 c004) turns the profile with
   the cylinder's normal: a revolve about the axis.
-- **A draft parted by a cylindrical sheet** (batch 058 c001): Onshape splits each side at the sheet and drafts the
-  lower part, the planes leaving a cylindrical ledge on the sheet; its drafted planes reach 0.26 mm out at the
-  bottom, as a hinge 4.96 mm up would (the sheet crosses the sides at 7.09 mm): not reproduced yet.
+- **A draft parted by a cylindrical sheet** (batch 058 c001) works as a plane does: the part is split by the
+  sheet, the piece on the pull side has its steep faces turned about their top edges (reaching 0.26 mm out where
+  they meet the sheet, 4.96 mm below the top), and the pieces are joined again, leaving a cylindrical ledge on the
+  sheet (11 faces, the volume to 6e-9).
 - **Spheres extended round, more bands** (batch 056 c019–c021): no per-point rule can do: latitude 60° turns
   exactly d/r on a band from 30° to 60° but 1.106 rad on one from 0° to 60°, and a band from −30° to 30° turns 1.1%
   over d/r at both corners and 0.2% under at the equator: Onshape's new edge depends on the whole band.
