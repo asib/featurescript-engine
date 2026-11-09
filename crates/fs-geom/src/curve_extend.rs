@@ -25,6 +25,9 @@ const SPAN_BOUND: f64 = 0.365e-3;
 /// How close a conic made a B-spline must lie to the conic at the middle of each span, at the same parameter (m):
 /// this reproduces the knots of all 13 of Onshape's conic fillets in batches 003 and 052 (9 µm or 11 wouldn't).
 const CONIC_TOLERANCE: f64 = 1e-5;
+/// The same for a sketch's conic made a B-spline to extend it (batch 070 c003: a 20 mm conic of rho 0.7, its knots
+/// from 1/32 to 1/8 apart; between 0.69 µm and 0.91 µm by them).
+pub const CURVE_CONIC_TOLERANCE: f64 = 1e-6;
 /// How far a curving extension's blend turns.
 const BLEND_TURN: f64 = 3.0 * std::f64::consts::PI / 180.0;
 
@@ -127,6 +130,11 @@ impl Cubic {
     /// derivatives at the ends. The knots start at the ends alone; each round, every span whose middle lies more
     /// than [`CONIC_TOLERANCE`] from the conic at the same parameter is halved, and the spline fitted again.
     pub fn rational_quadratic(p0: Vec3, p1: Vec3, p2: Vec3, w: f64) -> R<Cubic> {
+        Cubic::rational_quadratic_within(p0, p1, p2, w, CONIC_TOLERANCE)
+    }
+
+    /// [`Cubic::rational_quadratic`] to within `tolerance` (m) at the middle of each span.
+    pub fn rational_quadratic_within(p0: Vec3, p1: Vec3, p2: Vec3, w: f64, tolerance: f64) -> R<Cubic> {
         let point = |t: f64| {
             let (b0, b1, b2) = ((1.0 - t) * (1.0 - t), 2.0 * t * (1.0 - t) * w, t * t);
             scale(add(add(scale(p0, b0), scale(p1, b1)), scale(p2, b2)), 1.0 / (b0 + b1 + b2))
@@ -149,7 +157,7 @@ impl Cubic {
             let halves: Vec<f64> = parameters
                 .windows(2)
                 .map(|span| (span[0] + span[1]) / 2.0)
-                .filter(|&m| norm(sub(cubic.derivative(m, 0), point(m))) > CONIC_TOLERANCE)
+                .filter(|&m| norm(sub(cubic.derivative(m, 0), point(m))) > tolerance)
                 .collect();
             if halves.is_empty() || parameters.len() > 1024 {
                 return Ok(cubic);
@@ -194,6 +202,16 @@ impl Cubic {
 
     /// This curve with the blend a curving extension starts with, or `None` if the curve ends without curvature.
     pub fn blended(&self) -> R<Option<Cubic>> {
+        self.blended_to(None)
+    }
+
+    /// [`Cubic::blended`], or with the blend cut short `cut` past the curve's end (in its parameter): an extension
+    /// shorter than its blend is the blend as far as it goes (batch 070 c004).
+    ///
+    /// The blend runs on for at most the curve's own parameter range: a conic's end, made a B-spline over 0 to 1,
+    /// would turn its 3° only 1.57 on, and Onshape's blend there (batch 070 c004) is the one 1 on. (One case shows
+    /// it; the arcs of batches 036 and 038 turn their 3° well within their ranges.)
+    pub fn blended_to(&self, cut: Option<f64>) -> R<Option<Cubic>> {
         let u = self.end();
         let (p0, p1, p2, p3) =
             (self.derivative(u, 0), self.derivative(u, 1), self.derivative(u, 2), self.derivative(u, 3));
@@ -205,11 +223,14 @@ impl Cubic {
         }
         // The blend's end tangent is p1 + Δ/2 p2; turned 3° from p1.
         let tan = BLEND_TURN.tan();
-        let delta = 2.0 * norm(p1) * tan / (bend - s * tan);
-        if !(delta > 0.0) {
-            return Err(error("curve extension: no blend"));
+        let mut delta = 2.0 * norm(p1) * tan / (bend - s * tan);
+        let range = u - self.start();
+        if !(delta > 0.0) || delta > range {
+            delta = range;
         }
         let c = scale(add(p2, scale(p3, delta)), -1.0 / (6.0 * delta));
+        let delta_full = delta;
+        let delta = cut.map_or(delta_full, |d| d.min(delta_full));
         let blend = |t: f64| {
             add(
                 add(add(add(p0, scale(p1, t)), scale(p2, t * t / 2.0)), scale(p3, t * t * t / 6.0)),

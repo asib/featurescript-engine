@@ -664,6 +664,11 @@ pub fn register(m: &mut GeomBuiltins) {
                     ) =>
                     {
                         let data = model.shape(*r).edge_bspline(1e-6, false, false).map_err(occt_error)?;
+                        // A sketch's conic (one rational quadratic span) isn't a B-spline to std in Onshape: only
+                        // the map (batch 070 c003).
+                        if data.rational && data.degree == 2 && data.poles.len() == 3 {
+                            return Ok(map(vec![("curveType", Value::string("OTHER"))]));
+                        }
                         crate::bspline::bspline_value(tags, &data)
                     }
                     // The rest: std only promises a map.

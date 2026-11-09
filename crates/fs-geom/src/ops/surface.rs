@@ -1403,6 +1403,28 @@ fn edge_as_cubic(edge: &Shape) -> R<crate::curve_extend::Cubic> {
     let data = edge.edge_bspline(1e-7, false, false).map_err(occt_error)?;
     let first = data.knots.first().copied().unwrap_or_default();
     let last = data.knots.last().copied().unwrap_or_default();
+    // A conic (a sketch's, one rational quadratic span) becomes the clamped cubic spline through it, as a conic
+    // fillet's section does, to within a micrometre (batch 070 c003).
+    if data.rational && data.degree == 2 && data.poles.len() == 3 && data.weights.len() == 3 && !data.periodic {
+        let (w0, w1, w2) = (data.weights[0], data.weights[1], data.weights[2]);
+        let w = w1 / (w0 * w2).sqrt();
+        let fitted = Cubic::rational_quadratic_within(
+            data.poles[0],
+            data.poles[1],
+            data.poles[2],
+            w,
+            crate::curve_extend::CURVE_CONIC_TOLERANCE,
+        )?;
+        // Over the conic's own parameter range.
+        let knots = fitted.knots.iter().map(|k| first + k * (last - first)).collect();
+        let poles = fitted.poles;
+        let cubic = Cubic { knots, poles };
+        if norm(sub(*cubic.poles.last().expect("poles"), end.origin)) > 1e-9 || norm(sub(cubic.poles[0], start.origin)) > 1e-9
+        {
+            return Err(error("@opMoveCurveBoundary: B-splines running against their edge aren't supported yet"));
+        }
+        return Ok(cubic);
+    }
     let clamped = data.knots.len() == data.poles.len() + 4
         && data.knots[..4].iter().all(|k| *k == first)
         && data.knots[data.knots.len() - 4..].iter().all(|k| *k == last);
@@ -1439,11 +1461,31 @@ fn extended_cubic(
             let length = blended.length(cubic.end(), blended.end());
             (blended, length)
         }
-        None => (cubic, 0.0),
+        None => (cubic.clone(), 0.0),
     };
     let mut straight = distance - already;
     if straight <= 1e-12 {
-        return Err(error("extensions ending within their blend aren't supported yet"));
+        // Ending within its blend: the blend as far as the distance goes (batch 070 c004).
+        let reach = |d: f64, blended: &crate::curve_extend::Cubic| {
+            if by_chord {
+                norm(sub(blended.derivative(blended.end(), 0), old_end))
+            } else {
+                blended.length(cubic.end(), cubic.end() + d)
+            }
+        };
+        let full = base.end() - cubic.end();
+        let (mut lo, mut hi) = (0.0, full);
+        let mut cut = base.clone();
+        for _ in 0..80 {
+            let mid = (lo + hi) / 2.0;
+            cut = cubic.blended_to(Some(mid))?.ok_or_else(|| error("curve extension: no blend"))?;
+            if reach(mid, &cut) < distance {
+                lo = mid;
+            } else {
+                hi = mid;
+            }
+        }
+        return Ok(if at_end { cut } else { cut.reversed() });
     }
     let mut extended = base.straight_on(straight)?;
     if by_chord {
@@ -1834,7 +1876,7 @@ fn curved_boundary_moved(
                 let length = blended.length(cubic.end(), blended.end());
                 (blended, length)
             }
-            None => (cubic, 0.0),
+            None => (cubic.clone(), 0.0),
         };
         // Up to a curve met within the blend: the blend stops there (an arc extended with its curvature up to a
         // circle, batch 067 c003).
@@ -1850,9 +1892,26 @@ fn curved_boundary_moved(
             }
             _ => None,
         };
-        let extended = match within_blend {
-            Some(t) => base.segment(base.start(), t)?,
-            None => {
+        // A blind extension shorter than its blend: the blend as far as the distance (batch 070 c004).
+        let blind = limit.is_none() && limit_surface.is_none() && curved_limit.is_none();
+        let cut_blend = if within_blend.is_none() && blind && already > 0.0 && distance < already {
+            let (mut lo, mut hi) = (0.0, base.end() - old_end);
+            for _ in 0..80 {
+                let mid = (lo + hi) / 2.0;
+                if base.length(old_end, old_end + mid) < distance {
+                    lo = mid;
+                } else {
+                    hi = mid;
+                }
+            }
+            Some(cubic.blended_to(Some((lo + hi) / 2.0))?.ok_or_else(|| regen_error("TRIM_CURVE_FAILED"))?)
+        } else {
+            None
+        };
+        let extended = match (within_blend, cut_blend) {
+            (_, Some(cut)) => cut,
+            (Some(t), None) => base.segment(base.start(), t)?,
+            (None, None) => {
                 let (p, d) = base.end_ray()?;
                 base.straight_on(straight(p, d, already)?)?
             }
