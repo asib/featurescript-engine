@@ -153,12 +153,49 @@ pub struct Metrics {
     pub seams: usize,
     pub vertices: usize,
     pub valid: bool,
+    /// Of the B-spline faces, those that are flat (see [`planar_bspline`]).
+    pub planar_bsplines: usize,
+}
+
+/// Whether a B-spline face is flat: all its poles in one plane. Onshape's STEP may write such a face as a plane (a
+/// sweep's sides along a straight path, batch 070 c008, which its own `evSurfaceDefinition` calls B-splines).
+fn planar_bspline(face: &Shape) -> bool {
+    let Ok(data) = face.face_bspline() else { return false };
+    let p = &data.poles;
+    let sub = |a: occt::Vec3, b: occt::Vec3| occt::Vec3 { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z };
+    let cross = |a: occt::Vec3, b: occt::Vec3| occt::Vec3 {
+        x: a.y * b.z - a.z * b.y,
+        y: a.z * b.x - a.x * b.z,
+        z: a.x * b.y - a.y * b.x,
+    };
+    let dot = |a: occt::Vec3, b: occt::Vec3| a.x * b.x + a.y * b.y + a.z * b.z;
+    let Some(&origin) = p.first() else { return false };
+    // The normal of the largest triangle from the first pole.
+    let mut normal = occt::Vec3 { x: 0.0, y: 0.0, z: 0.0 };
+    for i in 1..p.len() {
+        for j in i + 1..p.len() {
+            let n = cross(sub(p[i], origin), sub(p[j], origin));
+            if dot(n, n) > dot(normal, normal) {
+                normal = n;
+            }
+        }
+    }
+    let size = dot(normal, normal).sqrt();
+    if size < 1e-18 {
+        return false;
+    }
+    p.iter().all(|q| (dot(sub(*q, origin), normal) / size).abs() < 1e-10)
 }
 
 pub fn metrics(shape: &Shape) -> Result<Metrics, occt::Error> {
     let mut faces = BTreeMap::new();
+    let mut planar_bsplines = 0;
     for face in shape.sub_shapes(ShapeKind::Face) {
-        *faces.entry(format!("{:?}", face.surface_type()?)).or_insert(0) += 1;
+        let kind = face.surface_type()?;
+        if kind == occt::SurfaceType::BSpline && planar_bspline(&face) {
+            planar_bsplines += 1;
+        }
+        *faces.entry(format!("{kind:?}")).or_insert(0) += 1;
     }
     let mut edges = BTreeMap::new();
     let mut seams = 0;
@@ -178,6 +215,7 @@ pub fn metrics(shape: &Shape) -> Result<Metrics, occt::Error> {
         seams,
         vertices: shape.sub_shapes(ShapeKind::Vertex).len(),
         valid: shape.is_valid(),
+        planar_bsplines,
     })
 }
 
@@ -351,7 +389,20 @@ pub fn compare_with(name: &str, ours: &Shape, theirs: &Shape, strictness: Strict
         }
         out
     };
-    if face_types(&ours_m) != face_types(&theirs_m) {
+    // With probes, the engine's flat B-spline faces may be Onshape's planes or its B-splines: its STEP writes some
+    // flat B-splines as planes (batch 070 c008) and keeps others (batch 057 c010).
+    let same_faces = if strictness.topology {
+        face_types(&ours_m) == face_types(&theirs_m)
+    } else {
+        let (ours_t, theirs_t) = (face_types(&ours_m), face_types(&theirs_m));
+        let count = |m: &BTreeMap<String, usize>, k: &str| m.get(k).copied().unwrap_or(0);
+        let as_planes = count(&theirs_t, "Plane") as i64 - count(&ours_t, "Plane") as i64;
+        let analytic_same = ["Cylinder", "Cone", "Sphere", "Torus"].iter().all(|k| count(&ours_t, k) == count(&theirs_t, k));
+        analytic_same
+            && (0..=ours_m.planar_bsplines as i64).contains(&as_planes)
+            && count(&ours_t, "FreeForm") as i64 - as_planes == count(&theirs_t, "FreeForm") as i64
+    };
+    if !same_faces {
         problems.push(format!("faces {:?}, Onshape {:?}", ours_m.faces, theirs_m.faces));
     }
     if strictness.topology && ours_m.edges != theirs_m.edges {
