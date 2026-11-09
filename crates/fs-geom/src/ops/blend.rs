@@ -625,6 +625,8 @@ pub fn face_blend(model: &mut Model, id: FeatureId, definition: &Value) -> R<Val
         return Err(error("@opFaceBlend: only rolling ball blends are supported yet"));
     }
     let plain = field(definition, "blendControlType").as_str().is_none_or(|c| c == "RADIUS")
+        && !values::opt_bool(definition, "hasLimits")?.unwrap_or(false)
+        && !values::opt_bool(definition, "hasCaps")?.unwrap_or(false)
         && !values::opt_bool(definition, "asymmetric")?.unwrap_or(false)
         && field(definition, "crossSectionShape").as_str().is_none_or(|c| c == "CIRCULAR")
         && field(definition, "trim").as_str().is_none_or(|t| t == "WALLS")
@@ -889,10 +891,53 @@ fn planar_face_blend(model: &mut Model, id: FeatureId, definition: &Value) -> R<
     let ((lo1, hi1), (lo2, hi2)) = (extent(&face1), extent(&face2));
     let trim = field(definition, "trim").as_str().unwrap_or("WALLS").to_string();
     let detach = values::opt_bool(definition, "detach")?.unwrap_or(false);
-    let short = trim == "SHORT";
-    let (lo, hi) = if short { (lo1.max(lo2), hi1.min(hi2)) } else { (lo1.min(lo2), hi1.max(hi2)) };
+    let mut short = trim == "SHORT";
+    let (mut lo, mut hi) = if short { (lo1.max(lo2), hi1.min(hi2)) } else { (lo1.min(lo2), hi1.max(hi2)) };
+    // Limit planes (batch 071 c001, c002): each keeps the side its normal (flipped if asked) points to, the blend
+    // running only where they all do; the sides are notched only there, as with a short trim, and a planar face
+    // closes each end a plane limits, between the sides and the blend.
+    let mut limited = (false, false);
+    if values::opt_bool(definition, "hasLimits")?.unwrap_or(false) {
+        for (key, flip) in [("limitPlane1", "limitPlane1Flip"), ("limitPlane2", "limitPlane2Flip")] {
+            let Some(r) = query::evaluate(model, field(definition, key))?.into_iter().next() else { continue };
+            let limit = model.shape(r).face_plane().map_err(|_| failed())?;
+            let n = if values::opt_bool(definition, flip)?.unwrap_or(false) { scale(limit.normal, -1.0) } else { limit.normal };
+            let rate = dot(t, n);
+            if rate.abs() < 1e-12 {
+                return Err(failed());
+            }
+            let x = dot(sub(limit.origin, c), n) / rate;
+            if rate > 0.0 && x > lo {
+                lo = x;
+                limited.0 = true;
+            } else if rate < 0.0 && x < hi {
+                hi = x;
+                limited.1 = true;
+            }
+        }
+        short = true;
+    }
     if hi - lo < 1e-9 {
         return Err(failed());
+    }
+    // A cap across the blend where both sides run on past it, in its middle, is inconsistent (batch 071 c003).
+    if values::opt_bool(definition, "hasCaps")?.unwrap_or(false) {
+        for cap in field(definition, "caps").as_array().map(|a| a.to_vec()).unwrap_or_default() {
+            for r in query::evaluate(model, field(&cap, "entity"))? {
+                let Ok(cap_plane) = model.shape(r).face_plane() else {
+                    return Err(error("@opFaceBlend: caps other than planes aren't supported yet"));
+                };
+                let rate = dot(t, cap_plane.normal);
+                if rate.abs() < 1e-12 {
+                    continue;
+                }
+                let x = dot(sub(cap_plane.origin, c), cap_plane.normal) / rate;
+                if x > lo1.max(lo2) + 1e-9 && x < hi1.min(hi2) - 1e-9 {
+                    return Err(regen_error("FACE_BLEND_INCONSISTENT_DATA"));
+                }
+            }
+        }
+        return Err(error("@opFaceBlend: caps at a blend's ends aren't supported yet"));
     }
     // Untrimmed, the blend runs on past the sides' ends by a tenth of their length at each (batch 054 c007, 055
     // c001–c003: 3 mm of 30, 6 of 60, 5 of sides spanning 50 between them, whatever the radius).
@@ -983,6 +1028,21 @@ fn planar_face_blend(model: &mut Model, id: FeatureId, definition: &Value) -> R<
         let mut faces = trimmed(&face1, u1, s1)?;
         faces.extend(trimmed(&face2, u2, s2)?);
         faces.extend(blend_faces);
+        // The ends limit planes cut: the section's region between the sides, at that end.
+        for (cut, x) in [(limited.0, lo), (limited.1, hi)] {
+            if !cut {
+                continue;
+            }
+            let shift = super::translation(scale(t, x - lo));
+            let at = add(c, scale(t, x));
+            let section = occt::transform(&curve, &shift).map_err(crate::occt_error)?.shape();
+            let edges = [
+                occt::line_edge(at, add(at, scale(u2, s2))).map_err(crate::occt_error)?,
+                section,
+                occt::line_edge(add(at, scale(u1, s1)), at).map_err(crate::occt_error)?,
+            ];
+            faces.push(occt::fill_edges(&edges).map_err(|_| failed())?);
+        }
         let sewn = occt::sew_faces(&faces, 1e-6).map_err(|_| failed())?;
         let first = model.bodies[f1.body].clone();
         let mut bodies = vec![f1.body, f2.body];
