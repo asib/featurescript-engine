@@ -105,6 +105,7 @@ fn attribute_value<'a>(attribute: &'a Value, key: &str) -> Option<&'a Value> {
 
 /// A bend of the definition sheet: its edge, the inner radius, the radius at the sheet (the inner radius plus
 /// the thickness on the inside), and the axis of the rounded sheet.
+#[derive(Clone)]
 struct Bend {
     edge: Shape,
     sheet_radius: f64,
@@ -594,7 +595,26 @@ fn regenerate(model: &mut Model, id: &FeatureId, def_index: usize) -> R<()> {
         })
         .collect();
     let k_rolled = attribute_value(&model_attribute, "kFactorRolled").and_then(Value::as_number).unwrap_or(0.5);
-    let solid = build_part(&def, &bends, &rips, front, back, k_rolled, clearance, &relief, &corners, &tools, &forms)?;
+    let solid =
+        build_part(&def, &bends, &rips, front, back, k_rolled, clearance, &relief, &corners, &tools, &forms, false)?;
+    // A model with rolled walls and bends: its flat pattern is the part with every bend unfolded and every rolled
+    // wall unrolled (as `sheetMetalUnfold` lays them, batch 069 c004), a thickness further towards the held wall's
+    // material, as a planar model's is (batch 071 c012).
+    let curved_flat = if def.faces.iter().any(|f| f.shape.face_plane().is_err()) && !bends.is_empty() {
+        let flat_bends: Vec<Bend> = bends.iter().map(|b| Bend { unfolded: true, ..b.clone() }).collect();
+        let no_tools = vec![Vec::new(); def.faces.len()];
+        let no_forms = vec![(Vec::new(), Vec::new()); def.faces.len()];
+        let laid = build_part(&def, &flat_bends, &rips, front, back, k_rolled, clearance, &relief, &[], &no_tools, &no_forms, true);
+        match (laid, curved_layout(&def)?) {
+            (Ok(laid), Some(layout)) => {
+                let near = crate::values::scale(layout.material, layout.thickness);
+                Some(occt::transform(&laid, &super::translation(near)).map_err(occt_error)?.shape())
+            }
+            _ => None,
+        }
+    } else {
+        None
+    };
 
     // Replace the model's part, keeping its identity, or make one.
     // Replace the model's parts (one for each piece a rip cuts off), keeping their identities, or make them.
@@ -689,7 +709,7 @@ fn regenerate(model: &mut Model, id: &FeatureId, def_index: usize) -> R<()> {
         .collect();
     model.remove_bodies(&stale);
     if let (Some(tid), Some(def_index)) = (part_tid, model.bodies.iter().position(|b| b.tid == def.tid))
-        && let Some(shape) = flat_pattern_shape(model, def_index)?
+        && let Some(shape) = match curved_flat { Some(flat) => Some(flat), None => flat_pattern_shape(model, def_index)? }
     {
         // It belongs to the model as the parts do (std finds the model of a flat sketch's plane by it).
         model.add_body(
@@ -983,6 +1003,46 @@ pub fn corresponding_in_flat(model: &Model, r: EntityRef) -> Option<EntityRef> {
         })?;
         return Some(EntityRef { body: flat, kind: EntityType::Face, index });
     }
+    // A model with rolled walls and bends (batch 071 c012): the face's wall's point in the flat, a thickness on
+    // (two for a face a thickness off the definition) towards the material.
+    if let Ok(Some(layout)) = curved_layout(def) {
+        let face = model.shape(r);
+        let at = face.face_inner_point().ok()?;
+        let thickness = layout.thickness;
+        let (flat_point, far) = match face.surface_definition().ok()? {
+            s if s.kind == 1 => def.faces.iter().enumerate().find_map(|(w, wall)| {
+                let ws = wall.shape.surface_definition().ok()?;
+                let coaxial = ws.kind == 1
+                    && norm(cross(s.frame.normal, ws.frame.normal)) < 1e-9
+                    && norm(cross(sub(s.frame.origin, ws.frame.origin), ws.frame.normal)) < 1e-7;
+                let (motion, Some((unroll, radius, _))) = &layout.walls[w] else { return None };
+                coaxial.then(|| {
+                    let far = if (s.radius1 - radius).abs() < thickness / 2.0 { 0.0 } else { thickness };
+                    (motion.point(unroll.unwrap(at)), far)
+                })
+            })?,
+            s if s.kind == 0 => def.faces.iter().enumerate().find_map(|(w, wall)| {
+                let wall_plane = wall.shape.face_plane().ok()?;
+                if norm(cross(s.frame.normal, wall_plane.normal)) > 1e-9 {
+                    return None;
+                }
+                let offset = dot(sub(at, wall_plane.origin), wall_plane.normal);
+                let foot = sub(at, scale(wall_plane.normal, offset));
+                if occt::vertex(foot).and_then(|v| v.distance(&wall.shape)).map_or(true, |d| d.distance > 1e-7) {
+                    return None;
+                }
+                let far = if offset.abs() < thickness / 2.0 { 0.0 } else { thickness };
+                Some((layout.walls[w].0.point(foot), far))
+            })?,
+            _ => return None,
+        };
+        let target = add(flat_point, scale(layout.material, thickness + far));
+        let index = model.bodies[flat].faces.iter().position(|f| {
+            f.shape.face_plane().is_ok()
+                && occt::vertex(target).and_then(|v| v.distance(&f.shape)).is_ok_and(|d| d.distance < 1e-7)
+        })?;
+        return Some(EntityRef { body: flat, kind: EntityType::Face, index });
+    }
     let bends = definition_bends(def).ok()?;
     let wall_index = |s: &Shape| def.faces.iter().position(|f| f.shape.is_same(s)).unwrap_or(0);
     let motions = motions(def, &bends, &wall_index, &|_| true).0;
@@ -1238,6 +1298,52 @@ pub fn flat_operation(model: &mut Model, id: FeatureId, definition: &Value) -> R
                 }
                 loops.push(occt::closed_edge_on_face(&wall, &uv).map_err(|_| failed())?);
             }
+            match wrapped.iter_mut().find(|(d, _, _)| *d == def) {
+                Some((_, _, edges)) => edges.extend(loops),
+                None => wrapped.push((def, wall, loops)),
+            }
+            continue;
+        }
+        // A rolled wall of a model with bends: each loop wrapped back onto the rolled wall it lies in (batch 071
+        // c012).
+        if let Some(def) = definition_of_part(model, part)
+            && let Some(layout) = curved_layout(&model.bodies[def])?
+        {
+            if union {
+                return Err(error("@opSMFlatOperation: adding to a rolled wall's flat isn't supported yet"));
+            }
+            let plane = layout.plane;
+            let face = model.shape(r).clone();
+            let mut wall_of_cut: Option<usize> = None;
+            let mut loops = Vec::new();
+            for boundary in face.sub_shapes(ShapeKind::Wire) {
+                let mut points = Vec::new();
+                for edge in boundary.sub_shapes(ShapeKind::Edge) {
+                    const SAMPLES: usize = 64;
+                    for k in 0..SAMPLES {
+                        let p = edge.edge_tangent(k as f64 / SAMPLES as f64, true).map_err(occt_error)?.origin;
+                        let q = sub(p, scale(plane.normal, dot(sub(p, plane.origin), plane.normal)));
+                        let (w, source) = layout.rolled_source(q).ok_or_else(|| {
+                            error("@opSMFlatOperation: cuts outside a rolled wall's flat aren't supported yet")
+                        })?;
+                        if wall_of_cut.is_some_and(|x| x != w) {
+                            return Err(error("@opSMFlatOperation: cuts across walls of a rolled model aren't supported yet"));
+                        }
+                        wall_of_cut = Some(w);
+                        points.push(source);
+                    }
+                }
+                let Some(w) = wall_of_cut else { continue };
+                let wall = &model.bodies[def].faces[w].shape;
+                let uv = points
+                    .iter()
+                    .map(|p| wall.face_fraction(*p))
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(occt_error)?;
+                loops.push(occt::closed_edge_on_face(wall, &uv).map_err(|_| failed())?);
+            }
+            let Some(w) = wall_of_cut else { continue };
+            let wall = model.bodies[def].faces[w].shape.clone();
             match wrapped.iter_mut().find(|(d, _, _)| *d == def) {
                 Some((_, _, edges)) => edges.extend(loops),
                 None => wrapped.push((def, wall, loops)),
@@ -2181,6 +2287,75 @@ fn unroll_layout(
     Ok((face, layout))
 }
 
+/// How a model with rolled walls and bends lies flat (see `regenerate`'s curved flat): each wall's move into the
+/// flat (from the held wall across its unfolded bends) and, for a rolled wall, how its unrolled face wraps back onto
+/// it; the flat's plane at the definition (before the flat pattern's move a thickness towards the material), the
+/// material's direction there and the thickness.
+struct CurvedLayout {
+    walls: Vec<(Rigid, Option<(UnrollLayout, f64, Shape)>)>,
+    plane: occt::Frame,
+    material: Vec3,
+    thickness: f64,
+}
+
+impl CurvedLayout {
+    /// The point of the definition a point of the flat (on its plane at the definition) comes from, with the wall
+    /// it lies in, if it lies in a rolled wall's flat (`None` elsewhere: planar walls and bends aren't mapped yet).
+    fn rolled_source(&self, q: Vec3) -> Option<(usize, Vec3)> {
+        for (w, (motion, rolled)) in self.walls.iter().enumerate() {
+            let Some((layout, radius, flat)) = rolled else { continue };
+            let back = motion.inverse().point(q);
+            if occt::vertex(back).and_then(|v| v.distance(flat)).is_ok_and(|d| d.distance < 1e-7) {
+                return Some((w, layout.wrap(back, *radius)));
+            }
+        }
+        None
+    }
+}
+
+fn curved_layout(def: &Body) -> R<Option<CurvedLayout>> {
+    if def.faces.iter().all(|f| f.shape.face_plane().is_ok()) {
+        return Ok(None);
+    }
+    let bends: Vec<Bend> = definition_bends(def)?.into_iter().map(|b| Bend { unfolded: true, ..b }).collect();
+    let wall_index = |s: &Shape| def.faces.iter().position(|f| f.shape.is_same(s)).unwrap_or(0);
+    let Some(motions) = motions(def, &bends, &wall_index, &|_| true).0.into_iter().collect::<Option<Vec<Rigid>>>()
+    else {
+        return Ok(None);
+    };
+    let (front, back) = definition_thickness(def)?;
+    let k_rolled = sm_attribute(&def.attributes, "MODEL")
+        .and_then(|m| attribute_value(m, "kFactorRolled"))
+        .and_then(Value::as_number)
+        .unwrap_or(0.5);
+    let mut walls = Vec::new();
+    for (w, wall) in def.faces.iter().enumerate() {
+        let rolled = match wall.shape.surface_definition() {
+            Ok(s) if s.kind == 1 => {
+                let (face, layout) = unroll_layout(def, &wall.shape, front, back, k_rolled, &[], 0.0, &bends)?;
+                Some((layout, s.radius1, face))
+            }
+            Ok(s) if s.kind == 0 => None,
+            _ => return Ok(None),
+        };
+        walls.push((motions[w], rolled));
+    }
+    let held = held_wall(def);
+    let (plane, n) = match &walls[held].1 {
+        Some((_, _, face)) => {
+            let p = face.face_plane().map_err(occt_error)?;
+            (p, p.normal)
+        }
+        None => {
+            let face = &def.faces[held].shape;
+            let p = face.face_plane().map_err(occt_error)?;
+            (p, normal_at(face, face.face_inner_point().map_err(occt_error)?)?)
+        }
+    };
+    let material = if front >= back { n } else { scale(n, -1.0) };
+    Ok(Some(CurvedLayout { walls, plane, material, thickness: front + back }))
+}
+
 /// A definition that is one rolled wall and nothing else (batch 070 c012): the wall, its unrolled face on the
 /// plane tangent to it, how that lies, and the direction and distance the flat pattern lies from that plane
 /// (towards the material, a thickness, as a planar wall's does).
@@ -2215,6 +2390,7 @@ fn build_part(
     corners: &[CornerRelief],
     tools: &[Vec<Shape>],
     forms: &[(Vec<Shape>, Vec<Shape>)],
+    unroll_all: bool,
 ) -> R<Shape> {
     let faces_of_edge = |edge: &Shape| -> Vec<&Shape> {
         def.faces
@@ -2294,8 +2470,9 @@ fn build_part(
         // Edges run on (a butt joint's overlapping wall) are extended first; the rest are cut back.
         let mut base = wall.shape.clone();
         let unfolded_rolled = !planar
-            && sm_attribute(&wall.attributes, "WALL").and_then(|a| a.get("unfolded")).and_then(Value::as_bool)
-                == Some(true);
+            && (unroll_all
+                || sm_attribute(&wall.attributes, "WALL").and_then(|a| a.get("unfolded")).and_then(Value::as_bool)
+                    == Some(true));
         if unfolded_rolled {
             let rip_edges: Vec<Shape> = rips.iter().map(|&r| def.edges[r].shape.clone()).collect();
             base = unrolled(def, &wall.shape, front, back, k_rolled, &rip_edges, clearance, bends)?;
