@@ -4,7 +4,8 @@
 use std::path::PathBuf;
 
 /// Cases that differ (see docs/std-coverage.md): hems meeting at a closed corner (c012), whose volume matches to
-/// 2e-6 but where the engine trims 0.57 mm² off the plate's underside at the corner, which Onshape keeps whole, and
+/// 2e-6 but where the engine trims 0.57 mm² off the plate's underside at the corner (its corner vertex 0.0063 mm in,
+/// where the outer bends touch the underside tangentially), which Onshape keeps whole, and
 /// makes the corner patches B-splines where Onshape's are tiny cylinders; the engine's STEP of it reads back 7 mm³
 /// off, as batch 029's hems do.
 const KNOWN_GAPS: &[&str] = &["c012", "engine STEP: c012"];
