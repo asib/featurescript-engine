@@ -172,9 +172,50 @@ pub fn fill_surface(model: &mut Model, id: FeatureId, definition: &Value) -> R<V
             edges.extend(model.body(r).edges.iter().map(|e| e.shape.clone()));
         }
     }
-    let face = occt::fill_edges(&edges).map_err(|_| regen_error("FILL_SURFACE_FAILED"))?;
+    let face = match bilinear_fill(&edges) {
+        Some(face) => face,
+        None => occt::fill_edges(&edges).map_err(|_| regen_error("FILL_SURFACE_FAILED"))?,
+    };
     add(model, &id, face, BodyType::Sheet);
     Ok(Value::UNDEFINED)
+}
+
+/// Four straight edges round a loop that isn't flat: Onshape fills it with the bilinear patch between them (batch
+/// 062 c004), u running back along the first edge from where it meets the second, v along the second.
+fn bilinear_fill(edges: &[Shape]) -> Option<Shape> {
+    if edges.len() != 4 || edges.iter().any(|e| e.curve_type().ok() != Some(occt::CurveType::Line)) {
+        return None;
+    }
+    let ends = |e: &Shape| -> Option<(occt::Vec3, occt::Vec3)> {
+        Some((e.edge_tangent(0.0, false).ok()?.origin, e.edge_tangent(1.0, false).ok()?.origin))
+    };
+    let close = |a: occt::Vec3, b: occt::Vec3| values::norm(values::sub(a, b)) < 1e-9;
+    let (a, b) = ends(&edges[0])?;
+    let (c, d) = ends(&edges[1])?;
+    let (origin, u_end, v_end) = if close(b, c) {
+        (b, a, d)
+    } else if close(b, d) {
+        (b, a, c)
+    } else if close(a, c) {
+        (a, b, d)
+    } else if close(a, d) {
+        (a, b, c)
+    } else {
+        return None;
+    };
+    // The fourth corner: the end of the other edges that is none of the three.
+    let corners = [origin, u_end, v_end];
+    let opposite = edges[2..]
+        .iter()
+        .filter_map(ends)
+        .flat_map(|(p, q)| [p, q])
+        .find(|p| !corners.iter().any(|c| close(*c, *p)))?;
+    let normal = values::normalize(values::cross(values::sub(u_end, origin), values::sub(v_end, origin)))?;
+    if values::dot(values::sub(opposite, origin), normal).abs() < 1e-9 {
+        return None;
+    }
+    occt::bspline_surface_face(&[origin, v_end, u_end, opposite], (2, 2), &[0.0, 0.0, 1.0, 1.0], &[0.0, 0.0, 1.0, 1.0], (1, 1))
+        .ok()
 }
 
 pub fn extend_sheet(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
