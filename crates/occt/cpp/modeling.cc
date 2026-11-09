@@ -1996,9 +1996,14 @@ std::unique_ptr<Operation> loft_clamped_op(const ShapeList &wires, bool solid, V
   math_Gauss solver(system);
   if (!solver.IsDone()) throw std::runtime_error("loft: the spline across the profiles is singular");
   BRepBuilderAPI_Sewing sewing(1e-6);
-  for (const TopoDS_Shape &cap : kept) sewing.Add(cap);
+  // Exact sides go in before the caps, so the edges they share run along the sides' u as Onshape's do, and the
+  // faces come sides first (batch 066 c006).
+  if (!exact)
+    for (const TopoDS_Shape &cap : kept) sewing.Add(cap);
   const int spans = 64;
   for (const TopoDS_Face &face : exact ? exact_faces : std::vector<TopoDS_Face>()) sewing.Add(face);
+  if (exact)
+    for (const TopoDS_Shape &cap : kept) sewing.Add(cap);
   for (const Side &side : exact ? std::vector<Side>() : sides) {
     // At each span end along u: the poles across, and how they change along u.
     std::vector<std::vector<gp_Pnt>> value(spans + 1, std::vector<gp_Pnt>(m));
