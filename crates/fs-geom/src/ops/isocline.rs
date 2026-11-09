@@ -1,7 +1,8 @@
 //! Isoclines: the curves on faces where the tangent plane makes a given angle with a direction, like a draft
 //! angle (`@opCreateIsocline`, `@opSplitByIsocline`). Spheres, and tori about an axis along the direction, have
 //! them on planes square to the direction (batch 007, c026–c027); cylinders and cones across it along their length
-//! (batches 030 and 034); other faces aren't supported yet.
+//! (batches 030 and 034); a whole torus tilted to the direction has two closed curves round it (batch 057); other
+//! faces aren't supported yet.
 
 use std::rc::Rc;
 
@@ -125,6 +126,67 @@ fn cone_cutters(face: &Shape, direction: Vec3, angle: f64, size: f64) -> R<Optio
     Ok(Some(out))
 }
 
+/// A whole torus tilted to the direction (batch 057 c013): its outward normal at angle θ round the axis and φ round
+/// the tube is cos φ r(θ) + sin φ a, so n·d = s sin(angle) (signed by the face's side) is A(θ) cos φ + B sin φ = c
+/// with A = d·r(θ), B = d·a: for each θ two tube angles, φ₀(θ) ± acos(c / |(A, B)|), two closed curves round the
+/// torus. Each is the cubic Hermite spline through 128 of its points with its exact derivatives (dφ/dθ from the
+/// equation). `None` if the face isn't a whole torus tilted to the direction, or the curves don't go all the way
+/// round.
+fn tilted_torus_isoclines(face: &Shape, direction: Vec3, angle: f64) -> R<Option<Vec<Shape>>> {
+    let s = face.surface_definition().map_err(occt_error)?;
+    if s.kind != 4 || norm(cross(s.frame.normal, direction)) < 1e-9 {
+        return Ok(None);
+    }
+    let ((u0, v0), (u1, v1)) = face.face_uv_bounds().map_err(occt_error)?;
+    let full = |a: f64, b: f64| ((b - a) - 2.0 * std::f64::consts::PI).abs() < 1e-9;
+    if !full(u0, u1) || !full(v0, v1) {
+        return Ok(None);
+    }
+    let (c0, a, u) = (s.frame.origin, s.frame.normal, s.frame.x);
+    let v = cross(a, u);
+    let (major, minor) = (s.radius1, s.radius2);
+    let p = face.face_inner_point().map_err(occt_error)?;
+    let n = normal_at(face, p).ok_or_else(|| regen_error("ISOCLINE_NO_RESULT"))?;
+    let rel = sub(p, c0);
+    let radial = normalize(sub(rel, scale(a, dot(rel, a)))).ok_or_else(|| regen_error("ISOCLINE_NO_RESULT"))?;
+    let sign = if dot(n, sub(p, add(c0, scale(radial, major)))) >= 0.0 { 1.0 } else { -1.0 };
+    let c = sign * angle.sin();
+    let (du, dv, da) = (dot(direction, u), dot(direction, v), dot(direction, a));
+    let samples = 128;
+    let mut curves = vec![(Vec::new(), Vec::new()), (Vec::new(), Vec::new())];
+    for i in 0..samples {
+        let th = 2.0 * std::f64::consts::PI * i as f64 / samples as f64;
+        let big_a = du * th.cos() + dv * th.sin();
+        let reach = big_a.hypot(da);
+        if c.abs() >= reach {
+            return Ok(None);
+        }
+        let base = da.atan2(big_a);
+        for (k, branch) in [1.0, -1.0].into_iter().enumerate() {
+            let phi = base + branch * (c / reach).acos();
+            // F(θ, φ) = A cos φ + B sin φ − c; dφ/dθ = −F_θ / F_φ.
+            let f_th = phi.cos() * (-du * th.sin() + dv * th.cos());
+            let f_phi = -phi.sin() * big_a + phi.cos() * da;
+            let dphi = -f_th / f_phi;
+            let r_th = add(scale(u, th.cos()), scale(v, th.sin()));
+            let t_th = add(scale(u, -th.sin()), scale(v, th.cos()));
+            let rho = major + minor * phi.cos();
+            let point = add(c0, add(scale(r_th, rho), scale(a, minor * phi.sin())));
+            // dp/dθ = ρ t(θ) + (−r sin φ r(θ) + r cos φ a) dφ/dθ.
+            let tangent =
+                add(scale(t_th, rho), scale(add(scale(r_th, -minor * phi.sin()), scale(a, minor * phi.cos())), dphi));
+            curves[k].0.push(point);
+            curves[k].1.push(tangent);
+        }
+    }
+    let parameters: Vec<f64> = (0..=samples).map(|i| 2.0 * std::f64::consts::PI * i as f64 / samples as f64).collect();
+    let mut out = Vec::new();
+    for (points, tangents) in curves {
+        out.push(occt::interpolated_edge(&points, &tangents, &parameters, true).map_err(occt_error)?);
+    }
+    Ok(Some(out))
+}
+
 /// Large planar faces standing in for the isocline planes of some faces.
 fn isocline_cutters(faces: &[Shape], direction: Vec3, angle: f64) -> R<Vec<Shape>> {
     let mut out = Vec::new();
@@ -162,6 +224,19 @@ pub fn create(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> 
         .collect();
     let info = Info::new(id);
     for face in &faces {
+        if let Some(curves) = tilted_torus_isoclines(face, direction, angle)? {
+            for edge in curves {
+                for wire in occt::connect_edges(&[edge]).map_err(occt_error)? {
+                    model.add_body(
+                        NewBody::new(wire, BodyType::Wire, info.clone()),
+                        &Origins::default(),
+                        &info,
+                        &|_| None,
+                    );
+                }
+            }
+            continue;
+        }
         let cutters = isocline_cutters(std::slice::from_ref(face), direction, angle)?;
         if cutters.is_empty() {
             continue;
