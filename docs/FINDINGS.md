@@ -738,7 +738,9 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   at (18.9737, 1)); the rolled wall is cut back to where the circle touches it (0.0527 rad, its faces spanning
   3.0889), the flange to where it touches its line, and the bend turns between the two, 1.6234 rad (90° and the
   cut-back); the flange's far end is its distance from the rolled wall's outer face (x = 22 − 10). The engine
-  builds the folded part so exactly.
+  builds the folded part so exactly. Unfolded, the rolled wall lies flat from where the bend leaves it (the
+  tangent point, not the definition's corner), as long as the arc left past it at the neutral radius, and the
+  bend unfolds against the wall's tangent plane there; so the unfold, the refold and the whole flat match too.
 - **`derivedMirror` in a Part Studio feature** (batch 060 c001): Onshape fails with "Execution error". It builds
   its source twice, once by `@convert` and again in `instantiate` (no loaded context), which Onshape evidently
   refuses for a build function defined in the studio (it won't derive one source twice in a Part Studio, batch
