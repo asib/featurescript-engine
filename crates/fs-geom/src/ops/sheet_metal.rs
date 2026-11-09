@@ -683,7 +683,7 @@ fn regenerate(model: &mut Model, id: &FeatureId, def_index: usize) -> R<()> {
     let part_tid = model.bodies.iter().find(|b| is_part_of(b, def_association.as_ref())).map(|b| b.tid);
     let stale: Vec<usize> = (0..model.bodies.len())
         .filter(|&b| {
-            is_flat_pattern(&model.bodies[b])
+            (is_flat_pattern(&model.bodies[b]) || is_flat_bend_line(&model.bodies[b]))
                 && (model.bodies[b].flat_of == part_tid || old_bodies.iter().any(|o| model.bodies[b].flat_of == Some(o.tid)))
         })
         .collect();
@@ -702,8 +702,133 @@ fn regenerate(model: &mut Model, id: &FeatureId, def_index: usize) -> R<()> {
             &info,
             &|_| None,
         );
+        // Its bends' centrelines, wire bodies each with its bend's association attribute (how `pcbEnd` finds them,
+        // batch 070 c010).
+        let def_index = model.bodies.iter().position(|b| b.tid == def.tid).ok_or_else(|| regen_error("SHEET_METAL_REBUILD_ERROR"))?;
+        for (wire, a) in flat_bend_lines(model, def_index)? {
+            let mut line_attributes = Attributes::default();
+            line_attributes.unnamed.push(a);
+            model.add_body(
+                NewBody {
+                    flat_of: Some(tid),
+                    attributes: Rc::new(line_attributes),
+                    ..NewBody::new(wire, BodyType::Wire, info.clone())
+                },
+                &Origins::default(),
+                &info,
+                &|_| None,
+            );
+        }
     }
     Ok(())
+}
+
+/// Whether a body is the centreline of a bend in a sheet metal model's flat pattern, hidden as the flat is.
+pub fn is_flat_bend_line(body: &Body) -> bool {
+    body.flat_of.is_some() && body.sketch_plane.is_none() && body.body_type == BodyType::Wire
+}
+
+/// Where the flat pattern lays out each of a definition's walls: the motions of [`flat_pattern_shape`], each then
+/// moved a thickness towards the held wall's material, and that direction. None for a definition with curved walls.
+fn flat_layout(def: &Body) -> R<Option<(Vec<Bend>, Vec<Rigid>, Vec3, f64)>> {
+    if def.faces.is_empty() || def.faces.iter().any(|f| f.shape.face_plane().is_err()) {
+        return Ok(None);
+    }
+    let bends = definition_bends(def)?;
+    let wall_index = |s: &Shape| def.faces.iter().position(|f| f.shape.is_same(s)).unwrap_or(0);
+    let Some(motions) = motions(def, &bends, &wall_index, &|_| true).0.into_iter().collect::<Option<Vec<Rigid>>>()
+    else {
+        return Ok(None);
+    };
+    let (front, back) = definition_thickness(def)?;
+    let held_face = &def.faces[held_wall(def)].shape;
+    let n = normal_at(held_face, held_face.face_inner_point().map_err(occt_error)?)?;
+    let material = if front >= back { n } else { scale(n, -1.0) };
+    let thickness = front + back;
+    let near = scale(material, thickness);
+    let moved = motions.iter().map(|m| Rigid { r: m.r, t: add(m.t, near) }).collect();
+    Ok(Some((bends, moved, material, thickness)))
+}
+
+/// The centrelines of a definition's bends in its flat pattern (batch 070 c010: a flex PCB's bend at x = 39.86, on
+/// the flat's face its definition's plane lies on, along the bend's edge): each with its bend edge's association
+/// attribute.
+fn flat_bend_lines(model: &Model, def_index: usize) -> R<Vec<(Shape, Value)>> {
+    let def = &model.bodies[def_index];
+    let Some((bends, motions, material, _)) = flat_layout(def)? else { return Ok(Vec::new()) };
+    let wall_index = |s: &Shape| def.faces.iter().position(|f| f.shape.is_same(s)).unwrap_or(0);
+    let mut out = Vec::new();
+    for bend in &bends {
+        let Some(edge) = def.edges.iter().find(|e| e.shape.is_same(&bend.edge)) else { continue };
+        let Some(a) = association(&edge.attributes).cloned() else { continue };
+        let motion = &motions[wall_index(&bend.walls.0)];
+        let ends = bend.edge.edge_end_vertices().map_err(occt_error)?;
+        let [e0, e1] = &ends[..] else { continue };
+        let (e0, e1) = (e0.vertex_point().map_err(occt_error)?, e1.vertex_point().map_err(occt_error)?);
+        let across = scale(motion.vec(bend.into.0), -bend.flat_length / 2.0);
+        let a0 = add(motion.point(add(e0, scale(bend.into.0, bend.setback))), across);
+        let a1 = add(motion.point(add(e1, scale(bend.into.0, bend.setback))), across);
+        // Along the flat face's outward normal (away from the material) crossed with the way across the strip
+        // from the first wall (batch 070 c010; one case shows it).
+        let way = cross(scale(material, -1.0), scale(across, -1.0));
+        let (a0, a1) = if dot(sub(a1, a0), way) >= 0.0 { (a0, a1) } else { (a1, a0) };
+        let line = occt::line_edge(a0, a1).map_err(occt_error)?;
+        let wires = occt::connect_edges(&[line]).map_err(occt_error)?;
+        if let Some(wire) = wires.into_iter().next() {
+            out.push((wire, a));
+        }
+    }
+    Ok(out)
+}
+
+/// The motion taking a sheet metal entity's wall from the model into its flat pattern (`@evSheetMetalFlatTransformation`):
+/// a part's face along a wall, a definition's wall, or a bend edge (its first wall's). None if it isn't one.
+pub fn flat_transformation(model: &Model, r: EntityRef) -> Option<([[f64; 3]; 3], Vec3)> {
+    let body = &model.bodies[r.body];
+    if is_flat_pattern(body) {
+        return Some((Rigid::IDENTITY.r, Rigid::IDENTITY.t));
+    }
+    let def_index = if body.is_sheet_metal_definition() { r.body } else { definition_of_part(model, r.body)? };
+    let def = &model.bodies[def_index];
+    let (bends, motions, _, _) = flat_layout(def).ok()??;
+    let wall_index = |s: &Shape| def.faces.iter().position(|f| f.shape.is_same(s));
+    let shape = model.shape(r);
+    let wall = match r.kind {
+        EntityType::Face if r.body == def_index => Some(r.index),
+        EntityType::Edge => bends.iter().find(|b| b.edge.is_same(shape)).and_then(|b| wall_index(&b.walls.0)),
+        _ => None,
+    };
+    let wall = match wall {
+        Some(w) => w,
+        None => {
+            let plane = shape.face_plane().ok()?;
+            let at = shape.face_inner_point().ok()?;
+            def.faces.iter().position(|w| {
+                let Ok(wall_plane) = w.shape.face_plane() else { return false };
+                if norm(cross(plane.normal, wall_plane.normal)) > 1e-9 {
+                    return false;
+                }
+                let offset = dot(sub(at, wall_plane.origin), wall_plane.normal);
+                let foot = sub(at, scale(wall_plane.normal, offset));
+                occt::vertex(foot).and_then(|v| v.distance(&w.shape)).is_ok_and(|d| d.distance < 1e-7)
+            })?
+        }
+    };
+    let m = motions.get(wall)?;
+    Some((m.r, m.t))
+}
+
+/// Whether a bend centreline in a flat pattern bends up, towards the flat face's normal (away from the material,
+/// `@evSheetMetalBendUp`): its second wall leaves it on that side of its first.
+pub fn bend_up(model: &Model, wire_body: usize) -> Option<bool> {
+    let a = association(&model.bodies[wire_body].attributes)?;
+    let def = model.bodies.iter().find(|d| d.is_sheet_metal_definition() && d.edges.iter().any(|e| association(&e.attributes) == Some(a)))?;
+    let edge = def.edges.iter().find(|e| association(&e.attributes) == Some(a))?;
+    let bends = definition_bends(def).ok()?;
+    let bend = bends.iter().find(|b| b.edge.is_same(&edge.shape))?;
+    let (front, back) = definition_thickness(def).ok()?;
+    let material = if front >= back { bend.normals.0 } else { scale(bend.normals.0, -1.0) };
+    Some(dot(bend.into.1, material) < 0.0)
 }
 
 /// Whether a body is a sheet metal model's flat pattern: hidden from queries but `qCorrespondingInFlat`'s.
@@ -862,8 +987,8 @@ fn is_active(def: &Body) -> bool {
 /// Whether an entity belongs to an active sheet metal model: its definition sheet, or one of its parts.
 pub fn in_active_model(model: &Model, body: usize) -> bool {
     let b = &model.bodies[body];
-    // A flat pattern belongs to its part's model.
-    if is_flat_pattern(b) {
+    // A flat pattern (and its bend lines) belongs to its part's model.
+    if is_flat_pattern(b) || is_flat_bend_line(b) {
         return b.flat_of.and_then(|t| model.bodies.iter().position(|p| p.tid == t)).is_some_and(|p| in_active_model(model, p));
     }
     if b.is_sheet_metal_definition() {

@@ -99,6 +99,7 @@ fn visible(model: &Model, found: Vec<EntityRef>) -> Vec<EntityRef> {
             (model.sheet_metal_scope || !body.is_sheet_metal_definition())
                 && !tools.contains(&body.tid)
                 && !crate::ops::sheet_metal::is_flat_pattern(body)
+                && !crate::ops::sheet_metal::is_flat_bend_line(body)
         })
         .collect()
 }

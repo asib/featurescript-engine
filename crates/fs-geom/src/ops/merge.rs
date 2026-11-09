@@ -64,7 +64,9 @@ pub fn merge(model: &mut Model, id: FeatureId, definition: &Value, source: &Sour
         new.attributes = body.attributes.clone();
         new.owner = body.owner;
         // A flat pattern stays one (hidden), of the copy of its part.
-        new.flat_of = body.flat_of.filter(|_| crate::ops::sheet_metal::is_flat_pattern(body));
+        new.flat_of = body.flat_of.filter(|_| {
+            crate::ops::sheet_metal::is_flat_pattern(body) || crate::ops::sheet_metal::is_flat_bend_line(body)
+        });
         new.properties = if clear_custom {
             Rc::new(
                 body.properties

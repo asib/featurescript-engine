@@ -84,6 +84,30 @@ pub fn register(m: &mut GeomBuiltins) {
         let definition = fs_interp::builtins::arg(&args, 1, "evCornerType")?.clone();
         model_mut(&args, "evCornerType", |model| sheet_metal::corner_type(&tags, model, &definition))
     });
+    // The motion taking a sheet metal wall from the model into its flat pattern (batch 070 c010).
+    m.insert("evSheetMetalFlatTransformation", |_, args| {
+        let definition = fs_interp::builtins::arg(&args, 1, "evSheetMetalFlatTransformation")?.clone();
+        model_mut(&args, "evSheetMetalFlatTransformation", |model| {
+            let found = query::evaluate(model, field(&definition, "face"))?;
+            let r = found.first().ok_or_else(|| regen_error("CANNOT_RESOLVE_ENTITIES"))?;
+            let (linear, t) = sheet_metal::flat_transformation(model, *r).ok_or_else(|| regen_error("INVALID_INPUT"))?;
+            let rows = linear.iter().map(|row| Value::array(row.iter().map(|x| Value::number(*x)).collect())).collect();
+            Ok(crate::values::map(vec![
+                ("linear", Value::array(rows)),
+                ("translation", Value::array(vec![Value::number(t.x), Value::number(t.y), Value::number(t.z)])),
+            ]))
+        })
+    });
+    // Whether a flat pattern's bend centreline bends up, towards the flat face's normal (batch 070 c010).
+    m.insert("evSheetMetalBendUp", |_, args| {
+        let definition = fs_interp::builtins::arg(&args, 1, "evSheetMetalBendUp")?.clone();
+        model_mut(&args, "evSheetMetalBendUp", |model| {
+            let found = query::evaluate(model, field(&definition, "wireBody"))?;
+            let r = found.first().ok_or_else(|| regen_error("CANNOT_RESOLVE_ENTITIES"))?;
+            let up = sheet_metal::bend_up(model, r.body).ok_or_else(|| regen_error("INVALID_INPUT"))?;
+            Ok(Value::bool(up))
+        })
+    });
     // The tools behind sheet metal holes a face pattern carries along (batch 032): each registered tool a hole
     // face lies on, with the wall it's registered on and that wall's frame (the identity: the engine keeps tools
     // where they cut). Forms aren't supported yet.
