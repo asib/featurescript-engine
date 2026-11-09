@@ -221,8 +221,19 @@ pub fn register(m: &mut GeomBuiltins) {
         })?;
         Ok(ids(&id, &[("startId", "start"), ("endId", "end")]))
     });
+    // A Bézier comes with its control polygon, construction lines between its points, each a wire body as the
+    // curve is (batch 071 c008: a curve made of the sketch's edges is closed by them).
     m.insert("skBezier", |_, args| {
         let id = add(&args, "skBezier", |v| Ok(Geometry::Bezier(points(v, "points", "skBezier points")?)))?;
+        let sketch = sketch_arg(&args, "skBezier")?;
+        let poles = match sketch.entities.borrow().last().map(|e| &e.geometry) {
+            Some(Geometry::Bezier(poles)) => poles.clone(),
+            _ => Vec::new(),
+        };
+        for (k, w) in poles.windows(2).enumerate() {
+            let line_id: Rc<str> = format!("{id}.polygon{k}").into();
+            sketch.entities.borrow_mut().push(SketchEntity { id: line_id, geometry: Geometry::Line(w[0], w[1]), construction: true });
+        }
         Ok(ids(&id, &[("startId", "start"), ("endId", "end")]))
     });
     m.insert("skConicSegment", |_, args| {

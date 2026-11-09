@@ -1736,6 +1736,10 @@ fn curved_boundary_moved(
             }
         }
     }
+    // A closed chain has no end to extend (a Bézier's curve and control polygon, batch 071 c009).
+    if ends.is_empty() && !trim {
+        return Err(regen_error("MOVE_CURVE_BOUNDARY_EXTEND_REQUIRES_OPEN_CURVE"));
+    }
     let [first, second] = ends[..] else {
         return Err(error("@opMoveCurveBoundary: only open chains of edges are supported"));
     };
