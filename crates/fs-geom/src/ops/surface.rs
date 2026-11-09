@@ -773,6 +773,14 @@ pub fn offset_curve_on_face(model: &mut Model, id: FeatureId, definition: &Value
         let offset = match occt::offset_edge_on_planar_face(edge, &face_shape, signed) {
             Ok(offset) => offset,
             Err(_) if outward => continue,
+            // Across other curved faces, along geodesics too (a torus's parallel, batch 067 c002).
+            Err(_) if !target_planar => match geodesic_offset(&face_shape, edge, distance)? {
+                Some(offset) => {
+                    made.push((offset, face));
+                    continue;
+                }
+                None => continue,
+            },
             Err(_) => return Err(regen_error("OFFSET_CURVE_ON_FACE_FAILED")),
         };
         let mid = offset.edge_tangent(0.5, false).map_err(occt_error)?.origin;
@@ -1507,6 +1515,26 @@ fn geodesic_offset(face: &Shape, edge: &Shape, distance: f64) -> R<Option<Shape>
     let in_face = face.sub_shapes(ShapeKind::Edge).into_iter().find(|e| e.is_same(edge));
     if in_face.is_some_and(|e| e.is_reversed() != edge.is_reversed()) {
         points.reverse();
+    }
+    // A closed edge offset all round: a closed curve.
+    let closed = first == 0 && last == SAMPLES && points.len() > 3 && norm(sub(points[0], *points.last().expect("points"))) < 1e-7;
+    if closed {
+        points.pop();
+        let mut parameters = vec![0.0];
+        for k in 0..points.len() {
+            let next = points[(k + 1) % points.len()];
+            parameters.push(parameters[k] + norm(sub(next, points[k])));
+        }
+        let n = points.len();
+        let total = parameters[n];
+        let derivatives: Vec<occt::Vec3> = (0..n)
+            .map(|k| {
+                let (a, b) = ((k + n - 1) % n, (k + 1) % n);
+                let span = if k == 0 { parameters[1] + (total - parameters[n - 1]) } else { parameters[k + 1] - parameters[k - 1] };
+                scale(sub(points[b], points[a]), 1.0 / span)
+            })
+            .collect();
+        return occt::interpolated_edge(&points, &derivatives, &parameters, true).map(Some).map_err(occt_error);
     }
     let mut parameters = vec![0.0];
     for w in points.windows(2) {
