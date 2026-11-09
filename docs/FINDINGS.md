@@ -619,10 +619,43 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   engine's own edge directions don't follow that, so it applies the rule as stated. Where the offset leaves the
   face Onshape makes no curve and raises no error. Its offset of a circle across a plane is an approximation,
   0.0015 mm short of the exact circle.
-- **Intersection curves split** (batch 059 c001, c002): where a cylinder about z crosses one about x, each closed
-  curve is two edges, with vertices at (±10, 0, ±6), when the cross cylinder is an extruded sketch circle, but
-  one edge (from (±10, 0, 6)) when it is the `fCylinder` primitive. Onshape's STEP has no seam edges, so the seams
-  that presumably decide it can't be read.
+- **Intersection curves split** (batch 059 c001, c002; batch 060 c002–c005): each closed curve starts where it
+  crosses the seam of the cylinder it winds round (the second group's; the curve near x = −10 crosses the first
+  group's seam twice and isn't split there), and is split wherever it touches an edge bounding either face. Where
+  a cylinder of radius 10 about z crosses one of 6 about x, an extruded cross cylinder 20 mm long ends exactly
+  where it meets the base, touching each curve at (±10, 0, ±6): two edges each, whatever made the base. 40 mm
+  long it doesn't, and each curve is one edge from its seam at (±10, 0, 6). The curves run along n₁ × n₂ (the first
+  group's outward normal crossed with the second's); a split curve's pieces start from the seam on its frame's −y
+  side; the curves come in order along the cross cylinder's extrude. They are nearly parametrised by length (the
+  middle by parameter within 0.02 mm of the middle by length). With the groups swapped (batch 061 c006, c007)
+  the curves run the other way, their pieces still from the seam's −y side.
+- **Extruded cylinders' coordinate systems** (batch 060 c002–c005): z points back along the extrude from the far
+  end, and x is (world y) × z, whatever the sketch circle's own axes: cylinders about x sketched with their x along
+  y or along z both have x along +z. (Batch 007's cylinders about z, x = −x for z down and +x for z up, fit the
+  same; batch 061: tilted axes too.) About y, x is (world x) × z. The engine starts each closed intersection curve
+  from that x.
+- **Lofts between polygons tangent to a profile's plane** (batch 056 c003; batch 060 c006–c008): each side is
+  one bicubic B-spline: along the edge, knots at thirds and the edge's points at the Greville abscissae (0, 1/9,
+  1/3, 2/3, 8/9, 1); across, one cubic span on [0, 1], natural at a free end (P₂ = (P₁ + P₃)/2). The derivative
+  across at the tangent end is, along the edge, the natural cubic spline (zero second derivative at the corners)
+  through its values at the knots u: the chord to the other profile there, projected into the profile's plane,
+  times the magnitude, as long; in the direction of the corners' directions blended by h = 3u² − 2u³ (20/27 and
+  7/27 at u = 1/3; the directions, not the derivatives, batch 061 c010's square off the axis). An end condition at
+  the last profile is the same, P₂ = P₃ − D/3 (061 c008, c009). It holds to 1e-6 for rectangles, hexagons and
+  squares, at magnitudes 1 and 2. Onshape lists the sides first, then the caps, the sides in no geometric order.
+  Between triangles turned to each other, magnitude 0.5, Onshape fails (`LOFT_FAILED`, 061 c011).
+- **Flat patterns of bent parts** (batch 061 c001–c003): `qCorrespondingInFlat` of a flanged plate's top gives
+  the base wall's face in the flat: on the definition sheet's plane (z = 0 for a sheet thickened up), cut back
+  from the sharp corner of the definition (y = 32, the flange's outer face with inner alignment) by the bend's
+  setback (3, the radius at the sheet), so 0–29 across; its plane's origin is its middle, (20, 14.5, 0). The bend
+  lies flat at the neutral radius, r + 0.45 T, for 2.985 mm at 90°, then the flange: a 4 mm slot from 9.5 to 39.5
+  removes the base (19.5 long), the bend's ring sector and the flange's 7 mm (237.13 mm³); a tab over the flange's
+  far edge (38.985 in the flat) extends the flange in its plane, to z = 25.515 (310.30 mm³).
+- **`derivedMirror` in a Part Studio feature** (batch 060 c001): Onshape fails with "Execution error". It builds
+  its source twice, once by `@convert` and again in `instantiate` (no loaded context), which Onshape evidently
+  refuses for a build function defined in the studio (it won't derive one source twice in a Part Studio, batch
+  023). It is meant for assembly mirrors.
+- **`evPlane` of nothing** raises `CANNOT_RESOLVE_ENTITIES` (batch 060 c009, c010), not `CANNOT_RESOLVE_PLANE`.
 - **Extruding in a sheet metal flat pattern** (batch 059 c008, c009) works from a feature: a sketch on
   `qCorrespondingInFlat` of a plate's top face, extruded with `domain` `FLAT`, runs `SMFlatOp`. The sketch plane
   is the flat face's `evPlane`, origin at its middle (std's `newSketch` keeps it for flattened planes): a 10 mm
