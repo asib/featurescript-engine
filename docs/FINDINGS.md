@@ -650,7 +650,10 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   setback (3, the radius at the sheet), so 0–29 across; its plane's origin is its middle, (20, 14.5, 0). The bend
   lies flat at the neutral radius, r + 0.45 T, for 2.985 mm at 90°, then the flange: a 4 mm slot from 9.5 to 39.5
   removes the base (19.5 long), the bend's ring sector and the flange's 7 mm (237.13 mm³); a tab over the flange's
-  far edge (38.985 in the flat) extends the flange in its plane, to z = 25.515 (310.30 mm³).
+  far edge (38.985 in the flat) extends the flange in its plane, to z = 25.515 (310.30 mm³). The engine maps a
+  region drawn in the flat back onto the definition's walls: rigidly on each wall's side of its bends' middles,
+  back from where the wall stops, and each half bend stretched across to the setback, so a cut across the bend
+  reaches the definition's sharp edge; the part rebuilt from the definition matches Onshape's exactly.
 - **`derivedMirror` in a Part Studio feature** (batch 060 c001): Onshape fails with "Execution error". It builds
   its source twice, once by `@convert` and again in `instantiate` (no loaded context), which Onshape evidently
   refuses for a build function defined in the studio (it won't derive one source twice in a Part Studio, batch

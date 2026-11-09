@@ -9,7 +9,7 @@ Onshape.
 
 | feature (file) | status | batch |
 |---|---|---|
-| `extrude` (extrude.fs) | matches: blind, symmetric, two directions; new, add, remove, intersect; surfaces from edges; thin walls; up to a face (with offset), body, vertex, the next part; through all (as far as Onshape: the parts' box diagonal plus 0.01 mm, 007); drafts. In a sheet metal flat pattern (`SMFlatOp`), cutting and adding, for plates without bends (059). Not yet: flat patterns of parts with bends | 001, 004, 007, 059 |
+| `extrude` (extrude.fs) | matches: blind, symmetric, two directions; new, add, remove, intersect; surfaces from edges; thin walls; up to a face (with offset), body, vertex, the next part; through all (as far as Onshape: the parts' box diagonal plus 0.01 mm, 007); drafts. In a sheet metal flat pattern (`SMFlatOp`), cutting and adding, for plates without bends (059) and parts of planar walls and bends, across the bends too (061: a flanged plate; the flat face's stand-in is the folded held wall's face, the thickness off Onshape's). Not yet: flat patterns of parts with curved walls, faces of walls other than the held one in the flat | 001, 004, 007, 059, 061 |
 | `revolve` (revolve.fs) | matches: full, blind, opposite, symmetric, two directions; new, add, remove, intersect; surfaces; thin; up to a face (with offset), a part, a vertex; a second direction up to a face or a vertex (with offset) | 002, 004, 006, 007, 024 |
 | `cube`, `fCuboid`, `fCylinder`, `fCone`, `fSphere`, `fEllipsoid` (primitives.fs) | matches | 002 |
 | `booleanBodies` (boolean.fs) | matches: union, subtraction (keep tools, several targets), intersection; extrudes cut through sheet metal plates, flanges and bends; a subtraction with the tool's faces offset | 002, 017, 021 |
@@ -159,9 +159,10 @@ What fixtures show Onshape doing that the engine can't yet:
   5 mm at radius 5), on a wobbly approximated edge; 10 mm fails with `EXTEND_SELF_INTERSECTION`. The rule isn't
   known yet.
 - **Curvature fillets of magnitude 0.98 and up** (batch 055 c019, 0.99): past the second regime's end (0.979).
-- **Extruding in the flat pattern of sheet metal with bends** (`SMFlatOp`, batch 061 c001–c003): the engine models
-  flat patterns only of plates without bends (batch 059 c008, c009 match). Onshape's flat face and bend lengths
-  are recorded in docs/FINDINGS.md.
+- **Flat patterns** (`qCorrespondingInFlat`, batch 061): the engine has no flat bodies. A plate's faces along its
+  sheet, and a bent part's along its held wall, stand for their counterparts in the flat (the same extent for
+  right-angled bends, but on the face's plane, the thickness off the definition's); other walls' faces, edges and
+  vertices in the flat are nothing.
 - **Loft normal to a direction** (batch 056 c006): Onshape refuses it (`LOFT_INVALID`); the engine builds it.
 - **Spheres' bands extended round** away from the equator (batch 056 c019–c021) add data to the sphere gap above.
 - **Where `evPlane` puts the origin of a rotated copy's piece bounded by a curve** (batch 037 c004): the engine
