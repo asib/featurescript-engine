@@ -215,6 +215,8 @@ std::unique_ptr<Operation> face_blend_op(const ShapeList &side1, bool reverse1, 
 std::unique_ptr<Operation> split_faces_op(const Shape &body, const ShapeList &faces, const ShapeList &tools);
 std::unique_ptr<Operation> split_by_bands_op(const Shape &body, const Shape &face, rust::Slice<const Vec3> first,
                                              rust::Slice<const Vec3> second);
+std::unique_ptr<Operation> split_by_open_bands_op(const Shape &body, const Shape &face, rust::Slice<const Vec3> first,
+                                             rust::Slice<const Vec3> second);
 std::unique_ptr<Operation> split_face_by_edges_op(const Shape &body, const Shape &face, const ShapeList &edges);
 bool point_in_solid(const Shape &solid, Vec3 p);
 Conic curve_definition(const Shape &s);

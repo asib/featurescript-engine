@@ -1025,6 +1025,96 @@ std::unique_ptr<Operation> split_by_bands_op(const Shape &body, const Shape &fac
   return op;
 }
 
+// A body's face on a surface periodic the second way (v) but not the first (part of a torus round its axis) split
+// along two curves that each run from one end of the face in u to the other (batch 071 c010): the two bands between
+// them either way round in v, each built from a loop in the surface's parameters (one curve, the face's end, the
+// other curve back, its other end), so the seam doesn't cut them up; sewn with the body's other faces.
+std::unique_ptr<Operation> split_by_open_bands_op(const Shape &body, const Shape &face, rust::Slice<const Vec3> first,
+                                                  rust::Slice<const Vec3> second) {
+  const TopoDS_Face &f = TopoDS::Face(face.shape);
+  Handle(Geom_Surface) surface = BRep_Tool::Surface(f);
+  const double period = 2 * M_PI;
+  auto parameters = [&](rust::Slice<const Vec3> points) {
+    std::vector<gp_Pnt2d> out;
+    for (const Vec3 &p : points) {
+      GeomAPI_ProjectPointOnSurf projection(pnt(p), surface);
+      if (projection.NbPoints() == 0) throw std::runtime_error("split by open bands: a point isn't on the face");
+      double u, v;
+      projection.LowerDistanceParameters(u, v);
+      if (!out.empty()) {
+        const gp_Pnt2d &last = out.back();
+        while (v - last.Y() > M_PI) v -= period;
+        while (last.Y() - v > M_PI) v += period;
+      }
+      out.emplace_back(u, v);
+    }
+    if (out.size() > 1 && out.front().X() > out.back().X()) std::reverse(out.begin(), out.end());
+    return out;
+  };
+  std::vector<gp_Pnt2d> a = parameters(first), b = parameters(second);
+  while (b.front().Y() < a.front().Y()) for (gp_Pnt2d &p : b) p.SetY(p.Y() + period);
+  while (b.front().Y() > a.front().Y() + period) for (gp_Pnt2d &p : b) p.SetY(p.Y() - period);
+  auto flat = [](const std::vector<gp_Pnt2d> &points, double dv, bool reverse, std::vector<double> &uv) {
+    for (size_t i = 0; i < points.size(); ++i) {
+      const gp_Pnt2d &p = points[reverse ? points.size() - 1 - i : i];
+      uv.push_back(p.X());
+      uv.push_back(p.Y() + dv);
+    }
+    return static_cast<uint32_t>(points.size());
+  };
+  auto band = [&](const std::vector<gp_Pnt2d> &low, double low_dv, const std::vector<gp_Pnt2d> &high, double high_dv) {
+    std::vector<double> uv;
+    std::vector<uint32_t> counts;
+    counts.push_back(flat(low, low_dv, false, uv));
+    const gp_Pnt2d &l1 = low.back(), &h1 = high.back(), &l0 = low.front(), &h0 = high.front();
+    uv.insert(uv.end(), {l1.X(), l1.Y() + low_dv, h1.X(), h1.Y() + high_dv});
+    counts.push_back(2);
+    counts.push_back(flat(high, high_dv, true, uv));
+    uv.insert(uv.end(), {h0.X(), h0.Y() + high_dv, l0.X(), l0.Y() + low_dv});
+    counts.push_back(2);
+    return face_from_uv(face, rust::Slice<const double>(uv.data(), uv.size()),
+                        rust::Slice<const uint32_t>(counts.data(), counts.size()))->shape;
+  };
+  const TopoDS_Shape lower = band(a, 0, b, 0), upper = band(b, 0, a, period);
+  BRepBuilderAPI_Sewing sewing(1e-6);
+  sewing.Add(lower);
+  sewing.Add(upper);
+  std::vector<TopoDS_Shape> others;
+  for (TopExp_Explorer it(body.shape, TopAbs_FACE); it.More(); it.Next())
+    if (!it.Current().IsSame(f)) {
+      others.push_back(it.Current());
+      sewing.Add(it.Current());
+    }
+  sewing.Perform();
+  TopoDS_Shell shell;
+  for (TopExp_Explorer it(sewing.SewedShape(), TopAbs_SHELL); it.More(); it.Next()) shell = TopoDS::Shell(it.Current());
+  if (shell.IsNull()) throw std::runtime_error("split by open bands: the faces don't close");
+  BRepBuilderAPI_MakeSolid made(shell);
+  ShapeFix_Solid fix(made.Solid());
+  fix.Perform();
+  auto op = std::make_unique<Operation>();
+  op->history = new BRepTools_History;
+  op->result = fix.Solid();
+  // The bands came from the face; each other face is its sewn copy.
+  for (TopExp_Explorer it(op->result, TopAbs_FACE); it.More(); it.Next()) {
+    const TopoDS_Shape &g = it.Current();
+    bool from_other = false;
+    for (const TopoDS_Shape &o : others)
+      if (sewing.IsModified(o) ? sewing.Modified(o).IsSame(g) : o.IsSame(g)) {
+        if (!o.IsSame(g)) op->history->AddModified(o, g);
+        from_other = true;
+      }
+    if (!from_other) op->history->AddModified(f, g);
+  }
+  // The ends' circles keep their old vertex where they closed, between two arcs of one circle: joined (Onshape's
+  // circles end only at the curves).
+  ShapeUpgrade_UnifySameDomain unifier(op->result, Standard_True, Standard_False, Standard_False);
+  unifier.Build();
+  op->history->Merge(unifier.History());
+  op->result = unifier.Shape();
+  return op;
+}
+
 // A body with one of its faces split along edges lying on it (a wrap's imprint).
 std::unique_ptr<Operation> split_face_by_edges_op(const Shape &body, const Shape &face, const ShapeList &edges) {
   BRepFeat_SplitShape splitter(body.shape);

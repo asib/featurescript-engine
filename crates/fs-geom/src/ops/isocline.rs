@@ -484,6 +484,19 @@ pub fn split(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
             results.push((b, op));
             continue;
         }
+        // Part of a tilted torus: the two bands between its curves, built whole so the tube's seam (which Onshape's
+        // faces don't have) doesn't cut them up (batch 071 c010).
+        if let [face] = &faces[..]
+            && let Some((curves, thetas)) = tilted_torus_samples_over(face, direction, angle, true)?
+            && thetas.len() == TORUS_SAMPLES + 1
+        {
+            let points: Vec<Vec<Vec3>> = curves.iter().map(|c| c.iter().map(|s| s.0).collect()).collect();
+            let op = occt::split_by_open_bands(&model.bodies[b].shape, face, &points[0], &points[1])
+                .map_err(|_| regen_error("ISOCLINE_NO_RESULT"))?;
+            split_tids.push(model.bodies[b].tid);
+            results.push((b, op));
+            continue;
+        }
         let cutters = isocline_cutters(&faces, direction, angle)?;
         if cutters.is_empty() {
             continue;
