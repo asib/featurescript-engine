@@ -511,11 +511,33 @@ pub fn offset_curve_on_face(model: &mut Model, id: FeatureId, definition: &Value
             .copied()
             .find(|r| model.shape(*r).sub_shapes(ShapeKind::Edge).iter().any(|e| e.is_same(edge)))
             .ok_or_else(|| regen_error("OFFSET_CURVE_ON_FACE_INVALID_TARGETS"))?;
-        let signed = if opposite { -distance } else { distance };
-        let offset = occt::offset_edge_on_planar_face(edge, model.shape(face), signed)
-            .map_err(|_| regen_error("OFFSET_CURVE_ON_FACE_FAILED"))?;
+        // By default the offset goes into the face, the other way flipped, except where the face is planar and
+        // the edge's other face curved: then out of it (as if the edge's direction followed the curved face). So a
+        // cylinder's top edge goes outwards across its top (batch 020 c008) but down its side (027 c001); a block's
+        // top edge and a fillet's edge go into the face they're offset across (005 c009, 059 c006). Where the
+        // offset leaves the face, Onshape makes no curve and no error (020 c008; 059 c004, c007).
+        let face_shape = model.shape(face).clone();
+        let target_planar = face_shape.face_plane().is_ok();
+        let other_curved = model.bodies[face.body].faces.iter().any(|f| {
+            !f.shape.is_same(&face_shape)
+                && f.shape.sub_shapes(ShapeKind::Edge).iter().any(|e| e.is_same(edge))
+                && f.shape.face_plane().is_err()
+        });
+        let into_by_default = !(target_planar && other_curved);
+        let outward = into_by_default == opposite;
+        let signed = if outward { -distance } else { distance };
+        let offset = match occt::offset_edge_on_planar_face(edge, &face_shape, signed) {
+            Ok(offset) => offset,
+            Err(_) if outward => continue,
+            Err(_) => return Err(regen_error("OFFSET_CURVE_ON_FACE_FAILED")),
+        };
+        let mid = offset.edge_tangent(0.5, false).map_err(occt_error)?.origin;
+        let off = occt::vertex(mid).and_then(|v| v.distance(&face_shape)).map(|d| d.distance).unwrap_or(0.0);
+        if off > 1e-7 {
+            continue;
+        }
         // Extended, a straight offset runs on to the face's boundary (batch 027).
-        let offset = if extend { extended_across(&offset, model.shape(face))? } else { offset };
+        let offset = if extend { extended_across(&offset, &face_shape)? } else { offset };
         made.push((offset, face));
     }
     // Splitting, the face is cut along the curves instead (batch 027).
@@ -534,6 +556,9 @@ pub fn offset_curve_on_face(model: &mut Model, id: FeatureId, definition: &Value
             replacements.push((body, op));
         }
         super::replace_bodies(model, &id, replacements);
+        return Ok(Value::UNDEFINED);
+    }
+    if made.is_empty() {
         return Ok(Value::UNDEFINED);
     }
     add_wires(model, &id, &made.into_iter().map(|(curve, _)| curve).collect::<Vec<_>>())?;
