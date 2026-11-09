@@ -3,10 +3,9 @@
 
 use std::path::PathBuf;
 
-/// Cases the engine can't build yet (see docs/std-coverage.md): a curvature fillet of magnitude 0.95, past where
-/// Onshape's quintic construction holds (c004); conic fillets of three edges meeting at a corner, which Onshape
-/// blends there with a bicubic patch (c012).
-const KNOWN_GAPS: &[&str] = &["c004", "c012"];
+/// Cases the engine can't build yet (see docs/std-coverage.md): conic fillets of three edges meeting at a corner,
+/// which Onshape blends there with a bicubic patch (c012).
+const KNOWN_GAPS: &[&str] = &["c012"];
 
 /// The curvature fillets' quintic sections are Onshape's pole for pole, but Onshape's own areas and boxes of them
 /// stray (by up to 0.031 mm² of area, c009, and 2.2 µm of box, c008), so their probes are compared to 0.05. Where
@@ -15,6 +14,7 @@ const KNOWN_GAPS: &[&str] = &["c004", "c012"];
 /// and Onshape's volume strays as before: compared to 0.15.
 const LOOSE: &[(&str, f64)] = &[
     ("c001", 0.05),
+    ("c004", 0.05),
     ("c002", 0.05),
     ("c003", 0.05),
     ("c005", 0.05),
