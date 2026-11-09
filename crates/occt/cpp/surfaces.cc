@@ -888,6 +888,20 @@ std::unique_ptr<Shape> make_bspline_surface_face(rust::Slice<const Vec3> poles, 
   return wrap(BRepBuilderAPI_MakeFace(surface, Precision::Confusion()).Face());
 }
 
+// The same, rational: a weight for each pole.
+std::unique_ptr<Shape> make_rational_bspline_surface_face(rust::Slice<const Vec3> poles, rust::Slice<const double> weights,
+                                                          int32_t nu, int32_t nv, rust::Slice<const double> knots_u,
+                                                          rust::Slice<const double> knots_v, int32_t degree_u,
+                                                          int32_t degree_v) {
+  auto plain = make_bspline_surface_face(poles, nu, nv, knots_u, knots_v, degree_u, degree_v);
+  if (static_cast<int>(weights.size()) != nu * nv) throw std::invalid_argument("bad weight grid");
+  Handle(Geom_BSplineSurface) surface =
+      Handle(Geom_BSplineSurface)::DownCast(BRep_Tool::Surface(TopoDS::Face(plain->shape))->Copy());
+  for (int i = 0; i < nu; ++i)
+    for (int j = 0; j < nv; ++j) surface->SetWeight(i + 1, j + 1, weights[i * nv + j]);
+  return wrap(BRepBuilderAPI_MakeFace(surface, Precision::Confusion()).Face());
+}
+
 // Faces sewn together where their edges meet: one shell, or a compound of shells if they fall apart.
 std::unique_ptr<Shape> sew_faces(const ShapeList &faces, double tolerance) {
   if (faces.shapes.size() == 1) {

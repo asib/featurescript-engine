@@ -166,6 +166,17 @@ mod ffi {
             degree_u: i32,
             degree_v: i32,
         ) -> Result<UniquePtr<Shape>>;
+        #[allow(clippy::too_many_arguments)]
+        fn make_rational_bspline_surface_face(
+            poles: &[Vec3],
+            weights: &[f64],
+            nu: i32,
+            nv: i32,
+            knots_u: &[f64],
+            knots_v: &[f64],
+            degree_u: i32,
+            degree_v: i32,
+        ) -> Result<UniquePtr<Shape>>;
         fn connect_edges(edges: &ShapeList) -> Result<UniquePtr<ShapeList>>;
         fn offset_wire_region(wire: &Shape, normal: Vec3, o1: f64, o2: f64) -> Result<UniquePtr<Shape>>;
         #[allow(clippy::too_many_arguments)]
@@ -779,6 +790,21 @@ pub fn bspline_surface_face(
     (degree_u, degree_v): (i32, i32),
 ) -> Result<Shape> {
     Ok(Shape::new(ffi::make_bspline_surface_face(poles, nu as i32, nv as i32, knots_u, knots_v, degree_u, degree_v)?))
+}
+
+/// A face on a rational B-spline surface over its whole domain: as [`bspline_surface_face`], with a weight for each
+/// pole.
+pub fn rational_bspline_surface_face(
+    poles: &[Vec3],
+    weights: &[f64],
+    (nu, nv): (usize, usize),
+    knots_u: &[f64],
+    knots_v: &[f64],
+    (degree_u, degree_v): (i32, i32),
+) -> Result<Shape> {
+    Ok(Shape::new(ffi::make_rational_bspline_surface_face(
+        poles, weights, nu as i32, nv as i32, knots_u, knots_v, degree_u, degree_v,
+    )?))
 }
 
 pub fn bezier_edge(points: &[Vec3]) -> Result<Shape> {

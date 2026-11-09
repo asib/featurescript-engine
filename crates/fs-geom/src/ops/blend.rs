@@ -45,6 +45,7 @@ pub fn fillet(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> 
             let section = if kind == "CONIC" { Section::Conic(value) } else { Section::Curvature(value) };
             return section_fillet(model, id, definition, section);
         }
+        Some("CONIC") => return variable_conic_fillet(model, id, definition),
         Some(other) => return Err(error(format!("@opFillet: {other} cross sections aren't supported yet"))),
     }
     // Asymmetric with equal radii is a plain circular fillet: Onshape's is a cylinder (batch 052, c017).
@@ -1112,6 +1113,116 @@ fn variable_fillet(model: &mut Model, id: FeatureId, definition: &Value) -> R<Va
         }
         let op = occt::variable_fillet(&model.bodies[b].shape, &edges, &p0, &r0, &r1, smooth)
             .map_err(|_| regen_error("FILLET_FAILED"))?;
+        results.push((b, op));
+    }
+    replace_bodies(model, &id, results);
+    Ok(Value::UNDEFINED)
+}
+
+/// A variable conic fillet of a straight edge between two planes (batch 072 c009): the setback runs from its radius
+/// at one end to the other's, smoothly (3s² − 2s³) or straight, and each section is the conic of rho round the edge,
+/// so the fillet is exactly the rational B-spline surface of degree 3 along the edge and 2 across: rows the edge's
+/// Bézier points, each with its setback times the unit conic's poles (into each face, the edge, weighted 1,
+/// rho / (1 − rho), 1). The wedge it cuts off (its two strips on the faces and its two end caps) is taken away.
+fn variable_conic_fillet(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
+    use crate::values::{add, cross, dot, norm, normalize, scale, sub};
+    let failed = || regen_error("FILLET_FAILED");
+    if field(definition, "pointOnEdgeSettings").as_array().is_some_and(|a| !a.is_empty()) {
+        return Err(error("@opFillet: radii at points on edges aren't supported yet"));
+    }
+    let rho = field(definition, "rho").as_number().ok_or_else(|| error("@opFillet: rho must be a number"))?;
+    if !(rho > 0.0 && rho < 1.0) {
+        return Err(failed());
+    }
+    let w = rho / (1.0 - rho);
+    let radius = values::length(field(definition, "nonCircularRadius"), "opFillet nonCircularRadius")
+        .or_else(|_| values::length(field(definition, "radius"), "opFillet radius"))?;
+    let smooth = values::opt_bool(definition, "smoothTransition")?.unwrap_or(false);
+    let mut at_vertex: Vec<(occt::Vec3, f64)> = Vec::new();
+    for setting in field(definition, "vertexSettings").as_array().map(|a| a.to_vec()).unwrap_or_default() {
+        let r = values::length(field(&setting, "vertexRadius"), "opFillet vertexRadius")?;
+        for v in query::evaluate(model, field(&setting, "vertex"))? {
+            if let Ok(p) = model.shape(v).vertex_point() {
+                at_vertex.push((p, r));
+            }
+        }
+    }
+    let radius_at =
+        |p: occt::Vec3| at_vertex.iter().find(|(q, _)| norm(sub(*q, p)) < 1e-9).map(|(_, r)| *r).unwrap_or(radius);
+    let groups = blend_edges(model, definition)?;
+    if groups.is_empty() {
+        return Err(regen_error("FILLET_SELECT_EDGES"));
+    }
+    let mut results = Vec::new();
+    for (b, edges) in groups {
+        let [edge] = &edges[..] else {
+            return Err(error("@opFillet: variable conic fillets of more than one edge aren't supported yet"));
+        };
+        if edge.curve_type().ok() != Some(occt::CurveType::Line) {
+            return Err(error("@opFillet: variable conic fillets of curved edges aren't supported yet"));
+        }
+        let body = model.bodies[b].shape.clone();
+        let faces: Vec<Shape> = body
+            .sub_shapes(ShapeKind::Face)
+            .into_iter()
+            .filter(|f| f.sub_shapes(ShapeKind::Edge).iter().any(|e| e.is_same(edge)))
+            .collect();
+        let [f1, f2] = &faces[..] else { return Err(failed()) };
+        let (p1, p2) = (f1.face_plane().map_err(|_| failed())?, f2.face_plane().map_err(|_| failed())?);
+        let a = edge.edge_tangent(0.0, false).map_err(crate::occt_error)?.origin;
+        let z = edge.edge_tangent(1.0, false).map_err(crate::occt_error)?.origin;
+        let t = normalize(sub(z, a)).ok_or_else(failed)?;
+        let mid = scale(add(a, z), 0.5);
+        // Into each face from the edge, square to it.
+        let into = |face: &Shape, n: occt::Vec3| -> R<occt::Vec3> {
+            let d = normalize(cross(n, t)).ok_or_else(failed)?;
+            let probe = add(mid, scale(d, 1e-6));
+            let inside = occt::vertex(probe).and_then(|v| v.distance(face)).map_err(crate::occt_error)?.distance < 1e-9;
+            Ok(if inside { d } else { scale(d, -1.0) })
+        };
+        let (u1, u2) = (into(f1, p1.normal)?, into(f2, p2.normal)?);
+        let angle = dot(u1, u2).clamp(-1.0, 1.0).acos();
+        let k = 1.0 / (angle / 2.0).tan();
+        let (r0, r1) = (radius_at(a), radius_at(z));
+        let d = if smooth { [r0, r0, r1, r1] } else { [r0, r0 + (r1 - r0) / 3.0, r0 + 2.0 * (r1 - r0) / 3.0, r1] };
+        let base = |i: usize| add(a, scale(sub(z, a), i as f64 / 3.0));
+        let mut poles = Vec::new();
+        let mut weights = Vec::new();
+        for i in 0..4 {
+            let c = base(i);
+            poles.extend([add(c, scale(u1, k * d[i])), c, add(c, scale(u2, k * d[i]))]);
+            weights.extend([1.0, w, 1.0]);
+        }
+        let fillet = occt::rational_bspline_surface_face(
+            &poles,
+            &weights,
+            (4, 3),
+            &[0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0],
+            &[0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+            (3, 2),
+        )
+        .map_err(|_| failed())?;
+        let tangent = |u: occt::Vec3| -> R<Shape> {
+            let points: Vec<occt::Vec3> = (0..4).map(|i| add(base(i), scale(u, k * d[i]))).collect();
+            occt::bspline_edge(&points, &[], &[0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0], 3, false).map_err(crate::occt_error)
+        };
+        let line = |p: occt::Vec3, q: occt::Vec3| occt::line_edge(p, q).map_err(crate::occt_error);
+        let (s1a, s1z) = (add(a, scale(u1, k * r0)), add(z, scale(u1, k * r1)));
+        let (s2a, s2z) = (add(a, scale(u2, k * r0)), add(z, scale(u2, k * r1)));
+        let strip1 = occt::fill_edges(&[line(a, z)?, line(z, s1z)?, tangent(u1)?, line(s1a, a)?]).map_err(|_| failed())?;
+        let strip2 = occt::fill_edges(&[line(a, z)?, line(z, s2z)?, tangent(u2)?, line(s2a, a)?]).map_err(|_| failed())?;
+        let conic = |p: occt::Vec3, c: occt::Vec3, q: occt::Vec3| {
+            occt::bspline_edge(&[p, c, q], &[1.0, w, 1.0], &[0.0, 0.0, 0.0, 1.0, 1.0, 1.0], 2, false).map_err(crate::occt_error)
+        };
+        let cap0 = occt::fill_edges(&[line(a, s1a)?, conic(s1a, a, s2a)?, line(s2a, a)?]).map_err(|_| failed())?;
+        let cap1 = occt::fill_edges(&[line(z, s1z)?, conic(s1z, z, s2z)?, line(s2z, z)?]).map_err(|_| failed())?;
+        let shell = occt::sew_faces(&[fillet, strip1, strip2, cap0, cap1], 1e-7).map_err(|_| failed())?;
+        let mut wedge = occt::solid_from(&shell).map_err(|_| failed())?;
+        if wedge.volume().map_err(crate::occt_error)? < 0.0 {
+            wedge = wedge.reversed();
+        }
+        let op = occt::boolean(occt::BooleanKind::Subtraction, std::slice::from_ref(&body), &[wedge], true)
+            .map_err(|_| failed())?;
         results.push((b, op));
     }
     replace_bodies(model, &id, results);
