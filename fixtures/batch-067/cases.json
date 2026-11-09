@@ -1,0 +1,57 @@
+{
+  "batch": "067",
+  "title": "offsets on cones and tori, curving extensions up to curves, ruled surfaces normal to cones, faces replaced up to B-spline sheets",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "offset-curve-on-face",
+      "description": "the top circle of a cone (radius 12 at z = 0 to 8 at z = 30) offset 3 mm down its side",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "offset-curve-on-face",
+      "description": "the edge where a 4 mm round of a cylinder's top meets the top, offset 2 mm across the round",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "trim-curve",
+      "description": "a quarter circle of radius 10 extended at its end with its curvature up to a circle of radius 5 about (-5, 8)",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "ruled-surface",
+      "description": "a ruled surface 4 mm wide normal to a cone from its top circle",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "replace-face",
+      "description": "a 30 x 20 x 10 block's top replaced up to a sheet lofted between arcs above it",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    }
+  ]
+}

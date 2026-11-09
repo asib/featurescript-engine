@@ -715,6 +715,14 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   along the edge as the face's loop runs it × the ruling. A lofted sheet extended past its straight side carries
   its arcs on straight, along the surface, by the distance. Onshape's loft runs its edges along its sides' u and
   lists the sides before the caps; the engine now sews its exact sides first, so its faces come in that order.
+- **A third survey** (batch 067): an `fCone`'s top circle offset down its side makes no curve in Onshape (no error):
+  its offset evidently goes off the face, though an extruded cylinder's top edge goes down its side (batch 027) and
+  `fCone` revolves its profile; the rule isn't found. The edge where a cylinder's top round meets the top, offset
+  across the round, is the torus's parallel at tube angle d/r (radius 7.9177 for d = 2, r = 4), Onshape's closed
+  curve starting 7.5° round. An arc extended with its curvature up to a circle meets it within the curvature blend
+  (y = 9.9925, between the arc and the straight line). A ruled surface normal to a cone from its top circle is a
+  conical band 4 mm along the normal (Onshape's a fit, degree one across). A block's top replaced up to a sheet
+  lofted between arcs above it fails in Onshape (`DIRECT_EDIT_REPLACE_FACE_FAILED`).
 - **`derivedMirror` in a Part Studio feature** (batch 060 c001): Onshape fails with "Execution error". It builds
   its source twice, once by `@convert` and again in `instantiate` (no loaded context), which Onshape evidently
   refuses for a build function defined in the studio (it won't derive one source twice in a Part Studio, batch
