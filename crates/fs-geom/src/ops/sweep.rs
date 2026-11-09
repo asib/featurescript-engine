@@ -221,6 +221,13 @@ fn twisted_or_scaled(
 ) -> R<Value> {
     use values::{add, cross, dot, norm, normalize, sub};
     let unsupported = || error("@opSweep: twist and scale are only supported along chains of lines and arcs yet");
+    // Along a chain with a spline in it Onshape fails (batch 066 c005: a line then a spline, tangent where they
+    // meet).
+    if path_edges.len() > 1
+        && path_edges.iter().any(|e| !matches!(e.curve_type().ok(), Some(occt::CurveType::Line | occt::CurveType::Circle)))
+    {
+        return Err(regen_error("SWEEP_FAILED"));
+    }
     let rot3 = |axis: Vec3, angle: f64| -> [[f64; 3]; 3] {
         let r = super::rotation(occt::Axis { origin: Vec3::new(0.0, 0.0, 0.0), direction: axis }, angle).m;
         [[r[0], r[1], r[2]], [r[4], r[5], r[6]], [r[8], r[9], r[10]]]
