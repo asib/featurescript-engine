@@ -176,9 +176,11 @@ mod ffi {
             start_dir: Vec3,
             start_mag: f64,
             start_tangent: bool,
+            start_faces: &ShapeList,
             end_dir: Vec3,
             end_mag: f64,
             end_tangent: bool,
+            end_faces: &ShapeList,
         ) -> Result<UniquePtr<Operation>>;
         fn outer_wire(face: &Shape) -> Result<UniquePtr<Shape>>;
         fn section_edges(a: &ShapeList, b: &ShapeList) -> Result<UniquePtr<ShapeList>>;
@@ -804,17 +806,18 @@ pub fn loft_pieces(groups: &[Vec<Shape>], solid: bool) -> Result<Operation> {
     Ok(Operation(ffi::loft_pieces_op(&to_list(&wires), &counts, solid)?))
 }
 
-/// A loft between two profiles with conditions at its ends: each end's vector, magnitude and whether the
-/// derivative lies in the plane square to the vector rather than along it (`None` leaves that end free).
+/// A loft with conditions at its ends: each end's vector, magnitude, whether the derivative lies in the plane
+/// square to the vector rather than along it, and the faces whose tangency it matches (none: along the vector;
+/// `None` leaves that end free).
 pub fn loft_clamped(
     wires: &[Shape],
     solid: bool,
-    start: Option<(Vec3, f64, bool)>,
-    end: Option<(Vec3, f64, bool)>,
+    start: Option<(Vec3, f64, bool, Vec<Shape>)>,
+    end: Option<(Vec3, f64, bool, Vec<Shape>)>,
 ) -> Result<Operation> {
-    let (sd, sm, st) = start.unwrap_or((Vec3::new(0.0, 0.0, 1.0), f64::NAN, false));
-    let (ed, em, et) = end.unwrap_or((Vec3::new(0.0, 0.0, 1.0), f64::NAN, false));
-    Ok(Operation(ffi::loft_clamped_op(&to_list(wires), solid, sd, sm, st, ed, em, et)?))
+    let (sd, sm, st, sf) = start.unwrap_or((Vec3::new(0.0, 0.0, 1.0), f64::NAN, false, Vec::new()));
+    let (ed, em, et, ef) = end.unwrap_or((Vec3::new(0.0, 0.0, 1.0), f64::NAN, false, Vec::new()));
+    Ok(Operation(ffi::loft_clamped_op(&to_list(wires), solid, sd, sm, st, &to_list(&sf), ed, em, et, &to_list(&ef))?))
 }
 
 /// A face's outer wire.

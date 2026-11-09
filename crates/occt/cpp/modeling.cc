@@ -1468,7 +1468,8 @@ struct QuarterSpline {
 // of the way round each time. OCCT's loft matches the profiles' edges; along them the sides' rows are cubic Hermite
 // fits of 64 spans (as Onshape's profiles are).
 std::unique_ptr<Operation> loft_clamped_op(const ShapeList &wires, bool solid, Vec3 start_dir, double start_mag,
-                                           bool start_tangent, Vec3 end_dir, double end_mag, bool end_tangent) {
+                                           bool start_tangent, const ShapeList &start_faces, Vec3 end_dir,
+                                           double end_mag, bool end_tangent, const ShapeList &end_faces) {
   const size_t n = wires.shapes.size();
   if (n < 2) throw std::runtime_error("loft: two profiles at least");
   const bool has_start = !std::isnan(start_mag), has_end = !std::isnan(end_mag);
@@ -1598,17 +1599,51 @@ std::unique_ptr<Operation> loft_clamped_op(const ShapeList &wires, bool solid, V
     double mag;
     bool tangent, active;
     size_t profile, next;
-  } ends[2] = {{gp_Vec(dir(start_dir)), has_start ? start_mag : 0, start_tangent, has_start, 0, 1},
-               {gp_Vec(dir(end_dir)), has_end ? end_mag : 0, end_tangent, has_end, n - 1, n - 2}};
+    std::vector<TopoDS_Face> faces;  // matching these faces' tangency
+  } ends[2] = {{gp_Vec(dir(start_dir)), has_start ? start_mag : 0, start_tangent, has_start, 0, 1, {}},
+               {gp_Vec(dir(end_dir)), has_end ? end_mag : 0, end_tangent, has_end, n - 1, n - 2, {}}};
+  for (const TopoDS_Shape &f : start_faces.shapes) ends[0].faces.push_back(TopoDS::Face(f));
+  for (const TopoDS_Shape &f : end_faces.shapes) ends[1].faces.push_back(TopoDS::Face(f));
+  const gp_Vec travel(centre(wires.shapes[0]), centre(wires.shapes[n - 1]));
   for (End &end : ends) {
     end.v.Normalize();
     // Along the travel from the first profile to the last.
-    if (gp_Vec(centre(wires.shapes[0]), centre(wires.shapes[n - 1])).Dot(end.v) < 0) end.v.Reverse();
+    if (travel.Dot(end.v) < 0) end.v.Reverse();
   }
-  auto from_chord = [&](const End &end, const gp_Vec &c) {
-    return end.tangent ? (c - end.v * c.Dot(end.v)) * end.mag
-                       : end.v * (end.mag * (0.9 * c.Dot(end.v) + 0.1 * c.Magnitude()));
+  // The direction an end's derivative takes at a point of its profile: its vector; matching faces, where the faces
+  // next to the profile there meet (a corner of two, batch 058 c006), or across the one face square to the profile.
+  auto direction_at = [&](const End &end, const gp_Pnt &q, const gp_Vec &along) {
+    if (end.faces.empty()) return end.v;
+    std::vector<gp_Vec> normals;
+    for (const TopoDS_Face &face : end.faces) {
+      BRepExtrema_DistShapeShape near_face(BRepBuilderAPI_MakeVertex(q).Vertex(), face);
+      if (!near_face.IsDone() || near_face.Value() > 1e-6) continue;
+      Handle(Geom_Surface) surface = BRep_Tool::Surface(face);
+      GeomAPI_ProjectPointOnSurf projection(q, surface);
+      if (projection.NbPoints() == 0) continue;
+      double u, v;
+      projection.LowerDistanceParameters(u, v);
+      GeomLProp_SLProps props(surface, u, v, 1, 1e-9);
+      if (!props.IsNormalDefined()) continue;
+      gp_Vec normal(props.Normal());
+      if (face.Orientation() == TopAbs_REVERSED) normal.Reverse();
+      bool seen = false;
+      for (const gp_Vec &m : normals) seen = seen || m.IsParallel(normal, 1e-6);
+      if (!seen) normals.push_back(normal);
+    }
+    gp_Vec t;
+    if (normals.size() >= 2) t = normals[0].Crossed(normals[1]);
+    else if (normals.size() == 1) t = normals[0].Crossed(along);
+    else return end.v;
+    if (t.Magnitude() < 1e-12) return end.v;
+    t.Normalize();
+    if (t.Dot(travel) < 0) t.Reverse();
+    return t;
   };
+  auto from_chord_along = [&](const End &end, const gp_Vec &c, const gp_Vec &d) {
+    return end.tangent ? (c - d * c.Dot(d)) * end.mag : d * (end.mag * (0.9 * c.Dot(d) + 0.1 * c.Magnitude()));
+  };
+  auto from_chord = [&](const End &end, const gp_Vec &c) { return from_chord_along(end, c, end.v); };
   // The chord, along the travel, from a point of an end's profile to the next profile.
   auto chord_at = [&](const End &end, const gp_Pnt &q) {
     double best = 1e300;
@@ -1642,8 +1677,13 @@ std::unique_ptr<Operation> loft_clamped_op(const ShapeList &wires, bool solid, V
     gp_Vec values[4];
     for (int k = 0; k < 4; ++k) values[k] = from_chord(end, chord_at(end, f.run->at(k / 4.0)));
     f.quarters = std::make_unique<QuarterSpline>(values);
-    for (const WireRun::Piece &piece : f.run->pieces)
-      f.at_vertices.push_back(from_chord(end, chord_at(end, f.run->at(piece.start / f.run->total))));
+    for (const WireRun::Piece &piece : f.run->pieces) {
+      const gp_Pnt q = f.run->at(piece.start / f.run->total);
+      gp_Pnt at;
+      gp_Vec d1;
+      piece.curve.D1(piece.reversed ? piece.curve.LastParameter() : piece.curve.FirstParameter(), at, d1);
+      f.at_vertices.push_back(from_chord_along(end, chord_at(end, q), direction_at(end, q, piece.reversed ? -d1 : d1)));
+    }
   }
   // An end's derivative at u on a side, and how it changes with u.
   auto derivative = [&](int which, const Side &side, double u) -> std::pair<gp_Vec, gp_Vec> {
@@ -1666,13 +1706,20 @@ std::unique_ptr<Operation> loft_clamped_op(const ShapeList &wires, bool solid, V
         return end.next < end.profile ? -c : c;
       };
       const double h = (side.u2 - side.u1) * 1e-6 * (u + (side.u2 - side.u1) * 1e-6 > side.u2 ? -1 : 1);
-      const gp_Vec here = from_chord(end, chord(u)), ahead = from_chord(end, chord(u + h));
+      auto field_at = [&](double w) {
+        gp_Pnt p;
+        gp_Vec pu, pv;
+        side.surface->D1(w, va, p, pu, pv);
+        return from_chord_along(end, chord(w), direction_at(end, p, pu));
+      };
+      const gp_Vec here = field_at(u), ahead = field_at(u + h);
       return {here, (ahead - here) / h};
     }
     const gp_Vec &a = f.at_vertices[piece], &b = f.at_vertices[(piece + 1) % f.at_vertices.size()];
     const double len = f.run->pieces[piece].length / f.run->total;
-    return {a + (b - a) * (3 * within * within - 2 * within * within * within),
-            (b - a) * ((6 * within - 6 * within * within) / len * ds)};
+    // From one vertex's value to the next in proportion (batch 058 c006: a matched corner's sideways part falls
+    // linearly along the edge).
+    return {a + (b - a) * within, (b - a) * (1.0 / len * ds)};
   };
   // Across: the cubic spline on knots t₀⁴ t₁ … tₙ₋₂ tₙ₋₁⁴ through the profiles, its ends free or clamped. Its poles
   // are a fixed combination of the values at the profiles and the ends' conditions.

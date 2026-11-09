@@ -440,17 +440,34 @@ pub fn loft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
     }
     // Conditions at the ends: a derivative along a vector (normal to the profile's plane, or a direction given) or
     // in the plane square to it (tangent to the profile's plane).
-    let mut ends: [Option<(occt::Vec3, f64, bool)>; 2] = [None, None];
+    // Matching the tangency of the faces next to the profile: along where they meet (batch 058).
+    let mut ends: [Option<(occt::Vec3, f64, bool, Vec<Shape>)>; 2] = [None, None];
     for info in field(definition, "derivativeInfo").as_array().map(|a| a.to_vec()).unwrap_or_default() {
-        if !field(&info, "adjacentFaces").is_undefined() {
-            return Err(error("@opLoft: end conditions matching faces aren't supported yet"));
-        }
-        let tangent = values::opt_bool(&info, "tangentToPlane")?.unwrap_or(false);
         let index =
             field(&info, "profileIndex").as_number().ok_or_else(|| error("@opLoft: profileIndex must be a number"))?;
         let magnitude = field(&info, "magnitude").as_number().unwrap_or(1.0);
+        if !field(&info, "adjacentFaces").is_undefined() {
+            if values::opt_bool(&info, "matchCurvature")?.unwrap_or(false) {
+                return Err(error("@opLoft: end conditions matching faces' curvature aren't supported yet"));
+            }
+            let faces: Vec<Shape> = query::evaluate(model, field(&info, "adjacentFaces"))?
+                .into_iter()
+                .filter(|r| r.kind == EntityType::Face)
+                .map(|r| model.shape(r).clone())
+                .collect();
+            if faces.is_empty() {
+                return Err(regen_error(if index == 0.0 {
+                    "LOFT_NO_FACE_FOR_START_CLAMP"
+                } else {
+                    "LOFT_NO_FACE_FOR_END_CLAMP"
+                }));
+            }
+            ends[if index == 0.0 { 0 } else { 1 }] = Some((Vec3::new(0.0, 0.0, 1.0), magnitude, false, faces));
+            continue;
+        }
+        let tangent = values::opt_bool(&info, "tangentToPlane")?.unwrap_or(false);
         let vector = values::vec3(field(&info, "vector"), "@opLoft derivative vector")?;
-        ends[if index == 0.0 { 0 } else { 1 }] = Some((vector, magnitude, tangent));
+        ends[if index == 0.0 { 0 } else { 1 }] = Some((vector, magnitude, tangent, Vec::new()));
     }
     let solid = field(definition, "bodyType").as_str() != Some("SURFACE");
     let subqueries = field(definition, "profileSubqueries")
@@ -489,7 +506,7 @@ pub fn loft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
     // Through more than two profiles, or with conditions at the ends, the engine builds the sides across the
     // profiles itself (natural cubic splines at chord-length parameters, as Onshape's).
     let op = if ends.iter().any(Option::is_some) || wires.len() > 2 {
-        occt::loft_clamped(&wires, solid, ends[0], ends[1]).map_err(|_| regen_error("LOFT_FAILED"))?
+        occt::loft_clamped(&wires, solid, ends[0].clone(), ends[1].clone()).map_err(|_| regen_error("LOFT_FAILED"))?
     } else {
         occt::loft(&wires, solid).map_err(|_| regen_error("LOFT_FAILED"))?
     };

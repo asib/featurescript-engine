@@ -3,14 +3,16 @@
 
 use std::path::PathBuf;
 
-/// Cases the engine can't build yet (see docs/std-coverage.md): lofts matching the tangency or curvature of the
-/// faces next to the start profile (c005–c008).
-const KNOWN_GAPS: &[&str] = &["c005", "c006", "c007", "c008"];
+/// Cases the engine can't build yet (see docs/std-coverage.md): a loft matching the curvature of the faces next to
+/// the start profile (c007).
+const KNOWN_GAPS: &[&str] = &["c007"];
 
 /// A loft from a square to a point, normal to the square: Onshape's sides are fits that bulge between the corners
-/// and the middles of the edges by up to 0.003 mm (0.28 mm³ of volume). Sweeps twisted or scaled along a line and
-/// an arc: as along an arc alone (batch 048), Onshape's surfaces are approximations, within 7e-5 of the volume.
-const LOOSE: &[(&str, f64)] = &[("c004", 0.3), ("c009", 0.5), ("c010", 0.5)];
+/// and the middles of the edges by up to 0.003 mm (0.28 mm³ of volume). Lofts from a block's top matching its
+/// sides: Onshape's sides, a cubic along each edge, bulge between the corners (0.41 mm³, 7e-5 of the volume; 0.2
+/// at magnitude 2). Sweeps twisted or scaled along a line and an arc: as along an arc alone (batch 048), Onshape's
+/// surfaces are approximations, within 7e-5 of the volume.
+const LOOSE: &[(&str, f64)] = &[("c004", 0.3), ("c005", 0.5), ("c006", 0.3), ("c009", 0.5), ("c010", 0.5)];
 
 /// Every case returns its faces' surfaces or points along its edges, to study. Only the bodies are compared.
 const CASES: &[&str] =
