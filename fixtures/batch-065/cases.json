@@ -1,0 +1,67 @@
+{
+  "batch": "065",
+  "title": "sweeps along a spline, isoclines and extensions of B-spline faces, offsets on a sphere, trims of arcs",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "sweep",
+      "description": "a 4 x 6 rectangle along a fit spline through (0, 0), (15, 5), (30, 0), twisted a quarter turn",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "sweep",
+      "description": "the same rectangle along the spline, scaled to half its size",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "isocline",
+      "description": "curves at 30° to the z axis on the sides of a loft tangent to its 20 mm square start",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "extend-surface",
+      "description": "a sheet lofted between two arcs extended 3 mm past its second arc",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "offset-curve-on-face",
+      "description": "the equator of a hemisphere of radius 10 offset 3 mm up the sphere",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "trim-curve",
+      "description": "a half circle of radius 10 trimmed by a circle of radius 8 about (10, 0), keeping its start",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    }
+  ]
+}

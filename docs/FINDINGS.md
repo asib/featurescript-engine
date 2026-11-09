@@ -696,6 +696,15 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   of four arcs is bicubic with four C1 spans each way, its edges' rows 0.05 mm off the arcs at the knots and not a
   Coons patch of them (0.1 off); a boundary surface normal to its first profile has the distance between the
   profiles as its derivative there, but not a natural free end.
+- **A survey of B-spline cases** (batch 065): a sweep twisted or scaled along a fit spline matches, within 1.0e-4
+  (twisted) and 2.5e-4 (scaled) of the volume, a loft through copies of the profile carried along the path by the
+  rotation-minimising frame, turned and grown in proportion to the path's parameter (by its length, the scaled
+  one is 1.4e-3 off). Isoclines on a loft's B-spline sides are one wire round it, an edge a face from corner to
+  corner, running along direction × normal (anticlockwise about the direction), traced to 1e-6. A sheet lofted
+  between arcs extended past one of them is its surface carried on along the rulings (Onshape's is degree one
+  across, its knots running past 1), bounded the distance on along each ruling (its fitted edge within 0.0014 mm),
+  its straight sides keeping vertices where the old corners were. An arc trimmed by a circle stays an arc, from
+  the kept end (by the help point) to where they meet. An offset up a sphere from its equator fails in Onshape.
 - **`derivedMirror` in a Part Studio feature** (batch 060 c001): Onshape fails with "Execution error". It builds
   its source twice, once by `@convert` and again in `instantiate` (no loaded context), which Onshape evidently
   refuses for a build function defined in the studio (it won't derive one source twice in a Part Studio, batch
