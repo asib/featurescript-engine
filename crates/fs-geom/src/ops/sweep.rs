@@ -59,7 +59,71 @@ fn add_with_caps_facing(model: &mut Model, id: &FeatureId, op: &occt::Operation,
     Ok(())
 }
 
+/// A sweep locked to a cylinder's side along a circle round its axis: the profile turns with the cylinder's normal,
+/// a revolve about the axis as far as the path goes (batch 058 c004). `None` when the sweep isn't that.
+fn locked_to_cylinder(model: &mut Model, id: &FeatureId, definition: &Value) -> R<Option<Value>> {
+    use values::{cross, dot, norm, sub};
+    if field(definition, "profileControl").as_str() != Some("LOCK_FACES") {
+        return Ok(None);
+    }
+    let lock: Vec<Shape> = query::evaluate(model, field(definition, "lockFaces"))?
+        .into_iter()
+        .filter(|r| r.kind == EntityType::Face)
+        .map(|r| model.shape(r).clone())
+        .collect();
+    let [face] = lock.as_slice() else { return Ok(None) };
+    let Ok(cyl) = face.surface_definition() else { return Ok(None) };
+    if cyl.kind != 1 {
+        return Ok(None);
+    }
+    let path: Vec<Shape> = query::evaluate(model, field(definition, "path"))?
+        .iter()
+        .filter(|r| r.kind == EntityType::Edge)
+        .map(|r| model.shape(*r).clone())
+        .collect();
+    let [edge] = path.as_slice() else { return Ok(None) };
+    if edge.curve_type().ok() != Some(occt::CurveType::Circle) {
+        return Ok(None);
+    }
+    let circle = edge.curve_definition().map_err(occt_error)?;
+    let (axis, origin) = (cyl.frame.normal, cyl.frame.origin);
+    if norm(cross(circle.frame.normal, axis)) > 1e-9 || norm(cross(sub(circle.frame.origin, origin), axis)) > 1e-9 {
+        return Ok(None);
+    }
+    // How far round: the whole circle, or the arc from its start to its end about the circle's own normal.
+    let ends = edge.edge_end_vertices().map_err(occt_error)?;
+    let closed = ends.len() < 2 || ends[0].is_same(&ends[1]);
+    let angle = if closed {
+        2.0 * std::f64::consts::PI
+    } else {
+        let a = edge.edge_tangent(0.0, false).map_err(occt_error)?.origin;
+        let b = edge.edge_tangent(1.0, false).map_err(occt_error)?.origin;
+        let (u, w) = (sub(a, circle.frame.origin), sub(b, circle.frame.origin));
+        let mut t = dot(cross(u, w), circle.frame.normal).atan2(dot(u, w));
+        if t <= 0.0 {
+            t += 2.0 * std::f64::consts::PI;
+        }
+        t
+    };
+    let found = query::evaluate(model, field(definition, "profiles"))?;
+    let faces: Vec<Shape> =
+        found.iter().filter(|r| r.kind == EntityType::Face).map(|r| model.shape(*r).clone()).collect();
+    if faces.is_empty() {
+        return Ok(None);
+    }
+    for profile in &faces {
+        let op =
+            occt::revolve(profile, occt::Axis { origin: circle.frame.origin, direction: circle.frame.normal }, angle)
+                .map_err(|_| regen_error("SWEEP_FAILED"))?;
+        add_with_caps(model, id, &op, true)?;
+    }
+    Ok(Some(Value::UNDEFINED))
+}
+
 pub fn sweep(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
+    if let Some(done) = locked_to_cylinder(model, &id, definition)? {
+        return Ok(done);
+    }
     // The profile kept as it is, or turning only about a direction (batch 021).
     let control: Option<Option<Vec3>> = if values::opt_bool(definition, "keepProfileOrientation")?.unwrap_or(false) {
         Some(None)
