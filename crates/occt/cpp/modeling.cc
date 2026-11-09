@@ -17,6 +17,13 @@
 #include <BRepOffsetAPI_MakePipeShell.hxx>
 #include <BRepOffsetAPI_ThruSections.hxx>
 #include <Geom_BSplineSurface.hxx>
+#include <Geom_BSplineCurve.hxx>
+#include <TColStd_Array2OfReal.hxx>
+#include <Geom_TrimmedCurve.hxx>
+#include <BSplCLib.hxx>
+#include <math_Gauss.hxx>
+#include <math_Vector.hxx>
+#include <math_Matrix.hxx>
 #include <array>
 #include <TColStd_Array1OfInteger.hxx>
 #include <TColgp_Array2OfPnt.hxx>
@@ -45,6 +52,7 @@
 #include <BRepFeat_SplitShape.hxx>
 #include <BRepClass3d_SolidClassifier.hxx>
 #include <ShapeFix_Solid.hxx>
+#include <ShapeFix_Face.hxx>
 #include <ShapeFix_Shell.hxx>
 #include <ShapeAnalysis_FreeBounds.hxx>
 #include <BRepAdaptor_Curve.hxx>
@@ -1290,10 +1298,20 @@ TopoDS_Shape planes_recognized(const TopoDS_Shape &shape, const Handle(BRepTools
 }  // namespace
 
 // Lofts through wires in order: a solid through closed wires if `solid`, else a sheet.
+// A loft's sections: wires, or a vertex at either end (a loft to a point).
+static void add_sections(BRepOffsetAPI_ThruSections &maker, const ShapeList &sections) {
+  for (const TopoDS_Shape &w : sections.shapes) {
+    if (w.ShapeType() == TopAbs_VERTEX)
+      maker.AddVertex(TopoDS::Vertex(w));
+    else
+      maker.AddWire(TopoDS::Wire(w));
+  }
+}
+
 std::unique_ptr<Operation> loft_op(const ShapeList &wires, bool solid) {
   BRepOffsetAPI_ThruSections maker(solid ? Standard_True : Standard_False, Standard_False, 1e-7);
   maker.CheckCompatibility(Standard_True);
-  for (const TopoDS_Shape &w : wires.shapes) maker.AddWire(TopoDS::Wire(w));
+  add_sections(maker, wires);
   maker.Build();
   auto op = finish(to_list(wires), maker, "loft");
   op->result = planes_recognized(op->result, op->history);
@@ -1406,42 +1424,55 @@ struct QuarterSpline {
 
 }  // namespace
 
-// A loft between two profiles whose ends leave them along conditions (a magnitude that isn't a number leaves that
-// end free). Each side becomes one cubic span across, from the first profile through rows set by the derivatives
-// (a free end's second derivative zero) to the last (batches 055, 056). A chord from the first profile to the last
-// gives a derivative: along a vector v (the profile's normal, or a direction), the magnitude times 0.9 of the chord
-// along v plus 0.1 of its length; square to v (tangent to the profile's plane), the magnitude times the chord's
-// part there. On a profile of several edges the derivative goes from its value at one vertex to the next as
-// 3t² − 2t³; on a profile of one closed edge it is the chord's at each point along v, and square to v the periodic
-// cubic spline through its values a quarter of the way round each time. The sides' rows are cubic Hermite fits of
-// 64 spans (as Onshape's profiles are).
+// A loft through profiles as Onshape builds one with conditions at its ends or through more than two profiles:
+// across the profiles, each side is the natural cubic spline through them (no second derivative at a free end) at
+// parameters spaced as the chords between them (batch 004 c038, 057 c003). A condition at an end sets the
+// derivative there instead (batches 055, 056): a chord from the first profile to the next gives it, along a vector
+// v (the profile's normal, or a direction) the magnitude times 0.9 of the chord along v plus 0.1 of its length;
+// square to v (tangent to the profile's plane), the magnitude times the chord's part there. On a profile of several
+// edges the derivative goes from its value at one vertex to the next as 3t² − 2t³; on a profile of one closed edge
+// it is the chord's at each point along v, and square to v the periodic cubic spline through its values a quarter
+// of the way round each time. OCCT's loft matches the profiles' edges; along them the sides' rows are cubic Hermite
+// fits of 64 spans (as Onshape's profiles are).
 std::unique_ptr<Operation> loft_clamped_op(const ShapeList &wires, bool solid, Vec3 start_dir, double start_mag,
                                            bool start_tangent, Vec3 end_dir, double end_mag, bool end_tangent) {
-  if (wires.shapes.size() != 2) throw std::runtime_error("loft: end conditions need two profiles");
+  const size_t n = wires.shapes.size();
+  if (n < 2) throw std::runtime_error("loft: two profiles at least");
+  const bool has_start = !std::isnan(start_mag), has_end = !std::isnan(end_mag);
+  if ((has_start && wires.shapes[0].ShapeType() == TopAbs_VERTEX) ||
+      (has_end && wires.shapes[n - 1].ShapeType() == TopAbs_VERTEX))
+    throw std::runtime_error("loft: end conditions at a point aren't supported yet");
   BRepOffsetAPI_ThruSections maker(solid ? Standard_True : Standard_False, Standard_False, 1e-7);
   maker.CheckCompatibility(Standard_True);
-  for (const TopoDS_Shape &w : wires.shapes) maker.AddWire(TopoDS::Wire(w));
+  add_sections(maker, wires);
   maker.Build();
   if (!maker.IsDone()) throw std::runtime_error("loft failed");
   const TopoDS_Shape lofted = maker.Shape();
   TopTools_IndexedMapOfShape caps;
   if (!maker.FirstShape().IsNull()) caps.Add(maker.FirstShape());
   if (!maker.LastShape().IsNull()) caps.Add(maker.LastShape());
-  // The wire as lofted: the first section's edges as the sides' first rows meet them.
-  const WireRun run(TopoDS::Wire(wires.shapes[0]));
+  // A profile the conditions are measured along: the first, or for a condition at the end only, the last.
   auto centre = [](const TopoDS_Shape &w) {
+    if (w.ShapeType() == TopAbs_VERTEX) return BRep_Tool::Pnt(TopoDS::Vertex(w));
     GProp_GProps props;
     BRepGProp::LinearProperties(w, props);
     return props.CentreOfMass();
   };
-  auto c_first = [&] { return centre(wires.shapes[0]); };
-  auto c_last = [&] { return centre(wires.shapes[1]); };
-  BRepExtrema_DistShapeShape near_first;
-  near_first.LoadS1(wires.shapes[0]);
+  std::vector<std::unique_ptr<BRepExtrema_DistShapeShape>> near(n);
+  for (size_t k = 0; k < n; ++k) {
+    near[k] = std::make_unique<BRepExtrema_DistShapeShape>();
+    near[k]->LoadS1(wires.shapes[k]);
+  }
+  auto distance_to = [&](size_t k, const gp_Pnt &q) {
+    near[k]->LoadS2(BRepBuilderAPI_MakeVertex(q).Vertex());
+    near[k]->Perform();
+    return near[k]->IsDone() ? near[k]->Value() : 1e300;
+  };
   struct Side {
     TopoDS_Face face;
     Handle(Geom_Surface) surface;
-    double u1, u2, v_first, v_last;
+    double u1, u2;
+    std::vector<double> v;  // where each profile lies across the side
   };
   std::vector<Side> sides;
   std::vector<TopoDS_Shape> kept;
@@ -1456,114 +1487,232 @@ std::unique_ptr<Operation> loft_clamped_op(const ShapeList &wires, bool solid, V
     if (!location.IsIdentity()) surface->Transform(location.Transformation());
     double u1, u2, v1, v2;
     BRepTools::UVBounds(face, u1, u2, v1, v2);
-    // Across the profiles is v unless a u iso line of the face lies on the first profile.
-    near_first.LoadS2(BRepBuilderAPI_MakeVertex(surface->Value((u1 + u2) / 2, v1)).Vertex());
-    near_first.Perform();
-    const bool v_first_low = near_first.IsDone() && near_first.Value() < 1e-6;
-    near_first.LoadS2(BRepBuilderAPI_MakeVertex(surface->Value((u1 + u2) / 2, v2)).Vertex());
-    near_first.Perform();
-    const bool v_first_high = near_first.IsDone() && near_first.Value() < 1e-6;
-    if (!v_first_low && !v_first_high) throw std::runtime_error("loft: a side doesn't run across the profiles");
-    sides.push_back({face, surface, u1, u2, v_first_low ? v1 : v2, v_first_low ? v2 : v1});
+    // A side OCCT makes flat from an edge to a point: the surface ruled from the edge (v = 0) to the point (v = 1).
+    const bool to_point = wires.shapes[0].ShapeType() == TopAbs_VERTEX || wires.shapes[n - 1].ShapeType() == TopAbs_VERTEX;
+    if (to_point && n == 2 && Handle(Geom_BSplineSurface)::DownCast(surface).IsNull()) {
+      const size_t at_point = wires.shapes[0].ShapeType() == TopAbs_VERTEX ? 0 : 1;
+      const gp_Pnt apex = BRep_Tool::Pnt(TopoDS::Vertex(wires.shapes[at_point]));
+      Handle(Geom_BSplineCurve) along;
+      for (TopExp_Explorer e(face, TopAbs_EDGE); e.More() && along.IsNull(); e.Next()) {
+        BRepAdaptor_Curve curve(TopoDS::Edge(e.Current()));
+        if (curve.Value((curve.FirstParameter() + curve.LastParameter()) / 2).Distance(apex) < 1e-9) continue;
+        if (distance_to(1 - at_point, curve.Value((curve.FirstParameter() + curve.LastParameter()) / 2)) > 1e-6) continue;
+        double f, l;
+        Handle(Geom_Curve) c = BRep_Tool::Curve(TopoDS::Edge(e.Current()), f, l);
+        along = GeomConvert::CurveToBSplineCurve(new Geom_TrimmedCurve(c, f, l));
+      }
+      if (along.IsNull()) throw std::runtime_error("loft: a side to a point has no edge on the profile");
+      TColgp_Array2OfPnt rows(1, along->NbPoles(), 1, 2);
+      TColStd_Array2OfReal weights(1, along->NbPoles(), 1, 2);
+      for (int i = 1; i <= along->NbPoles(); ++i) {
+        rows(i, 1 + static_cast<int>(at_point == 0)) = along->Pole(i);
+        rows(i, 2 - static_cast<int>(at_point == 0)) = apex;
+        weights(i, 1) = weights(i, 2) = along->Weight(i);
+      }
+      TColStd_Array1OfReal uk(1, along->NbKnots()), vk(1, 2);
+      TColStd_Array1OfInteger um(1, along->NbKnots()), vm(1, 2);
+      along->Knots(uk);
+      along->Multiplicities(um);
+      vk(1) = 0, vk(2) = 1, vm(1) = vm(2) = 2;
+      surface = new Geom_BSplineSurface(rows, weights, uk, vk, um, vm, along->Degree(), 1);
+      surface->Bounds(u1, u2, v1, v2);
+    }
+    // Each profile's v: the ends are the first and last; between, where the side's middle line meets it.
+    const double um = (u1 + u2) / 2;
+    const bool forward = distance_to(0, surface->Value(um, v1)) < 1e-6;
+    if (!forward && distance_to(0, surface->Value(um, v2)) >= 1e-6)
+      throw std::runtime_error("loft: a side doesn't run across the profiles");
+    std::vector<double> v(n);
+    v[0] = forward ? v1 : v2;
+    v[n - 1] = forward ? v2 : v1;
+    for (size_t k = 1; k + 1 < n; ++k) {
+      const int samples = 400;
+      double best = 1e300, at = v1;
+      for (int i = 0; i <= samples; ++i) {
+        const double w = v1 + (v2 - v1) * i / samples, d = distance_to(k, surface->Value(um, w));
+        if (d < best) best = d, at = w;
+      }
+      double a = std::max(v1, at - (v2 - v1) / samples), b = std::min(v2, at + (v2 - v1) / samples);
+      for (int i = 0; i < 60; ++i) {
+        const double m1 = a + (b - a) / 3, m2 = b - (b - a) / 3;
+        if (distance_to(k, surface->Value(um, m1)) < distance_to(k, surface->Value(um, m2))) b = m2; else a = m1;
+      }
+      v[k] = (a + b) / 2;
+    }
+    sides.push_back({face, surface, u1, u2, v});
   }
   if (sides.empty()) throw std::runtime_error("loft: no sides");
-  // The chord from the first profile to the last at a point of the first.
-  auto chord_at = [&](const gp_Pnt &q) {
-    double best = 1e300;
-    gp_Vec chord;
+  // Parameters across: spaced as the chords between the profiles, averaged over the sides.
+  std::vector<double> t(n, 0.0);
+  {
+    std::vector<double> chord(n - 1, 0.0);
+    int count = 0;
     for (const Side &side : sides) {
-      GeomAPI_ProjectPointOnSurf projection(q, side.surface, side.u1, side.u2, std::min(side.v_first, side.v_last),
-                                            std::max(side.v_first, side.v_last), 1e-9);
-      if (!projection.IsDone() || projection.NbPoints() == 0) continue;
-      double u, v;
-      projection.LowerDistanceParameters(u, v);
-      if (projection.LowerDistance() >= best) continue;
-      best = projection.LowerDistance();
-      chord = gp_Vec(side.surface->Value(u, side.v_first), side.surface->Value(u, side.v_last));
+      for (int i = 0; i <= 16; ++i) {
+        const double u = side.u1 + (side.u2 - side.u1) * i / 16;
+        for (size_t k = 0; k + 1 < n; ++k) chord[k] += side.surface->Value(u, side.v[k]).Distance(side.surface->Value(u, side.v[k + 1]));
+        ++count;
+      }
     }
-    return chord;
-  };
-  const bool has_start = !std::isnan(start_mag), has_end = !std::isnan(end_mag);
+    double total = 0;
+    for (size_t k = 0; k + 1 < n; ++k) total += chord[k];
+    for (size_t k = 0; k + 1 < n; ++k) t[k + 1] = t[k] + (total > 0 ? chord[k] / total : 1.0 / (n - 1));
+    t[n - 1] = 1;
+  }
+  // The conditions, measured from the profile at that end towards the next.
   struct End {
     gp_Vec v;
     double mag;
-    bool tangent;
-  } ends[2] = {{gp_Vec(dir(start_dir)), has_start ? start_mag : 0, start_tangent},
-               {gp_Vec(dir(end_dir)), has_end ? end_mag : 0, end_tangent}};
-  // The derivative a chord gives: along v, 0.9 of the chord along it plus 0.1 of its length; square to v, the
-  // chord's part there. v points from the first profile towards the last.
+    bool tangent, active;
+    size_t profile, next;
+  } ends[2] = {{gp_Vec(dir(start_dir)), has_start ? start_mag : 0, start_tangent, has_start, 0, 1},
+               {gp_Vec(dir(end_dir)), has_end ? end_mag : 0, end_tangent, has_end, n - 1, n - 2}};
   for (End &end : ends) {
     end.v.Normalize();
-    gp_Vec across(c_first(), c_last());
-    if (across.Dot(end.v) < 0) end.v.Reverse();
+    // Along the travel from the first profile to the last.
+    if (gp_Vec(centre(wires.shapes[0]), centre(wires.shapes[n - 1])).Dot(end.v) < 0) end.v.Reverse();
   }
   auto from_chord = [&](const End &end, const gp_Vec &c) {
     return end.tangent ? (c - end.v * c.Dot(end.v)) * end.mag
                        : end.v * (end.mag * (0.9 * c.Dot(end.v) + 0.1 * c.Magnitude()));
   };
-  // A profile of one closed edge: along a vector, the chord at each point; tangent to the plane, the periodic
-  // spline through the chords a quarter of the way round each time. A profile of several edges: the chords at its
-  // vertices, along each edge from one to the next as 3t² − 2t³.
-  const bool closed_curve = run.pieces.size() == 1;
-  std::vector<QuarterSpline> quarters;
-  std::vector<std::array<gp_Vec, 2>> at_vertices;
-  for (const End &end : ends) {
-    gp_Vec values[4];
-    for (int k = 0; k < 4; ++k) values[k] = from_chord(end, chord_at(run.at(k / 4.0)));
-    quarters.emplace_back(values);
-  }
-  std::vector<gp_Vec> vertex_chords;
-  for (const WireRun::Piece &piece : run.pieces) vertex_chords.push_back(chord_at(run.at(piece.start / run.total)));
-  // The derivative and how it changes along the profile (per unit of the profile's length fraction s), at u on a
-  // side, where the first profile is at s and the side's u runs ds per unit of u.
-  auto derivative = [&](int which, const Side &side, double u, double s, size_t piece, double within, double ds) {
+  // The chord, along the travel, from a point of an end's profile to the next profile.
+  auto chord_at = [&](const End &end, const gp_Pnt &q) {
+    double best = 1e300;
+    gp_Vec chord;
+    for (const Side &side : sides) {
+      const double va = side.v[end.profile], vb = side.v[end.next];
+      GeomAPI_ProjectPointOnSurf projection(q, side.surface, side.u1, side.u2, std::min(side.v.front(), side.v.back()),
+                                            std::max(side.v.front(), side.v.back()), 1e-9);
+      if (!projection.IsDone() || projection.NbPoints() == 0) continue;
+      double u, v;
+      projection.LowerDistanceParameters(u, v);
+      if (projection.LowerDistance() >= best) continue;
+      best = projection.LowerDistance();
+      chord = gp_Vec(side.surface->Value(u, va), side.surface->Value(u, vb));
+      if (end.next < end.profile) chord.Reverse();
+    }
+    return chord;
+  };
+  struct Field {
+    std::unique_ptr<WireRun> run;
+    bool closed_curve = false;
+    std::unique_ptr<QuarterSpline> quarters;
+    std::vector<gp_Vec> at_vertices;
+  } fields[2];
+  for (int which = 0; which < 2; ++which) {
     const End &end = ends[which];
-    if (closed_curve && end.tangent) return quarters[which].at(s);
-    if (closed_curve) {
-      // The chord here: straight across the side.
-      auto chord = [&](double w) { return gp_Vec(side.surface->Value(w, side.v_first), side.surface->Value(w, side.v_last)); };
+    if (!end.active) continue;
+    Field &f = fields[which];
+    f.run = std::make_unique<WireRun>(TopoDS::Wire(wires.shapes[end.profile]));
+    f.closed_curve = f.run->pieces.size() == 1;
+    gp_Vec values[4];
+    for (int k = 0; k < 4; ++k) values[k] = from_chord(end, chord_at(end, f.run->at(k / 4.0)));
+    f.quarters = std::make_unique<QuarterSpline>(values);
+    for (const WireRun::Piece &piece : f.run->pieces)
+      f.at_vertices.push_back(from_chord(end, chord_at(end, f.run->at(piece.start / f.run->total))));
+  }
+  // An end's derivative at u on a side, and how it changes with u.
+  auto derivative = [&](int which, const Side &side, double u) -> std::pair<gp_Vec, gp_Vec> {
+    const End &end = ends[which];
+    const Field &f = fields[which];
+    if (!end.active) return {gp_Vec(), gp_Vec()};
+    const double va = side.v[end.profile], vb = side.v[end.next];
+    gp_Pnt q;
+    gp_Vec qu, qv;
+    side.surface->D1(u, va, q, qu, qv);
+    const auto [s, tangent, piece, within] = f.run->place(q);
+    const double ds = qu.Dot(tangent) / f.run->total;
+    if (f.closed_curve && end.tangent) {
+      const auto [d, dd] = f.quarters->at(s);
+      return {d, dd * ds};
+    }
+    if (f.closed_curve) {
+      auto chord = [&](double w) {
+        gp_Vec c(side.surface->Value(w, va), side.surface->Value(w, vb));
+        return end.next < end.profile ? -c : c;
+      };
       const double h = (side.u2 - side.u1) * 1e-6 * (u + (side.u2 - side.u1) * 1e-6 > side.u2 ? -1 : 1);
       const gp_Vec here = from_chord(end, chord(u)), ahead = from_chord(end, chord(u + h));
-      return std::make_pair(here, (ahead - here) / (h * ds));
+      return {here, (ahead - here) / h};
     }
-    const gp_Vec a = from_chord(end, vertex_chords[piece]),
-                 b = from_chord(end, vertex_chords[(piece + 1) % vertex_chords.size()]);
-    const double t = within, len = run.pieces[piece].length / run.total;
-    return std::make_pair(a + (b - a) * (3 * t * t - 2 * t * t * t), (b - a) * ((6 * t - 6 * t * t) / len));
+    const gp_Vec &a = f.at_vertices[piece], &b = f.at_vertices[(piece + 1) % f.at_vertices.size()];
+    const double len = f.run->pieces[piece].length / f.run->total;
+    return {a + (b - a) * (3 * within * within - 2 * within * within * within),
+            (b - a) * ((6 * within - 6 * within * within) / len * ds)};
   };
+  // Across: the cubic spline on knots t₀⁴ t₁ … tₙ₋₂ tₙ₋₁⁴ through the profiles, its ends free or clamped. Its poles
+  // are a fixed combination of the values at the profiles and the ends' conditions.
+  const int m = static_cast<int>(n) + 2;
+  TColStd_Array1OfReal vknots(1, static_cast<int>(n));
+  TColStd_Array1OfInteger vmults(1, static_cast<int>(n));
+  for (size_t k = 0; k < n; ++k) {
+    vknots(static_cast<int>(k) + 1) = t[k];
+    vmults(static_cast<int>(k) + 1) = (k == 0 || k == n - 1) ? 4 : 1;
+  }
+  std::vector<double> flat;
+  for (size_t k = 0; k < n; ++k) for (int r = 0; r < (k == 0 || k == n - 1 ? 4 : 1); ++r) flat.push_back(t[k]);
+  // Rows of the system: the basis functions (or their derivatives) at a parameter.
+  auto basis_row = [&](double x, int order) {
+    std::vector<double> row(m, 0.0);
+    math_Matrix ders(1, order + 1, 1, 4);
+    int first = 0;
+    BSplCLib::EvalBsplineBasis(order, 4, TColStd_Array1OfReal(flat.data()[0], 1, static_cast<int>(flat.size())), x, first, ders);
+    for (int j = 0; j < 4; ++j)
+      if (first + j - 1 >= 0 && first + j - 1 < m) row[first + j - 1] = ders(order + 1, j + 1);
+    return row;
+  };
+  math_Matrix system(1, m, 1, m, 0.0);
+  {
+    int row = 1;
+    auto put = [&](const std::vector<double> &r) {
+      for (int j = 0; j < m; ++j) system(row, j + 1) = r[j];
+      ++row;
+    };
+    for (size_t k = 0; k < n; ++k) put(basis_row(t[k], 0));
+    put(basis_row(t[0], has_start ? 1 : 2));
+    put(basis_row(t[n - 1], has_end ? 1 : 2));
+  }
+  math_Gauss solver(system);
+  if (!solver.IsDone()) throw std::runtime_error("loft: the spline across the profiles is singular");
   BRepBuilderAPI_Sewing sewing(1e-6);
   for (const TopoDS_Shape &cap : kept) sewing.Add(cap);
   const int spans = 64;
   for (const Side &side : sides) {
-    // Each row's value and derivative along u at the span ends.
-    std::vector<std::array<gp_Pnt, 4>> value(spans + 1);
-    std::vector<std::array<gp_Vec, 4>> slope(spans + 1);
+    // At each span end along u: the poles across, and how they change along u.
+    std::vector<std::vector<gp_Pnt>> value(spans + 1, std::vector<gp_Pnt>(m));
+    std::vector<std::vector<gp_Vec>> slope(spans + 1, std::vector<gp_Vec>(m));
     for (int j = 0; j <= spans; ++j) {
       const double u = side.u1 + (side.u2 - side.u1) * j / spans;
-      gp_Pnt r0, r3;
-      gp_Vec r0u, r0v, r3u, r3v;
-      side.surface->D1(u, side.v_first, r0, r0u, r0v);
-      side.surface->D1(u, side.v_last, r3, r3u, r3v);
-      const auto [s, tangent, piece, along_piece] = run.place(r0);
-      const double ds = r0u.Dot(tangent) / run.total;
-      const auto [a, da] = derivative(0, side, u, s, piece, along_piece, ds);
-      const auto [b, db] = derivative(1, side, u, s, piece, along_piece, ds);
-      gp_Pnt r1 = r0.Translated(a / 3), r2 = r3.Translated(-b / 3);
-      gp_Vec r1u = r0u + da * (ds / 3), r2u = r3u - db * (ds / 3);
-      if (!has_start) {
-        r1 = gp_Pnt((r0.XYZ() + r2.XYZ()) / 2);
-        r1u = (r0u + r2u) / 2;
+      std::vector<gp_XYZ> rhs(m), drhs(m);
+      for (size_t k = 0; k < n; ++k) {
+        gp_Pnt p;
+        gp_Vec pu, pv;
+        side.surface->D1(u, side.v[k], p, pu, pv);
+        rhs[k] = p.XYZ();
+        drhs[k] = pu.XYZ();
       }
-      if (!has_end) {
-        r2 = gp_Pnt((r1.XYZ() + r3.XYZ()) / 2);
-        r2u = (r1u + r3u) / 2;
+      const auto [a, da] = derivative(0, side, u);
+      const auto [b, db] = derivative(1, side, u);
+      rhs[n] = a.XYZ(), drhs[n] = da.XYZ();
+      rhs[n + 1] = b.XYZ(), drhs[n + 1] = db.XYZ();
+      for (int c = 0; c < 3; ++c) {
+        math_Vector x(1, m), dx(1, m), bx(1, m), dbx(1, m);
+        for (int i = 0; i < m; ++i) bx(i + 1) = rhs[i].Coord(c + 1), dbx(i + 1) = drhs[i].Coord(c + 1);
+        solver.Solve(bx, x);
+        solver.Solve(dbx, dx);
+        for (int i = 0; i < m; ++i) {
+          gp_XYZ pv = value[j][i].XYZ(), sv = slope[j][i].XYZ();
+          pv.SetCoord(c + 1, x(i + 1));
+          sv.SetCoord(c + 1, dx(i + 1));
+          value[j][i] = gp_Pnt(pv);
+          slope[j][i] = gp_Vec(sv);
+        }
       }
-      value[j] = {r0, r1, r2, r3};
-      slope[j] = {r0u, r1u, r2u, r3u};
     }
-    TColgp_Array2OfPnt poles(1, 3 * spans + 1, 1, 4);
+    TColgp_Array2OfPnt poles(1, 3 * spans + 1, 1, m);
     const double step = (side.u2 - side.u1) / spans;
-    for (int row = 0; row < 4; ++row) {
+    for (int row = 0; row < m; ++row) {
       for (int j = 0; j < spans; ++j) {
         poles(3 * j + 1, row + 1) = value[j][row];
         poles(3 * j + 2, row + 1) = value[j][row].Translated(slope[j][row] * (step / 3));
@@ -1571,23 +1720,29 @@ std::unique_ptr<Operation> loft_clamped_op(const ShapeList &wires, bool solid, V
       }
       poles(3 * spans + 1, row + 1) = value[spans][row];
     }
-    TColStd_Array1OfReal uknots(1, spans + 1), vknots(1, 2);
-    TColStd_Array1OfInteger umults(1, spans + 1), vmults(1, 2);
+    TColStd_Array1OfReal uknots(1, spans + 1);
+    TColStd_Array1OfInteger umults(1, spans + 1);
     for (int j = 0; j <= spans; ++j) {
       uknots(j + 1) = side.u1 + step * j;
       umults(j + 1) = (j == 0 || j == spans) ? 4 : 3;
     }
-    vknots(1) = 0;
-    vknots(2) = 1;
-    vmults(1) = vmults(2) = 4;
     Handle(Geom_BSplineSurface) s = new Geom_BSplineSurface(poles, uknots, vknots, umults, vmults, 3, 3);
-    sewing.Add(BRepBuilderAPI_MakeFace(s, side.u1, side.u2, 0, 1, 1e-7).Face());
+    // A side ending at a point has a degenerate row there: the face's edge there is degenerate.
+    ShapeFix_Face fix(BRepBuilderAPI_MakeFace(s, side.u1, side.u2, 0, 1, 1e-7).Face());
+    fix.Perform();
+    sewing.Add(fix.Face());
   }
   sewing.Perform();
   TopoDS_Shape result = sewing.SewedShape();
   if (solid) {
     TopoDS_Shell shell;
     for (TopExp_Explorer it(result, TopAbs_SHELL); it.More(); it.Next()) shell = TopoDS::Shell(it.Current());
+    if (shell.IsNull() && result.ShapeType() == TopAbs_FACE) {
+      // One side closing on itself (between two points).
+      BRep_Builder builder;
+      builder.MakeShell(shell);
+      builder.Add(shell, result);
+    }
     if (shell.IsNull()) throw std::runtime_error("loft: the sides and ends don't close");
     BRepBuilderAPI_MakeSolid made(shell);
     ShapeFix_Solid fix(made.Solid());

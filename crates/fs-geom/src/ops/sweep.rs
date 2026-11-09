@@ -312,8 +312,11 @@ pub fn loft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
         let edges: Vec<Shape> =
             found.iter().filter(|r| r.kind == EntityType::Edge).map(|r| model.shape(*r).clone()).collect();
         if edges.is_empty() {
-            // A point profile (a vertex): not supported yet.
-            return Err(error("@opLoft: point profiles aren't supported yet"));
+            // A point profile (a vertex), at either end.
+            let vertices: Vec<&_> = found.iter().filter(|r| r.kind == EntityType::Vertex).collect();
+            let [vertex] = vertices[..] else { return Err(regen_error("LOFT_PROFILE_FAILED")) };
+            wires.push(model.shape(*vertex).clone());
+            continue;
         }
         let mut connected = occt::connect_edges(&edges).map_err(occt_error)?;
         if connected.len() != 1 {
@@ -324,10 +327,9 @@ pub fn loft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
     if wires.len() < 2 {
         return Err(regen_error("LOFT_SELECT_PROFILES"));
     }
-    let op = if ends.iter().any(Option::is_some) {
-        if wires.len() != 2 {
-            return Err(error("@opLoft: end conditions on lofts through more than two profiles aren't supported yet"));
-        }
+    // Through more than two profiles, or with conditions at the ends, the engine builds the sides across the
+    // profiles itself (natural cubic splines at chord-length parameters, as Onshape's).
+    let op = if ends.iter().any(Option::is_some) || wires.len() > 2 {
         occt::loft_clamped(&wires, solid, ends[0], ends[1]).map_err(|_| regen_error("LOFT_FAILED"))?
     } else {
         occt::loft(&wires, solid).map_err(|_| regen_error("LOFT_FAILED"))?

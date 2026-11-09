@@ -3,9 +3,9 @@
 
 use std::path::PathBuf;
 
-/// Cases that differ (see docs/std-coverage.md): lofts between unlike profiles, whose surfaces come from the
-/// kernels' own lofting (c038, c039).
-const KNOWN_GAPS: &[&str] = &["c038", "c039"];
+/// Cases that differ (see docs/std-coverage.md): a loft between unlike profiles (a square and a circle), whose
+/// sides come from each kernel's own matching of the profiles (c039).
+const KNOWN_GAPS: &[&str] = &["c039"];
 
 #[test]
 fn batch_004_matches_onshape() {
