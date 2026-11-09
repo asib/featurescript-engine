@@ -670,6 +670,10 @@ pub fn register(m: &mut GeomBuiltins) {
     });
     m.insert("evSurfaceDefinition", |interp, args| {
         let tags = tags(interp)?;
+        let as_other = definition(&args, "evSurfaceDefinition")
+            .ok()
+            .and_then(|d| values::opt_bool(&d, "returnBSplinesAsOther").ok().flatten())
+            .unwrap_or(false);
         measure(
             args,
             "evSurfaceDefinition",
@@ -728,6 +732,15 @@ pub fn register(m: &mut GeomBuiltins) {
                         ]),
                         "Torus",
                     ),
+                    _ if !as_other
+                        && matches!(
+                            model.shape(*r).surface_type(),
+                            Ok(occt::SurfaceType::BSpline | occt::SurfaceType::Bezier)
+                        ) =>
+                    {
+                        let data = model.shape(*r).face_bspline().map_err(occt_error)?;
+                        crate::bspline::bspline_surface_value(tags, &data)
+                    }
                     // A surface swept straight from a curve (a sheet extruded from a spline, batch 039).
                     _ if model.shape(*r).surface_type().ok() == Some(occt::SurfaceType::Extrusion) => {
                         Ok(map(vec![kind("EXTRUDED")]))

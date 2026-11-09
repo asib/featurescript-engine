@@ -48,6 +48,7 @@ struct Axis;
 struct Distance;
 struct Conic;
 struct BSplineData;
+struct BSplineSurfaceData;
 
 // A TopoDS_Shape. Copying one is cheap: the copy shares the underlying topology.
 class Shape {
@@ -216,6 +217,7 @@ std::unique_ptr<Operation> split_face_by_edges_op(const Shape &body, const Shape
 bool point_in_solid(const Shape &solid, Vec3 p);
 Conic curve_definition(const Shape &s);
 BSplineData edge_bspline(const Shape &s, double tolerance, bool force_cubic, bool force_non_rational);
+BSplineSurfaceData face_bspline(const Shape &s);
 Conic surface_definition(const Shape &s);
 Frame face_tangent_plane(const Shape &s, double fu, double fv);
 Vec3 face_fraction(const Shape &s, Vec3 p);

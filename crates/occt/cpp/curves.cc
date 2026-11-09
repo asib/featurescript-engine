@@ -30,6 +30,10 @@
 #include <GeomAPI_Interpolate.hxx>
 #include <Geom_BSplineCurve.hxx>
 #include <Geom_BezierCurve.hxx>
+#include <Geom_BSplineSurface.hxx>
+#include <Geom_BezierSurface.hxx>
+#include <Geom_RectangularTrimmedSurface.hxx>
+#include <GeomConvert.hxx>
 #include <Geom_Ellipse.hxx>
 #include <Geom_TrimmedCurve.hxx>
 #include <TColStd_Array1OfInteger.hxx>
@@ -450,6 +454,52 @@ BSplineData edge_bspline(const Shape &s, double tolerance, bool force_cubic, boo
   TColStd_Array1OfReal sequence(1, BSplCLib::KnotSequenceLength(mults, spline->Degree(), spline->IsPeriodic()));
   BSplCLib::KnotSequence(knots, mults, spline->Degree(), spline->IsPeriodic(), sequence);
   for (int i = sequence.Lower(); i <= sequence.Upper(); ++i) out.knots.push_back(sequence(i));
+  return out;
+}
+
+BSplineSurfaceData face_bspline(const Shape &s) {
+  if (s.shape.ShapeType() != TopAbs_FACE) throw std::invalid_argument("not a face");
+  TopLoc_Location location;
+  Handle(Geom_Surface) surface = BRep_Tool::Surface(TopoDS::Face(s.shape), location);
+  if (surface.IsNull()) throw std::runtime_error("the face has no surface");
+  Handle(Geom_RectangularTrimmedSurface) trimmed = Handle(Geom_RectangularTrimmedSurface)::DownCast(surface);
+  if (!trimmed.IsNull()) surface = trimmed->BasisSurface();
+  Handle(Geom_BSplineSurface) spline = Handle(Geom_BSplineSurface)::DownCast(surface);
+  if (spline.IsNull()) {
+    Handle(Geom_BezierSurface) bezier = Handle(Geom_BezierSurface)::DownCast(surface);
+    if (bezier.IsNull()) throw std::runtime_error("not a B-spline surface");
+    spline = GeomConvert::SurfaceToBSplineSurface(bezier);
+  } else {
+    spline = Handle(Geom_BSplineSurface)::DownCast(spline->Copy());
+  }
+  if (!location.IsIdentity()) spline->Transform(location.Transformation());
+  BSplineSurfaceData out;
+  out.u_degree = spline->UDegree();
+  out.v_degree = spline->VDegree();
+  out.u_periodic = spline->IsUPeriodic();
+  out.v_periodic = spline->IsVPeriodic();
+  out.rational = spline->IsURational() || spline->IsVRational();
+  out.nu = spline->NbUPoles();
+  out.nv = spline->NbVPoles();
+  for (int i = 1; i <= out.nu; ++i)
+    for (int j = 1; j <= out.nv; ++j) {
+      out.poles.push_back(vec3(spline->Pole(i, j).XYZ()));
+      if (out.rational) out.weights.push_back(spline->Weight(i, j));
+    }
+  auto sequence = [](const TColStd_Array1OfReal &knots, const TColStd_Array1OfInteger &mults, int degree, bool periodic,
+                     rust::Vec<double> &into) {
+    TColStd_Array1OfReal seq(1, BSplCLib::KnotSequenceLength(mults, degree, periodic));
+    BSplCLib::KnotSequence(knots, mults, degree, periodic, seq);
+    for (int i = seq.Lower(); i <= seq.Upper(); ++i) into.push_back(seq(i));
+  };
+  TColStd_Array1OfReal uk(1, spline->NbUKnots()), vk(1, spline->NbVKnots());
+  TColStd_Array1OfInteger um(1, spline->NbUKnots()), vm(1, spline->NbVKnots());
+  spline->UKnots(uk);
+  spline->UMultiplicities(um);
+  spline->VKnots(vk);
+  spline->VMultiplicities(vm);
+  sequence(uk, um, out.u_degree, out.u_periodic, out.u_knots);
+  sequence(vk, vm, out.v_degree, out.v_periodic, out.v_knots);
   return out;
 }
 

@@ -35,6 +35,37 @@ pub fn bspline_value(tags: &Tags, data: &BSplineData) -> R<Value> {
     tags.tagged(map(entries), "BSplineCurve")
 }
 
+/// A B-spline surface as std's `BSplineSurface`: rows of control points along u, each across v; a periodic
+/// direction's control points overlap by its degree.
+pub fn bspline_surface_value(tags: &Tags, data: &occt::BSplineSurfaceData) -> R<Value> {
+    let (nu, nv) = (data.nu as usize, data.nv as usize);
+    let at = |i: usize, j: usize| i % nu * nv + j % nv;
+    let rows = nu + if data.u_periodic { data.u_degree as usize } else { 0 };
+    let columns = nv + if data.v_periodic { data.v_degree as usize } else { 0 };
+    let grid = |f: &dyn Fn(usize) -> Value| {
+        Value::array((0..rows).map(|i| Value::array((0..columns).map(|j| f(at(i, j))).collect())).collect())
+    };
+    let numbers = |xs: &[f64]| Value::array(xs.iter().map(|&x| Value::number(x)).collect());
+    let mut entries = vec![
+        ("uDegree", Value::number(data.u_degree as f64)),
+        ("vDegree", Value::number(data.v_degree as f64)),
+        ("isRational", Value::bool(data.rational)),
+        ("isUPeriodic", Value::bool(data.u_periodic)),
+        ("isVPeriodic", Value::bool(data.v_periodic)),
+        ("controlPoints", tags.tagged(grid(&|k| tags.length_vector(data.poles[k])), "ControlPointMatrix")?),
+        ("uKnots", tags.tagged(numbers(&data.u_knots), "KnotArray")?),
+        ("vKnots", tags.tagged(numbers(&data.v_knots), "KnotArray")?),
+        ("surfaceType", tags.enum_value(
+            fs_interp::types::find("SurfaceType").ok_or_else(|| error("std type SurfaceType isn't loaded"))?,
+            "SPLINE",
+        )),
+    ];
+    if data.rational {
+        entries.push(("weights", tags.tagged(grid(&|k| Value::number(data.weights[k])), "Matrix")?));
+    }
+    tags.tagged(map(entries), "BSplineSurface")
+}
+
 // ----- B-spline basics (Piegl and Tiller, The NURBS Book, chapter 2) -----
 
 /// The knot span holding `u` for `n` control points of degree `p`.

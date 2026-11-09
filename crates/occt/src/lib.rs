@@ -9,7 +9,7 @@
 use cxx::UniquePtr;
 use std::fmt;
 
-pub use ffi::{Axis, BSplineData, Box3, Conic, Distance, Frame, Transform, Vec3};
+pub use ffi::{Axis, BSplineData, BSplineSurfaceData, Box3, Conic, Distance, Frame, Transform, Vec3};
 
 // Some operations take many plain values (wrapping takes two frames, the destination and a radius).
 #[allow(clippy::too_many_arguments)]
@@ -48,6 +48,24 @@ mod ffi {
         weights: Vec<f64>,
         /// The full knot vector, knots repeated by their multiplicity; a periodic curve's has `poles + 2 degree + 1`.
         knots: Vec<f64>,
+    }
+
+    /// A B-spline surface as std's `BSplineSurface` gives it: `poles` row by row, `nu` rows (along u) of `nv`.
+    #[derive(Clone, Debug, PartialEq)]
+    struct BSplineSurfaceData {
+        u_degree: i32,
+        v_degree: i32,
+        u_periodic: bool,
+        v_periodic: bool,
+        rational: bool,
+        nu: i32,
+        nv: i32,
+        poles: Vec<Vec3>,
+        /// Empty unless rational, else as `poles`.
+        weights: Vec<f64>,
+        /// The full knot vectors, knots repeated by their multiplicity.
+        u_knots: Vec<f64>,
+        v_knots: Vec<f64>,
     }
 
     /// The curve an edge lies on: `kind` 0 a line (origin at the edge's start, `frame.normal` its direction),
@@ -347,6 +365,7 @@ mod ffi {
         fn point_in_solid(solid: &Shape, p: Vec3) -> Result<bool>;
         fn curve_definition(s: &Shape) -> Result<Conic>;
         fn edge_bspline(s: &Shape, tolerance: f64, force_cubic: bool, force_non_rational: bool) -> Result<BSplineData>;
+        fn face_bspline(s: &Shape) -> Result<BSplineSurfaceData>;
         fn surface_definition(s: &Shape) -> Result<Conic>;
         fn face_tangent_plane(s: &Shape, fu: f64, fv: f64) -> Result<Frame>;
         fn face_fraction(s: &Shape, p: Vec3) -> Result<Vec3>;
@@ -641,6 +660,11 @@ impl Shape {
     /// The line, circle or ellipse an edge lies on.
     pub fn curve_definition(&self) -> Result<Conic> {
         Ok(ffi::curve_definition(&self.0)?)
+    }
+
+    /// The B-spline (or Bézier) surface a face lies on, whole; an error for any other kind of surface.
+    pub fn face_bspline(&self) -> Result<BSplineSurfaceData> {
+        Ok(ffi::face_bspline(&self.0)?)
     }
 
     /// The curve under an edge, over the edge's range, as a B-spline: exactly where it can be (conics become
