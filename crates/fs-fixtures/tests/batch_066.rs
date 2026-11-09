@@ -4,17 +4,18 @@
 
 use std::path::PathBuf;
 
-/// Cases the engine can't build as Onshape does yet (see docs/std-coverage.md): a lofted sheet extended past a
-/// straight side, which Onshape carries on along the arcs (c002).
-const KNOWN_GAPS: &[&str] = &["c002"];
+/// Cases the engine can't build as Onshape does yet (see docs/std-coverage.md): none.
+const KNOWN_GAPS: &[&str] = &[];
 
-/// The split loft: its pieces' areas within 0.002 mm² of Onshape's (c001). The offset across the loft's side: the
-/// engine walks geodesics in steps, within 0.0021 mm of Onshape's curve (c004).
-const LOOSE: &[(&str, f64)] = &[("c001", 0.003), ("c004", 0.003)];
+/// The split loft: its pieces' areas within 0.002 mm² of Onshape's (c001). The lofted sheet extended past its
+/// straight side: Onshape's surface is its own fit, skewed 0.015 mm, its area 0.017 mm² under the engine's (c002).
+/// The offset across the loft's side: the engine walks geodesics in steps, within 0.0021 mm of Onshape's curve
+/// (c004).
+const LOOSE: &[(&str, f64)] = &[("c001", 0.003), ("c002", 0.03), ("c004", 0.003)];
 
-/// The ruled sheet's edges run as the engine's loft edge does, the other way from Onshape's: only its body (plane,
-/// area, bounds) is compared (c006).
-const BODIES_ONLY: &[&str] = &["c006"];
+/// The extended sheet's surface is Onshape's fit (c002); the ruled sheet's edges run as the engine's loft edge does,
+/// the other way from Onshape's (c006): only their bodies (planes, areas, bounds) are compared.
+const BODIES_ONLY: &[&str] = &["c002", "c006"];
 
 /// The split loft's faces come in an order of Onshape's own.
 const UNORDERED: &[&str] = &["c001"];
@@ -30,6 +31,6 @@ fn batch_066_matches_onshape() {
             .filter(|p| !KNOWN_GAPS.iter().any(|case| p.starts_with(case)) && !p.starts_with("failed probe"))
             .collect();
         assert!(unexpected.is_empty(), "{report}");
-        assert_eq!(report.probes_matched, (7 - KNOWN_GAPS.len() - 1, 7), "{report}");
+        assert_eq!(report.probes_matched, (7, 7), "{report}");
     });
 }

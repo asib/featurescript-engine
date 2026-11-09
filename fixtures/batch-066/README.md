@@ -19,4 +19,5 @@ straight on up to a curve runs to where the ray meets it; an offset across a B-s
 trimmed where it meets the face's edges and running as the face's loop runs the edge; a fit spline takes one end
 derivative alone, but a twisted sweep along a line and a spline fails; a ruled surface normal to a B-spline face
 faces along the edge as that face's loop runs it × the ruling; a sheet extended past its straight side carries
-its arcs on straight, along the surface.
+its arcs on straight, along the surface, by the distance at both ends (one face, its arcs split at the old
+corners).
