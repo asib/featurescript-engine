@@ -638,11 +638,8 @@ fn match_circles_to_corners(wires: &mut [Shape]) -> R<()> {
 }
 
 pub fn loft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
-    for key in ["guideSubqueries", "connections"] {
-        if field(definition, key).as_array().is_some_and(|a| !a.is_empty()) {
-            return Err(error(format!("@opLoft: {key} isn't supported yet")));
-        }
-    }
+    let has = |key: &str| field(definition, key).as_array().is_some_and(|a| !a.is_empty());
+    let (has_guides, has_connections) = (has("guideSubqueries"), has("connections"));
     // Conditions at the ends: a derivative along a vector (normal to the profile's plane, or a direction given) or
     // in the plane square to it (tangent to the profile's plane).
     // Matching the tangency of the faces next to the profile: along where they meet (batch 058).
@@ -706,6 +703,32 @@ pub fn loft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
     }
     if wires.len() < 2 {
         return Err(regen_error("LOFT_SELECT_PROFILES"));
+    }
+    let touches = |a: &Shape, b: &Shape| a.distance(b).is_ok_and(|d| d.distance < 1e-7);
+    // Each connection takes one vertex or edge on each profile (batch 074 c002–c004: a corner's every vertex,
+    // the sketch lines' ends too, is `LOFT_CONNECTION_MATCHING`).
+    if has_connections {
+        for connection in field(definition, "connections").as_array().map(|a| a.to_vec()).unwrap_or_default() {
+            let entities: Vec<Shape> =
+                query::evaluate(model, field(&connection, "connectionEntities"))?.into_iter().map(|r| model.shape(r).clone()).collect();
+            let one_each = entities.len() == wires.len()
+                && wires.iter().all(|w| entities.iter().filter(|e| touches(e, w)).count() == 1);
+            if !one_each {
+                return Err(regen_error("LOFT_CONNECTION_MATCHING"));
+            }
+        }
+        return Err(error("@opLoft: connections isn't supported yet"));
+    }
+    // Each guide meets every profile (074 c005: guides missing them are `LOFT_GUIDE_PROFILE_INTERSECTION`).
+    if has_guides {
+        for q in field(definition, "guideSubqueries").as_array().map(|a| a.to_vec()).unwrap_or_default() {
+            let edges: Vec<Shape> =
+                query::evaluate(model, &q)?.into_iter().filter(|r| r.kind == EntityType::Edge).map(|r| model.shape(r).clone()).collect();
+            if !wires.iter().all(|w| edges.iter().any(|e| touches(e, w))) {
+                return Err(regen_error("LOFT_GUIDE_PROFILE_INTERSECTION"));
+            }
+        }
+        return Err(error("@opLoft: guideSubqueries isn't supported yet"));
     }
     match_circles_to_corners(&mut wires)?;
     // Through more than two profiles, or with conditions at the ends, the engine builds the sides across the
