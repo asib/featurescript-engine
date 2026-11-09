@@ -728,6 +728,11 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   wall's part (`SHEET_METAL_UNFOLD_HOLD_ENTITY_NOT_ON_PART`, in Onshape and the engine). An open box shelled from
   a block isn't recognized as sheet metal (`SHEET_METAL_CANNOT_RECOGNIZE_PARTS`; three sharp walls meet at each
   corner), though converting the block into an open box works (batch 012).
+- **A flange beyond a rolled wall** (batch 069): a 10 mm flange from a half tube's straight edge runs in towards
+  its axis, joined by a bend; std finds the bend's angle from a detached fillet of the definition's edge
+  (`opFillet` with `createDetachedSurface`: only the fillet's surface, as a sheet). Unfolding the rolled wall
+  holding the flange lays it straight on from the bend, its middle's length (65.94 mm for radius 20, thickness 2);
+  `sheetMetalRefold` of the part leaves it unfolded; unfolding everything lays the part flat.
 - **`derivedMirror` in a Part Studio feature** (batch 060 c001): Onshape fails with "Execution error". It builds
   its source twice, once by `@convert` and again in `instantiate` (no loaded context), which Onshape evidently
   refuses for a build function defined in the studio (it won't derive one source twice in a Part Studio, batch

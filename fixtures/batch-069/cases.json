@@ -1,0 +1,47 @@
+{
+  "batch": "069",
+  "title": "a rolled wall with a flange beyond it, unfolded and refolded",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "sheet-metal-flange",
+      "description": "a half tube of radius 20 with a 10 mm flange from its straight edge at (20, 0)",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "sheet-metal-unfold",
+      "description": "the same, the rolled wall unfolded holding the flange",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "sheet-metal-refold",
+      "description": "the same, refolded",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "sheet-metal-unfold",
+      "description": "the same, every bend and rolled wall unfolded holding the flange",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    }
+  ]
+}
