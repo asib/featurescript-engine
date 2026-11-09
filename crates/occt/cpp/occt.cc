@@ -396,6 +396,15 @@ static TopoDS_Shape with_accurate_pcurves(const TopoDS_Shape &shape) {
       fix.FixAddPCurve(edge, face, Standard_False, 1e-9);
     }
   }
+  // The new curves only correct a face's area slightly; where one lands a period away and the face's area changes
+  // outright (a closed-corner hem's bends, batch 021 c012), keep the shape as it was.
+  TopExp_Explorer before(shape, TopAbs_FACE), after(copy, TopAbs_FACE);
+  for (; before.More() && after.More(); before.Next(), after.Next()) {
+    GProp_GProps a, b;
+    BRepGProp::SurfaceProperties(before.Current(), a);
+    BRepGProp::SurfaceProperties(after.Current(), b);
+    if (std::abs(b.Mass() - a.Mass()) > 1e-3 * std::abs(a.Mass()) + 1e-15) return shape;
+  }
   return copy;
 }
 
