@@ -686,16 +686,24 @@ fn boolean_bodies_with(
         let mut pieces = result.sub_shapes(ShapeKind::Solid);
         if pieces.is_empty() {
             pieces = occt::connected_shells(&result).map_err(occt_error)?;
-            if kind == BooleanKind::Union {
+            {
                 // A union of sheets faces one way throughout, the way the first sheet faced (a sheet metal bend's
-                // wrapped face joins its walls this way).
+                // wrapped face joins its walls this way); a sheet cut keeps facing as it did (a rolled sheet metal
+                // wall cut by a tool's outline, batch 072 c005, comes back turned over).
+                // (Points near each face's corners too: a cut may take its middle away.)
                 let reference: Vec<(Vec3, Vec3)> = objects
                     .iter()
                     .flat_map(|&b| model.bodies[b].faces.iter())
-                    .filter_map(|f| {
-                        let p = f.shape.face_inner_point().ok()?;
-                        let (fu, fv) = f.shape.face_fraction(p).ok()?;
-                        Some((p, f.shape.face_tangent_plane(fu, fv).ok()?.normal))
+                    .flat_map(|f| {
+                        let middle = f.shape.face_inner_point().ok().and_then(|p| f.shape.face_fraction(p).ok());
+                        middle
+                            .into_iter()
+                            .chain([(0.02, 0.02), (0.98, 0.02), (0.02, 0.98), (0.98, 0.98)])
+                            .filter_map(|(fu, fv)| {
+                                let t = f.shape.face_tangent_plane(fu, fv).ok()?;
+                                Some((t.origin, t.normal))
+                            })
+                            .collect::<Vec<_>>()
                     })
                     .collect();
                 for piece in pieces.iter_mut() {
