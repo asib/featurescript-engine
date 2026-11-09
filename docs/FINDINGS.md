@@ -741,6 +741,36 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   builds the folded part so exactly. Unfolded, the rolled wall lies flat from where the bend leaves it (the
   tangent point, not the definition's corner), as long as the arc left past it at the neutral radius, and the
   bend unfolds against the wall's tangent plane there; so the unfold, the refold and the whole flat match too.
+- **Sketch conics extended** (batch 070 c003, c004): a conic (rho 0.7, 20 mm) becomes the clamped cubic spline
+  through it at its knots, in its own parameter (0 to 1), with its exact end derivatives, as a conic fillet's
+  section does; every span whose middle lies more than 1 µm from the conic is halved and the spline fitted again
+  (its knots 1/32 apart at the ends, 1/8 in the middle; 0.69 to 0.91 µm would do). Straight on, a span after a
+  triple knot, as for any cubic. Curving on, 10 mm is within the blend: the extension is one span of the blend's
+  polynomial (p₀ + p₁x + p₂x²/2 − p₂x³/(6Δ)) as far as 10 mm along it, its knot at the old end single. Its Δ is 1,
+  the conic's whole parameter range, where turning 3° would take 1.57: the blend runs on for at most the curve's
+  range (one case shows it). std's `evCurveDefinition` of a sketch conic isn't a `BSplineCurve`.
+- **A quadratic Bézier** (three points) can't be extended: `MOVE_CURVE_BOUNDARY_EXTEND_REQUIRES_OPEN_CURVE` (batch
+  070 c001, c002), though it runs from (0, 0) to (30, 0).
+- **Half a torus tilted to the direction** (batch 070 c005): its 20° isoclines are two open curves from one cut end
+  to the other, each running along n × d (the outward normal crossed with the direction).
+- **Both sides of a curved parting sheet, matching at it** (batch 070 c006): `BODY_DRAFT_MITER_FAILED`. Each side's
+  faces turn about their far edges and meet the curved sheet at different lines.
+- **Sweeps locked to curved faces** (batch 070 c007–c009): round a frustum's top circle locked to its conical side,
+  and a square tube frame along a cylinder's rim locked to its side, are revolves. Up a half cylinder's straight
+  edge locked to its side, the profile is carried along the edge; Onshape's sides are B-splines, linear across
+  each profile edge and a cubic of evenly spaced poles along the path (its STEP writes them as planes).
+- **A flex PCB unfolded** (batch 070 c010): `pcbEnd` with every bend unfolded holding the plate's top keeps one bend
+  line on the part: from (39.864, 0, 0.2) to (39.864, 30, 0.2), 90°, radius 1, bending up. It comes from the flat
+  pattern's bend centreline, a wire body with the bend edge's association attribute, on the flat's face where the
+  definition lies, along the middle of the bend's strip, running along that face's outward normal × the way
+  across the strip; `evSheetMetalFlatTransformation` of the top is the plate's move into the flat (down a
+  thickness).
+- **Half a conical shell** (2 mm, its sides parallel) isn't recognized as sheet metal:
+  `SHEET_METAL_CANNOT_RECOGNIZE_PARTS` (batch 070 c011).
+- **A hole cut in a rolled wall's flat** (batch 070 c012): an 8 mm circle in the middle of a half tube's flat (the
+  sketch on `qCorrespondingInFlat` of its outer face) wraps back onto the tube at the neutral radius: the faces
+  lose (22/21) and (20/21) of its area (Onshape's 0.017% more: its fit of the curve), and the hole's wall is a
+  B-spline across the thickness.
 - **`derivedMirror` in a Part Studio feature** (batch 060 c001): Onshape fails with "Execution error". It builds
   its source twice, once by `@convert` and again in `instantiate` (no loaded context), which Onshape evidently
   refuses for a build function defined in the studio (it won't derive one source twice in a Part Studio, batch

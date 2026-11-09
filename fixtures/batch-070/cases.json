@@ -1,0 +1,127 @@
+{
+  "batch": "070",
+  "title": "quadratic and rational curves extended, half a tilted torus, a draft both sides of a curved parting sheet, sweeps locked to curved faces, a PCB unfolded, a conical shell recognized, a cut in a rolled flat",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "trim-curve",
+      "description": "a quadratic Bézier from (0, 0) to (30, 0) extended 10 mm at its end, straight on",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "trim-curve",
+      "description": "the same, curving on",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "trim-curve",
+      "description": "a conic (rho 0.7) from (20, 0) to (0, 20) extended 10 mm at its end, straight on",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "trim-curve",
+      "description": "the same, curving on",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "isocline",
+      "description": "the 20 degree isoclines of half a torus (revolved 180°), the direction tilted 30° from its axis, as curves",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "body-draft",
+      "description": "a block drafted 3 degrees on both sides of a cylindrical sheet through it, matching at the parting sheet",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "sweep",
+      "description": "a 2 × 3 rectangle swept round a frustum's top circle, locked to its conical side",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c008",
+      "kind": "sweep",
+      "description": "a 2 × 3 rectangle swept up the straight edge of half a cylinder, locked to its curved side",
+      "slotMeters": [
+        2.8000000000000003,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c009",
+      "kind": "frame",
+      "description": "a square tube along a quarter of a cylinder's top rim, its profile locked to the cylinder's side",
+      "slotMeters": [
+        3.2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c010",
+      "kind": "pcb",
+      "description": "a flex PCB plate (0.2 mm) with a flange, finished with every bend unfolded holding its top, and its bend lines",
+      "slotMeters": [
+        3.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c011",
+      "kind": "sheet-metal-recognize",
+      "description": "half a conical shell 2 mm thick recognized as sheet metal",
+      "slotMeters": [
+        0,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c012",
+      "kind": "sheet-metal-flat",
+      "description": "half a tube of radius 20 with an 8 mm circle cut out of the middle of its flat pattern",
+      "slotMeters": [
+        0.4,
+        0.4,
+        0
+      ]
+    }
+  ]
+}
