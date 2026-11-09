@@ -198,6 +198,39 @@ fn bend_of(
     })
 }
 
+/// The bend at a definition edge with a bend joint attribute.
+fn joint_bend(def: &Body, edge_index: usize, joint: &Value, front: f64, back: f64, model_k_factor: f64) -> R<Bend> {
+    let radius = values::length(
+        attribute_value(joint, "radius").ok_or_else(|| regen_error("SHEET_METAL_REBUILD_ERROR"))?,
+        "bend radius",
+    )?;
+    let k_factor = attribute_value(joint, "k-factor").and_then(Value::as_number).unwrap_or(model_k_factor);
+    let unfolded = joint.get("unfolded").and_then(Value::as_bool) == Some(true);
+    bend_of(def, edge_index, radius, front, back, k_factor, unfolded)
+}
+
+/// A definition sheet's bends, from its edges' joint attributes.
+fn definition_bends(def: &Body) -> R<Vec<Bend>> {
+    let model_attribute =
+        sm_attribute(&def.attributes, "MODEL").ok_or_else(|| regen_error("SHEET_METAL_REBUILD_ERROR"))?;
+    let thickness_of = |key: &str| -> R<f64> {
+        match attribute_value(model_attribute, key) {
+            Some(v) => values::length(v, "sheet metal thickness"),
+            None => Ok(0.0),
+        }
+    };
+    let (front, back) = (thickness_of("frontThickness")?, thickness_of("backThickness")?);
+    let model_k_factor = attribute_value(model_attribute, "k-factor").and_then(Value::as_number).unwrap_or(0.45);
+    let mut bends = Vec::new();
+    for (i, edge) in def.edges.iter().enumerate() {
+        let Some(joint) = sm_attribute(&edge.attributes, "JOINT") else { continue };
+        if attribute_value(joint, "jointType").and_then(Value::as_str) == Some("BEND") {
+            bends.push(joint_bend(def, i, joint, front, back, model_k_factor)?);
+        }
+    }
+    Ok(bends)
+}
+
 fn distance_to_segment(p: Vec3, a: Vec3, b: Vec3) -> f64 {
     let ab = sub(b, a);
     let t = (dot(sub(p, a), ab) / dot(ab, ab).max(1e-300)).clamp(0.0, 1.0);
@@ -401,18 +434,7 @@ fn regenerate(model: &mut Model, id: &FeatureId, def_index: usize) -> R<()> {
     for (i, edge) in def.edges.iter().enumerate() {
         let Some(joint) = sm_attribute(&edge.attributes, "JOINT") else { continue };
         match attribute_value(joint, "jointType").and_then(Value::as_str) {
-            Some("BEND") => {
-                let radius = values::length(
-                    attribute_value(joint, "radius").ok_or_else(|| regen_error("SHEET_METAL_REBUILD_ERROR"))?,
-                    "bend radius",
-                )?;
-                let k_factor = match attribute_value(joint, "k-factor").and_then(Value::as_number) {
-                    Some(k) => k,
-                    None => model_k_factor,
-                };
-                let unfolded = joint.get("unfolded").and_then(Value::as_bool) == Some(true);
-                bends.push(bend_of(&def, i, radius, front, back, k_factor, unfolded)?);
-            }
+            Some("BEND") => bends.push(joint_bend(&def, i, joint, front, back, model_k_factor)?),
             Some("RIP") => {
                 let style = attribute_value(joint, "jointStyle").and_then(Value::as_str).unwrap_or("EDGE");
                 if !matches!(style, "EDGE" | "BUTT" | "BUTT2") {
@@ -610,19 +632,137 @@ pub fn flat_is_folded(model: &Model, body: usize) -> bool {
 }
 
 /// Whether a face is one of a flat plate's faces along its sheet (top or bottom): planar and parallel to the plate's
-/// definition sheet, in a plate that is its own flat pattern.
+/// definition sheet, in a plate that is its own flat pattern. In a bent part, the faces along its held wall, which
+/// stays where it is in the flat (batch 061): they stand for the wall's face in the flat, which has the same extent
+/// across the plane for a right-angled bend (the inner mould line less the radius is the outer less the setback),
+/// on the definition's plane rather than the face's.
 pub fn is_flat_sheet_face(model: &Model, r: EntityRef) -> bool {
-    if !flat_is_folded(model, r.body) {
+    if flat_is_folded(model, r.body) {
+        let Some(def) = definition_of_part(model, r.body) else { return false };
+        let Some(sheet) = model.bodies[def].faces.first().and_then(|f| f.shape.face_plane().ok()) else {
+            return false;
+        };
+        return model.shape(r).face_plane().is_ok_and(|p| norm(cross(p.normal, sheet.normal)) < 1e-9);
+    }
+    let Some(flat) = bent_flat(model, r.body) else { return false };
+    let face = model.shape(r);
+    let (Ok(p), Ok(at)) = (face.face_plane(), face.face_inner_point()) else { return false };
+    if norm(cross(p.normal, flat.plane.normal)) > 1e-9 {
         return false;
     }
-    let Some(def) = definition_of_part(model, r.body) else { return false };
-    let Some(sheet) = model.bodies[def].faces.first().and_then(|f| f.shape.face_plane().ok()) else { return false };
-    model.shape(r).face_plane().is_ok_and(|p| norm(cross(p.normal, sheet.normal)) < 1e-9)
+    let foot = sub(at, scale(flat.plane.normal, dot(sub(at, flat.plane.origin), flat.plane.normal)));
+    let held = &model.bodies[flat.def].faces[flat.held].shape;
+    occt::vertex(foot).and_then(|v| v.distance(held)).is_ok_and(|d| d.distance < 1e-7)
+}
+
+/// A bent part's flat pattern, as the engine models it: its definition's planar walls laid flat about the held
+/// wall, every bend its flat length (the neutral radius times its angle) long (batch 061).
+struct BentFlat {
+    def: usize,
+    bends: Vec<Bend>,
+    /// Each wall's motion from the definition into the flat.
+    motions: Vec<Rigid>,
+    held: usize,
+    /// The held wall's plane, the flat's.
+    plane: occt::Frame,
+}
+
+fn bent_flat(model: &Model, body: usize) -> Option<BentFlat> {
+    if !in_active_model(model, body) {
+        return None;
+    }
+    let def = definition_of_part(model, body)?;
+    let d = &model.bodies[def];
+    if d.faces.iter().any(|f| f.shape.face_plane().is_err()) {
+        return None;
+    }
+    let bends = definition_bends(d).ok()?;
+    if bends.is_empty() {
+        return None;
+    }
+    let wall_index = |s: &Shape| d.faces.iter().position(|f| f.shape.is_same(s)).unwrap_or(0);
+    let motions = motions(d, &bends, &wall_index, &|_| true).0.into_iter().collect::<Option<Vec<Rigid>>>()?;
+    let held = held_wall(d);
+    let plane = d.faces[held].shape.face_plane().ok()?;
+    Some(BentFlat { def, bends, motions, held, plane })
+}
+
+/// The pieces of a face drawn in a bent part's flat pattern, in its definition's walls: what lies on a wall's side
+/// of each of its bends' middles, back from where the wall stops in the flat, goes back rigidly; the half of a bend
+/// next to it is stretched across to the setback, to reach the definition's sharp edge.
+fn bent_pieces(model: &Model, flat: &BentFlat, face: &Shape) -> R<Vec<Shape>> {
+    let failed = || regen_error("SHEET_METAL_FLAT_OP_FAILED");
+    let def = &model.bodies[flat.def];
+    let wall_index = |s: &Shape| def.faces.iter().position(|f| f.shape.is_same(s));
+    let size = |s: &Shape| s.bounding_box(false).map(|b| norm(sub(b.max, b.min))).unwrap_or(1.0);
+    let reach = 4.0 * (size(&def.shape) + size(face)) + 1.0;
+    let normal = flat.plane.normal;
+    // The side of the line through `at` along `along` that `side` points to, as a big face of the flat's plane.
+    let half_plane = |at: Vec3, along: Vec3, side: Vec3| -> R<Shape> {
+        let y = cross(normal, along);
+        let (v0, v1) = if dot(y, side) > 0.0 { (0.0, reach) } else { (-reach, 0.0) };
+        occt::plane_face(occt::Frame { origin: at, normal, x: along }, -reach, reach, v0, v1).map_err(occt_error)
+    };
+    let clip = |shape: &Shape, by: &Shape| -> R<Option<Shape>> {
+        let common = occt::boolean(occt::BooleanKind::Intersection, std::slice::from_ref(shape), std::slice::from_ref(by), true)
+            .map_err(|_| failed())?
+            .shape();
+        Ok((common.area().unwrap_or(0.0) > 1e-14).then_some(common))
+    };
+    let moved = |shape: &Shape, t: &occt::Transform| -> R<Shape> {
+        Ok(occt::transform(shape, t).map_err(occt_error)?.shape())
+    };
+    let mut pieces = Vec::new();
+    for (w, motion) in flat.motions.iter().enumerate() {
+        let back = motion.inverse().transform();
+        let mut region = Some(face.clone());
+        let mut strips = Vec::new();
+        for bend in &flat.bends {
+            let d = if wall_index(&bend.walls.0) == Some(w) {
+                bend.into.0
+            } else if wall_index(&bend.walls.1) == Some(w) {
+                bend.into.1
+            } else {
+                continue;
+            };
+            let along = motion.vec(bend.axis_direction);
+            // Out of the wall, into the bend.
+            let across = scale(motion.vec(d), -1.0);
+            let cut = motion.point(add(bend.at, scale(d, bend.setback)));
+            let middle = add(cut, scale(across, bend.flat_length / 2.0));
+            if let Some(r) = &region {
+                region = clip(r, &half_plane(middle, along, scale(across, -1.0))?)?;
+            }
+            strips.push((cut, across, along, bend.setback, bend.flat_length));
+        }
+        let Some(region) = region else { continue };
+        let mut rigid = Some(region.clone());
+        for &(cut, across, along, setback, flat_length) in &strips {
+            if let Some(r) = &rigid {
+                rigid = clip(r, &half_plane(cut, along, scale(across, -1.0))?)?;
+            }
+            let Some(half) = clip(&region, &half_plane(cut, along, across)?)? else { continue };
+            // Stretched across about the cut: p + (k − 1)((p − cut)·a) a.
+            let k = setback / (flat_length / 2.0) - 1.0;
+            let a = [across.x, across.y, across.z];
+            let shift = scale(across, -k * dot(cut, across));
+            let m = |i: usize, j: usize| if i == j { 1.0 } else { 0.0 } + k * a[i] * a[j];
+            let stretch = occt::Transform {
+                m: [m(0, 0), m(0, 1), m(0, 2), shift.x, m(1, 0), m(1, 1), m(1, 2), shift.y, m(2, 0), m(2, 1), m(2, 2), shift.z],
+            };
+            pieces.push(moved(&moved(&half, &stretch)?, &back)?);
+        }
+        if let Some(r) = rigid {
+            pieces.push(moved(&r, &back)?);
+        }
+    }
+    Ok(pieces)
 }
 
 /// `@opSMFlatOperation` (std's `SMFlatOp`, extruding in a flat pattern, batch 059): faces drawn in a plate's flat
-/// pattern added to its definition sheet or cut from it. The plate is its own flat pattern, so the faces only drop
-/// onto the sheet along its normal. Added faces that don't reach the sheet add nothing, as in Onshape.
+/// pattern added to its definition sheet or cut from it. A plate is its own flat pattern, so the faces only drop
+/// onto the sheet along its normal; a bent part's are mapped back onto its walls from its flat (batch 061). Added
+/// faces that don't reach the sheet add nothing, as in Onshape.
 pub fn flat_operation(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
     let failed = || regen_error("SHEET_METAL_FLAT_OP_FAILED");
     let faces: Vec<EntityRef> = query::evaluate(model, field(definition, "faces"))?
@@ -634,19 +774,30 @@ pub fn flat_operation(model: &mut Model, id: FeatureId, definition: &Value) -> R
     for r in faces {
         let Some(part_tid) = model.bodies[r.body].flat_of else { continue };
         let Some(part) = model.bodies.iter().position(|b| b.tid == part_tid) else { continue };
-        if !flat_is_folded(model, part) {
-            return Err(error("@opSMFlatOperation: flat patterns of parts with bends aren't supported yet"));
-        }
+        let bent = if flat_is_folded(model, part) {
+            None
+        } else {
+            Some(bent_flat(model, part).ok_or_else(|| {
+                error("@opSMFlatOperation: flat patterns of parts with curved walls aren't supported yet")
+            })?)
+        };
         let def = definition_of_part(model, part).ok_or_else(failed)?;
-        let plane = model.bodies[def].faces.first().and_then(|f| f.shape.face_plane().ok()).ok_or_else(failed)?;
+        let plane = match &bent {
+            Some(flat) => flat.plane,
+            None => model.bodies[def].faces.first().and_then(|f| f.shape.face_plane().ok()).ok_or_else(failed)?,
+        };
         let face = model.shape(r).clone();
         let at = face.face_inner_point().map_err(occt_error)?;
         let drop = scale(plane.normal, -dot(sub(at, plane.origin), plane.normal));
         let shift = occt::Transform { m: [1.0, 0.0, 0.0, drop.x, 0.0, 1.0, 0.0, drop.y, 0.0, 0.0, 1.0, drop.z] };
         let dropped = occt::transform(&face, &shift).map_err(occt_error)?.shape();
+        let pieces = match &bent {
+            Some(flat) => bent_pieces(model, flat, &dropped)?,
+            None => vec![dropped],
+        };
         match by_definition.iter_mut().find(|(d, _)| *d == def) {
-            Some((_, shapes)) => shapes.push(dropped),
-            None => by_definition.push((def, vec![dropped])),
+            Some((_, shapes)) => shapes.extend(pieces),
+            None => by_definition.push((def, pieces)),
         }
     }
     let mut results = Vec::new();
@@ -871,14 +1022,34 @@ fn placements(def: &Body, bends: &[Bend], wall_index: &dyn Fn(&Shape) -> usize) 
     if !bends.iter().any(|b| b.unfolded) {
         return Placement { walls: vec![None; n], from: Vec::new() };
     }
-    let held = def
-        .faces
+    let (motion, from) = motions(def, bends, wall_index, &|b: &Bend| b.unfolded);
+    let is_identity = |m: &Rigid| {
+        (0..3).all(|i| (0..3).all(|j| (m.r[i][j] - if i == j { 1.0 } else { 0.0 }).abs() < 1e-12)) && norm(m.t) < 1e-12
+    };
+    Placement { walls: motion.iter().map(|m| m.filter(|m| !is_identity(m)).map(|m| m.transform())).collect(), from }
+}
+
+/// The wall that stays put when bends are laid flat: the one marked `holdFaceForUnfold`, else the first.
+fn held_wall(def: &Body) -> usize {
+    def.faces
         .iter()
         .position(|f| {
             sm_attribute(&f.attributes, "WALL").and_then(|w| w.get("holdFaceForUnfold")).and_then(Value::as_bool)
                 == Some(true)
         })
-        .unwrap_or(0);
+        .unwrap_or(0)
+}
+
+/// The held wall (`holdFaceForUnfold`, else the first), and where each wall goes from it across bends, the bends
+/// `flat` picks laid flat: none for walls not reached. With each bend laid flat, the wall it unfolds from.
+fn motions(
+    def: &Body,
+    bends: &[Bend],
+    wall_index: &dyn Fn(&Shape) -> usize,
+    flat: &dyn Fn(&Bend) -> bool,
+) -> (Vec<Option<Rigid>>, Vec<(Shape, usize)>) {
+    let n = def.faces.len();
+    let held = held_wall(def);
     let mut motion: Vec<Option<Rigid>> = vec![None; n];
     motion[held] = Some(Rigid::IDENTITY);
     let mut from = Vec::new();
@@ -897,7 +1068,7 @@ fn placements(def: &Body, bends: &[Bend], wall_index: &dyn Fn(&Shape) -> usize) 
             if motion[far].is_some() {
                 continue;
             }
-            let there = if bend.unfolded {
+            let there = if flat(bend) {
                 from.push((bend.edge.clone(), near));
                 here.then(&unfolding(bend, first))
             } else {
@@ -907,10 +1078,7 @@ fn placements(def: &Body, bends: &[Bend], wall_index: &dyn Fn(&Shape) -> usize) 
             queue.push(far);
         }
     }
-    let is_identity = |m: &Rigid| {
-        (0..3).all(|i| (0..3).all(|j| (m.r[i][j] - if i == j { 1.0 } else { 0.0 }).abs() < 1e-12)) && norm(m.t) < 1e-12
-    };
-    Placement { walls: motion.iter().map(|m| m.filter(|m| !is_identity(m)).map(|m| m.transform())).collect(), from }
+    (motion, from)
 }
 
 /// The folded part, piece by piece: each wall cut back where it meets bends and rips and thickened, and each bend
