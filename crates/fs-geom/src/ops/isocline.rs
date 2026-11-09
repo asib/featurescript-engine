@@ -263,6 +263,11 @@ fn direction_and_angle(definition: &Value) -> R<(Vec3, f64)> {
 /// parameters every line of the other crosses the angle once, the crossing found on each and a spline put through
 /// them. It runs along direction × normal. None if no such crossings.
 fn traced_isocline(face: &Shape, direction: Vec3, angle: f64) -> R<Option<Shape>> {
+    Ok(traced_points(face, direction, angle)?.map(|(edge, _)| edge))
+}
+
+/// [`traced_isocline`]'s edge, with the fractions (u, v) of the face's parameter ranges it passes through.
+fn traced_points(face: &Shape, direction: Vec3, angle: f64) -> R<Option<(Shape, Vec<(f64, f64)>)>> {
     const LINES: usize = 64;
     const STEPS: usize = 64;
     let target = angle.sin();
@@ -272,6 +277,7 @@ fn traced_isocline(face: &Shape, direction: Vec3, angle: f64) -> R<Option<Shape>
     };
     for across_u in [false, true] {
         let mut points = Vec::new();
+        let mut fractions = Vec::new();
         for i in 0..=LINES {
             let s = i as f64 / LINES as f64;
             let f = |t: f64| at(s, t, across_u).map(|p| dot(p.normal, direction) - target);
@@ -299,7 +305,10 @@ fn traced_isocline(face: &Shape, direction: Vec3, angle: f64) -> R<Option<Shape>
                 prev = here;
             }
             match (count, crossing) {
-                (1, Some(t)) => points.push(at(s, t, across_u).ok_or_else(|| regen_error("ISOCLINE_NO_RESULT"))?),
+                (1, Some(t)) => {
+                    points.push(at(s, t, across_u).ok_or_else(|| regen_error("ISOCLINE_NO_RESULT"))?);
+                    fractions.push(if across_u { (t, s) } else { (s, t) });
+                }
                 _ => {
                     points.clear();
                     break;
@@ -314,6 +323,7 @@ fn traced_isocline(face: &Shape, direction: Vec3, angle: f64) -> R<Option<Shape>
         let ahead = sub(points[points.len() / 2 + 1].origin, middle.origin);
         if dot(ahead, cross(direction, middle.normal)) < 0.0 {
             points.reverse();
+            fractions.reverse();
         }
         let positions: Vec<Vec3> = points.iter().map(|p| p.origin).collect();
         let mut parameters = vec![0.0];
@@ -327,7 +337,8 @@ fn traced_isocline(face: &Shape, direction: Vec3, angle: f64) -> R<Option<Shape>
                 scale(sub(positions[b], positions[a]), 1.0 / (parameters[b] - parameters[a]))
             })
             .collect();
-        return occt::interpolated_edge(&positions, &derivatives, &parameters, false).map(Some).map_err(occt_error);
+        let edge = occt::interpolated_edge(&positions, &derivatives, &parameters, false).map_err(occt_error)?;
+        return Ok(Some((edge, fractions)));
     }
     Ok(None)
 }
@@ -407,6 +418,24 @@ pub fn split(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
                     continue;
                 }
             }
+        }
+        // B-spline faces are cut along their traced isoclines, drawn on their surfaces, by the general splitter
+        // (batch 066 c001: so neighbouring faces' cuts meet).
+        if faces.iter().all(|f| matches!(f.surface_type(), Ok(occt::SurfaceType::BSpline | occt::SurfaceType::Bezier))) {
+            let mut edges = Vec::new();
+            for face in &faces {
+                if let Some((_, fractions)) = traced_points(face, direction, angle)? {
+                    edges.push(occt::edge_on_face(face, &fractions).map_err(occt_error)?);
+                }
+            }
+            if edges.is_empty() {
+                continue;
+            }
+            let op = occt::split(std::slice::from_ref(&model.bodies[b].shape), &edges)
+                .map_err(|_| regen_error("ISOCLINE_NO_RESULT"))?;
+            split_tids.push(model.bodies[b].tid);
+            results.push((b, op));
+            continue;
         }
         let cutters = isocline_cutters(&faces, direction, angle)?;
         if cutters.is_empty() {

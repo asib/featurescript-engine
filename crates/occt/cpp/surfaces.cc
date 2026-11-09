@@ -260,6 +260,31 @@ bool face_periodic(const Shape &face_shape, bool along_u) {
   return along_u ? surface->IsUPeriodic() : surface->IsVPeriodic();
 }
 
+// An edge on a face's surface through points given as fractions of its parameter ranges: a spline through them in
+// its parameter plane, its 3D curve built from that.
+std::unique_ptr<Shape> edge_on_face(const Shape &face, rust::Slice<const double> uv) {
+  if (face.shape.ShapeType() != TopAbs_FACE) throw std::runtime_error("not a face");
+  const size_t n = uv.size() / 2;
+  if (n < 2) throw std::runtime_error("edge on face: two points at least");
+  const TopoDS_Face &f = TopoDS::Face(face.shape);
+  double u0, u1, v0, v1;
+  BRepTools::UVBounds(f, u0, u1, v0, v1);
+  Handle(TColgp_HArray1OfPnt2d) points = new TColgp_HArray1OfPnt2d(1, static_cast<int>(n));
+  for (size_t i = 0; i < n; ++i)
+    points->SetValue(static_cast<int>(i) + 1, gp_Pnt2d(u0 + uv[2 * i] * (u1 - u0), v0 + uv[2 * i + 1] * (v1 - v0)));
+  Geom2dAPI_Interpolate interpolate(points, Standard_False, 1e-12);
+  interpolate.Perform();
+  if (!interpolate.IsDone()) throw std::runtime_error("edge on face: interpolation failed");
+  TopLoc_Location location;
+  Handle(Geom_Surface) surface = BRep_Tool::Surface(f, location);
+  BRepBuilderAPI_MakeEdge make(interpolate.Curve(), surface);
+  if (!make.IsDone()) throw std::runtime_error("edge on face: couldn't make the edge");
+  TopoDS_Edge edge = make.Edge();
+  BRepLib::BuildCurves3d(edge);
+  if (!location.IsIdentity()) edge = TopoDS::Edge(edge.Moved(location));
+  return wrap(edge);
+}
+
 // A wire of edges in the order given, their ends joined where they nearly meet.
 std::unique_ptr<Shape> ordered_wire(const ShapeList &edges) {
   BRep_Builder builder;

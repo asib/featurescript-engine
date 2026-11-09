@@ -136,6 +136,7 @@ std::unique_ptr<ShapeList> iso_curves(const Shape &face, bool along_u, double t)
 bool face_periodic(const Shape &face, bool along_u);
 std::unique_ptr<Shape> join_edges(const Shape &wire);
 std::unique_ptr<Shape> ordered_wire(const ShapeList &edges);
+std::unique_ptr<Shape> edge_on_face(const Shape &face, rust::Slice<const double> uv);
 std::unique_ptr<Shape> edge_between(const Shape &edge, double f0, double f1, bool reverse);
 std::unique_ptr<ShapeList> project_edges(const ShapeList &edges, const ShapeList &faces, Vec3 direction);
 std::unique_ptr<Shape> offset_edge_on_planar_face(const Shape &edge, const Shape &face, double distance);
