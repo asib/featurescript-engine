@@ -1,8 +1,8 @@
 //! Isoclines: the curves on faces where the tangent plane makes a given angle with a direction, like a draft
 //! angle (`@opCreateIsocline`, `@opSplitByIsocline`). Spheres, and tori about an axis along the direction, have
 //! them on planes square to the direction (batch 007, c026–c027); cylinders and cones across it along their length
-//! (batches 030 and 034); a whole torus tilted to the direction has two closed curves round it (batch 057); other
-//! faces aren't supported yet.
+//! (batches 030 and 034); a whole torus tilted to the direction has two closed curves round it (batch 057); on
+//! B-spline faces they are traced (batch 065); other faces aren't supported yet.
 
 use std::rc::Rc;
 
@@ -259,6 +259,79 @@ fn direction_and_angle(definition: &Value) -> R<(Vec3, f64)> {
     Ok((direction, values::angle(field(definition, "angle"), "isocline angle")?))
 }
 
+/// The isocline across a face with no analytic one (a B-spline, batch 065 c003), traced: along whichever of its
+/// parameters every line of the other crosses the angle once, the crossing found on each and a spline put through
+/// them. It runs along direction × normal. None if no such crossings.
+fn traced_isocline(face: &Shape, direction: Vec3, angle: f64) -> R<Option<Shape>> {
+    const LINES: usize = 64;
+    const STEPS: usize = 64;
+    let target = angle.sin();
+    let at = |fu: f64, fv: f64, across_u: bool| {
+        let (u, v) = if across_u { (fv, fu) } else { (fu, fv) };
+        face.face_tangent_plane(u, v).ok()
+    };
+    for across_u in [false, true] {
+        let mut points = Vec::new();
+        for i in 0..=LINES {
+            let s = i as f64 / LINES as f64;
+            let f = |t: f64| at(s, t, across_u).map(|p| dot(p.normal, direction) - target);
+            let mut crossing = None;
+            let mut count = 0;
+            let mut prev = f(0.0);
+            for k in 1..=STEPS {
+                let t = k as f64 / STEPS as f64;
+                let here = f(t);
+                if let (Some(a), Some(b)) = (prev, here)
+                    && (a < 0.0) != (b < 0.0)
+                {
+                    count += 1;
+                    let (mut lo, mut hi) = ((k - 1) as f64 / STEPS as f64, t);
+                    for _ in 0..60 {
+                        let mid = (lo + hi) / 2.0;
+                        match f(mid) {
+                            Some(m) if (m < 0.0) == (a < 0.0) => lo = mid,
+                            Some(_) => hi = mid,
+                            None => break,
+                        }
+                    }
+                    crossing = Some((lo + hi) / 2.0);
+                }
+                prev = here;
+            }
+            match (count, crossing) {
+                (1, Some(t)) => points.push(at(s, t, across_u).ok_or_else(|| regen_error("ISOCLINE_NO_RESULT"))?),
+                _ => {
+                    points.clear();
+                    break;
+                }
+            }
+        }
+        if points.len() < 2 {
+            continue;
+        }
+        // Along direction × normal.
+        let middle = &points[points.len() / 2];
+        let ahead = sub(points[points.len() / 2 + 1].origin, middle.origin);
+        if dot(ahead, cross(direction, middle.normal)) < 0.0 {
+            points.reverse();
+        }
+        let positions: Vec<Vec3> = points.iter().map(|p| p.origin).collect();
+        let mut parameters = vec![0.0];
+        for w in positions.windows(2) {
+            parameters.push(parameters.last().copied().unwrap_or(0.0) + norm(sub(w[1], w[0])));
+        }
+        let n = positions.len();
+        let derivatives: Vec<Vec3> = (0..n)
+            .map(|k| {
+                let (a, b) = if k == 0 { (0, 1) } else if k == n - 1 { (n - 2, n - 1) } else { (k - 1, k + 1) };
+                scale(sub(positions[b], positions[a]), 1.0 / (parameters[b] - parameters[a]))
+            })
+            .collect();
+        return occt::interpolated_edge(&positions, &derivatives, &parameters, false).map(Some).map_err(occt_error);
+    }
+    Ok(None)
+}
+
 /// `@opCreateIsocline`: a wire body for each isocline.
 pub fn create(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
     let (direction, angle) = direction_and_angle(definition)?;
@@ -268,7 +341,15 @@ pub fn create(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> 
         .map(|r| model.shape(r).clone())
         .collect();
     let info = Info::new(id);
+    // Traced isoclines join up where they meet (the sides of a loft, one wire round it, batch 065 c003).
+    let mut traced = Vec::new();
     for face in &faces {
+        if matches!(face.surface_type(), Ok(occt::SurfaceType::BSpline | occt::SurfaceType::Bezier)) {
+            if let Some(edge) = traced_isocline(face, direction, angle)? {
+                traced.push(edge);
+            }
+            continue;
+        }
         if let Some(curves) = tilted_torus_isoclines(face, direction, angle)? {
             for edge in curves {
                 for wire in occt::connect_edges(&[edge]).map_err(occt_error)? {
@@ -288,6 +369,11 @@ pub fn create(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> 
         }
         let edges = occt::section_edges(std::slice::from_ref(face), &cutters).map_err(occt_error)?;
         for wire in occt::connect_edges(&edges).map_err(occt_error)? {
+            model.add_body(NewBody::new(wire, BodyType::Wire, info.clone()), &Origins::default(), &info, &|_| None);
+        }
+    }
+    if !traced.is_empty() {
+        for wire in occt::connect_edges(&traced).map_err(occt_error)? {
             model.add_body(NewBody::new(wire, BodyType::Wire, info.clone()), &Origins::default(), &info, &|_| None);
         }
     }
