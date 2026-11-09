@@ -7,6 +7,9 @@ fn main() {
     let (file, name) = (&args[1], &args[2]);
     for (part, shape) in occt::read_step(file).expect("readable STEP") {
         if &part != name {
+            if name == "?" {
+                println!("{part}");
+            }
             continue;
         }
         for face in shape.sub_shapes(occt::ShapeKind::Face) {
