@@ -1225,6 +1225,36 @@ fn extended_cubic(
     Ok(if at_end { extended } else { extended.reversed() })
 }
 
+/// Where an edge meets another curve: the meeting nearest its end (or its start), found from samples along it.
+fn curve_meeting(edge: &Shape, curve: &Shape, at_end: bool) -> Option<occt::Vec3> {
+    const SAMPLES: usize = 400;
+    let point = |t: f64| edge.edge_tangent(t, false).ok().map(|a| a.origin);
+    let distance = |t: f64| {
+        point(t).and_then(|p| occt::vertex(p).ok()).and_then(|v| v.distance(curve).ok()).map_or(f64::MAX, |d| d.distance)
+    };
+    let d: Vec<f64> = (0..=SAMPLES).map(|i| distance(i as f64 / SAMPLES as f64)).collect();
+    let mut found = Vec::new();
+    for i in 0..=SAMPLES {
+        let (before, after) = (if i > 0 { d[i - 1] } else { f64::MAX }, if i < SAMPLES { d[i + 1] } else { f64::MAX });
+        if d[i] > 1e-3 || d[i] > before || d[i] > after {
+            continue;
+        }
+        // Golden section between the neighbouring samples.
+        let (mut a, mut b) = ((i as f64 - 1.0).max(0.0) / SAMPLES as f64, (i as f64 + 1.0).min(SAMPLES as f64) / SAMPLES as f64);
+        let g = (5f64.sqrt() - 1.0) / 2.0;
+        for _ in 0..80 {
+            let (c, e) = (b - g * (b - a), a + g * (b - a));
+            if distance(c) < distance(e) { b = e } else { a = c }
+        }
+        let t = (a + b) / 2.0;
+        if distance(t) < 1e-7 && t > 1e-9 && t < 1.0 - 1e-9 {
+            found.push(t);
+        }
+    }
+    let t = if at_end { found.into_iter().reduce(f64::max) } else { found.into_iter().reduce(f64::min) }?;
+    point(t)
+}
+
 /// A curve other than a single line trimmed or extended (batch 036): an arc trimmed by a plane stays an arc; a curve
 /// extended at its end (an arc, a cubic B-spline, or a chain of edges ending in one) becomes a B-spline as Onshape
 /// makes it (see `curve_extend`), a line at a chain's end staying a line.
@@ -1242,9 +1272,10 @@ fn curved_boundary_moved(
 ) -> R<Shape> {
     use crate::curve_extend::arc_frame;
     use crate::values::{add, cross, dot, norm, normalize, scale, sub};
-    if limit_curve.is_some_and(|c| c.curve_type().ok() != Some(occt::CurveType::Line)) {
+    let curved_limit = limit_curve.filter(|c| c.curve_type().ok() != Some(occt::CurveType::Line));
+    if curved_limit.is_some() && !trim {
         return Err(error(
-            "@opMoveCurveBoundary: curves other than lines up to curves other than lines aren't supported yet",
+            "@opMoveCurveBoundary: curves other than lines extended up to curves other than lines aren't supported yet",
         ));
     }
     // The chain's ends: points only one edge reaches.
@@ -1280,6 +1311,25 @@ fn curved_boundary_moved(
     let circle = edge.curve_type().ok() == Some(occt::CurveType::Circle);
 
     let as_cubic = |edge: &Shape, _: &occt::Axis, _: &occt::Axis| edge_as_cubic(edge);
+    // Trimmed by a curve: cut where they meet (an arc trimmed by a circle, batch 065), keeping the side the help
+    // point is on; an arc stays an arc.
+    if let (Some(curve), [_]) = (curved_limit, edges) {
+        let cut = curve_meeting(edge, curve, at_end).ok_or_else(|| regen_error("TRIM_CURVE_FAILED"))?;
+        if circle {
+            let centre = edge.curve_definition().map_err(occt_error)?.frame.origin;
+            let (x, y, radius, angle) = arc_frame(centre, start.origin, start.direction, end.origin)?;
+            let d = sub(cut, centre);
+            let at = dot(d, y).atan2(dot(d, x)).rem_euclid(2.0 * std::f64::consts::PI);
+            let (lo, hi) = if at_end { (at, angle) } else { (0.0, at) };
+            let frame = occt::Frame { origin: centre, normal: cross(x, y), x };
+            return occt::arc_edge(frame, radius, lo, hi).map_err(occt_error);
+        }
+        let cubic = as_cubic(edge, &start, &end)?;
+        let (a, b) = (cubic.start(), cubic.end());
+        let t = a + edge.edge_fraction(cut, false).map_err(occt_error)? * (b - a);
+        let kept = if at_end { cubic.segment(t, b)? } else { cubic.segment(a, t)? };
+        return kept.edge();
+    }
     // A straight limit curve stands for the plane through it square to the curve's plane (an arc trimmed by a line,
     // batch 038).
     let limit = match (limit, limit_curve) {
