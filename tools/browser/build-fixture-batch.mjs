@@ -14,7 +14,7 @@
 // report its part count and failed cases, and save the probe lines to <batch-dir>/onshape-probes.txt; export the Part Studio as STEP (AP242, no preprocessing, one file); move
 // the download to <batch-dir>/onshape.step.
 
-import { existsSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { connectToPage, sleep } from './cdp.mjs';
@@ -29,6 +29,12 @@ const PART_STUDIO = 'Part Studio 1';
 const EXPORT_NAME = `fixture-${Date.now()}`;
 // Chrome saves downloads here; Browser.setDownloadBehavior doesn't outlive the connection that sets it.
 const DOWNLOADS = join(homedir(), 'Downloads');
+
+// While this runs the keep-alive (keep-alive.mjs) leaves the tab alone, so its nudges can't land inside a click.
+const BUSY = join(homedir(), '.local/share/fs-engine-oracle/busy');
+mkdirSync(join(homedir(), '.local/share/fs-engine-oracle'), { recursive: true });
+writeFileSync(BUSY, String(process.pid));
+process.on('exit', () => rmSync(BUSY, { force: true }));
 
 const source = readFileSync(join(batchDir, 'cases.fs'), 'utf8') + readFileSync(join(batchDir, 'generator.fs'), 'utf8');
 const page = await connectToPage({ urlIncludes: 'cad.onshape.com' });
