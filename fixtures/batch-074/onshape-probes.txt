@@ -1,0 +1,7 @@
+probe c001 { bodies : [ { area : 1696.5872843547552 , bounds : [ -10.000000000000002 , -10 , 0 , 10 , 10 , 20 ] , edges : 12 , faces : 6 , name : c001.1 , type : SOLID , vertices : 8 , volume : 4276.142435474986 } ] , construction : [] , values : { curves : [] , faces : [ { area : 299.14682 , type : OTHER } , { area : 299.14682 , type : OTHER } , { area : 299.14682 , type : OTHER } , { area : 299.14682 , type : OTHER } , { area : 400 , type : PLANE } , { area : 100.000005 , type : PLANE } ] } }
+probe c002 failed LOFT_CONNECTION_MATCHING
+probe c003 failed LOFT_CONNECTION_MATCHING
+probe c004 failed LOFT_CONNECTION_MATCHING
+probe c005 failed LOFT_GUIDE_PROFILE_INTERSECTION
+probe c006 failed LOFT_FAILED
+batch-074 failed cases: [ c002 , c003 , c004 , c005 , c006 ]

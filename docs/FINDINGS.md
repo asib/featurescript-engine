@@ -818,6 +818,11 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   asymmetric, `vertexRadius` sets back the face that isn't leading (a block's front 2 to 4 mm, its top 3 to 5 by
   `vertexOtherRadius`), the other way round from a constant asymmetric fillet. The fillet faces' areas are the
   exact surfaces'; the end faces differ by Onshape's fits of the sections (to 0.013 mm²).
+- **A loft from a square to one turned 45°** (batch 074 c001): each corner goes to the one 45° anticlockwise of it
+  seen along the loft (from (10, 10) to (0, 7.07)); the side edges are lines. Connections given every vertex at a
+  corner (the sketch lines' ends with the region's) fail with `LOFT_CONNECTION_MATCHING` (c002–c004); guides that
+  miss a profile with `LOFT_GUIDE_PROFILE_INTERSECTION` (c005); circles of radius 3 at the ends of a quarter circle
+  of radius 20, lofted along it with 5 sections, with `LOFT_FAILED` (c006).
 - **`derivedMirror` in a Part Studio feature** (batch 060 c001): Onshape fails with "Execution error". It builds
   its source twice, once by `@convert` and again in `instantiate` (no loaded context), which Onshape evidently
   refuses for a build function defined in the studio (it won't derive one source twice in a Part Studio, batch
