@@ -133,6 +133,50 @@ fn cone_cutters(face: &Shape, direction: Vec3, angle: f64, size: f64) -> R<Optio
 /// equation). `None` if the face isn't a whole torus tilted to the direction, or the curves don't go all the way
 /// round.
 fn tilted_torus_isoclines(face: &Shape, direction: Vec3, angle: f64) -> R<Option<Vec<Shape>>> {
+    let Some(curves) = tilted_torus_samples(face, direction, angle)? else { return Ok(None) };
+    let parameters = sample_parameters();
+    let mut out = Vec::new();
+    for samples in curves {
+        let points: Vec<Vec3> = samples.iter().map(|s| s.0).collect();
+        let tangents: Vec<Vec3> = samples.iter().map(|s| s.1).collect();
+        out.push(occt::interpolated_edge(&points, &tangents, &parameters, true).map_err(occt_error)?);
+    }
+    Ok(Some(out))
+}
+
+const TORUS_SAMPLES: usize = 128;
+
+fn sample_parameters() -> Vec<f64> {
+    (0..=TORUS_SAMPLES).map(|i| 2.0 * std::f64::consts::PI * i as f64 / TORUS_SAMPLES as f64).collect()
+}
+
+/// Ribbons standing across a tilted torus along its isoclines, to split it with (batch 058 c005): each the surface
+/// between the curve carried a little way out along the torus's normal and a little way in.
+fn tilted_torus_cutters(face: &Shape, direction: Vec3, angle: f64) -> R<Option<Vec<Shape>>> {
+    let Some(curves) = tilted_torus_samples(face, direction, angle)? else { return Ok(None) };
+    let s = face.surface_definition().map_err(occt_error)?;
+    let width = 0.3 * s.radius2;
+    let parameters = sample_parameters();
+    let mut out = Vec::new();
+    for samples in curves {
+        let mut sides = Vec::new();
+        for w in [width, -width] {
+            let points: Vec<Vec3> = samples.iter().map(|(p, _, n, _)| add(*p, scale(*n, w))).collect();
+            let tangents: Vec<Vec3> = samples.iter().map(|(_, t, _, dn)| add(*t, scale(*dn, w))).collect();
+            let edge = occt::interpolated_edge(&points, &tangents, &parameters, true).map_err(occt_error)?;
+            sides.extend(occt::connect_edges(&[edge]).map_err(occt_error)?);
+        }
+        let ribbon = occt::loft(&sides, false).map_err(|_| regen_error("ISOCLINE_NO_RESULT"))?.shape();
+        out.extend(ribbon.sub_shapes(occt::ShapeKind::Face));
+    }
+    Ok(Some(out))
+}
+
+/// Points along a whole torus's isoclines when it is tilted to the direction (see [`tilted_torus_isoclines`]):
+/// for each curve, at each sample, the point, its derivative along the angle round the axis, the outward normal
+/// and the normal's derivative.
+#[allow(clippy::type_complexity)]
+fn tilted_torus_samples(face: &Shape, direction: Vec3, angle: f64) -> R<Option<Vec<Vec<(Vec3, Vec3, Vec3, Vec3)>>>> {
     let s = face.surface_definition().map_err(occt_error)?;
     if s.kind != 4 || norm(cross(s.frame.normal, direction)) < 1e-9 {
         return Ok(None);
@@ -152,8 +196,8 @@ fn tilted_torus_isoclines(face: &Shape, direction: Vec3, angle: f64) -> R<Option
     let sign = if dot(n, sub(p, add(c0, scale(radial, major)))) >= 0.0 { 1.0 } else { -1.0 };
     let c = sign * angle.sin();
     let (du, dv, da) = (dot(direction, u), dot(direction, v), dot(direction, a));
-    let samples = 128;
-    let mut curves = vec![(Vec::new(), Vec::new()), (Vec::new(), Vec::new())];
+    let samples = TORUS_SAMPLES;
+    let mut curves: Vec<Vec<(Vec3, Vec3, Vec3, Vec3)>> = vec![Vec::new(), Vec::new()];
     for i in 0..samples {
         let th = 2.0 * std::f64::consts::PI * i as f64 / samples as f64;
         let big_a = du * th.cos() + dv * th.sin();
@@ -175,16 +219,13 @@ fn tilted_torus_isoclines(face: &Shape, direction: Vec3, angle: f64) -> R<Option
             // dp/dθ = ρ t(θ) + (−r sin φ r(θ) + r cos φ a) dφ/dθ.
             let tangent =
                 add(scale(t_th, rho), scale(add(scale(r_th, -minor * phi.sin()), scale(a, minor * phi.cos())), dphi));
-            curves[k].0.push(point);
-            curves[k].1.push(tangent);
+            // n = cos φ r(θ) + sin φ a; dn/dθ = cos φ t(θ) + (−sin φ r(θ) + cos φ a) dφ/dθ.
+            let normal = add(scale(r_th, phi.cos()), scale(a, phi.sin()));
+            let dnormal = add(scale(t_th, phi.cos()), scale(add(scale(r_th, -phi.sin()), scale(a, phi.cos())), dphi));
+            curves[k].push((point, tangent, normal, dnormal));
         }
     }
-    let parameters: Vec<f64> = (0..=samples).map(|i| 2.0 * std::f64::consts::PI * i as f64 / samples as f64).collect();
-    let mut out = Vec::new();
-    for (points, tangents) in curves {
-        out.push(occt::interpolated_edge(&points, &tangents, &parameters, true).map_err(occt_error)?);
-    }
-    Ok(Some(out))
+    Ok(Some(curves))
 }
 
 /// Large planar faces standing in for the isocline planes of some faces.
@@ -194,6 +235,10 @@ fn isocline_cutters(faces: &[Shape], direction: Vec3, angle: f64) -> R<Vec<Shape
         let bounds = face.bounding_box(false).map_err(occt_error)?;
         let size = norm(sub(bounds.max, bounds.min)) * 2.0 + 1e-3;
         if let Some(cutters) = cylinder_cutters(face, direction, angle, size)? {
+            out.extend(cutters);
+            continue;
+        }
+        if let Some(cutters) = tilted_torus_cutters(face, direction, angle)? {
             out.extend(cutters);
             continue;
         }
@@ -264,6 +309,19 @@ pub fn split(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
     for (b, faces) in groups {
         input_tids
             .extend(model.bodies[b].faces.iter().filter(|f| faces.iter().any(|g| g.is_same(&f.shape))).map(|f| f.tid));
+        // A whole torus tilted to the direction: the two bands between its curves (batch 058 c005).
+        if let [face] = &faces[..] {
+            if model.bodies[b].faces.len() == 1 {
+                if let Some(curves) = tilted_torus_samples(face, direction, angle)? {
+                    let points: Vec<Vec<Vec3>> = curves.iter().map(|c| c.iter().map(|s| s.0).collect()).collect();
+                    let op = occt::split_by_bands(&model.bodies[b].shape, face, &points[0], &points[1])
+                        .map_err(|_| regen_error("ISOCLINE_NO_RESULT"))?;
+                    split_tids.push(model.bodies[b].tid);
+                    results.push((b, op));
+                    continue;
+                }
+            }
+        }
         let cutters = isocline_cutters(&faces, direction, angle)?;
         if cutters.is_empty() {
             continue;

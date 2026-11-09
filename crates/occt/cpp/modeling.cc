@@ -948,6 +948,83 @@ std::unique_ptr<Operation> split_faces_op(const Shape &body, const ShapeList &fa
   return finish(one(body.shape), splitter, "split faces");
 }
 
+// A body of one doubly periodic face (a whole torus) split along two closed curves that each go once round it the
+// first way (u) and not the second (batch 058 c005): two faces, the bands between the curves either way round in
+// v, each built from a loop in the surface's parameters (one curve, the seam at the end of u, the other curve
+// back, the seam at its start) and sewn together, so the seams don't cut them up as a general split does.
+std::unique_ptr<Operation> split_by_bands_op(const Shape &body, const Shape &face, rust::Slice<const Vec3> first,
+                                             rust::Slice<const Vec3> second) {
+  const TopoDS_Face &f = TopoDS::Face(face.shape);
+  Handle(Geom_Surface) surface = BRep_Tool::Surface(f);
+  const double period = 2 * M_PI;
+  // Each curve's (u, v), unwrapped along it, closed by its first point a period on in u.
+  auto parameters = [&](rust::Slice<const Vec3> points) {
+    std::vector<gp_Pnt2d> out;
+    for (const Vec3 &p : points) {
+      GeomAPI_ProjectPointOnSurf projection(pnt(p), surface);
+      if (projection.NbPoints() == 0) throw std::runtime_error("split by bands: a point isn't on the face");
+      double u, v;
+      projection.LowerDistanceParameters(u, v);
+      if (!out.empty()) {
+        const gp_Pnt2d &last = out.back();
+        while (u - last.X() > M_PI) u -= period;
+        while (last.X() - u > M_PI) u += period;
+        while (v - last.Y() > M_PI) v -= period;
+        while (last.Y() - v > M_PI) v += period;
+      }
+      out.emplace_back(u, v);
+    }
+    const double turn = out.back().X() - out.front().X();
+    const double ahead = turn > 0 ? period : -period;
+    out.emplace_back(out.front().X() + ahead, out.front().Y());
+    return out;
+  };
+  std::vector<gp_Pnt2d> a = parameters(first), b = parameters(second);
+  // b starts on the same meridian as a: put it above a in v, less than a period.
+  const double du = b.front().X() - a.front().X();
+  for (gp_Pnt2d &p : b) p.SetX(p.X() - std::round(du / period) * period);
+  while (b.front().Y() < a.front().Y()) for (gp_Pnt2d &p : b) p.SetY(p.Y() + period);
+  while (b.front().Y() > a.front().Y() + period) for (gp_Pnt2d &p : b) p.SetY(p.Y() - period);
+  auto flat = [](const std::vector<gp_Pnt2d> &points, double dv, bool reverse, std::vector<double> &uv) {
+    for (size_t i = 0; i < points.size(); ++i) {
+      const gp_Pnt2d &p = points[reverse ? points.size() - 1 - i : i];
+      uv.push_back(p.X());
+      uv.push_back(p.Y() + dv);
+    }
+    return static_cast<uint32_t>(points.size());
+  };
+  auto band = [&](const std::vector<gp_Pnt2d> &low, double low_dv, const std::vector<gp_Pnt2d> &high, double high_dv) {
+    std::vector<double> uv;
+    std::vector<uint32_t> counts;
+    counts.push_back(flat(low, low_dv, false, uv));
+    const gp_Pnt2d &l1 = low.back(), &h1 = high.back(), &l0 = low.front(), &h0 = high.front();
+    uv.insert(uv.end(), {l1.X(), l1.Y() + low_dv, h1.X(), h1.Y() + high_dv});
+    counts.push_back(2);
+    counts.push_back(flat(high, high_dv, true, uv));
+    uv.insert(uv.end(), {h0.X(), h0.Y() + high_dv, l0.X(), l0.Y() + low_dv});
+    counts.push_back(2);
+    return face_from_uv(face, rust::Slice<const double>(uv.data(), uv.size()),
+                        rust::Slice<const uint32_t>(counts.data(), counts.size()))->shape;
+  };
+  const TopoDS_Shape lower = band(a, 0, b, 0), upper = band(b, 0, a, period);
+  BRepBuilderAPI_Sewing sewing(1e-6);
+  sewing.Add(lower);
+  sewing.Add(upper);
+  sewing.Perform();
+  TopoDS_Shell shell;
+  for (TopExp_Explorer it(sewing.SewedShape(), TopAbs_SHELL); it.More(); it.Next()) shell = TopoDS::Shell(it.Current());
+  if (shell.IsNull()) throw std::runtime_error("split by bands: the bands don't close");
+  BRepBuilderAPI_MakeSolid made(shell);
+  ShapeFix_Solid fix(made.Solid());
+  fix.Perform();
+  auto op = std::make_unique<Operation>();
+  op->history = new BRepTools_History;
+  op->result = fix.Solid();
+  for (TopExp_Explorer it(op->result, TopAbs_FACE); it.More(); it.Next()) op->history->AddModified(f, it.Current());
+  (void)body;
+  return op;
+}
+
 // A body with one of its faces split along edges lying on it (a wrap's imprint).
 std::unique_ptr<Operation> split_face_by_edges_op(const Shape &body, const Shape &face, const ShapeList &edges) {
   BRepFeat_SplitShape splitter(body.shape);

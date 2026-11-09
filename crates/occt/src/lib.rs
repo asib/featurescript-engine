@@ -333,6 +333,12 @@ mod ffi {
             radius: f64,
         ) -> Result<UniquePtr<Operation>>;
         fn split_faces_op(body: &Shape, faces: &ShapeList, tools: &ShapeList) -> Result<UniquePtr<Operation>>;
+        fn split_by_bands_op(
+            body: &Shape,
+            face: &Shape,
+            first: &[Vec3],
+            second: &[Vec3],
+        ) -> Result<UniquePtr<Operation>>;
         fn split_face_by_edges_op(body: &Shape, face: &Shape, edges: &ShapeList) -> Result<UniquePtr<Operation>>;
         fn point_in_solid(solid: &Shape, p: Vec3) -> Result<bool>;
         fn curve_definition(s: &Shape) -> Result<Conic>;
@@ -1236,6 +1242,12 @@ pub fn split_face_by_edges(body: &Shape, face: &Shape, edges: &[Shape]) -> Resul
 
 pub fn split_faces(body: &Shape, faces: &[Shape], tools: &[Shape]) -> Result<Operation> {
     Ok(Operation(ffi::split_faces_op(&body.0, &to_list(faces), &to_list(tools))?))
+}
+
+/// A body of one doubly periodic face (a whole torus) split along two closed curves that each go once round it the
+/// first way, given by points along them: the two bands between them.
+pub fn split_by_bands(body: &Shape, face: &Shape, first: &[Vec3], second: &[Vec3]) -> Result<Operation> {
+    Ok(Operation(ffi::split_by_bands_op(&body.0, &face.0, first, second)?))
 }
 
 pub fn solid_from(shape: &Shape) -> Result<Shape> {
