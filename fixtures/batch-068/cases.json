@@ -1,0 +1,37 @@
+{
+  "batch": "068",
+  "title": "rolled walls between flat walls unfolded and refolded, a shelled box recognized with rips",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "sheet-metal-unfold",
+      "description": "a rolled wall between two flat walls, unfolded holding the first flat wall",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "sheet-metal-refold",
+      "description": "the same, refolded",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "sheet-metal-recognize",
+      "description": "a 40 x 30 x 20 block shelled 2 mm from its top, recognized with 1 mm bends",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    }
+  ]
+}

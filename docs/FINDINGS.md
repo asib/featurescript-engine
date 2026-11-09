@@ -723,6 +723,11 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   (y = 9.9925, between the arc and the straight line). A ruled surface normal to a cone from its top circle is a
   conical band 4 mm along the normal (Onshape's a fit, degree one across). A block's top replaced up to a sheet
   lofted between arcs above it fails in Onshape (`DIRECT_EDIT_REPLACE_FACE_FAILED`).
+- **Sheet metal checked in batch 068**: walls tangent to a rolled wall (sheet metal extruded along a line, an arc
+  and a line) are parts of their own (ripped at the joints), so a hold face on a flat wall isn't on the rolled
+  wall's part (`SHEET_METAL_UNFOLD_HOLD_ENTITY_NOT_ON_PART`, in Onshape and the engine). An open box shelled from
+  a block isn't recognized as sheet metal (`SHEET_METAL_CANNOT_RECOGNIZE_PARTS`; three sharp walls meet at each
+  corner), though converting the block into an open box works (batch 012).
 - **`derivedMirror` in a Part Studio feature** (batch 060 c001): Onshape fails with "Execution error". It builds
   its source twice, once by `@convert` and again in `instantiate` (no loaded context), which Onshape evidently
   refuses for a build function defined in the studio (it won't derive one source twice in a Part Studio, batch
