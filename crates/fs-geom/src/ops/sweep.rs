@@ -141,10 +141,11 @@ pub fn sweep(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
 }
 
 /// A sweep whose profile turns about the path (by `twist` over its length) and grows (to `scale` times its size),
-/// both in proportion to the distance along it (batch 019): a loft through copies of the profile carried along the
-/// path, a copy every 2.8° of turn (and of arc, along a circular path, batch 048), ruled between the two ends when it
-/// only grows along a straight path (a circle makes a cone). The path is straight (lines along one direction) or
-/// one circular arc, along which the copies turn with it about its axis.
+/// both in proportion to the distance along the whole path (batch 019; along a line and an arc, the twist at their
+/// joint is the line's share of the length, batch 057). The path is a chain of lines and circular arcs, each joined
+/// smoothly to the next; along each the profile is carried (along a line, moved; round an arc, turned with it about
+/// its axis) and lofted through copies, a copy every 2.8° of turn (and of arc, batch 048), ruled between the two ends
+/// of a line along which it only grows (a circle makes a cone). The pieces are one face each, sewn end to end.
 fn twisted_or_scaled(
     model: &mut Model,
     id: &FeatureId,
@@ -155,7 +156,7 @@ fn twisted_or_scaled(
     solid: bool,
 ) -> R<Value> {
     use values::{add, cross, dot, norm, normalize, sub};
-    let unsupported = || error("@opSweep: twist and scale are only supported along straight paths and single arcs yet");
+    let unsupported = || error("@opSweep: twist and scale are only supported along chains of lines and arcs yet");
     let rot3 = |axis: Vec3, angle: f64| -> [[f64; 3]; 3] {
         let r = super::rotation(occt::Axis { origin: Vec3::new(0.0, 0.0, 0.0), direction: axis }, angle).m;
         [[r[0], r[1], r[2]], [r[4], r[5], r[6]], [r[8], r[9], r[10]]]
@@ -177,17 +178,18 @@ fn twisted_or_scaled(
         out
     };
     let identity = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
-    let arc = matches!(path_edges, [e] if e.curve_type().ok() == Some(occt::CurveType::Circle));
-    if !arc && path_edges.iter().any(|e| e.curve_type().ok() != Some(occt::CurveType::Line)) {
+    if path_edges.iter().any(|e| !matches!(e.curve_type().ok(), Some(occt::CurveType::Line | occt::CurveType::Circle)))
+    {
         return Err(unsupported());
     }
-    let mut ends: Vec<(Vec3, Vec3)> = Vec::new();
+    // Each edge's ends: point and direction along the edge.
+    let mut ends: Vec<[(Vec3, Vec3); 2]> = Vec::new();
     for e in path_edges {
-        for t in [0.0, 1.0] {
-            let a = e.edge_tangent(t, false).map_err(occt_error)?;
-            ends.push((a.origin, a.direction));
-        }
+        let a = e.edge_tangent(0.0, false).map_err(occt_error)?;
+        let b = e.edge_tangent(1.0, false).map_err(occt_error)?;
+        ends.push([(a.origin, a.direction), (b.origin, b.direction)]);
     }
+    let close = |a: Vec3, b: Vec3| norm(sub(a, b)) < 1e-7;
     for profile in profiles {
         let wire = if profile.kind() == Some(ShapeKind::Face) {
             occt::outer_wire(profile).map_err(occt_error)?
@@ -195,80 +197,124 @@ fn twisted_or_scaled(
             profile.clone()
         };
         let centre = profile.centroid().map_err(occt_error)?;
-        // The path's end at the profile, leaving along the path.
-        let near = (0..ends.len())
-            .min_by(|&a, &b| norm(sub(ends[a].0, centre)).total_cmp(&norm(sub(ends[b].0, centre))))
-            .ok_or_else(unsupported)?;
-        // The motion carrying the profile a fraction t along the path (rotation, translation), and the path's
-        // point and direction there.
-        type Motion = Box<dyn Fn(f64) -> ([[f64; 3]; 3], Vec3, Vec3, Vec3)>;
-        let (motion, arc_angle): (Motion, f64) = if arc {
-            let edge = &path_edges[0];
-            let conic = edge.curve_definition().map_err(occt_error)?;
-            let c = conic.frame.origin;
-            let (start, leaving) = if near == 0 { ends[0] } else { (ends[1].0, values::scale(ends[1].1, -1.0)) };
-            let other = if near == 0 { ends[1].0 } else { ends[0].0 };
-            let axis = normalize(cross(sub(start, c), leaving)).ok_or_else(unsupported)?;
-            let (u, w) = (sub(start, c), sub(other, c));
-            let mut angle = dot(cross(u, w), axis).atan2(dot(u, w));
-            if angle <= 1e-12 {
-                angle += 2.0 * std::f64::consts::PI;
+        // The chain from the end nearest the profile: each edge with whether it runs backwards.
+        let (mut edge, mut back) = (0usize, false);
+        let mut best = f64::MAX;
+        for (i, e) in ends.iter().enumerate() {
+            for (k, end) in e.iter().enumerate() {
+                let d = norm(sub(end.0, centre));
+                // A free end: no other edge meets it.
+                let free =
+                    !ends.iter().enumerate().any(|(j, f)| j != i && (close(f[0].0, end.0) || close(f[1].0, end.0)));
+                if free && d < best {
+                    (best, edge, back) = (d, i, k == 1);
+                }
             }
-            let motion: Motion = Box::new(move |t: f64| {
-                let r = rot3(axis, angle * t);
-                let shift = sub(c, apply(&r, c));
-                (r, shift, add(apply(&r, start), shift), apply(&r, leaving))
-            });
-            (motion, angle)
-        } else {
-            let start = ends[near].0;
-            let end = ends
-                .iter()
-                .map(|e| e.0)
-                .max_by(|a, b| norm(sub(*a, start)).total_cmp(&norm(sub(*b, start))))
-                .ok_or_else(unsupported)?;
-            let run = sub(end, start);
-            let (length, d) = (norm(run), normalize(run).ok_or_else(unsupported)?);
-            if ends.iter().any(|p| norm(cross(sub(p.0, start), d)) > 1e-9) {
-                return Err(unsupported());
-            }
-            let motion: Motion = Box::new(move |t: f64| {
-                let shift = values::scale(d, length * t);
-                (identity, shift, add(start, shift), d)
-            });
-            (motion, 0.0)
-        };
-        let step = std::f64::consts::PI / 64.0;
-        let by_twist = if twist.abs() > 1e-12 { ((twist.abs() / step).ceil() as usize).max(8) } else { 1 };
-        let by_arc = if arc { (arc_angle / step).ceil() as usize } else { 1 };
-        let steps = by_twist.max(by_arc);
-        let mut wires = Vec::new();
-        for k in 0..=steps {
-            let t = k as f64 / steps as f64;
-            let (r, shift, p, tangent) = motion(t);
-            // A positive (counterclockwise) twist turns right-handed about the path's direction (batch 019).
-            let turn = rot3(tangent, twist * t);
-            let s = 1.0 + (scale - 1.0) * t;
-            // x goes to p + s turn (r x + shift - p).
-            let a = mul(&turn, &r);
-            let b = add(p, values::scale(apply(&turn, sub(shift, p)), s));
-            let m = [
-                s * a[0][0],
-                s * a[0][1],
-                s * a[0][2],
-                b.x,
-                s * a[1][0],
-                s * a[1][1],
-                s * a[1][2],
-                b.y,
-                s * a[2][0],
-                s * a[2][1],
-                s * a[2][2],
-                b.z,
-            ];
-            wires.push(occt::transform(&wire, &occt::Transform { m }).map_err(occt_error)?.shape());
         }
-        let op = occt::loft(&wires, solid).map_err(|_| regen_error("SWEEP_FAILED"))?;
+        let mut chain = vec![(edge, back)];
+        let mut used = vec![false; ends.len()];
+        used[edge] = true;
+        loop {
+            let (e, b) = *chain.last().expect("chain");
+            let tip = ends[e][if b { 0 } else { 1 }].0;
+            let Some((next, nb)) = (0..ends.len()).filter(|&j| !used[j]).find_map(|j| {
+                if close(ends[j][0].0, tip) {
+                    Some((j, false))
+                } else if close(ends[j][1].0, tip) {
+                    Some((j, true))
+                } else {
+                    None
+                }
+            }) else {
+                break;
+            };
+            used[next] = true;
+            chain.push((next, nb));
+        }
+        if chain.len() != path_edges.len() {
+            return Err(unsupported());
+        }
+        // Each piece: its length and the motion carrying a pose at its start a fraction along it.
+        type Motion = Box<dyn Fn(f64) -> ([[f64; 3]; 3], Vec3)>;
+        let mut pieces: Vec<(f64, Motion, bool, f64)> = Vec::new();
+        for &(e, b) in &chain {
+            let (start, leaving) = if b { (ends[e][1].0, values::scale(ends[e][1].1, -1.0)) } else { ends[e][0] };
+            let other = ends[e][if b { 0 } else { 1 }].0;
+            if path_edges[e].curve_type().ok() == Some(occt::CurveType::Circle) {
+                let c = path_edges[e].curve_definition().map_err(occt_error)?.frame.origin;
+                let axis = normalize(cross(sub(start, c), leaving)).ok_or_else(unsupported)?;
+                let (u, w) = (sub(start, c), sub(other, c));
+                let mut angle = dot(cross(u, w), axis).atan2(dot(u, w));
+                if angle <= 1e-12 {
+                    angle += 2.0 * std::f64::consts::PI;
+                }
+                let motion: Motion = Box::new(move |t: f64| {
+                    let r = rot3(axis, angle * t);
+                    (r, sub(c, apply(&r, c)))
+                });
+                pieces.push((norm(u) * angle, motion, true, angle));
+            } else {
+                let run = sub(other, start);
+                let (length, d) = (norm(run), normalize(run).ok_or_else(unsupported)?);
+                let motion: Motion = Box::new(move |t: f64| (identity, values::scale(d, length * t)));
+                pieces.push((length, motion, false, 0.0));
+            }
+        }
+        let total: f64 = pieces.iter().map(|p| p.0).sum();
+        // The path's start, direction there.
+        let (e0, b0) = chain[0];
+        let (start, leaving) = if b0 { (ends[e0][1].0, values::scale(ends[e0][1].1, -1.0)) } else { ends[e0][0] };
+        let step = std::f64::consts::PI / 64.0;
+        // Carried so far: x goes to a x + b; the path point and direction there.
+        let (mut a, mut b, mut done) = (identity, Vec3::new(0.0, 0.0, 0.0), 0.0);
+        let mut groups: Vec<Vec<Shape>> = Vec::new();
+        for (index, (length, motion, arc, angle)) in pieces.iter().enumerate() {
+            let share = length / total;
+            let by_twist = if twist.abs() > 1e-12 { ((twist.abs() * share / step).ceil() as usize).max(8) } else { 1 };
+            let by_arc = if *arc { (angle / step).ceil() as usize } else { 1 };
+            let steps = by_twist.max(by_arc);
+            let mut wires = Vec::new();
+            for k in 0..=steps {
+                let tau = k as f64 / steps as f64;
+                let (r, shift) = motion(tau);
+                // The carry to here: first what came before, then this piece's motion (along the first piece, just
+                // its motion: the same arithmetic as for a path of one edge, which booleans are sensitive to).
+                let (ca, cb) = if index == 0 { (r, shift) } else { (mul(&r, &a), add(apply(&r, b), shift)) };
+                let p = add(apply(&ca, start), cb);
+                let tangent = apply(&ca, leaving);
+                let t = if pieces.len() == 1 { tau } else { (done + length * tau) / total };
+                // A positive (counterclockwise) twist turns right-handed about the path's direction (batch 019).
+                let turn = rot3(tangent, twist * t);
+                let s = 1.0 + (scale - 1.0) * t;
+                // x goes to p + s turn (ca x + cb - p).
+                let m3 = mul(&turn, &ca);
+                let off = add(p, values::scale(apply(&turn, sub(cb, p)), s));
+                let m = [
+                    s * m3[0][0],
+                    s * m3[0][1],
+                    s * m3[0][2],
+                    off.x,
+                    s * m3[1][0],
+                    s * m3[1][1],
+                    s * m3[1][2],
+                    off.y,
+                    s * m3[2][0],
+                    s * m3[2][1],
+                    s * m3[2][2],
+                    off.z,
+                ];
+                wires.push(occt::transform(&wire, &occt::Transform { m }).map_err(occt_error)?.shape());
+            }
+            let (r, shift) = motion(1.0);
+            (a, b) = (mul(&r, &a), add(apply(&r, b), shift));
+            done += length;
+            groups.push(wires);
+        }
+        let op = if groups.len() == 1 {
+            occt::loft(&groups[0], solid).map_err(|_| regen_error("SWEEP_FAILED"))?
+        } else {
+            occt::loft_pieces(&groups, solid).map_err(|_| regen_error("SWEEP_FAILED"))?
+        };
         add_with_caps(model, id, &op, solid)?;
     }
     Ok(Value::UNDEFINED)

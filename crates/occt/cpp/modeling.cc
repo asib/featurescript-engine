@@ -1760,6 +1760,49 @@ std::unique_ptr<Operation> loft_clamped_op(const ShapeList &wires, bool solid, V
   return op;
 }
 
+// Lofts end to end, one through each group of sections (`counts` of them in turn, each group starting where the
+// last ended), sewn into one body: their sides, with the first group's first end and the last group's last end.
+std::unique_ptr<Operation> loft_pieces_op(const ShapeList &wires, rust::Slice<const uint32_t> counts, bool solid) {
+  BRepBuilderAPI_Sewing sewing(1e-6);
+  TopoDS_Shape first, last;
+  size_t at = 0;
+  for (size_t g = 0; g < counts.size(); ++g) {
+    BRepOffsetAPI_ThruSections maker(solid ? Standard_True : Standard_False, Standard_False, 1e-7);
+    maker.CheckCompatibility(Standard_True);
+    for (uint32_t i = 0; i < counts[g]; ++i) maker.AddWire(TopoDS::Wire(wires.shapes.at(at + i)));
+    at += counts[g] - 1;
+    maker.Build();
+    if (!maker.IsDone()) throw std::runtime_error("loft failed");
+    TopTools_IndexedMapOfShape caps;
+    if (!maker.FirstShape().IsNull()) caps.Add(maker.FirstShape());
+    if (!maker.LastShape().IsNull()) caps.Add(maker.LastShape());
+    for (TopExp_Explorer it(maker.Shape(), TopAbs_FACE); it.More(); it.Next())
+      if (!caps.Contains(it.Current())) sewing.Add(it.Current());
+    if (g == 0 && !maker.FirstShape().IsNull()) first = maker.FirstShape();
+    if (g + 1 == counts.size() && !maker.LastShape().IsNull()) last = maker.LastShape();
+  }
+  if (!first.IsNull()) sewing.Add(first);
+  if (!last.IsNull()) sewing.Add(last);
+  sewing.Perform();
+  TopoDS_Shape result = sewing.SewedShape();
+  if (solid) {
+    TopoDS_Shell shell;
+    for (TopExp_Explorer it(result, TopAbs_SHELL); it.More(); it.Next()) shell = TopoDS::Shell(it.Current());
+    if (shell.IsNull()) throw std::runtime_error("loft: the pieces don't close");
+    BRepBuilderAPI_MakeSolid made(shell);
+    ShapeFix_Solid fix(made.Solid());
+    fix.Perform();
+    result = fix.Solid();
+  }
+  auto op = std::make_unique<Operation>();
+  op->history = new BRepTools_History;
+  op->result = result;
+  if (!first.IsNull()) op->first.push_back(sewing.Modified(first));
+  if (!last.IsNull()) op->last.push_back(sewing.Modified(last));
+  // Onshape keeps such pieces' sides B-splines, flat or not (batch 057 c010, scaled along a line then an arc).
+  return op;
+}
+
 // The outer wire of a face.
 std::unique_ptr<Shape> outer_wire(const Shape &face) {
   return wrap(BRepTools::OuterWire(TopoDS::Face(face.shape)));

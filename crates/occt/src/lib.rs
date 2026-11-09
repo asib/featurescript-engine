@@ -169,6 +169,7 @@ mod ffi {
             direction: Vec3,
         ) -> Result<UniquePtr<Operation>>;
         fn loft_op(wires: &ShapeList, solid: bool) -> Result<UniquePtr<Operation>>;
+        fn loft_pieces_op(wires: &ShapeList, counts: &[u32], solid: bool) -> Result<UniquePtr<Operation>>;
         fn loft_clamped_op(
             wires: &ShapeList,
             solid: bool,
@@ -789,6 +790,18 @@ pub fn sweep(profile: &Shape, path: &Shape) -> Result<Operation> {
 /// Lofts through wires in order, into a solid or a sheet.
 pub fn loft(wires: &[Shape], solid: bool) -> Result<Operation> {
     Ok(Operation(ffi::loft_op(&to_list(wires), solid)?))
+}
+
+/// Lofts end to end through groups of sections (each group's first section the last one's last), sewn into one
+/// body with the first group's first end and the last group's last end.
+pub fn loft_pieces(groups: &[Vec<Shape>], solid: bool) -> Result<Operation> {
+    let mut wires: Vec<Shape> = Vec::new();
+    let mut counts = Vec::new();
+    for (g, group) in groups.iter().enumerate() {
+        counts.push(group.len() as u32);
+        wires.extend(group.iter().skip(if g == 0 { 0 } else { 1 }).cloned());
+    }
+    Ok(Operation(ffi::loft_pieces_op(&to_list(&wires), &counts, solid)?))
 }
 
 /// A loft between two profiles with conditions at its ends: each end's vector, magnitude and whether the
