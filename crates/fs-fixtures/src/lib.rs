@@ -567,6 +567,66 @@ pub fn check_batch_bodies(
     loose: &[(&str, f64)],
     bodies_only: &[&str],
 ) -> Result<Report, String> {
+    check_batch_unordered(batch, step, loose, bodies_only, &[])
+}
+
+/// A probe line with each `faces : [ … ]` and `edges : [ … ]` array's entries sorted by their contents (numbers
+/// rounded to 0.01), for cases where Onshape lists them in an order of its own (its internal ids: a loft's sides,
+/// batch 060; two wire bodies' edges, not in the bodies' order, batch 061).
+pub fn sort_faces(line: &str) -> String {
+    let mut out = String::new();
+    let mut rest = line;
+    let next = |rest: &str| {
+        ["faces : [", "edges : ["].iter().filter_map(|m| rest.find(m).map(|i| (i, m.len() - 1))).min_by_key(|x| x.0)
+    };
+    while let Some((start, marker)) = next(rest) {
+        let open = start + marker;
+        out.push_str(&rest[..=open]);
+        let body = &rest[open + 1..];
+        // The array's entries, split at its top level.
+        let (mut depth, mut end, mut entries, mut from) = (0i32, body.len(), Vec::new(), 0usize);
+        for (i, c) in body.char_indices() {
+            match c {
+                '{' | '[' | '(' => depth += 1,
+                '}' | ')' => depth -= 1,
+                ']' if depth == 0 => {
+                    end = i;
+                    break;
+                }
+                ']' => depth -= 1,
+                ',' if depth == 0 => {
+                    entries.push(body[from..i].trim().to_string());
+                    from = i + 1;
+                }
+                _ => {}
+            }
+        }
+        if !body[from..end].trim().is_empty() {
+            entries.push(body[from..end].trim().to_string());
+        }
+        let key = |e: &String| -> Vec<String> {
+            e.split_whitespace()
+                .map(|t| t.parse::<f64>().map_or(t.to_string(), |x| format!("{:020.2}", x + 1e9)))
+                .collect()
+        };
+        entries.sort_by_key(key);
+        out.push(' ');
+        out.push_str(&entries.join(" , "));
+        out.push(' ');
+        rest = &body[end..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// [`check_batch_bodies`], with some cases' face and edge lists compared in any order ([`sort_faces`]).
+pub fn check_batch_unordered(
+    batch: &Path,
+    step: Option<&Path>,
+    loose: &[(&str, f64)],
+    bodies_only: &[&str],
+    unordered: &[&str],
+) -> Result<Report, String> {
     let built = build(batch)?;
     let fixture = read_fixture(batch)?;
     let step_problems = match step {
@@ -595,6 +655,8 @@ pub fn check_batch_bodies(
             let bodies = |l: &str| -> String {
                 if bodies_only.contains(&key.as_str()) {
                     l.split(" , values :").next().unwrap_or(l).to_string()
+                } else if unordered.contains(&key.as_str()) {
+                    sort_faces(l)
                 } else {
                     l.to_string()
                 }
