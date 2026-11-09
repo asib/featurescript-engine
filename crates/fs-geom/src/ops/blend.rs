@@ -54,13 +54,33 @@ pub fn fillet(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> 
     if asymmetric && !values::opt_bool(definition, "isVariable")?.unwrap_or(false) {
         return section_fillet(model, id, definition, Section::Circular);
     }
-    for (key, on) in [
-        ("isAsymmetric", asymmetric),
-        ("createDetachedSurface", values::opt_bool(definition, "createDetachedSurface")?.unwrap_or(false)),
-    ] {
-        if on {
-            return Err(error(format!("@opFillet: {key} isn't supported yet")));
+    if asymmetric {
+        return Err(error("@opFillet: isAsymmetric isn't supported yet"));
+    }
+    // Only the fillet's surface, as sheets, the bodies left as they are (std measures the angle of a bend between a
+    // flat and a curved wall of a sheet metal definition so, batch 069).
+    if values::opt_bool(definition, "createDetachedSurface")?.unwrap_or(false) {
+        let radius = values::length(field(definition, "radius"), "opFillet radius")?;
+        let groups = blend_edges(model, definition)?;
+        if groups.is_empty() {
+            return Err(regen_error("FILLET_SELECT_EDGES"));
         }
+        let info = crate::model::Info::new(id.clone());
+        for (b, edges) in groups {
+            let body = model.bodies[b].shape.clone();
+            let op = occt::fillet(&body, &edges, radius).map_err(|_| regen_error("FILLET_FAILED"))?;
+            for edge in &edges {
+                for face in op.generated(edge) {
+                    model.add_body(
+                        crate::model::NewBody::new(face, crate::model::BodyType::Sheet, info.clone()),
+                        &crate::model::Origins::default(),
+                        &info,
+                        &|_| None,
+                    );
+                }
+            }
+        }
+        return Ok(Value::UNDEFINED);
     }
     if values::opt_bool(definition, "isVariable")?.unwrap_or(false) {
         return variable_fillet(model, id, definition);
