@@ -169,6 +169,10 @@ fn bend_of(
     // much material lies on the inside.
     let inside = if dot(n1, d2) > 0.0 { front } else { back };
     let sheet_radius = radius + inside;
+    // A bend beside a rolled wall (batch 069): its circle touches the flat wall's line and the rolled wall's circle.
+    if let Some(bend) = bend_beside_rolled(f1, f2, m, along, (d1, d2), (n1, n2), sheet_radius, inside, thickness, k_factor)? {
+        return Ok(Bend { edge, unfolded, ..bend });
+    }
     let alpha = dot(d1, d2).clamp(-1.0, 1.0).acos();
     let bisector = normalize(add(d1, d2)).ok_or_else(|| regen_error("SHEET_METAL_NO_0_ANGLE_BEND"))?;
     let axis_origin = add(m, scale(bisector, sheet_radius / (alpha / 2.0).sin()));
@@ -236,6 +240,72 @@ fn definition_bends(def: &Body) -> R<Vec<Bend>> {
         }
     }
     Ok(bends)
+}
+
+/// A bend between a rolled (cylindrical) wall and a flat one meeting at a straight edge (batch 069: a flange from a
+/// half tube's edge): in the plane across the edge, its circle (the sheet's radius) touches the flat wall's line on
+/// the rolled wall's side and the rolled wall's circle, inside it where the bend is on the wall's concave side.
+/// The flat wall is cut back to where the circle touches its line; the rolled wall to where it touches its circle;
+/// the bend turns between the two. None unless exactly one wall is a cylinder about an axis along the edge.
+#[allow(clippy::too_many_arguments)]
+fn bend_beside_rolled(
+    f1: &Shape,
+    f2: &Shape,
+    m: Vec3,
+    along: Vec3,
+    into: (Vec3, Vec3),
+    normals: (Vec3, Vec3),
+    sheet_radius: f64,
+    inside: f64,
+    thickness: f64,
+    k_factor: f64,
+) -> R<Option<Bend>> {
+    let failed = || regen_error("SHEET_METAL_REBUILD_ERROR");
+    let cylinder = |f: &Shape| f.surface_definition().ok().filter(|s| s.kind == 1 && norm(cross(s.frame.normal, along)) < 1e-9);
+    let (rolled_first, s) = match (cylinder(f1), cylinder(f2)) {
+        (Some(s), None) if f2.face_plane().is_ok() => (true, s),
+        (None, Some(s)) if f1.face_plane().is_ok() => (false, s),
+        _ => return Ok(None),
+    };
+    let (d_rolled, d_flat) = if rolled_first { (into.0, into.1) } else { (into.1, into.0) };
+    let radius = s.radius1;
+    // The axis's point in the plane across the edge at m.
+    let o = add(s.frame.origin, scale(along, dot(sub(m, s.frame.origin), along)));
+    // Towards the rolled wall's side of the flat wall's line.
+    let nu = normalize(sub(d_rolled, scale(d_flat, dot(d_rolled, d_flat)))).ok_or_else(failed)?;
+    let concave = dot(d_flat, sub(o, m)) > 0.0;
+    let reach = if concave { radius - sheet_radius } else { radius + sheet_radius };
+    // |m + t d_flat + ρ ν − o| = reach, the smallest t ≥ 0.
+    let w = add(sub(m, o), scale(nu, sheet_radius));
+    let (b, c) = (2.0 * dot(w, d_flat), dot(w, w) - reach * reach);
+    let disc = b * b - 4.0 * c;
+    if disc < 0.0 {
+        return Err(failed());
+    }
+    let roots = [(-b - disc.sqrt()) / 2.0, (-b + disc.sqrt()) / 2.0];
+    let t = roots.into_iter().filter(|t| *t >= -1e-12).reduce(f64::min).ok_or_else(failed)?;
+    let centre = add(add(m, scale(d_flat, t)), scale(nu, sheet_radius));
+    let radial = normalize(sub(centre, o)).ok_or_else(failed)?;
+    let toward_rolled = if concave { radial } else { scale(radial, -1.0) };
+    let toward_flat = scale(nu, -1.0);
+    let turn = dot(toward_rolled, toward_flat).clamp(-1.0, 1.0).acos();
+    let radii = (sheet_radius - inside, sheet_radius - inside + thickness);
+    let toward = if rolled_first { (toward_rolled, toward_flat) } else { (toward_flat, toward_rolled) };
+    Ok(Some(Bend {
+        edge: f1.clone(),
+        sheet_radius,
+        axis_origin: centre,
+        axis_direction: along,
+        at: m,
+        setback: t,
+        radii,
+        toward,
+        walls: (f1.clone(), f2.clone()),
+        into,
+        normals,
+        flat_length: (radii.0 + k_factor * thickness) * turn,
+        unfolded: false,
+    }))
 }
 
 fn distance_to_segment(p: Vec3, a: Vec3, b: Vec3) -> f64 {
@@ -1053,6 +1123,39 @@ fn overlap_setback(wall: &Shape, other: &Shape, edge: &Shape, front: f64, back: 
 /// A planar wall cut back from some of its straight edges, each by its own distance: a strip that deep is taken
 /// off along each edge, running on past corners but not into a straight continuation of the edge (a bend covering
 /// part of an edge leaves the rest, such as the stubs a converted part's rips leave at its ends, batch 014).
+/// A rolled wall cut back to where a bend beside it leaves it: split along the generator through that point,
+/// the piece away from the bend's edge kept (batch 069).
+fn cut_rolled_back(wall: &Shape, bend: &Bend, toward: Vec3) -> R<Shape> {
+    let failed = || regen_error("SHEET_METAL_REBUILD_ERROR");
+    let Ok(s) = wall.surface_definition() else { return Ok(wall.clone()) };
+    if s.kind != 1 {
+        return Ok(wall.clone());
+    }
+    let leaves = add(bend.axis_origin, scale(toward, bend.sheet_radius));
+    let axis_point = add(s.frame.origin, scale(bend.axis_direction, dot(sub(leaves, s.frame.origin), bend.axis_direction)));
+    let normal = normalize(cross(bend.axis_direction, sub(leaves, axis_point))).ok_or_else(failed)?;
+    let bounds = wall.bounding_box(false).map_err(occt_error)?;
+    let far = norm(sub(bounds.max, bounds.min)) * 2.0 + 1e-3;
+    let cutter = occt::plane_face(occt::Frame { origin: axis_point, normal, x: bend.axis_direction }, -far, far, -far, far)
+        .map_err(occt_error)?;
+    let split = occt::split(std::slice::from_ref(wall), &[cutter]).map_err(|_| failed())?.shape();
+    let pieces = split.sub_shapes(ShapeKind::Face);
+    if pieces.len() < 2 {
+        return Ok(wall.clone());
+    }
+    // Keep the pieces whose middle lies on the far side of the cut from the bend's edge.
+    let edge_side = dot(sub(bend.at, axis_point), normal);
+    let kept: Vec<Shape> = pieces
+        .into_iter()
+        .filter(|p| p.face_inner_point().is_ok_and(|q| dot(sub(q, axis_point), normal) * edge_side < 0.0))
+        .collect();
+    match kept.as_slice() {
+        [one] => Ok(one.clone()),
+        [] => Err(failed()),
+        many => Ok(occt::compound(many)),
+    }
+}
+
 fn cut_back(wall: &Shape, edges: &[Shape], distances: &[f64], extra: &[Shape]) -> R<Shape> {
     let plane = wall.face_plane().map_err(occt_error)?;
     let n = plane.normal;
@@ -1847,6 +1950,13 @@ fn build_part(
         } else {
             cut_back(&base, &edges, &distances, &slots)?
         };
+        // A rolled wall stops where a bend beside it leaves it: along the line through that point and the axis.
+        if !planar && !unfolded_rolled {
+            for bend in bends.iter().filter(|b| b.walls.0.is_same(&wall.shape) || b.walls.1.is_same(&wall.shape)) {
+                let toward = if bend.walls.0.is_same(&wall.shape) { bend.toward.0 } else { bend.toward.1 };
+                cut = cut_rolled_back(&cut, bend, toward)?;
+            }
+        }
         if planar {
             cut = break_corners(def, &wall.attributes, cut)?;
         }
