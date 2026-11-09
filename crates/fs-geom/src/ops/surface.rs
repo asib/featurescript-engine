@@ -931,7 +931,9 @@ pub fn ruled_surface(model: &mut Model, id: FeatureId, definition: &Value) -> R<
                     .into_iter()
                     .find(|e| e.is_same(edge))
                     .ok_or_else(|| regen_error("RULED_SURFACE_FAILED"))?;
-                let tangent = used.edge_tangent(at, true).map_err(occt_error)?;
+                // At the edge's own point (the face's copy may run the other way, batch 067 c004).
+                let reversed = used.is_reversed() != edge.is_reversed();
+                let tangent = used.edge_tangent(if reversed { 1.0 - at } else { at }, true).map_err(occt_error)?;
                 let (u, v) = face.face_fraction(tangent.origin).map_err(occt_error)?;
                 let normal = face.face_tangent_plane(u, v).map_err(occt_error)?.normal;
                 let away = values::scale(values::cross(normal, tangent.direction), -1.0);
@@ -1036,20 +1038,53 @@ pub fn ruled_surface(model: &mut Model, id: FeatureId, definition: &Value) -> R<
             };
             let far =
                 crate::curve_extend::Cubic::interpolate(&parameters, &points, slope(0.0, 1e-3)?, slope(1.0, -1e-3)?)?;
-            // Only rulings in one plane, making a planar face, are supported yet.
+            // Rulings in one plane make a planar face; otherwise the sheet is ruled from the edge to the far curve
+            // (normal to a cone from its top circle, a conical band, batch 067 c004).
             let base = values::sub(points[n], points[0]);
             let normal = values::normalize(values::cross(values::sub(b, a), base))
-                .or_else(|| values::normalize(values::cross(values::sub(points[0], a), base)))
-                .ok_or_else(|| regen_error("RULED_SURFACE_FAILED"))?;
+                .or_else(|| values::normalize(values::cross(values::sub(points[0], a), base)));
             let edge_points: Vec<occt::Vec3> = parameters
                 .iter()
                 .map(|t| edge.edge_tangent(*t, true).map(|l| l.origin))
                 .collect::<Result<_, _>>()
                 .map_err(occt_error)?;
-            if points.iter().chain(&edge_points).any(|p| values::dot(values::sub(*p, a), normal).abs() > 1e-9) {
-                return Err(error(
-                    "@opRuledSurface: rulings that turn out of a plane along a curved edge aren't supported yet",
-                ));
+            let planar = normal.is_some_and(|normal| {
+                points.iter().chain(&edge_points).all(|p| values::dot(values::sub(*p, a), normal).abs() <= 1e-9)
+            });
+            if !planar {
+                let closed = values::norm(values::sub(a, b)) < 1e-9;
+                let far_edge = if closed {
+                    let ring = &points[..n];
+                    let mut lengths = vec![0.0];
+                    for k in 0..ring.len() {
+                        lengths.push(lengths[k] + values::norm(values::sub(ring[(k + 1) % ring.len()], ring[k])));
+                    }
+                    let m = ring.len();
+                    let derivatives: Vec<occt::Vec3> = (0..m)
+                        .map(|k| {
+                            let span = if k == 0 { lengths[1] + lengths[m] - lengths[m - 1] } else { lengths[k + 1] - lengths[k - 1] };
+                            values::scale(values::sub(ring[(k + 1) % m], ring[(k + m - 1) % m]), 1.0 / span)
+                        })
+                        .collect();
+                    occt::interpolated_edge(ring, &derivatives, &lengths, true).map_err(occt_error)?
+                } else {
+                    far.edge()?
+                };
+                let wires: Vec<Shape> = [edge.clone(), far_edge]
+                    .iter()
+                    .map(|e| occt::connect_edges(std::slice::from_ref(e)).map_err(occt_error).map(|w| w.into_iter().next()))
+                    .collect::<R<Option<Vec<_>>>>()?
+                    .ok_or_else(|| regen_error("RULED_SURFACE_FAILED"))?;
+                let sheet = occt::loft(&wires, false).map_err(|_| regen_error("RULED_SURFACE_FAILED"))?.shape();
+                let mid = direction_at(edge, angle, 0.5)?;
+                let at = edge.edge_tangent(0.5, true).map_err(occt_error)?;
+                let facing = values::cross(mid, at.direction);
+                for face in sheet.sub_shapes(ShapeKind::Face) {
+                    let (fu, fv) = face.face_fraction(at.origin).map_err(occt_error)?;
+                    let face_normal = face.face_tangent_plane(fu, fv).map_err(occt_error)?.normal;
+                    sheets.push(if values::dot(face_normal, facing) < 0.0 { face.reversed() } else { face });
+                }
+                continue;
             }
             let far_edge = far.edge()?;
             let edges = [
