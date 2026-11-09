@@ -1438,12 +1438,41 @@ std::unique_ptr<Operation> sweep_op(const Shape &profile, const Shape &path) {
         spine = TopoDS::Wire(spine.Reversed());
     }
   }
-  BRepOffsetAPI_MakePipe maker(spine, profile.shape);
-  maker.Build();
-  auto op = finish(one(profile.shape), maker, "sweep");
-  if (profile.shape.ShapeType() == TopAbs_FACE) {
-    op->first.push_back(maker.FirstShape());
-    op->last.push_back(maker.LastShape());
+  // Along curves other than lines and arcs, OpenCascade fits the swept surfaces to 1e-4 in model units (here
+  // metres: 0.065 mm off along a spline, batch 072 c002); swept a thousand times larger, then shrunk back, they fit
+  // to a tenth of a micrometre.
+  bool spline_path = false;
+  for (TopExp_Explorer e(spine, TopAbs_EDGE); e.More(); e.Next()) {
+    GeomAbs_CurveType type = BRepAdaptor_Curve(TopoDS::Edge(e.Current())).GetType();
+    if (type != GeomAbs_Line && type != GeomAbs_Circle) spline_path = true;
+  }
+  std::unique_ptr<Operation> op;
+  if (spline_path) {
+    gp_Trsf up;
+    up.SetScale(gp_Pnt(0, 0, 0), 1000.0);
+    BRepBuilderAPI_Transform big_profile(profile.shape, up, Standard_True);
+    BRepBuilderAPI_Transform big_spine(spine, up, Standard_True);
+    BRepOffsetAPI_MakePipe maker(TopoDS::Wire(big_spine.Shape()), big_profile.Shape());
+    maker.Build();
+    if (!maker.IsDone()) throw std::runtime_error("sweep failed");
+    BRepBuilderAPI_Transform back(maker.Shape(), up.Inverted(), Standard_True);
+    op = std::make_unique<Operation>();
+    op->history = new BRepTools_History(one(profile.shape), big_profile);
+    op->history->Merge(new BRepTools_History(one(big_profile.Shape()), maker));
+    op->history->Merge(new BRepTools_History(one(maker.Shape()), back));
+    op->result = back.Shape();
+    if (profile.shape.ShapeType() == TopAbs_FACE) {
+      op->first.push_back(back.ModifiedShape(maker.FirstShape()));
+      op->last.push_back(back.ModifiedShape(maker.LastShape()));
+    }
+  } else {
+    BRepOffsetAPI_MakePipe maker(spine, profile.shape);
+    maker.Build();
+    op = finish(one(profile.shape), maker, "sweep");
+    if (profile.shape.ShapeType() == TopAbs_FACE) {
+      op->first.push_back(maker.FirstShape());
+      op->last.push_back(maker.LastShape());
+    }
   }
   // Faces swept along consecutive path edges onto one surface (the top of a rectangle swept along a line, an arc
   // and a line) are one face in Onshape.
