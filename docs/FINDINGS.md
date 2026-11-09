@@ -823,6 +823,12 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   corner (the sketch lines' ends with the region's) fail with `LOFT_CONNECTION_MATCHING` (c002–c004); guides that
   miss a profile with `LOFT_GUIDE_PROFILE_INTERSECTION` (c005); circles of radius 3 at the ends of a quarter circle
   of radius 20, lofted along it with 5 sections, with `LOFT_FAILED` (c006).
+- **Loft connections and guides** (batch 075): a connection of one region vertex on each profile matches those
+  corners and the rest in turn (a square to one turned 45° either way; a square to a smaller one a quarter turn
+  round: ruled B-spline sides, 3333.33 mm³). Straight guides along a square loft's corners leave it as it is; an arc
+  guide bulging out from one side's middle curves that side only (378.19 mm²), the others staying planes. Along a
+  straight path, circles of radius 10 and 5 loft to a curved side (5493.27 mm³, the cone's 5497.79); along a
+  quarter circle, with the far circle facing either way, `LOFT_FAILED`.
 - **`derivedMirror` in a Part Studio feature** (batch 060 c001): Onshape fails with "Execution error". It builds
   its source twice, once by `@convert` and again in `instantiate` (no loaded context), which Onshape evidently
   refuses for a build function defined in the studio (it won't derive one source twice in a Part Studio, batch

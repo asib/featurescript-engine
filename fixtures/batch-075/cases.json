@@ -1,0 +1,77 @@
+{
+  "batch": "075",
+  "title": "lofts with valid connections, guides and paths",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "loft",
+      "description": "a 20 mm square to a 10 mm one turned 45°, the corner at (10, 10) connected to the one at (7.07, 0)",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "loft",
+      "description": "the same, the corner at (10, 10) connected to the one at (0, 7.07)",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "loft",
+      "description": "a 20 mm square to a 10 mm one 20 mm above, the corner at (10, 10) connected to the one at (-5, 5)",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "loft",
+      "description": "a 20 mm square to a 10 mm one 20 mm above, with straight guides from corner to corner",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "loft",
+      "description": "the same squares with one guide bulging out, an arc from (10, 0, 0) through (13, 0, 10) to (5, 0, 20)",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "loft",
+      "description": "circles of radius 10 at z = 0 and 5 at z = 30, lofted along the straight line between their centres (3 sections)",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "loft",
+      "description": "circles of radius 3 at the ends of a quarter circle of radius 20, the far one facing along it, lofted along it",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    }
+  ]
+}
