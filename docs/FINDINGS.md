@@ -626,10 +626,13 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   18.4°): no rule found. Normal to a direction (`NORMAL_DIRECTION`) fails in Onshape (`LOFT_INVALID`, c006).
   Onshape's profiles are cubic Hermite fits (64 spans for a circle), and a square's rows rise and fall along each
   edge by up to 0.0008 mm about the exact construction's (0.05 mm³ of volume). Matching the tangency of the faces
-  next to the profile (batch 057 c005–c008) gives the chord rule's value at the corners along the faces, but rows
-  that sit higher between them (7e-5 of the volume over); matching curvature makes the sides quintic across, P1
-  and P2 a fifth and two fifths of the derivative from P0 and the far end free (P4 midway between P3 and P5), P3
-  by no rule found yet.
+  next to the profile (batches 057, 058) takes the chord rule along where those faces meet at each corner (a
+  frustum's leaning corner edge carried on: 0.9 × 20.3999 + 0.1 × 20.445 = 20.4044 mm, Onshape's exactly), from
+  corner to corner in proportion (its sideways part 1.3088 a third of the way, as linear interpolation gives), and
+  on a circle across its one face (a cylinder's top: 2e-8 of the volume). Onshape's sides there are one cubic along
+  each edge and bulge between the corners (up to 1.4e-4 of the volume). Matching curvature makes the sides quintic
+  across, P1 and P2 a fifth and two fifths of the derivative from P0 and the far end free (P4 midway between P3 and
+  P5), P3 by no rule found yet.
 - **Lofts through more than two profiles** (batch 004 c038, 057 c003) are, across the profiles, the natural cubic
   spline through them (no second derivative at the ends) at parameters spaced as the chords between them (three
   coaxial circles of radius 10, 14 and 8: 14110.2910 mm³ against Onshape's 14110.2866; uniform spacing gives
@@ -648,6 +651,15 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
 - **Isoclines of a torus tilted to the direction** (batch 057 c013): n·d = sin(angle) for the outward normal, two
   closed curves round the torus (for each angle round it, two tube angles), 79.44052 and 47.10938 mm long for 20°
   with the direction 30° off the axis (Onshape's to 2e-7).
+- **Replace face** (batch 058): a planar face whose neighbours lean is replaced by extending them, the solid
+  grown by the region inside all their planes and beyond the face, then cut by the new surface (a trapezoid
+  prism's top, exactly); a plain cylinder's side replaced by a parallel cylinder off its axis is that cylinder
+  between the caps.
+- **A sweep locked to a cylinder's side along a circle round its axis** (batch 058 c004) turns the profile with
+  the cylinder's normal: a revolve about the axis.
+- **A draft parted by a cylindrical sheet** (batch 058 c001): Onshape splits each side at the sheet and drafts the
+  lower part, the planes leaving a cylindrical ledge on the sheet; its drafted planes reach 0.26 mm out at the
+  bottom, as a hinge 4.96 mm up would (the sheet crosses the sides at 7.09 mm): not reproduced yet.
 - **Spheres extended round, more bands** (batch 056 c019–c021): no per-point rule can do: latitude 60° turns
   exactly d/r on a band from 30° to 60° but 1.106 rad on one from 0° to 60°, and a band from −30° to 30° turns 1.1%
   over d/r at both corners and 0.2% under at the equator: Onshape's new edge depends on the whole band.
