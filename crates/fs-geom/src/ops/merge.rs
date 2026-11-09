@@ -63,6 +63,8 @@ pub fn merge(model: &mut Model, id: FeatureId, definition: &Value, source: &Sour
         new.frame = body.frame;
         new.attributes = body.attributes.clone();
         new.owner = body.owner;
+        // A flat pattern stays one (hidden), of the copy of its part.
+        new.flat_of = body.flat_of.filter(|_| crate::ops::sheet_metal::is_flat_pattern(body));
         new.properties = if clear_custom {
             Rc::new(
                 body.properties
@@ -83,6 +85,10 @@ pub fn merge(model: &mut Model, id: FeatureId, definition: &Value, source: &Sour
         if let Some(owner) = model.bodies[first + i].owner {
             let mapped = copies.iter().find(|(old, _)| *old == owner).map(|(_, new)| *new);
             model.update_body(first + i, |b| b.owner = mapped);
+        }
+        if let Some(part) = model.bodies[first + i].flat_of {
+            let mapped = copies.iter().find(|(old, _)| *old == part).map(|(_, new)| *new);
+            model.update_body(first + i, |b| b.flat_of = mapped);
         }
         // A composite part holds the copies of the bodies it held (batch 045).
         if let Some((members, closed)) = &source.bodies[i].composite {

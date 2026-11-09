@@ -5,21 +5,19 @@ use std::path::PathBuf;
 
 /// Cases the engine can't build as Onshape does yet (see docs/std-coverage.md): a boundary surface tangent to its
 /// profile, which the case leaves without `uReference` so std finds no `createProfileConditions` in either (c003);
-/// a circle across a bend cut in the flat, which Onshape wraps onto the bend (c006); a sketch on a flange's face in
-/// the flat, which the engine doesn't model (c007).
-const KNOWN_GAPS: &[&str] = &["c003", "c006", "c007"];
+/// a circle across a bend cut in the flat, which Onshape wraps onto the bend (c006).
+const KNOWN_GAPS: &[&str] = &["c003", "c006"];
 
 /// Boundary surfaces between arcs: Onshape rules between its own eight-span fits of the arcs, 0.003 mm² off the
 /// engine's exact arcs (c001, c002). The three-profile loft's knot across is 5e-5 from Onshape's, by a rule not
 /// found: its poles are within 0.0022 mm and its volume 0.015 mm³ (c008).
-const LOOSE: &[(&str, f64)] = &[("c001", 0.005), ("c002", 0.005), ("c005", 2.001), ("c008", 0.02)];
+const LOOSE: &[(&str, f64)] = &[("c001", 0.005), ("c002", 0.005), ("c008", 0.02)];
 
 /// The boundary surfaces' poles are Onshape's fits: only their bodies are compared.
 const BODIES_ONLY: &[&str] = &["c001", "c002"];
 
-/// Onshape lists a loft's sides and a sheet metal part's faces in an order of its own. The channel's flat plane is
-/// the engine's stand-in, the thickness off Onshape's (as in batch 061).
-const UNORDERED: &[&str] = &["c005", "c008"];
+/// Onshape lists a loft's sides and a sheet metal part's faces in an order of its own.
+const UNORDERED: &[&str] = &["c005", "c007", "c008"];
 
 #[test]
 fn batch_062_matches_onshape() {

@@ -209,8 +209,8 @@ fn joint_bend(def: &Body, edge_index: usize, joint: &Value, front: f64, back: f6
     bend_of(def, edge_index, radius, front, back, k_factor, unfolded)
 }
 
-/// A definition sheet's bends, from its edges' joint attributes.
-fn definition_bends(def: &Body) -> R<Vec<Bend>> {
+/// A definition sheet's thickness on the side its faces' normals point to, and on the other.
+fn definition_thickness(def: &Body) -> R<(f64, f64)> {
     let model_attribute =
         sm_attribute(&def.attributes, "MODEL").ok_or_else(|| regen_error("SHEET_METAL_REBUILD_ERROR"))?;
     let thickness_of = |key: &str| -> R<f64> {
@@ -219,7 +219,14 @@ fn definition_bends(def: &Body) -> R<Vec<Bend>> {
             None => Ok(0.0),
         }
     };
-    let (front, back) = (thickness_of("frontThickness")?, thickness_of("backThickness")?);
+    Ok((thickness_of("frontThickness")?, thickness_of("backThickness")?))
+}
+
+/// A definition sheet's bends, from its edges' joint attributes.
+fn definition_bends(def: &Body) -> R<Vec<Bend>> {
+    let model_attribute =
+        sm_attribute(&def.attributes, "MODEL").ok_or_else(|| regen_error("SHEET_METAL_REBUILD_ERROR"))?;
+    let (front, back) = definition_thickness(def)?;
     let model_k_factor = attribute_value(model_attribute, "k-factor").and_then(Value::as_number).unwrap_or(0.45);
     let mut bends = Vec::new();
     for (i, edge) in def.edges.iter().enumerate() {
@@ -587,12 +594,178 @@ fn regenerate(model: &mut Model, id: &FeatureId, def_index: usize) -> R<()> {
             }
         }
     }
+    // The model's flat pattern, replacing the last one: what `qCorrespondingInFlat` finds.
+    let part_tid = model.bodies.iter().find(|b| is_part_of(b, def_association.as_ref())).map(|b| b.tid);
+    let stale: Vec<usize> = (0..model.bodies.len())
+        .filter(|&b| {
+            is_flat_pattern(&model.bodies[b])
+                && (model.bodies[b].flat_of == part_tid || old_bodies.iter().any(|o| model.bodies[b].flat_of == Some(o.tid)))
+        })
+        .collect();
+    model.remove_bodies(&stale);
+    if let (Some(tid), Some(def_index)) = (part_tid, model.bodies.iter().position(|b| b.tid == def.tid))
+        && let Some(shape) = flat_pattern_shape(model, def_index)?
+    {
+        // It belongs to the model as the parts do (std finds the model of a flat sketch's plane by it).
+        model.add_body(
+            NewBody {
+                flat_of: Some(tid),
+                attributes: Rc::new(attributes.clone()),
+                ..NewBody::new(shape, BodyType::Solid, info.clone())
+            },
+            &Origins::default(),
+            &info,
+            &|_| None,
+        );
+    }
     Ok(())
+}
+
+/// Whether a body is a sheet metal model's flat pattern: hidden from queries but `qCorrespondingInFlat`'s.
+pub fn is_flat_pattern(body: &Body) -> bool {
+    body.flat_of.is_some() && body.sketch_plane.is_none() && body.body_type == BodyType::Solid
+}
+
+/// The flat pattern of a definition's parts, as Onshape lays it out (batches 061, 062): each planar wall cut back
+/// by its bends' setbacks and laid flat about the held wall, each bend a strip its flat length across between
+/// them, the whole the thickness thick and a thickness further towards the held wall's material than the folded
+/// wall: a part's faces on the definition's plane lie on the flat's near face, the faces a thickness off it on the
+/// flat's far face. (A flanged plate thickened up from z = 0 has its definition on its top at z = 2; Onshape's flat
+/// faces for its top and its flange's outer face are at z = 0, facing up, and z = −2, facing down.) None for a
+/// definition with curved walls.
+fn flat_pattern_shape(model: &Model, def_index: usize) -> R<Option<Shape>> {
+    let failed = || regen_error("SHEET_METAL_REBUILD_ERROR");
+    let def = &model.bodies[def_index];
+    if def.faces.is_empty() || def.faces.iter().any(|f| f.shape.face_plane().is_err()) {
+        return Ok(None);
+    }
+    let bends = definition_bends(def)?;
+    let wall_index = |s: &Shape| def.faces.iter().position(|f| f.shape.is_same(s)).unwrap_or(0);
+    let Some(motions) = motions(def, &bends, &wall_index, &|_| true).0.into_iter().collect::<Option<Vec<Rigid>>>()
+    else {
+        return Ok(None);
+    };
+    let (front, back) = definition_thickness(def)?;
+    let held = held_wall(def);
+    let held_face = &def.faces[held].shape;
+    let n = normal_at(held_face, held_face.face_inner_point().map_err(occt_error)?)?;
+    let material = if front >= back { n } else { scale(n, -1.0) };
+    let thickness = front + back;
+    let size = def.shape.bounding_box(false).map(|b| norm(sub(b.max, b.min))).unwrap_or(1.0);
+    let reach = 4.0 * size + 1.0;
+    let mut faces = Vec::new();
+    for (w, motion) in motions.iter().enumerate() {
+        let wall = &def.faces[w].shape;
+        let wall_normal = normal_at(wall, wall.face_inner_point().map_err(occt_error)?)?;
+        let mut face = wall.clone();
+        for bend in &bends {
+            let d = if wall_index(&bend.walls.0) == w && bend.walls.0.is_same(wall) {
+                bend.into.0
+            } else if bend.walls.1.is_same(wall) {
+                bend.into.1
+            } else {
+                continue;
+            };
+            // Keep what lies past the setback into the wall.
+            let cut = add(bend.at, scale(d, bend.setback));
+            let y = cross(wall_normal, bend.axis_direction);
+            let (v0, v1) = if dot(y, d) > 0.0 { (0.0, reach) } else { (-reach, 0.0) };
+            let keep = occt::plane_face(
+                occt::Frame { origin: cut, normal: wall_normal, x: bend.axis_direction },
+                -reach,
+                reach,
+                v0,
+                v1,
+            )
+            .map_err(occt_error)?;
+            face = occt::boolean(occt::BooleanKind::Intersection, &[face], &[keep], true)
+                .map_err(|_| failed())?
+                .shape();
+        }
+        faces.push(occt::transform(&face, &motion.transform()).map_err(occt_error)?.shape());
+    }
+    for bend in &bends {
+        let near = wall_index(&bend.walls.0);
+        let motion = &motions[near];
+        let ends = bend.edge.edge_end_vertices().map_err(occt_error)?;
+        let [e0, e1] = &ends[..] else { continue };
+        let (e0, e1) = (e0.vertex_point().map_err(occt_error)?, e1.vertex_point().map_err(occt_error)?);
+        let a0 = motion.point(add(e0, scale(bend.into.0, bend.setback)));
+        let a1 = motion.point(add(e1, scale(bend.into.0, bend.setback)));
+        let across = scale(motion.vec(bend.into.0), -1.0);
+        let along = sub(a1, a0);
+        let Some(x) = normalize(along) else { continue };
+        let y = cross(n, x);
+        let (v0, v1) = if dot(y, across) > 0.0 { (0.0, bend.flat_length) } else { (-bend.flat_length, 0.0) };
+        faces.push(
+            occt::plane_face(occt::Frame { origin: a0, normal: n, x }, 0.0, norm(along), v0, v1).map_err(occt_error)?,
+        );
+    }
+    let near = scale(material, thickness);
+    let shift = occt::Transform { m: [1.0, 0.0, 0.0, near.x, 0.0, 1.0, 0.0, near.y, 0.0, 0.0, 1.0, near.z] };
+    let prisms: Vec<Shape> = faces
+        .iter()
+        .map(|f| {
+            let f = occt::transform(f, &shift)?.shape();
+            occt::prism(&f, near).map(|op| op.shape())
+        })
+        .collect::<Result<_, _>>()
+        .map_err(occt_error)?;
+    let Some((first, rest)) = prisms.split_first() else { return Ok(None) };
+    if rest.is_empty() {
+        return Ok(Some(first.clone()));
+    }
+    let fused = occt::boolean(occt::BooleanKind::Union, std::slice::from_ref(first), rest, false).map_err(|_| failed())?;
+    Ok(Some(fused.shape()))
+}
+
+/// The counterpart in its flat pattern of a sheet metal part's face along a wall: on the flat's near face for a face
+/// on the definition's plane, on its far face for one a thickness off it (batch 061 c001, batch 062 c007).
+pub fn corresponding_in_flat(model: &Model, r: EntityRef) -> Option<EntityRef> {
+    if r.kind != EntityType::Face {
+        return None;
+    }
+    let part = &model.bodies[r.body];
+    let flat = model.bodies.iter().position(|b| is_flat_pattern(b) && b.flat_of == Some(part.tid))?;
+    let def = &model.bodies[definition_of_part(model, r.body)?];
+    let bends = definition_bends(def).ok()?;
+    let wall_index = |s: &Shape| def.faces.iter().position(|f| f.shape.is_same(s)).unwrap_or(0);
+    let motions = motions(def, &bends, &wall_index, &|_| true).0;
+    let (front, back) = definition_thickness(def).ok()?;
+    let thickness = front + back;
+    let held_face = &def.faces[held_wall(def)].shape;
+    let n = normal_at(held_face, held_face.face_inner_point().ok()?).ok()?;
+    let material = if front >= back { n } else { scale(n, -1.0) };
+    let face = model.shape(r);
+    let (plane, at) = (face.face_plane().ok()?, face.face_inner_point().ok()?);
+    for (w, wall) in def.faces.iter().enumerate() {
+        let Ok(wall_plane) = wall.shape.face_plane() else { continue };
+        if norm(cross(plane.normal, wall_plane.normal)) > 1e-9 {
+            continue;
+        }
+        let offset = dot(sub(at, wall_plane.origin), wall_plane.normal);
+        let foot = sub(at, scale(wall_plane.normal, offset));
+        if occt::vertex(foot).and_then(|v| v.distance(&wall.shape)).map_or(true, |d| d.distance > 1e-7) {
+            continue;
+        }
+        let motion = motions.get(w).copied().flatten()?;
+        let far = if offset.abs() < thickness / 2.0 { 0.0 } else { thickness };
+        let target = add(motion.point(foot), scale(material, thickness + far));
+        let index = model.bodies[flat].faces.iter().position(|f| {
+            f.shape.face_plane().is_ok_and(|p| norm(cross(p.normal, n)) < 1e-9)
+                && occt::vertex(target).and_then(|v| v.distance(&f.shape)).is_ok_and(|d| d.distance < 1e-7)
+        })?;
+        return Some(EntityRef { body: flat, kind: EntityType::Face, index });
+    }
+    None
 }
 
 /// Whether a body is one of the parts of the model with this association attribute.
 fn is_part_of(body: &Body, def_association: Option<&Value>) -> bool {
-    body.body_type == BodyType::Solid && def_association.is_some() && association(&body.attributes) == def_association
+    body.body_type == BodyType::Solid
+        && !is_flat_pattern(body)
+        && def_association.is_some()
+        && association(&body.attributes) == def_association
 }
 
 /// Whether a model is active: sheet metal features work on it and keep its parts up to date (`sheetMetalEnd`
@@ -604,6 +777,10 @@ fn is_active(def: &Body) -> bool {
 /// Whether an entity belongs to an active sheet metal model: its definition sheet, or one of its parts.
 pub fn in_active_model(model: &Model, body: usize) -> bool {
     let b = &model.bodies[body];
+    // A flat pattern belongs to its part's model.
+    if is_flat_pattern(b) {
+        return b.flat_of.and_then(|t| model.bodies.iter().position(|p| p.tid == t)).is_some_and(|p| in_active_model(model, p));
+    }
     if b.is_sheet_metal_definition() {
         return is_active(b);
     }

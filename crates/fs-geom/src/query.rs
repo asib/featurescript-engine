@@ -96,7 +96,9 @@ fn visible(model: &Model, found: Vec<EntityRef>) -> Vec<EntityRef> {
         .into_iter()
         .filter(|r| {
             let body = &model.bodies[r.body];
-            (model.sheet_metal_scope || !body.is_sheet_metal_definition()) && !tools.contains(&body.tid)
+            (model.sheet_metal_scope || !body.is_sheet_metal_definition())
+                && !tools.contains(&body.tid)
+                && !crate::ops::sheet_metal::is_flat_pattern(body)
         })
         .collect()
 }
@@ -271,13 +273,17 @@ fn resolve(model: &Model, query: &Value) -> R<Vec<EntityRef>> {
                 .filter(|r| crate::ops::sheet_metal::in_active_model(model, r.body) == active)
                 .collect()
         }
-        // A plate without bends is its own flat pattern: its faces along the sheet stand for their counterparts
-        // there, to sketch on (batch 059). Nothing else of a flat pattern is modelled: its bodies, edges, vertices
-        // and other faces (a hole's, which std attributes in the flat too) are nothing, as are flat patterns of
-        // parts with bends.
+        // A part's faces along its walls have counterparts in its flat pattern (batches 061, 062); without a flat
+        // pattern (curved walls), a held wall's faces stand for theirs (batch 059). Nothing else of a flat pattern
+        // is modelled: its bodies, edges, vertices and other faces (a hole's, which std attributes in the flat too)
+        // are nothing.
         "CORRESPONDING_IN_FLAT" => sub(model, query, "subquery")?
             .into_iter()
-            .filter(|r| r.kind == EntityType::Face && crate::ops::sheet_metal::is_flat_sheet_face(model, *r))
+            .filter_map(|r| {
+                crate::ops::sheet_metal::corresponding_in_flat(model, r).or_else(|| {
+                    (r.kind == EntityType::Face && crate::ops::sheet_metal::is_flat_sheet_face(model, r)).then_some(r)
+                })
+            })
             .collect(),
         "SM_APPLICATION_TYPE_FILTER" | "SM_DEFINITION_ENTITY_FILTER" => Vec::new(),
         // Entities of bodies a closed composite part consumes (or not).

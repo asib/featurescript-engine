@@ -8,11 +8,8 @@ use std::path::PathBuf;
 /// to the start, which Onshape fails (`LOFT_FAILED`) by a rule not found and the engine builds (c011).
 const KNOWN_GAPS: &[&str] = &["c011"];
 
-/// Intersection curves: Onshape's are nearly, not exactly, parametrised by length (c006, c007). Extruding in a
-/// flanged plate's flat (c001–c003): the parts match exactly, but the engine's stand-in for the flat face is the
-/// folded wall's top, the thickness (2 mm) above Onshape's flat face on the definition's plane, so the flat plane's
-/// origin differs by that.
-const LOOSE: &[(&str, f64)] = &[("c001", 2.001), ("c002", 2.001), ("c003", 2.001), ("c006", 0.025), ("c007", 0.025)];
+/// Intersection curves: Onshape's are nearly, not exactly, parametrised by length (c006, c007).
+const LOOSE: &[(&str, f64)] = &[("c006", 0.025), ("c007", 0.025)];
 
 /// Onshape lists a loft's sides and a sheet metal part's faces in an order of its own, and the swapped
 /// intersection's edges not in its wire bodies' order: these are compared in any order.
