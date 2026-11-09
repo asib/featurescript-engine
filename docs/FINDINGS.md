@@ -650,7 +650,10 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   tube, the distance over r.
 - **Isoclines of a torus tilted to the direction** (batch 057 c013): n·d = sin(angle) for the outward normal, two
   closed curves round the torus (for each angle round it, two tube angles), 79.44052 and 47.10938 mm long for 20°
-  with the direction 30° off the axis (Onshape's to 2e-7).
+  with the direction 30° off the axis (Onshape's to 2e-7). Split along them (batch 058 c005), the torus is two
+  faces, the bands between the curves either way round the tube, with 2 edges and no vertices (Onshape's faces
+  have no seams); a general split cuts the bands up at the torus's seams (5 faces), so the engine builds each band
+  from its loop in the torus's parameters.
 - **Replace face** (batch 058): a planar face whose neighbours lean is replaced by extending them, the solid
   grown by the region inside all their planes and beyond the face, then cut by the new surface (a trapezoid
   prism's top, exactly); a plain cylinder's side replaced by a parallel cylinder off its axis is that cylinder
