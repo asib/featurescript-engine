@@ -320,6 +320,54 @@ fn twisted_or_scaled(
     Ok(Value::UNDEFINED)
 }
 
+/// A circle lofted to a profile with corners is split where the rays from its centre through those corners meet it,
+/// one arc to each edge, as Onshape splits it (batch 004 c039: a square's corners at 45°, 135°, 225° and 315°).
+fn match_circles_to_corners(wires: &mut [Shape]) -> R<()> {
+    use values::{cross, dot, sub};
+    let corners: Vec<Vec<Vec3>> = wires
+        .iter()
+        .map(|w| {
+            if w.kind() == Some(ShapeKind::Vertex) {
+                return Vec::new();
+            }
+            w.sub_shapes(ShapeKind::Vertex).iter().filter_map(|v| v.vertex_point().ok()).collect()
+        })
+        .collect();
+    let Some(cornered) = corners.iter().position(|c| c.len() >= 2) else { return Ok(()) };
+    for i in 0..wires.len() {
+        let edges = wires[i].sub_shapes(ShapeKind::Edge);
+        let [edge] = edges.as_slice() else { continue };
+        if edge.curve_type().ok() != Some(occt::CurveType::Circle) || corners[i].len() > 1 {
+            continue;
+        }
+        let conic = edge.curve_definition().map_err(occt_error)?;
+        let (frame, radius) = (conic.frame, conic.radius1);
+        let y = cross(frame.normal, frame.x);
+        let mut angles: Vec<f64> = corners[cornered]
+            .iter()
+            .map(|p| {
+                let d = sub(*p, frame.origin);
+                dot(d, y).atan2(dot(d, frame.x)).rem_euclid(2.0 * std::f64::consts::PI)
+            })
+            .collect();
+        angles.sort_by(f64::total_cmp);
+        angles.dedup_by(|a, b| (*a - *b).abs() < 1e-9);
+        if angles.len() < 2 {
+            continue;
+        }
+        let mut arcs = Vec::new();
+        for (k, &start) in angles.iter().enumerate() {
+            let end = if k + 1 < angles.len() { angles[k + 1] } else { angles[0] + 2.0 * std::f64::consts::PI };
+            arcs.push(occt::arc_edge(frame, radius, start, end).map_err(occt_error)?);
+        }
+        let mut connected = occt::connect_edges(&arcs).map_err(occt_error)?;
+        if connected.len() == 1 {
+            wires[i] = connected.remove(0);
+        }
+    }
+    Ok(())
+}
+
 pub fn loft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
     for key in ["guideSubqueries", "connections"] {
         if field(definition, key).as_array().is_some_and(|a| !a.is_empty()) {
@@ -373,6 +421,7 @@ pub fn loft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
     if wires.len() < 2 {
         return Err(regen_error("LOFT_SELECT_PROFILES"));
     }
+    match_circles_to_corners(&mut wires)?;
     // Through more than two profiles, or with conditions at the ends, the engine builds the sides across the
     // profiles itself (natural cubic splines at chord-length parameters, as Onshape's).
     let op = if ends.iter().any(Option::is_some) || wires.len() > 2 {
