@@ -20,4 +20,5 @@ models, which the comparison doesn't read; their probes carry them.
 Findings (docs/FINDINGS.md): limit planes keep the sides their normals point to, a planar face closing each limited
 end; a blend between a floor and standing walls is a rolling ball along the walls' offset base curves; a sketch's
 Bézier comes with its control polygon as wire bodies, so a curve of its edges is closed; half a tilted torus
-splits into two faces; a PCB's bend lines stop at each other's setbacks at a corner.
+splits into two faces; a PCB's bend lines stop at each other's setbacks at a corner; a hole cut in the flat of a
+rolled wall with a flange wraps back onto the rolled wall.

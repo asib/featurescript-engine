@@ -787,6 +787,10 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
 - **A flex PCB with one of two flanges' bends unfolded** (batch 071 c011) keeps both bend lines; where the bends meet
   at the corner each line stops at the other's setback (from (39.864, 0) to (39.864, 29), and from (39, 29.864)
   to (0, 29.864)).
+- **A hole cut in the flat of a rolled wall with a flange** (batch 071 c012): a 6 mm circle in the middle of the flat
+  falls in the rolled wall and wraps back onto it at the neutral radius, as on a lone rolled wall (070 c012); the
+  flat is the part with every bend unfolded and the rolled wall unrolled from the bend's tangent point. Its areas
+  0.016 mm² over the exact wrap's, as there.
 - **`derivedMirror` in a Part Studio feature** (batch 060 c001): Onshape fails with "Execution error". It builds
   its source twice, once by `@convert` and again in `instantiate` (no loaded context), which Onshape evidently
   refuses for a build function defined in the studio (it won't derive one source twice in a Part Studio, batch
