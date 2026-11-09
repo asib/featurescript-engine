@@ -846,6 +846,12 @@ pub fn is_flat_pattern(body: &Body) -> bool {
 fn flat_pattern_shape(model: &Model, def_index: usize) -> R<Option<Shape>> {
     let failed = || regen_error("SHEET_METAL_REBUILD_ERROR");
     let def = &model.bodies[def_index];
+    // One rolled wall: unrolled, and moved and thickened as a planar wall is.
+    if let Some((_, face, _, material, thickness)) = rolled_flat(def)? {
+        let near = scale(material, thickness);
+        let f = occt::transform(&face, &super::translation(near)).map_err(occt_error)?.shape();
+        return Ok(Some(occt::prism(&f, near).map_err(occt_error)?.shape()));
+    }
     if def.faces.is_empty() || def.faces.iter().any(|f| f.shape.face_plane().is_err()) {
         return Ok(None);
     }
@@ -938,6 +944,24 @@ pub fn corresponding_in_flat(model: &Model, r: EntityRef) -> Option<EntityRef> {
     let part = &model.bodies[r.body];
     let flat = model.bodies.iter().position(|b| is_flat_pattern(b) && b.flat_of == Some(part.tid))?;
     let def = &model.bodies[definition_of_part(model, r.body)?];
+    // A rolled wall's faces: the flat's near face for the one on the definition's cylinder, its far face for the
+    // one a thickness off (batch 070 c012).
+    if let Ok(Some((wall, _, layout, material, thickness))) = rolled_flat(def) {
+        let face = model.shape(r);
+        let s = face.surface_definition().ok()?;
+        let w = wall.surface_definition().ok()?;
+        if s.kind != 1 || norm(cross(s.frame.normal, w.frame.normal)) > 1e-9 {
+            return None;
+        }
+        let at = face.face_inner_point().ok()?;
+        let far = if (s.radius1 - w.radius1).abs() < thickness / 2.0 { 0.0 } else { thickness };
+        let target = add(layout.unwrap(at), scale(material, thickness + far));
+        let index = model.bodies[flat].faces.iter().position(|f| {
+            f.shape.face_plane().is_ok()
+                && occt::vertex(target).and_then(|v| v.distance(&f.shape)).is_ok_and(|d| d.distance < 1e-7)
+        })?;
+        return Some(EntityRef { body: flat, kind: EntityType::Face, index });
+    }
     let bends = definition_bends(def).ok()?;
     let wall_index = |s: &Shape| def.faces.iter().position(|f| f.shape.is_same(s)).unwrap_or(0);
     let motions = motions(def, &bends, &wall_index, &|_| true).0;
@@ -1163,9 +1187,42 @@ pub fn flat_operation(model: &mut Model, id: FeatureId, definition: &Value) -> R
         .collect();
     let union = field(definition, "operationType").as_str() == Some("UNION");
     let mut by_definition: Vec<(usize, Vec<Shape>)> = Vec::new();
+    // Cuts from one rolled wall's flat, wrapped back onto its cylinder (batch 070 c012): (definition, wall, closed
+    // edges on it).
+    let mut wrapped: Vec<(usize, Shape, Vec<Shape>)> = Vec::new();
+    let mut keep_facing: Vec<(crate::model::Tid, Vec3, Vec3)> = Vec::new();
     for r in faces {
         let Some(part_tid) = model.bodies[r.body].flat_of else { continue };
         let Some(part) = model.bodies.iter().position(|b| b.tid == part_tid) else { continue };
+        if let Some(def) = definition_of_part(model, part)
+            && let Some((wall, unrolled_face, layout, _, _)) = rolled_flat(&model.bodies[def])?
+        {
+            if union {
+                return Err(error("@opSMFlatOperation: adding to a rolled wall's flat isn't supported yet"));
+            }
+            let plane = unrolled_face.face_plane().map_err(occt_error)?;
+            let radius = wall.surface_definition().map_err(occt_error)?.radius1;
+            let face = model.shape(r).clone();
+            let mut loops = Vec::new();
+            for boundary in face.sub_shapes(ShapeKind::Wire) {
+                let mut uv = Vec::new();
+                for edge in boundary.sub_shapes(ShapeKind::Edge) {
+                    const SAMPLES: usize = 64;
+                    for k in 0..SAMPLES {
+                        let p = edge.edge_tangent(k as f64 / SAMPLES as f64, true).map_err(occt_error)?.origin;
+                        let q = sub(p, scale(plane.normal, dot(sub(p, plane.origin), plane.normal)));
+                        let (fu, fv) = wall.face_fraction(layout.wrap(q, radius)).map_err(occt_error)?;
+                        uv.push((fu, fv));
+                    }
+                }
+                loops.push(occt::closed_edge_on_face(&wall, &uv).map_err(|_| failed())?);
+            }
+            match wrapped.iter_mut().find(|(d, _, _)| *d == def) {
+                Some((_, _, edges)) => edges.extend(loops),
+                None => wrapped.push((def, wall, loops)),
+            }
+            continue;
+        }
         let bent = if flat_is_folded(model, part) {
             None
         } else {
@@ -1193,6 +1250,35 @@ pub fn flat_operation(model: &mut Model, id: FeatureId, definition: &Value) -> R
         }
     }
     let mut results = Vec::new();
+    for (def, wall, edges) in wrapped {
+        // Split along the wrapped loops; the pieces inside them (none of whose edges lie on the wall's own
+        // boundary) are cut away.
+        let sheet = model.bodies[def].shape.clone();
+        let split = occt::split(std::slice::from_ref(&sheet), &edges).map_err(|_| failed())?.shape();
+        let boundary = wall.sub_shapes(ShapeKind::Edge);
+        let on_boundary = |e: &Shape| {
+            e.edge_tangent(0.5, false).ok().is_some_and(|a| {
+                boundary
+                    .iter()
+                    .any(|b| occt::vertex(a.origin).and_then(|v| v.distance(b)).is_ok_and(|d| d.distance < 1e-9))
+            })
+        };
+        let inside: Vec<Shape> = split
+            .sub_shapes(ShapeKind::Face)
+            .into_iter()
+            .filter(|piece| !piece.sub_shapes(ShapeKind::Edge).iter().any(on_boundary))
+            .collect();
+        if inside.is_empty() {
+            continue;
+        }
+        let op = occt::boolean(occt::BooleanKind::Subtraction, std::slice::from_ref(&sheet), &inside, true)
+            .map_err(|_| failed())?;
+        // The cut may turn the sheet over; it must keep facing as it did (its material is on one side).
+        // (Near a corner: the middle may be cut away.)
+        let corner = wall.face_tangent_plane(0.01, 0.01).map_err(occt_error)?;
+        keep_facing.push((model.bodies[def].tid, corner.origin, corner.normal));
+        results.push((def, op));
+    }
     for (def, mut tools) in by_definition {
         let sheet = model.bodies[def].shape.clone();
         if union {
@@ -1206,6 +1292,22 @@ pub fn flat_operation(model: &mut Model, id: FeatureId, definition: &Value) -> R
         results.push((def, op));
     }
     super::replace_bodies(model, &id, results);
+    for (tid, at, normal) in keep_facing {
+        let Some(b) = model.bodies.iter().position(|body| body.tid == tid) else { continue };
+        let Some(face) = model.bodies[b].faces.iter().find(|f| {
+            occt::vertex(at).and_then(|v| v.distance(&f.shape)).is_ok_and(|d| d.distance < 1e-7)
+        }) else {
+            continue;
+        };
+        if dot(normal_at(&face.shape, at)?, normal) < 0.0 {
+            model.update_body(b, |body| {
+                body.shape = body.shape.reversed();
+                for f in body.faces.iter_mut() {
+                    f.shape = f.shape.reversed();
+                }
+            });
+        }
+    }
     Ok(Value::UNDEFINED)
 }
 
@@ -1910,6 +2012,65 @@ fn unrolled(
     clearance: f64,
     bends: &[Bend],
 ) -> R<Shape> {
+    Ok(unroll_layout(def, wall, front, back, k_rolled, rips, clearance, bends)?.0)
+}
+
+/// How an unrolled wall lies flat on the plane tangent to its cylinder along the edge it unrolls from: the point
+/// `s` across from `origin` (along `into`) and `h` along `along` is the cylinder's at angle `theta0 + sign s /
+/// neutral` round its axis (from `frame.x` towards `frame.normal × frame.x`), as far along it as `origin + h along`.
+#[derive(Clone, Copy)]
+struct UnrollLayout {
+    origin: Vec3,
+    into: Vec3,
+    along: Vec3,
+    theta0: f64,
+    sign: f64,
+    neutral: f64,
+    frame: occt::Frame,
+}
+
+impl UnrollLayout {
+    /// The angle of a point round the cylinder's axis.
+    fn angle(&self, p: Vec3) -> f64 {
+        let r = sub(p, self.frame.origin);
+        let y = cross(self.frame.normal, self.frame.x);
+        dot(r, y).atan2(dot(r, self.frame.x))
+    }
+
+    /// The point of the cylinder of `radius` a point of the flat (on its plane) comes from.
+    fn wrap(&self, q: Vec3, radius: f64) -> Vec3 {
+        let (s, h) = (dot(sub(q, self.origin), self.into), dot(sub(q, self.origin), self.along));
+        let theta = self.theta0 + self.sign * s / self.neutral;
+        let y = cross(self.frame.normal, self.frame.x);
+        let height = dot(sub(add(self.origin, scale(self.along, h)), self.frame.origin), self.frame.normal);
+        add(
+            add(self.frame.origin, scale(self.frame.normal, height)),
+            add(scale(self.frame.x, radius * theta.cos()), scale(y, radius * theta.sin())),
+        )
+    }
+
+    /// The point of the flat (on its plane) a point of the cylinder lies flat at.
+    fn unwrap(&self, p: Vec3) -> Vec3 {
+        let mut d = self.angle(p) - self.theta0;
+        let tau = 2.0 * std::f64::consts::PI;
+        d = (d + std::f64::consts::PI).rem_euclid(tau) - std::f64::consts::PI;
+        let s = self.sign * d * self.neutral;
+        let h = dot(sub(p, self.origin), self.frame.normal) * dot(self.along, self.frame.normal);
+        add(add(self.origin, scale(self.into, s)), scale(self.along, h))
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn unroll_layout(
+    def: &Body,
+    wall: &Shape,
+    front: f64,
+    back: f64,
+    k_rolled: f64,
+    rips: &[Shape],
+    clearance: f64,
+    bends: &[Bend],
+) -> R<(Shape, UnrollLayout)> {
     let s = wall.surface_definition().map_err(occt_error)?;
     if s.kind != 1 {
         return Err(error("@updateSheetMetalGeometry: only cylindrical rolled walls can be unfolded yet"));
@@ -1988,7 +2149,36 @@ fn unrolled(
         .map_err(occt_error)?;
     let face = occt::fill_edges(&edges).map_err(occt_error)?;
     let n = face.face_plane().map_err(occt_error)?.normal;
-    Ok(if dot(n, normal) < 0.0 { face.reversed() } else { face })
+    let face = if dot(n, normal) < 0.0 { face.reversed() } else { face };
+    let along = normalize(sub(a1.origin, a0.origin)).ok_or_else(|| regen_error("SHEET_METAL_REBUILD_ERROR"))?;
+    let mut layout =
+        UnrollLayout { origin: a0.origin, into, along, theta0: 0.0, sign: 1.0, neutral, frame: s.frame };
+    layout.theta0 = layout.angle(a0.origin);
+    // Which way round the axis `into` goes.
+    let round = cross(s.frame.normal, normalize(radial).ok_or_else(|| regen_error("SHEET_METAL_REBUILD_ERROR"))?);
+    layout.sign = if dot(into, round) >= 0.0 { 1.0 } else { -1.0 };
+    Ok((face, layout))
+}
+
+/// A definition that is one rolled wall and nothing else (batch 070 c012): the wall, its unrolled face on the
+/// plane tangent to it, how that lies, and the direction and distance the flat pattern lies from that plane
+/// (towards the material, a thickness, as a planar wall's does).
+fn rolled_flat(def: &Body) -> R<Option<(Shape, Shape, UnrollLayout, Vec3, f64)>> {
+    let [wall] = &def.faces[..] else { return Ok(None) };
+    let Ok(s) = wall.shape.surface_definition() else { return Ok(None) };
+    if s.kind != 1 || !definition_bends(def)?.is_empty() {
+        return Ok(None);
+    }
+    let (front, back) = definition_thickness(def)?;
+    let model_attribute = sm_attribute(&def.attributes, "MODEL");
+    let k_rolled = model_attribute
+        .and_then(|m| attribute_value(m, "kFactorRolled"))
+        .and_then(Value::as_number)
+        .unwrap_or(0.5);
+    let (face, layout) = unroll_layout(def, &wall.shape, front, back, k_rolled, &[], 0.0, &[])?;
+    let n = face.face_plane().map_err(occt_error)?.normal;
+    let material = if front >= back { n } else { scale(n, -1.0) };
+    Ok(Some((wall.shape.clone(), face, layout, material, front + back)))
 }
 
 #[allow(clippy::too_many_arguments)]

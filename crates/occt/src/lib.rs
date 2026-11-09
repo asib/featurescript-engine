@@ -226,6 +226,7 @@ mod ffi {
         fn join_edges(wire: &Shape) -> Result<UniquePtr<Shape>>;
         fn ordered_wire(edges: &ShapeList) -> Result<UniquePtr<Shape>>;
         fn edge_on_face(face: &Shape, uv: &[f64]) -> Result<UniquePtr<Shape>>;
+        fn closed_edge_on_face(face: &Shape, uv: &[f64]) -> Result<UniquePtr<Shape>>;
         fn edge_between(edge: &Shape, f0: f64, f1: f64, reverse: bool) -> Result<UniquePtr<Shape>>;
         fn project_edges(edges: &ShapeList, faces: &ShapeList, direction: Vec3) -> Result<UniquePtr<ShapeList>>;
         fn offset_edge_on_planar_face(edge: &Shape, face: &Shape, distance: f64) -> Result<UniquePtr<Shape>>;
@@ -971,6 +972,13 @@ pub fn join_edges(wire: &Shape) -> Result<Shape> {
 pub fn edge_on_face(face: &Shape, uv: &[(f64, f64)]) -> Result<Shape> {
     let flat: Vec<f64> = uv.iter().flat_map(|(u, v)| [*u, *v]).collect();
     Ok(Shape::new(ffi::edge_on_face(&face.0, &flat)?))
+}
+
+/// A closed edge on a face's surface through points given as fractions (u, v) of its parameter ranges (the first
+/// not repeated at the end), a periodic spline through them in its parameter plane.
+pub fn closed_edge_on_face(face: &Shape, uv: &[(f64, f64)]) -> Result<Shape> {
+    let flat: Vec<f64> = uv.iter().flat_map(|(u, v)| [*u, *v]).collect();
+    Ok(Shape::new(ffi::closed_edge_on_face(&face.0, &flat)?))
 }
 
 /// A wire of edges in the order given, their ends joined where they nearly meet.

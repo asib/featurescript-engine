@@ -262,7 +262,18 @@ bool face_periodic(const Shape &face_shape, bool along_u) {
 
 // An edge on a face's surface through points given as fractions of its parameter ranges: a spline through them in
 // its parameter plane, its 3D curve built from that.
+static std::unique_ptr<Shape> edge_on_face_impl(const Shape &face, rust::Slice<const double> uv, bool closed);
+
 std::unique_ptr<Shape> edge_on_face(const Shape &face, rust::Slice<const double> uv) {
+  return edge_on_face_impl(face, uv, false);
+}
+
+// A closed edge on a face's surface: a periodic spline through the points in its parameter plane.
+std::unique_ptr<Shape> closed_edge_on_face(const Shape &face, rust::Slice<const double> uv) {
+  return edge_on_face_impl(face, uv, true);
+}
+
+static std::unique_ptr<Shape> edge_on_face_impl(const Shape &face, rust::Slice<const double> uv, bool closed) {
   if (face.shape.ShapeType() != TopAbs_FACE) throw std::runtime_error("not a face");
   const size_t n = uv.size() / 2;
   if (n < 2) throw std::runtime_error("edge on face: two points at least");
@@ -272,7 +283,7 @@ std::unique_ptr<Shape> edge_on_face(const Shape &face, rust::Slice<const double>
   Handle(TColgp_HArray1OfPnt2d) points = new TColgp_HArray1OfPnt2d(1, static_cast<int>(n));
   for (size_t i = 0; i < n; ++i)
     points->SetValue(static_cast<int>(i) + 1, gp_Pnt2d(u0 + uv[2 * i] * (u1 - u0), v0 + uv[2 * i + 1] * (v1 - v0)));
-  Geom2dAPI_Interpolate interpolate(points, Standard_False, 1e-12);
+  Geom2dAPI_Interpolate interpolate(points, closed ? Standard_True : Standard_False, 1e-12);
   interpolate.Perform();
   if (!interpolate.IsDone()) throw std::runtime_error("edge on face: interpolation failed");
   TopLoc_Location location;
