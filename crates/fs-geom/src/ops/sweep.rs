@@ -59,9 +59,12 @@ fn add_with_caps_facing(model: &mut Model, id: &FeatureId, op: &occt::Operation,
     Ok(())
 }
 
-/// A sweep locked to a cylinder's side along a circle round its axis: the profile turns with the cylinder's normal,
-/// a revolve about the axis as far as the path goes (batch 058 c004). `None` when the sweep isn't that.
-fn locked_to_cylinder(model: &mut Model, id: &FeatureId, definition: &Value) -> R<Option<Value>> {
+/// A sweep locked to a surface of revolution (a cylinder, a cone, a sphere or a torus) along a circle round its axis:
+/// the profile turns with the surface's normal, a revolve about the axis as far as the path goes (batch 058 c004, a
+/// cone's side 070 c007, a frame on a cylinder's rim 070 c009). Along a straight line on a cylinder or a cone (a
+/// ruling, along which its normal stays put), the profile is carried along the line (070 c008). `None` when the
+/// sweep isn't either.
+fn locked_to_revolution(model: &mut Model, id: &FeatureId, definition: &Value) -> R<Option<Value>> {
     use values::{cross, dot, norm, sub};
     if field(definition, "profileControl").as_str() != Some("LOCK_FACES") {
         return Ok(None);
@@ -73,7 +76,7 @@ fn locked_to_cylinder(model: &mut Model, id: &FeatureId, definition: &Value) -> 
         .collect();
     let [face] = lock.as_slice() else { return Ok(None) };
     let Ok(cyl) = face.surface_definition() else { return Ok(None) };
-    if cyl.kind != 1 {
+    if !(1..=4).contains(&cyl.kind) {
         return Ok(None);
     }
     let path: Vec<Shape> = query::evaluate(model, field(definition, "path"))?
@@ -82,12 +85,16 @@ fn locked_to_cylinder(model: &mut Model, id: &FeatureId, definition: &Value) -> 
         .map(|r| model.shape(*r).clone())
         .collect();
     let [edge] = path.as_slice() else { return Ok(None) };
+    if edge.curve_type().ok() == Some(occt::CurveType::Line) && (cyl.kind == 1 || cyl.kind == 2) {
+        return along_ruling(model, id, definition, edge, cyl.frame);
+    }
     if edge.curve_type().ok() != Some(occt::CurveType::Circle) {
         return Ok(None);
     }
     let circle = edge.curve_definition().map_err(occt_error)?;
     let (axis, origin) = (cyl.frame.normal, cyl.frame.origin);
-    if norm(cross(circle.frame.normal, axis)) > 1e-9 || norm(cross(sub(circle.frame.origin, origin), axis)) > 1e-9 {
+    // (A three-point arc's centre may be a few nanometres off, batch 070 c009.)
+    if norm(cross(circle.frame.normal, axis)) > 1e-9 || norm(cross(sub(circle.frame.origin, origin), axis)) > 1e-7 {
         return Ok(None);
     }
     // How far round: the whole circle, or the arc from its start to its end about the circle's own normal.
@@ -120,8 +127,88 @@ fn locked_to_cylinder(model: &mut Model, id: &FeatureId, definition: &Value) -> 
     Ok(Some(Value::UNDEFINED))
 }
 
+/// A profile of straight edges swept along a ruling of a cylinder or a cone it is locked to: carried along the line,
+/// each edge making a face Onshape gives as a B-spline, linear across the edge and a cubic of evenly spaced poles
+/// along the line (batch 070 c008), between the profile and its copy at the far end. `None` if the line isn't a
+/// ruling (in a plane through the axis) or the profile has curved edges.
+fn along_ruling(model: &mut Model, id: &FeatureId, definition: &Value, edge: &Shape, axis: occt::Frame) -> R<Option<Value>> {
+    use values::{add, cross, dot, norm, scale, sub};
+    let a = edge.edge_tangent(0.0, false).map_err(occt_error)?;
+    let b = edge.edge_tangent(1.0, false).map_err(occt_error)?;
+    // In a plane through the axis.
+    let span = cross(sub(a.origin, axis.origin), axis.normal);
+    if norm(span) < 1e-9 || dot(span, a.direction).abs() > 1e-9 * norm(span) {
+        return Ok(None);
+    }
+    let found = query::evaluate(model, field(definition, "profiles"))?;
+    let faces: Vec<Shape> =
+        found.iter().filter(|r| r.kind == EntityType::Face).map(|r| model.shape(*r).clone()).collect();
+    let [profile] = faces.as_slice() else { return Ok(None) };
+    let loops = profile.sub_shapes(ShapeKind::Wire);
+    let [outer] = loops.as_slice() else { return Ok(None) };
+    let profile_edges = outer.sub_shapes(ShapeKind::Edge);
+    if profile_edges.iter().any(|e| e.curve_type().ok() != Some(occt::CurveType::Line)) {
+        return Ok(None);
+    }
+    // From the end of the path the profile is at.
+    let (start, end) = {
+        let p = profile.face_plane().map_err(occt_error)?;
+        if dot(sub(a.origin, p.origin), p.normal).abs() <= dot(sub(b.origin, p.origin), p.normal).abs() {
+            (a.origin, b.origin)
+        } else {
+            (b.origin, a.origin)
+        }
+    };
+    let travel = sub(end, start);
+    let mut sides = Vec::new();
+    for e in &profile_edges {
+        let ends = e.edge_tangent(0.0, false).map_err(occt_error)?.origin;
+        let ende = e.edge_tangent(1.0, false).map_err(occt_error)?.origin;
+        let mut poles = Vec::new();
+        for p in [ends, ende] {
+            for k in 0..4 {
+                poles.push(add(p, scale(travel, k as f64 / 3.0)));
+            }
+        }
+        sides.push(
+            occt::bspline_surface_face(&poles, (2, 4), &[0.0, 0.0, 1.0, 1.0], &[0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0], (1, 3))
+                .map_err(occt_error)?,
+        );
+    }
+    let far = occt::transform(profile, &super::translation(travel)).map_err(occt_error)?.shape();
+    let mut all = vec![profile.clone()];
+    all.extend(sides);
+    all.push(far.clone());
+    let shell = occt::sew_faces(&all, 1e-7).map_err(occt_error)?;
+    let mut solid = occt::solid_from(&shell).map_err(|_| regen_error("SWEEP_FAILED"))?;
+    if solid.volume().map_err(occt_error)? < 0.0 {
+        solid = solid.reversed();
+    }
+    // The caps, found again in the sewn solid by where they lie.
+    let centre = |f: &Shape| f.centroid().unwrap_or(Vec3 { x: f64::MAX, y: 0.0, z: 0.0 });
+    let (start_at, end_at) = (centre(profile), centre(&far));
+    let created = Info::new(id.clone());
+    let cap = |c| Rc::new(Info { created_by: id.clone(), cap: Some(c), ..Default::default() });
+    let (start_info, end_info) = (cap(Cap::Start), cap(Cap::End));
+    let special = |f: &Shape| {
+        if f.kind() != Some(ShapeKind::Face) {
+            return None;
+        }
+        let c = centre(f);
+        if values::norm(sub(c, start_at)) < 1e-7 && f.surface_type().ok() == Some(occt::SurfaceType::Plane) {
+            Some(start_info.clone())
+        } else if values::norm(sub(c, end_at)) < 1e-7 && f.surface_type().ok() == Some(occt::SurfaceType::Plane) {
+            Some(end_info.clone())
+        } else {
+            None
+        }
+    };
+    model.add_body(NewBody::new(solid, BodyType::Solid, created.clone()), &Origins::default(), &created, &special);
+    Ok(Some(Value::UNDEFINED))
+}
+
 pub fn sweep(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
-    if let Some(done) = locked_to_cylinder(model, &id, definition)? {
+    if let Some(done) = locked_to_revolution(model, &id, definition)? {
         return Ok(done);
     }
     // The profile kept as it is, or turning only about a direction (batch 021).
