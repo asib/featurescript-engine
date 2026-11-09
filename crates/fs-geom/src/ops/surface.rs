@@ -384,8 +384,24 @@ fn extend_ruled(body: &crate::model::Body, edges: &[Shape], distance: f64) -> R<
         return Ok(None);
     }
     let own: Vec<Shape> = body.edges.iter().map(|e| e.shape.clone()).collect();
-    if own.len() != 4 || edge.curve_type().ok() == Some(occt::CurveType::Line) {
+    if own.len() != 4 {
         return Ok(None);
+    }
+    // A straight side (a line, or a straight B-spline from the loft).
+    let straight = edge.curve_type().ok() == Some(occt::CurveType::Line)
+        || [0.25, 0.5, 0.75].iter().all(|&t| {
+            let (Ok(a), Ok(b), Ok(m)) =
+                (edge.edge_tangent(0.0, false), edge.edge_tangent(1.0, false), edge.edge_tangent(t, false))
+            else {
+                return false;
+            };
+            let chord = crate::values::sub(b.origin, a.origin);
+            let off = crate::values::sub(m.origin, a.origin);
+            let along = crate::values::dot(off, chord) / crate::values::dot(chord, chord);
+            crate::values::norm(crate::values::sub(off, crate::values::scale(chord, along))) < 1e-9
+        });
+    if straight {
+        return extend_ruled_along(&face.shape, &own, edge, distance);
     }
     let ends = |e: &Shape| -> R<(occt::Vec3, occt::Vec3)> {
         Ok((e.edge_tangent(0.0, false).map_err(occt_error)?.origin, e.edge_tangent(1.0, false).map_err(occt_error)?.origin))
@@ -438,6 +454,75 @@ fn extend_ruled(body: &crate::model::Body, edges: &[Shape], distance: f64) -> R<
     let corners = [occt::vertex(e0).map_err(occt_error)?, occt::vertex(e1).map_err(occt_error)?];
     let split = occt::split(&[sheet.clone()], &corners).map(|op| op.shape()).unwrap_or(sheet);
     Ok(Some(split))
+}
+
+/// A ruled sheet of one face extended past one of its straight sides (a ruling): each curve across it carried on
+/// straight, along the surface, by the distance (batch 066 c002: Onshape's new edge is 3 mm from the old corners
+/// along both arcs). One face, lofted through those curves; its curved edges keep vertices at the old corners.
+fn extend_ruled_along(face: &Shape, own: &[Shape], side: &Shape, distance: f64) -> R<Option<Shape>> {
+    use crate::values::{add, norm, scale, sub};
+    let failed = || regen_error("EXTEND_SHEET_BODY_FAILED");
+    let ends = |e: &Shape| -> R<(occt::Vec3, occt::Vec3)> {
+        Ok((e.edge_tangent(0.0, false).map_err(occt_error)?.origin, e.edge_tangent(1.0, false).map_err(occt_error)?.origin))
+    };
+    let close = |a: occt::Vec3, b: occt::Vec3| norm(sub(a, b)) < 1e-7;
+    let (s0, s1) = ends(side)?;
+    // The face's parameter direction along the curves: the side lies at one end of it.
+    let (f0u, f0v) = face.face_fraction(s0).map_err(occt_error)?;
+    let (f1u, f1v) = face.face_fraction(s1).map_err(occt_error)?;
+    let side_is_u_end = (f0u - f1u).abs() < 1e-6 && (f0u < 1e-6 || f0u > 1.0 - 1e-6);
+    let side_is_v_end = (f0v - f1v).abs() < 1e-6 && (f0v < 1e-6 || f0v > 1.0 - 1e-6);
+    let (along_u, at_end) = match (side_is_u_end, side_is_v_end) {
+        (true, false) => (true, f0u > 0.5),
+        (false, true) => (false, f0v > 0.5),
+        _ => return Ok(None),
+    };
+    let point = |a: f64, c: f64| -> R<occt::Frame> {
+        let (u, v) = if along_u { (a, c) } else { (c, a) };
+        face.face_tangent_plane(u, v).map_err(occt_error)
+    };
+    const SECTIONS: usize = 9;
+    const SAMPLES: usize = 32;
+    let mut wires = Vec::new();
+    for k in 0..=SECTIONS {
+        let c = k as f64 / SECTIONS as f64;
+        // The curve across from the far side to this one, then on straight.
+        let mut points: Vec<occt::Vec3> = (0..=SAMPLES)
+            .map(|i| {
+                let a = i as f64 / SAMPLES as f64;
+                point(if at_end { a } else { 1.0 - a }, c).map(|f| f.origin)
+            })
+            .collect::<R<_>>()?;
+        let n = points.len();
+        let tip = points[n - 1];
+        let h = 1e-6;
+        let before = point(if at_end { 1.0 - h } else { h }, c)?.origin;
+        let direction = crate::values::normalize(sub(tip, before)).ok_or_else(failed)?;
+        for i in 1..=8 {
+            points.push(add(tip, scale(direction, distance * i as f64 / 8.0)));
+        }
+        let mut parameters = vec![0.0];
+        for w in points.windows(2) {
+            parameters.push(parameters.last().copied().unwrap_or(0.0) + norm(sub(w[1], w[0])));
+        }
+        let m = points.len();
+        let derivatives: Vec<occt::Vec3> = (0..m)
+            .map(|j| {
+                if j >= n - 1 {
+                    return direction;
+                }
+                let (a, b) = if j == 0 { (0, 1) } else { (j - 1, j + 1) };
+                scale(sub(points[b], points[a]), 1.0 / (parameters[b] - parameters[a]))
+            })
+            .collect();
+        let curve = occt::interpolated_edge(&points, &derivatives, &parameters, false).map_err(occt_error)?;
+        wires.extend(occt::connect_edges(std::slice::from_ref(&curve)).map_err(occt_error)?);
+    }
+    let sheet = occt::loft(&wires, false).map_err(|_| failed())?.shape();
+    // The old corners stay as vertices on the curved edges.
+    let corners = [occt::vertex(s0).map_err(occt_error)?, occt::vertex(s1).map_err(occt_error)?];
+    let _ = (own, close);
+    Ok(Some(occt::split(&[sheet.clone()], &corners).map(|op| op.shape()).unwrap_or(sheet)))
 }
 
 fn extend_extruded(body: &crate::model::Body, edges: &[Shape], distance: f64, curving: bool) -> R<Option<Shape>> {
