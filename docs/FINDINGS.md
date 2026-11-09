@@ -643,7 +643,11 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   7/27 at u = 1/3; the directions, not the derivatives, batch 061 c010's square off the axis). An end condition at
   the last profile is the same, P₂ = P₃ − D/3 (061 c008, c009). It holds to 1e-6 for rectangles, hexagons and
   squares, at magnitudes 1 and 2. Onshape lists the sides first, then the caps, the sides in no geometric order.
-  Between triangles turned to each other, magnitude 0.5, Onshape fails (`LOFT_FAILED`, 061 c011).
+  Between triangles turned to each other, magnitude 0.5, Onshape fails (`LOFT_FAILED`, 061 c011). Through more
+  profiles (062 c008: three squares) the sides are cubic across with a knot at each inner profile, and the "chord"
+  is the start (or end) tangent of the natural spline through the profiles' points, projected; between two
+  profiles that is the chord. The inner knots are spaced nearly as the chords between the edges' middles
+  (0.408254 there, Onshape's 0.408307, by a rule not found).
 - **Flat patterns of bent parts** (batch 061 c001–c003): `qCorrespondingInFlat` of a flanged plate's top gives
   the base wall's face in the flat: on the definition sheet's plane (z = 0 for a sheet thickened up), cut back
   from the sharp corner of the definition (y = 32, the flange's outer face with inner alignment) by the bend's
@@ -654,6 +658,16 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   region drawn in the flat back onto the definition's walls: rigidly on each wall's side of its bends' middles,
   back from where the wall stops, and each half bend stretched across to the setback, so a cut across the bend
   reaches the definition's sharp edge; the part rebuilt from the definition matches Onshape's exactly.
+- **Boundary surfaces and fills** (batch 062): a boundary surface between two arcs is ruled between Onshape's own
+  non-rational cubic fits of them: eight uniform spans, uniform in angle, within 0.001 mm of the arcs (so its area
+  is 0.003 mm² under the exact ruled surface's, batch 005 c019). The lines joining their ends as v profiles change
+  nothing. A fill of four lines round a non-planar loop is their bilinear patch, u back along the first edge from
+  its corner with the second, v along the second.
+- **Flat patterns, more** (batch 062): a slot through a channel's flat (across both bends) leaves two parts, both
+  created by its sheet metal feature. A circle across a bend is wrapped onto the bend, its wall there B-spline
+  faces. The flange's outer face in the flat is on the flat's far side, z = −2 with normal −z (origin at its
+  middle, (20, 35.4845, −2)), and the top's at z = 0: Onshape's flat pattern lies on the far side of the
+  definition's plane from the folded part.
 - **`derivedMirror` in a Part Studio feature** (batch 060 c001): Onshape fails with "Execution error". It builds
   its source twice, once by `@convert` and again in `instantiate` (no loaded context), which Onshape evidently
   refuses for a build function defined in the studio (it won't derive one source twice in a Part Studio, batch
