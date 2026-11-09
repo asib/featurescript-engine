@@ -1,6 +1,7 @@
 // Surface and curve operations: sections, fills, enclosures, sheet extension, iso curves, projections.
 
 #include <HLRBRep_Algo.hxx>
+#include <Geom_RectangularTrimmedSurface.hxx>
 #include <BRepBndLib.hxx>
 #include <BRepAlgoAPI_Splitter.hxx>
 #include <ShapeUpgrade_UnifySameDomain.hxx>
@@ -264,6 +265,8 @@ std::unique_ptr<Shape> extend_planar_face(const Shape &sheet, const ShapeList &e
 // Whether a face's parameter is periodic along u (or v).
 bool face_periodic(const Shape &face_shape, bool along_u) {
   Handle(Geom_Surface) surface = BRep_Tool::Surface(TopoDS::Face(face_shape.shape));
+  // A trimmed surface (a swept tube's torus) is periodic as its basis is.
+  while (auto trimmed = Handle(Geom_RectangularTrimmedSurface)::DownCast(surface)) surface = trimmed->BasisSurface();
   return along_u ? surface->IsUPeriodic() : surface->IsVPeriodic();
 }
 

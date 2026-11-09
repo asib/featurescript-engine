@@ -629,6 +629,23 @@ pub fn register(m: &mut GeomBuiltins) {
         let arc_length = values::opt_bool(&definition, "arcLengthParameterization")?.unwrap_or(true);
         model_mut(&args, "evDistance", |model| distance(&tags, model, &definition, arc_length))
     });
+    // Whether a face wraps round its surface each way (`trimmed`, the default) or its surface does (batch 072
+    // c001: a tube swept along an arc, periodic round the tube).
+    m.insert("evFacePeriodicity", |_, args| {
+        let definition = definition(&args, "evFacePeriodicity")?;
+        let trimmed = values::opt_bool(&definition, "trimmed")?.unwrap_or(true);
+        model_mut(&args, "evFacePeriodicity", |model| {
+            let r = query::evaluate(model, field(&definition, "face"))?
+                .into_iter()
+                .find(|r| r.kind == EntityType::Face)
+                .ok_or_else(|| regen_error("CANNOT_RESOLVE_ENTITIES"))?;
+            let face = model.shape(r).clone();
+            let ((u0, v0), (u1, v1)) = face.face_uv_bounds().map_err(occt_error)?;
+            let full = |a: f64, b: f64| (b - a) >= 2.0 * std::f64::consts::PI - 1e-9;
+            let each = |along_u: bool, a: f64, b: f64| occt::face_periodic(&face, along_u) && (!trimmed || full(a, b));
+            Ok(Value::array(vec![Value::bool(each(true, u0, u1)), Value::bool(each(false, v0, v1))]))
+        })
+    });
     m.insert("evCurveDefinition", |interp, args| {
         let tags = tags(interp)?;
         measure(
