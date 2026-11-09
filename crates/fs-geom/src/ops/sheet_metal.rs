@@ -764,7 +764,28 @@ fn flat_bend_lines(model: &Model, def_index: usize) -> R<Vec<(Shape, Value)>> {
         let motion = &motions[wall_index(&bend.walls.0)];
         let ends = bend.edge.edge_end_vertices().map_err(occt_error)?;
         let [e0, e1] = &ends[..] else { continue };
-        let (e0, e1) = (e0.vertex_point().map_err(occt_error)?, e1.vertex_point().map_err(occt_error)?);
+        let (mut e0, mut e1) = (e0.vertex_point().map_err(occt_error)?, e1.vertex_point().map_err(occt_error)?);
+        // Only as far as the wall runs along it once cut back for its other bends (two flanges meeting at a
+        // corner, batch 071 c011: each line stops at the other bend's setback).
+        for other in &bends {
+            if other.edge.is_same(&bend.edge) {
+                continue;
+            }
+            let into = if other.walls.0.is_same(&bend.walls.0) {
+                other.into.0
+            } else if other.walls.1.is_same(&bend.walls.0) {
+                other.into.1
+            } else {
+                continue;
+            };
+            let cut = add(other.at, scale(into, other.setback));
+            let (d0, d1) = (dot(sub(e0, cut), into), dot(sub(e1, cut), into));
+            if d0 < 0.0 && d1 > 0.0 {
+                e0 = add(e0, scale(sub(e1, e0), -d0 / (d1 - d0)));
+            } else if d1 < 0.0 && d0 > 0.0 {
+                e1 = add(e1, scale(sub(e0, e1), -d1 / (d0 - d1)));
+            }
+        }
         let across = scale(motion.vec(bend.into.0), -bend.flat_length / 2.0);
         let a0 = add(motion.point(add(e0, scale(bend.into.0, bend.setback))), across);
         let a1 = add(motion.point(add(e1, scale(bend.into.0, bend.setback))), across);
