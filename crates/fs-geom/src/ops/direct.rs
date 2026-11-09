@@ -876,6 +876,9 @@ pub fn body_draft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Val
             // A body the parting plane cuts is split there; only the piece in front of it is drafted, and the
             // pieces are joined again, leaving a ledge at the parting plane. (Batch 007, c019.)
             let parting = parting_plane(model, definition)?;
+            // A curved parting sheet (batch 058 c001) splits the body as a plane does: the pieces on the pull side
+            // of it are in front.
+            let sheet = if parting.is_none() { parting_sheet(model, definition)? } else { None };
             let mut bodies: Vec<usize> = faces.iter().map(|(b, _)| *b).collect();
             bodies.dedup();
             for b in bodies {
@@ -884,23 +887,38 @@ pub fn body_draft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Val
                 let crossing = parting.filter(|plane| {
                     shape.bounding_box_in(*plane, true).is_ok_and(|bx| bx.min.z < -1e-8 && bx.max.z > 1e-8)
                 });
-                let Some(plane) = crossing else {
+                let curved_split = match (&crossing, &sheet) {
+                    (None, Some(sheet)) => {
+                        let split = occt::split(std::slice::from_ref(&shape), std::slice::from_ref(sheet))
+                            .map_err(|_| regen_error("BODY_DRAFT_FAILED"))?;
+                        let pieces = split.shape().sub_shapes(ShapeKind::Solid);
+                        (pieces.len() > 1).then_some(pieces)
+                    }
+                    _ => None,
+                };
+                if crossing.is_none() && curved_split.is_none() {
                     for face in body_faces {
                         if let Some(edge) = reference(&shape, &face) {
                             pairs.push((b, face, edge));
                         }
                     }
                     continue;
-                };
-                let bounds = shape.bounding_box(false).map_err(occt_error)?;
-                let size = values::norm(values::sub(bounds.max, bounds.min)) * 4.0 + 1.0;
-                let cutter = occt::plane_face(plane, -size, size, -size, size).map_err(occt_error)?;
-                let split = occt::split(std::slice::from_ref(&shape), &[cutter])
-                    .map_err(|_| regen_error("BODY_DRAFT_FAILED"))?;
+                }
                 let (mut front, mut back) = (Vec::new(), Vec::new());
-                for piece in split.shape().sub_shapes(ShapeKind::Solid) {
-                    let in_front = piece.bounding_box_in(plane, true).is_ok_and(|bx| bx.min.z > -1e-8);
-                    if in_front { front.push(piece) } else { back.push(piece) }
+                if let (Some(pieces), Some(sheet)) = (curved_split, &sheet) {
+                    for piece in pieces {
+                        if side_of_sheet(&piece, sheet, pull)? > 0.0 { front.push(piece) } else { back.push(piece) }
+                    }
+                } else if let Some(plane) = crossing {
+                    let bounds = shape.bounding_box(false).map_err(occt_error)?;
+                    let size = values::norm(values::sub(bounds.max, bounds.min)) * 4.0 + 1.0;
+                    let cutter = occt::plane_face(plane, -size, size, -size, size).map_err(occt_error)?;
+                    let split = occt::split(std::slice::from_ref(&shape), &[cutter])
+                        .map_err(|_| regen_error("BODY_DRAFT_FAILED"))?;
+                    for piece in split.shape().sub_shapes(ShapeKind::Solid) {
+                        let in_front = piece.bounding_box_in(plane, true).is_ok_and(|bx| bx.min.z > -1e-8);
+                        if in_front { front.push(piece) } else { back.push(piece) }
+                    }
                 }
                 // Each piece's selected steep faces turn about their edges farthest along the way they're pulled
                 // (shared with a face that isn't steep): the piece in front of the parting plane pulled along the
@@ -1072,6 +1090,41 @@ fn plane_cut_corners(
 }
 
 /// The plane of a body draft's parting object, if it is a planar face (or a sheet of one).
+/// A body draft's parting object when it is a curved face (or a sheet of one): the face.
+fn parting_sheet(model: &Model, definition: &Value) -> R<Option<Shape>> {
+    let parting = field(definition, "partingObject");
+    if parting.is_undefined() || parting.get("normal").is_some() {
+        return Ok(None);
+    }
+    for r in query::evaluate(model, parting)? {
+        let face = match r.kind {
+            EntityType::Face => model.shape(r).clone(),
+            EntityType::Body => match model.bodies[r.body].faces.as_slice() {
+                [only] => only.shape.clone(),
+                _ => continue,
+            },
+            _ => continue,
+        };
+        if face.face_plane().is_err() {
+            return Ok(Some(face));
+        }
+    }
+    Ok(None)
+}
+
+/// Which side of a sheet a solid lies: positive on the side the pull direction points to, from the sheet's point
+/// nearest a point inside the solid.
+fn side_of_sheet(solid: &Shape, sheet: &Shape, pull: Vec3) -> R<f64> {
+    let inside = solid.centroid().map_err(occt_error)?;
+    let near = occt::vertex(inside).and_then(|v| v.distance(sheet)).map_err(occt_error)?;
+    let (fu, fv) = sheet.face_fraction(near.b).map_err(occt_error)?;
+    let mut normal = sheet.face_tangent_plane(fu, fv).map_err(occt_error)?.normal;
+    if values::dot(normal, pull) < 0.0 {
+        normal = values::scale(normal, -1.0);
+    }
+    Ok(values::dot(values::sub(inside, near.b), normal))
+}
+
 fn parting_plane(model: &Model, definition: &Value) -> R<Option<occt::Frame>> {
     let parting = field(definition, "partingObject");
     if parting.is_undefined() {
