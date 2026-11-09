@@ -607,7 +607,30 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   0.88, where that α₃ would fall below β₃ (the inner poles crossing the diagonal), α₂ falls too (0.449283,
   0.367067, 0.1615265, 0.010739 at 0.88, 0.9, 0.95, 0.99; β₃ 0.001744, 0.00139225, 0.0005127, 0.003103): no rule
   found; the curves stay convex. OCCT's boolean with the NURBS-converted cutting tool can come back unchanged
-  without an error (m 0.82): the engine checks the volume changed and cuts with the extrusion otherwise.
+  without an error (m 0.82): the engine checks the volume changed and cuts with the extrusion otherwise. Batch 059
+  confirms 0.87 on the first rule and shows the second regime: from 0.879 (where α₃ would fall below β₃) α₂ and β₃
+  both fall linearly with m, α₂ = 4.0667892 − 4.1108024 m and β₃ = 0.01722228 − 0.01758906 m, α₃ through the
+  shoulder (0.88, 0.9, 0.92, 0.95, 0.97 to 4e-7), until β₃ reaches nothing at 0.979; 0.99 is something else.
+- **Offset curves on faces, which way** (batch 059): by default into the face being offset across, the other way
+  flipped, except where that face is planar and the edge's other face is curved: then out of it. A cylinder's top
+  edge goes outwards across its top (batch 020 c008) but down its side (027 c001); a block's top edge and the edge
+  where a fillet meets the top go into the face they're offset across. That is what the edge's direction × the
+  face's normal gives if the edge runs as the curved face's loop has it (as Onshape's kernel may orient it); the
+  engine's own edge directions don't follow that, so it applies the rule as stated. Where the offset leaves the
+  face Onshape makes no curve and raises no error. Its offset of a circle across a plane is an approximation,
+  0.0015 mm short of the exact circle.
+- **Intersection curves split** (batch 059 c001, c002): where a cylinder about z crosses one about x, each closed
+  curve is two edges, with vertices at (±10, 0, ±6), when the cross cylinder is an extruded sketch circle, but
+  one edge (from (±10, 0, 6)) when it is the `fCylinder` primitive. Onshape's STEP has no seam edges, so the seams
+  that presumably decide it can't be read.
+- **Extruding in a sheet metal flat pattern** (batch 059 c008, c009) works from a feature: a sketch on
+  `qCorrespondingInFlat` of a plate's top face, extruded with `domain` `FLAT`, runs `SMFlatOp`. The sketch plane
+  is the flat face's `evPlane`, origin at its middle (std's `newSketch` keeps it for flattened planes): a 10 mm
+  circle at (20, 15) cuts a quarter circle out of the 40 × 30 plate's corner at (40, 30) (2360.73 mm³). A tab
+  drawn wholly past the plate's edge adds nothing. The engine treats a plate without bends as its own flat
+  pattern: sketches on its flat faces are marked as lying in its flat (`qSheetMetalFlatFilter`, `qPartsAttachedTo`,
+  `queryContainsFlattenedSheetMetal`), and `@opSMFlatOperation` drops their regions onto the definition sheet and
+  cuts or joins them, leaving out added regions that don't reach it.
 - **Spheres extended round** (batch 055 c012–c015): the new edge's top corner (radius 5) turns 0.200754,
   0.406117 and 1.106271 rad for 1, 2 and 5 mm (d/r 0.2, 0.4, 1), the bottom (radius 10) exactly d/r; between,
   within 1% of d/r for 1 mm, drifting further above as the distance grows (5% at latitude 47° for 5 mm). Onshape's
