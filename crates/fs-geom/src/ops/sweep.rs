@@ -402,7 +402,7 @@ fn twisted_along_curve(
     scale: f64,
     solid: bool,
 ) -> R<Value> {
-    use values::{add, cross, dot, norm, normalize, sub};
+    use values::{cross, dot, norm, normalize, sub};
     let failed = || regen_error("SWEEP_FAILED");
     let rot3 = |axis: Vec3, angle: f64| -> [[f64; 3]; 3] {
         let r = super::rotation(occt::Axis { origin: Vec3::new(0.0, 0.0, 0.0), direction: axis }, angle).m;
@@ -491,7 +491,6 @@ fn twisted_along_curve(
         }
         let op = occt::loft(&wires, solid).map_err(|_| failed())?;
         add_with_caps(model, id, &op, solid)?;
-        let _ = add;
     }
     Ok(Value::UNDEFINED)
 }
