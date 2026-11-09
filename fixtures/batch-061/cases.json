@@ -1,0 +1,117 @@
+{
+  "batch": "061",
+  "title": "extruding in a bent flat, cylinder frames about y and tilted, swapped intersection groups, more polygon tangent lofts",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "sheet-metal-flat",
+      "description": "a plate with a 10 mm flange, a 6 mm circle at (0, 0) of its flat sketch cut in its flat pattern",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "sheet-metal-flat",
+      "description": "a plate with a 10 mm flange, a 4 x 30 slot across its bend cut in its flat pattern",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "sheet-metal-flat",
+      "description": "a plate with a 10 mm flange, a 10 x 6 tab added at the flange's far edge in its flat pattern",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "cylinder-frame",
+      "description": "a cylinder of radius 5 extruded 20 mm along y, sketched on the front plane, and one along -y",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "cylinder-frame",
+      "description": "cylinders of radius 5 extruded 20 mm along (1, 1, 1) and along (1, 0, 1), sketched with their x along (1, -1, 0) and y",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "intersection-curve",
+      "description": "batch 060 c002 (the cross cylinder ending on the base) with the groups swapped",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "intersection-curve",
+      "description": "batch 060 c003 (the cross cylinder 40 mm long) with the groups swapped",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c008",
+      "kind": "loft",
+      "description": "a 30 x 10 rectangle to a 15 x 5 one 20 mm above, tangent to the end profile",
+      "slotMeters": [
+        2.8000000000000003,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c009",
+      "kind": "loft",
+      "description": "the same, tangent to both profiles",
+      "slotMeters": [
+        3.2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c010",
+      "kind": "loft",
+      "description": "a 20 mm square to a 10 mm one centred at (4, 3) 20 mm above, tangent to the start profile",
+      "slotMeters": [
+        3.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c011",
+      "kind": "loft",
+      "description": "a triangle to a smaller turned one 20 mm above, tangent to the start profile, magnitude 0.5",
+      "slotMeters": [
+        0,
+        0.4,
+        0
+      ]
+    }
+  ]
+}
