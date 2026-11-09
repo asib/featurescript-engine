@@ -1589,6 +1589,13 @@ fn ray_meets_curve(p: occt::Vec3, d: occt::Vec3, curve: &Shape) -> Option<f64> {
 
 /// Where an edge meets another curve: the meeting nearest its end (or its start), found from samples along it.
 fn curve_meeting(edge: &Shape, curve: &Shape, at_end: bool) -> Option<occt::Vec3> {
+    let found = curve_meetings(edge, curve);
+    let t = if at_end { found.into_iter().reduce(f64::max) } else { found.into_iter().reduce(f64::min) }?;
+    edge.edge_tangent(t, false).ok().map(|a| a.origin)
+}
+
+/// The fractions (by parameter) along an edge where it meets another curve, inside its ends.
+fn curve_meetings(edge: &Shape, curve: &Shape) -> Vec<f64> {
     const SAMPLES: usize = 400;
     let point = |t: f64| edge.edge_tangent(t, false).ok().map(|a| a.origin);
     let distance = |t: f64| {
@@ -1609,12 +1616,11 @@ fn curve_meeting(edge: &Shape, curve: &Shape, at_end: bool) -> Option<occt::Vec3
             if distance(c) < distance(e) { b = e } else { a = c }
         }
         let t = (a + b) / 2.0;
-        if distance(t) < 1e-7 && t > 1e-9 && t < 1.0 - 1e-9 {
+        if distance(t) < 1e-7 && t > 1e-9 && t < 1.0 - 1e-9 && !found.iter().any(|u: &f64| (u - t).abs() < 1e-9) {
             found.push(t);
         }
     }
-    let t = if at_end { found.into_iter().reduce(f64::max) } else { found.into_iter().reduce(f64::min) }?;
-    point(t)
+    found
 }
 
 /// A curve other than a single line trimmed or extended (batch 036): an arc trimmed by a plane stays an arc; a curve
@@ -1635,11 +1641,6 @@ fn curved_boundary_moved(
     use crate::curve_extend::arc_frame;
     use crate::values::{add, cross, dot, norm, normalize, scale, sub};
     let curved_limit = limit_curve.filter(|c| c.curve_type().ok() != Some(occt::CurveType::Line));
-    if curved_limit.is_some() && !trim && curving {
-        return Err(error(
-            "@opMoveCurveBoundary: curving extensions up to curves other than lines aren't supported yet",
-        ));
-    }
     // The chain's ends: points only one edge reaches.
     let points: Vec<(occt::Axis, occt::Axis)> = edges
         .iter()
@@ -1792,6 +1793,7 @@ fn curved_boundary_moved(
         // At its start, the curve is extended as its reverse is at its end, its own parameters kept (batch 038).
         let forward = as_cubic(edge, &start, &end)?;
         let cubic = if at_end { forward } else { forward.reversed() };
+        let old_end = cubic.end();
         let (base, already) = match if curving { cubic.blended()? } else { None } {
             Some(blended) => {
                 let length = blended.length(cubic.end(), blended.end());
@@ -1799,8 +1801,27 @@ fn curved_boundary_moved(
             }
             None => (cubic, 0.0),
         };
-        let (p, d) = base.end_ray()?;
-        let extended = base.straight_on(straight(p, d, already)?)?;
+        // Up to a curve met within the blend: the blend stops there (an arc extended with its curvature up to a
+        // circle, batch 067 c003).
+        let within_blend = match curved_limit {
+            Some(curve) if already > 0.0 => {
+                let edge = base.edge()?;
+                let (a, b) = (base.start(), base.end());
+                curve_meetings(&edge, curve)
+                    .into_iter()
+                    .map(|f| a + f * (b - a))
+                    .filter(|t| *t > old_end + 1e-9)
+                    .reduce(f64::min)
+            }
+            _ => None,
+        };
+        let extended = match within_blend {
+            Some(t) => base.segment(base.start(), t)?,
+            None => {
+                let (p, d) = base.end_ray()?;
+                base.straight_on(straight(p, d, already)?)?
+            }
+        };
         if at_end { extended } else { extended.reversed() }.edge()?
     };
     if edges.len() == 1 {
