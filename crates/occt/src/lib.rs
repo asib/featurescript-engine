@@ -177,10 +177,12 @@ mod ffi {
             start_mag: f64,
             start_tangent: bool,
             start_faces: &ShapeList,
+            start_curvature: bool,
             end_dir: Vec3,
             end_mag: f64,
             end_tangent: bool,
             end_faces: &ShapeList,
+            end_curvature: bool,
         ) -> Result<UniquePtr<Operation>>;
         fn outer_wire(face: &Shape) -> Result<UniquePtr<Shape>>;
         fn section_edges(a: &ShapeList, b: &ShapeList) -> Result<UniquePtr<ShapeList>>;
@@ -812,18 +814,42 @@ pub fn loft_pieces(groups: &[Vec<Shape>], solid: bool) -> Result<Operation> {
     Ok(Operation(ffi::loft_pieces_op(&to_list(&wires), &counts, solid)?))
 }
 
-/// A loft with conditions at its ends: each end's vector, magnitude, whether the derivative lies in the plane
-/// square to the vector rather than along it, and the faces whose tangency it matches (none: along the vector;
-/// `None` leaves that end free).
-pub fn loft_clamped(
-    wires: &[Shape],
-    solid: bool,
-    start: Option<(Vec3, f64, bool, Vec<Shape>)>,
-    end: Option<(Vec3, f64, bool, Vec<Shape>)>,
-) -> Result<Operation> {
-    let (sd, sm, st, sf) = start.unwrap_or((Vec3::new(0.0, 0.0, 1.0), f64::NAN, false, Vec::new()));
-    let (ed, em, et, ef) = end.unwrap_or((Vec3::new(0.0, 0.0, 1.0), f64::NAN, false, Vec::new()));
-    Ok(Operation(ffi::loft_clamped_op(&to_list(wires), solid, sd, sm, st, &to_list(&sf), ed, em, et, &to_list(&ef))?))
+/// The condition at one end of a loft: a vector, a magnitude, whether the derivative lies in the plane square to
+/// the vector rather than along it, the faces whose tangency it matches (none: along the vector), and whether it
+/// matches their curvature too.
+#[derive(Clone, Debug)]
+pub struct LoftEnd {
+    pub vector: Vec3,
+    pub magnitude: f64,
+    pub tangent: bool,
+    pub faces: Vec<Shape>,
+    pub curvature: bool,
+}
+
+/// A loft with conditions at its ends (`None` leaves that end free).
+pub fn loft_clamped(wires: &[Shape], solid: bool, start: Option<LoftEnd>, end: Option<LoftEnd>) -> Result<Operation> {
+    let free = || LoftEnd {
+        vector: Vec3::new(0.0, 0.0, 1.0),
+        magnitude: f64::NAN,
+        tangent: false,
+        faces: Vec::new(),
+        curvature: false,
+    };
+    let (a, b) = (start.unwrap_or_else(free), end.unwrap_or_else(free));
+    Ok(Operation(ffi::loft_clamped_op(
+        &to_list(wires),
+        solid,
+        a.vector,
+        a.magnitude,
+        a.tangent,
+        &to_list(&a.faces),
+        a.curvature,
+        b.vector,
+        b.magnitude,
+        b.tangent,
+        &to_list(&b.faces),
+        b.curvature,
+    )?))
 }
 
 /// A face's outer wire.

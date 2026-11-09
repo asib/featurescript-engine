@@ -1545,10 +1545,13 @@ struct QuarterSpline {
 // of the way round each time. OCCT's loft matches the profiles' edges; along them the sides' rows are cubic Hermite
 // fits of 64 spans (as Onshape's profiles are).
 std::unique_ptr<Operation> loft_clamped_op(const ShapeList &wires, bool solid, Vec3 start_dir, double start_mag,
-                                           bool start_tangent, const ShapeList &start_faces, Vec3 end_dir,
-                                           double end_mag, bool end_tangent, const ShapeList &end_faces) {
+                                           bool start_tangent, const ShapeList &start_faces, bool start_curvature,
+                                           Vec3 end_dir, double end_mag, bool end_tangent, const ShapeList &end_faces,
+                                           bool end_curvature) {
   const size_t n = wires.shapes.size();
   if (n < 2) throw std::runtime_error("loft: two profiles at least");
+  if ((start_curvature || end_curvature) && n != 2)
+    throw std::runtime_error("loft: matching curvature through more than two profiles isn't supported yet");
   const bool has_start = !std::isnan(start_mag), has_end = !std::isnan(end_mag);
   if ((has_start && wires.shapes[0].ShapeType() == TopAbs_VERTEX) ||
       (has_end && wires.shapes[n - 1].ShapeType() == TopAbs_VERTEX))
@@ -1884,6 +1887,62 @@ std::unique_ptr<Operation> loft_clamped_op(const ShapeList &wires, bool solid, V
       umults(j + 1) = (j == 0 || j == spans) ? 4 : 3;
     }
     Handle(Geom_BSplineSurface) s = new Geom_BSplineSurface(poles, uknots, vknots, umults, vmults, 3, 3);
+    // Matching the curvature of the faces next to a profile (batch 057 c007): the sides are the tangency-matched
+    // cubics raised to quintics across, with the second row from that end moved so the curve's curvature there is
+    // the face's along it: P2 = 2 P1 − P0 + (κ |r'|² / 20) n, r' = 5 (P1 − P0), κ the face's normal curvature
+    // along r' (none for a plane).
+    if (start_curvature || end_curvature) {
+      s->IncreaseDegree(3, 5);
+      for (int which = 0; which < 2; ++which) {
+        if (!(which == 0 ? start_curvature : end_curvature)) continue;
+        const End &end = ends[which];
+        const int nv = s->NbVPoles();
+        const int r0 = which == 0 ? 1 : nv, r1 = which == 0 ? 2 : nv - 1, r2 = which == 0 ? 3 : nv - 2;
+        // The curvature term at each span end along u.
+        std::vector<gp_Vec> term(spans + 1);
+        for (int j = 0; j <= spans; ++j) {
+          const gp_Pnt p0 = s->Pole(3 * j + 1, r0), p1 = s->Pole(3 * j + 1, r1);
+          const gp_Vec d = gp_Vec(p0, p1) * 5;
+          term[j] = gp_Vec();
+          for (const TopoDS_Face &face : end.faces) {
+            BRepExtrema_DistShapeShape near_face(BRepBuilderAPI_MakeVertex(p0).Vertex(), face);
+            if (!near_face.IsDone() || near_face.Value() > 1e-6) continue;
+            Handle(Geom_Surface) surface = BRep_Tool::Surface(face);
+            GeomAPI_ProjectPointOnSurf projection(p0, surface);
+            if (projection.NbPoints() == 0) continue;
+            double fu, fv;
+            projection.LowerDistanceParameters(fu, fv);
+            GeomLProp_SLProps props(surface, fu, fv, 2, 1e-9);
+            if (!props.IsCurvatureDefined() || d.Magnitude() < 1e-12) break;
+            const gp_Vec normal(props.Normal());
+            const gp_Vec t = (d - normal * d.Dot(normal)).Normalized();
+            double kappa = 0;
+            if (props.IsUmbilic()) {
+              kappa = props.MaxCurvature();
+            } else {
+              gp_Dir dmax, dmin;
+              props.CurvatureDirections(dmax, dmin);
+              const double c = t.Dot(gp_Vec(dmax)), sn = t.Dot(gp_Vec(dmin));
+              kappa = props.MaxCurvature() * c * c + props.MinCurvature() * sn * sn;
+            }
+            term[j] = normal * (kappa * d.SquareMagnitude() / 20);
+            break;
+          }
+        }
+        for (int j = 0; j <= spans; ++j) {
+          const gp_Vec slope = j == 0        ? (term[1] - term[0]) / step
+                               : j == spans ? (term[spans] - term[spans - 1]) / step
+                                            : (term[j + 1] - term[j - 1]) / (2 * step);
+          for (int k : {0, 1, 2}) {
+            const int i = 3 * j + 1 + (k == 0 ? 0 : k == 1 ? 1 : -1);
+            if (i < 1 || i > s->NbUPoles()) continue;
+            const gp_Vec offset = k == 0 ? term[j] : k == 1 ? term[j] + slope * (step / 3) : term[j] - slope * (step / 3);
+            const gp_XYZ p = s->Pole(i, r1).XYZ() * 2 - s->Pole(i, r0).XYZ() + offset.XYZ();
+            s->SetPole(i, r2, gp_Pnt(p));
+          }
+        }
+      }
+    }
     // A side ending at a point has a degenerate row there: the face's edge there is degenerate.
     ShapeFix_Face fix(BRepBuilderAPI_MakeFace(s, side.u1, side.u2, 0, 1, 1e-7).Face());
     fix.Perform();

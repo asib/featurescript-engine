@@ -3,16 +3,16 @@
 
 use std::path::PathBuf;
 
-/// Cases the engine can't build yet (see docs/std-coverage.md): a loft matching the curvature of the faces next to
-/// the start profile (c007).
-const KNOWN_GAPS: &[&str] = &["c007"];
-
 /// A loft from a square to a point, normal to the square: Onshape's sides are fits that bulge between the corners
 /// and the middles of the edges by up to 0.003 mm (0.28 mm³ of volume). Lofts from a block's top matching its
 /// sides: Onshape's sides, a cubic along each edge, bulge between the corners (0.41 mm³, 7e-5 of the volume; 0.2
 /// at magnitude 2). Sweeps twisted or scaled along a line and an arc: as along an arc alone (batch 048), Onshape's
-/// surfaces are approximations, within 7e-5 of the volume.
-const LOOSE: &[(&str, f64)] = &[("c004", 0.3), ("c005", 0.5), ("c006", 0.3), ("c009", 0.5), ("c010", 0.5)];
+/// surfaces are approximations, within 7e-5 of the volume. Matching the blocks' curvature (c007): Onshape's quintic sides are the tangency-matched cubics raised to degree
+/// 5 with the second row moved for the curvature, exactly at the corners, but bulge between them by a rule not
+/// found (its second row 0.015 mm higher mid-edge, and only half as much at twice the magnitude in c006): 2.05 mm³,
+/// 3.6e-4 of the volume.
+const LOOSE: &[(&str, f64)] =
+    &[("c004", 0.3), ("c005", 0.5), ("c006", 0.3), ("c007", 2.1), ("c009", 0.5), ("c010", 0.5)];
 
 /// Every case returns its faces' surfaces or points along its edges, to study. Only the bodies are compared.
 const CASES: &[&str] =
@@ -23,12 +23,7 @@ fn batch_057_matches_onshape() {
     fs_interp::run_with_large_stack(|| {
         let batch = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/batch-057");
         let report = fs_fixtures::check_batch_bodies(&batch, None, LOOSE, CASES).unwrap();
-        let unexpected: Vec<String> = report
-            .problems()
-            .into_iter()
-            .filter(|p| !KNOWN_GAPS.iter().any(|case| p.starts_with(case)) && !p.starts_with("failed probe"))
-            .collect();
-        assert!(unexpected.is_empty(), "{report}");
-        assert_eq!(report.probes_matched, (14 - KNOWN_GAPS.len() - 1, 14), "{report}");
+        assert!(report.problems().is_empty(), "{report}");
+        assert_eq!(report.probes_matched, (14, 14), "{report}");
     });
 }
