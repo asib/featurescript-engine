@@ -1951,6 +1951,12 @@ std::unique_ptr<Operation> loft_clamped_op(const ShapeList &wires, bool solid, V
     }
     const gp_Vec &a = f.at_vertices[piece], &b = f.at_vertices[(piece + 1) % f.at_vertices.size()];
     const double len = f.run->pieces[piece].length / f.run->total;
+    if (end.faces.empty()) {
+      // Normal to the profile (or along a direction): from one corner's value to the next by h = 3w² − 2w³ (batch
+      // 063 c005–c007: within 0.0022 of Onshape's fitted sides, the same along every edge).
+      const double h = within * within * (3 - 2 * within), dh = 6 * within * (1 - within);
+      return {a + (b - a) * h, (b - a) * (dh / len * ds)};
+    }
     // From one vertex's value to the next in proportion (batch 058 c006: a matched corner's sideways part falls
     // linearly along the edge).
     return {a + (b - a) * within, (b - a) * (1.0 / len * ds)};

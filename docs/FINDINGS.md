@@ -688,6 +688,9 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   the magnitude times 0.9 of the chord along the normal plus 0.1 of its length (as the engine had fitted); along
   the edge it is blended between the corners by a rule not found: halfway it is the corners' mean, but at a third
   of the way it lies 0.2498 to 0.2695 of the way between them, more where it rises (smoothstep gives 0.2593).
+  Against a smoothstep blend of the corners' values the leftover is the same on every edge of a loft, symmetric
+  and nothing at the ends and middle (0.0017, 0.0022, 0.0014 at 1/8, 1/4, 1/3 for the off-axis squares; 0.0003 at
+  1/3 for the rectangles), so it looks like Onshape's fit of the sides; the engine blends by smoothstep.
   Onshape's sides are fits of eight C1 cubic spans along the edge, a cubic across, natural at the free end.
 - **Fills of arcs and boundary surfaces of arcs** (batch 063 c008, c009, c011) are Onshape's own fits: the fill
   of four arcs is bicubic with four C1 spans each way, its edges' rows 0.05 mm off the arcs at the knots and not a
