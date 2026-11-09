@@ -291,6 +291,20 @@ fn bend_beside_rolled(
     let turn = dot(toward_rolled, toward_flat).clamp(-1.0, 1.0).acos();
     let radii = (sheet_radius - inside, sheet_radius - inside + thickness);
     let toward = if rolled_first { (toward_rolled, toward_flat) } else { (toward_flat, toward_rolled) };
+    // The rolled wall's direction and normal where the bend leaves it, not at the definition's corner: an unrolled
+    // wall lies on from there (batch 069 c004).
+    let n_rolled = if rolled_first { normals.0 } else { normals.1 };
+    let radial_at_m = normalize(sub(m, o)).ok_or_else(failed)?;
+    let normal_there = scale(radial, if dot(n_rolled, radial_at_m) >= 0.0 { 1.0 } else { -1.0 });
+    let mut into_there = normalize(cross(along, radial)).ok_or_else(failed)?;
+    if dot(into_there, d_rolled) < 0.0 {
+        into_there = scale(into_there, -1.0);
+    }
+    let (into, normals) = if rolled_first {
+        ((into_there, into.1), (normal_there, normals.1))
+    } else {
+        ((into.0, into_there), (normals.0, normal_there))
+    };
     Ok(Some(Bend {
         edge: f1.clone(),
         sheet_radius,
@@ -1760,6 +1774,7 @@ fn bend_reliefs(def: &Body, wall: &Shape, bends: &[Bend], relief: &BendRelief) -
 /// An unfolded rolled wall laid flat (batch 043): the rectangle tangent to its cylinder along the edge it's held by
 /// (a held boundary edge, or the edge it shares with a held or planar wall), as wide as the wall's arc at its neutral
 /// radius (the model's rolled k-factor, 0.5 by default, of the way through the material).
+#[allow(clippy::too_many_arguments)]
 fn unrolled(
     def: &Body,
     wall: &Shape,
@@ -1768,6 +1783,7 @@ fn unrolled(
     k_rolled: f64,
     rips: &[Shape],
     clearance: f64,
+    bends: &[Bend],
 ) -> R<Shape> {
     let s = wall.surface_definition().map_err(occt_error)?;
     if s.kind != 1 {
@@ -1806,7 +1822,17 @@ fn unrolled(
     let mid = anchor.edge_tangent(0.5, false).map_err(occt_error)?.origin;
     let (fu, _) = wall.face_fraction(mid).map_err(occt_error)?;
     let at_start = fu < 0.5;
-    let fa = if at_start { 0.0 } else { 1.0 };
+    // From where a bend at that edge leaves the wall (batch 069 c002), else from the edge.
+    let bend_at_anchor = bends.iter().find(|b| b.edge.is_same(anchor));
+    let fa = match bend_at_anchor {
+        Some(bend) => {
+            let toward = if bend.walls.0.is_same(wall) { bend.toward.0 } else { bend.toward.1 };
+            let leaves = add(bend.axis_origin, scale(toward, bend.sheet_radius));
+            wall.face_fraction(leaves).map_err(occt_error)?.0.clamp(0.0, 1.0)
+        }
+        None if at_start => 0.0,
+        None => 1.0,
+    };
     let (a0, a1) =
         (wall.face_tangent_plane(fa, 0.0).map_err(occt_error)?, wall.face_tangent_plane(fa, 1.0).map_err(occt_error)?);
     let normal = a0.normal;
@@ -1815,7 +1841,8 @@ fn unrolled(
     let radial = sub(rel, scale(s.frame.normal, dot(rel, s.frame.normal)));
     let outward = if dot(normal, radial) >= 0.0 { 1.0 } else { -1.0 };
     let neutral = s.radius1 + outward * (-back + k_rolled * (front + back));
-    let mut width = neutral * (u1 - u0).abs();
+    let far = if at_start { 1.0 } else { 0.0 };
+    let mut width = neutral * (u1 - u0).abs() * (far - fa).abs();
     // A rip along either straight edge (meeting a wall tangentially) takes half the clearance off that end, as a
     // tangent rip does a flat wall.
     let ripped = |e: &Shape| rips.iter().any(|r| r.is_same(e));
@@ -1935,7 +1962,7 @@ fn build_part(
                 == Some(true);
         if unfolded_rolled {
             let rip_edges: Vec<Shape> = rips.iter().map(|&r| def.edges[r].shape.clone()).collect();
-            base = unrolled(def, &wall.shape, front, back, k_rolled, &rip_edges, clearance)?;
+            base = unrolled(def, &wall.shape, front, back, k_rolled, &rip_edges, clearance, bends)?;
         }
         if planar && distances.iter().any(|&d| d > 0.0) {
             let (grow, grow_by): (Vec<Shape>, Vec<f64>) =
