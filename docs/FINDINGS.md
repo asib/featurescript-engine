@@ -791,6 +791,23 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   falls in the rolled wall and wraps back onto it at the neutral radius, as on a lone rolled wall (070 c012); the
   flat is the part with every bend unfolded and the rolled wall unrolled from the bend's tangent point. Its areas
   0.016 mm² over the exact wrap's, as there.
+- **Bodies cut from sheet metal** (batch 072 c003–c005): std cuts by the outline of the tool's part within the sheet
+  (`opCreateOutline`), projected onto the definition along its normal, and cuts that straight through: a sphere of
+  radius 6 about a plate's top makes a cylindrical hole of radius 6; a cylinder leaning 30° makes a hole of its
+  two ends' ellipses and the lines joining them (Onshape splits it at points of its own); a box across a rolled
+  wall makes a hole whose sides run radially, as wide as the box at the wall's inner face (±14.48° for a 10 mm box
+  on radius 20).
+- **A cut list of a tube along an arc** (batch 072 c001): Onshape's table has no length, and angles of 7e-9 and
+  6e-8 rad: its curves drawn on the swept faces (its torus's periodic way) evidently run round the tube.
+- **A three-point sketch fit spline** (through (0, 0), (30, 10), (60, 0); batch 072 c002) isn't the natural cubic:
+  a tube swept along it has a top face 10 × 63.8446 mm² (the natural cubic is 63.8271 long) and edges whose ends
+  turn a total of 0.9241 rad (the natural cubic's 0.9273: end slopes 0.5).
+- **A sweep twisted along a line and a spline** fails: `SWEEP_FAILED` (batch 072 c006).
+- **No offset curve on a sphere** (batch 072 c007): a hemisphere's equator offset 3 mm up its sphere gives nothing,
+  as a cone's top circle down its side doesn't (067 c001).
+- **A variable conic fillet** (batch 072 c009): rho 0.7 from 2 to 5 mm along a block's top edge, smoothly: the
+  fillet's area is the exact rational surface's (246.5854), the top and front lose exactly 40 × 3.5 mm², the end
+  faces 0.002 and 0.003 mm² more than the exact conics' (Onshape's cubic fits of its sections).
 - **`derivedMirror` in a Part Studio feature** (batch 060 c001): Onshape fails with "Execution error". It builds
   its source twice, once by `@convert` and again in `instantiate` (no loaded context), which Onshape evidently
   refuses for a build function defined in the studio (it won't derive one source twice in a Part Studio, batch
