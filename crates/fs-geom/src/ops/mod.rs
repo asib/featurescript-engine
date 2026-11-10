@@ -6,6 +6,7 @@ mod direct;
 mod extrude;
 pub(crate) mod frames;
 mod hole;
+mod import;
 mod intersection;
 mod isocline;
 mod merge;
@@ -317,6 +318,7 @@ pub fn register(m: &mut GeomBuiltins) {
     m.insert("opPattern", |_, args| run_op(&args, "opPattern", pattern::pattern));
     m.insert("opSplitPart", |_, args| run_op(&args, "opSplitPart", split::split_part));
     m.insert("opSplitEdges", |_, args| run_op(&args, "opSplitEdges", split::split_edges));
+    m.insert("opImportForeign", |_, args| run_op(&args, "opImportForeign", import::import_foreign));
     m.insert("opSplitBySelfShadow", |_, args| run_op(&args, "opSplitBySelfShadow", shadow::split_by_self_shadow));
     m.insert("opSplitFace", |interp, args| {
         let tags = crate::tags(interp)?;

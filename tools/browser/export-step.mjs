@@ -1,22 +1,23 @@
 // Exports a fixture document's Part Studio as STEP, through the UI of the logged-in oracle Chrome, without pasting or
 // rebuilding anything: for when build-fixture-batch.mjs saved the probes but its export failed. Makes no API calls.
 //
-// Usage: node tools/browser/export-step.mjs <batch-dir> <document-url>
+// Usage: node tools/browser/export-step.mjs <batch-dir> <document-url> [<part-studio> <file>]
 //
-// Moves the download to <batch-dir>/onshape.step.
+// Moves the download to <batch-dir>/onshape.step, or with a Part Studio's tab name and a file name, exports that
+// Part Studio to <batch-dir>/<file> (Onshape's own import of an uploaded file, fixtures/blobs).
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { connectToPage, sleep } from './cdp.mjs';
 
-const [batchDir, documentUrl] = process.argv.slice(2);
+const [batchDir, documentUrl, partStudioName, fileName] = process.argv.slice(2);
 if (!batchDir || !documentUrl) {
   console.error('usage: node tools/browser/export-step.mjs <batch-dir> <document-url>');
   process.exit(2);
 }
 const FEATURE_STUDIO = 'Feature Studio 1';
-const PART_STUDIO = 'Part Studio 1';
+const PART_STUDIO = partStudioName ?? 'Part Studio 1';
 const EXPORT_NAME = `fixture-${Date.now()}`;
 // Chrome saves downloads here; Browser.setDownloadBehavior doesn't outlive the connection that sets it.
 const DOWNLOADS = join(homedir(), 'Downloads');
@@ -79,7 +80,7 @@ while (!(existsSync(downloaded) && statSync(downloaded).size > 0)) {
   await sleep(2000);
 }
 await sleep(1000);
-const target = join(batchDir, 'onshape.step');
+const target = join(batchDir, fileName ?? 'onshape.step');
 renameSync(downloaded, target);
 console.log(`saved ${target} (${statSync(target).size} bytes)`);
 page.close();
