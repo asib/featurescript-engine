@@ -829,6 +829,16 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   guide bulging out from one side's middle curves that side only (378.19 mm²), the others staying planes. Along a
   straight path, circles of radius 10 and 5 loft to a curved side (5493.27 mm³, the cone's 5497.79); along a
   quarter circle, with the far circle facing either way, `LOFT_FAILED`.
+- **Locked to a sphere** (batch 076 c001, c002): a sweep, or a frame, along a quarter of a tilted great circle,
+  locked to the sphere, is a revolve about the circle's axis.
+- **A quartic extended** (batch 076 c003, c004): a fit spline raised to degree 4 goes straight on as four evenly
+  spaced poles after a fourfold knot, over 10 / |C′| of parameter; curving on, the same, its end having no
+  curvature.
+- **Offset curves extended** (batch 076 c005–c007): extended and trimmed 2 mm at each end, a block's top edge's
+  offset runs from x = 2 to x = 38; a round's arc offset into the top, extended or splitting, makes nothing (it
+  goes off the face, the top being planar and the round curved).
+- **A thin loft's ends trimmed** (batch 076 c008): the walls run on to the profiles' planes and stop flat there
+  (end rings of 86.71 and 45.48 mm² for a 1 mm wall from a 20 mm square to a 10 mm one).
 - **`derivedMirror` in a Part Studio feature** (batch 060 c001): Onshape fails with "Execution error". It builds
   its source twice, once by `@convert` and again in `instantiate` (no loaded context), which Onshape evidently
   refuses for a build function defined in the studio (it won't derive one source twice in a Part Studio, batch
