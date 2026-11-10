@@ -31,6 +31,37 @@ fn sum(model: &Model, found: &[EntityRef], f: impl Fn(&occt::Shape) -> occt::Res
     found.iter().map(|r| f(model.shape(*r)).map_err(occt_error)).sum()
 }
 
+/// A planar face's parameters as Onshape's run (batch 086 c023): u along the plane's canonical x, v along
+/// normal × x, each across the face's box in those axes (as `evPlane` takes it). The frame and the box.
+fn plane_parameter_box(face: &Shape) -> Option<(occt::Frame, Box3)> {
+    if face.surface_type().ok() != Some(occt::SurfaceType::Plane) {
+        return None;
+    }
+    let plane = face.face_plane().ok()?;
+    let frame = occt::Frame { x: values::canonical_x(plane.normal), ..plane };
+    let b = face.bounding_box_in(frame, true).ok()?;
+    let b = plane_origin_box(face, frame, b);
+    (b.max.x > b.min.x && b.max.y > b.min.y).then_some((frame, b))
+}
+
+/// The fractions of OCCT's parameter box at Onshape's parameters (u, v) on a planar face.
+fn plane_to_occt(face: &Shape, u: f64, v: f64) -> Option<(f64, f64)> {
+    let (frame, b) = plane_parameter_box(face)?;
+    let p = values::on_plane(&frame, b.min.x + u * (b.max.x - b.min.x), b.min.y + v * (b.max.y - b.min.y));
+    face.face_fraction(p).ok()
+}
+
+/// Onshape's parameters on a planar face at a point on it.
+fn plane_parameters_at(face: &Shape, p: Vec3) -> Option<(f64, f64)> {
+    let (frame, b) = plane_parameter_box(face)?;
+    let d = values::sub(p, frame.origin);
+    let y = values::cross(frame.normal, frame.x);
+    Some((
+        (values::dot(d, frame.x) - b.min.x) / (b.max.x - b.min.x),
+        (values::dot(d, y) - b.min.y) / (b.max.y - b.min.y),
+    ))
+}
+
 /// How a tool and a target meet (`ClashType`), or `None` if they don't.
 fn clash(tool: &Shape, target: &Shape) -> Option<&'static str> {
     if tool.distance(target).ok()?.distance > 1e-8 {
@@ -814,6 +845,7 @@ pub fn register(m: &mut GeomBuiltins) {
                 let mut planes = Vec::new();
                 for (u, v) in parameters {
                     let (u, v) = torus.as_ref().map_or((u, v), |map| map(u, v));
+                    let (u, v) = plane_to_occt(face, u, v).unwrap_or((u, v));
                     let frame = face.face_tangent_plane(u, v).map_err(|_| regen_error("NO_TANGENT_PLANE"))?;
                     planes.push(tags.plane(frame));
                 }
@@ -900,7 +932,10 @@ pub fn register(m: &mut GeomBuiltins) {
                 let mut out = Vec::new();
                 for (d, f) in hits {
                     let point = values::add(origin, values::scale(direction, d));
-                    let uv = model.shape(f).face_fraction(point).map_err(occt_error)?;
+                    let uv = match plane_parameters_at(model.shape(f), point) {
+                        Some(uv) => uv,
+                        None => model.shape(f).face_fraction(point).map_err(occt_error)?,
+                    };
                     let result = map(vec![
                         ("entity", tags.transient_query(&query::tid_string(model.tid(f)))),
                         ("entityType", tags.enum_value(entity_type, "FACE")),
@@ -937,9 +972,20 @@ pub fn register(m: &mut GeomBuiltins) {
                 let torus =
                     model.info(*r).surface_frame.and_then(|frame| crate::ops::frames::torus_fractions(face, frame));
                 let mut out = Vec::new();
+                // Onshape's least curvature runs along a cylinder's or cone's z axis (a fillet's, batch 086 c023);
+                // the greatest is the normal × that.
+                let axis = match (model.info(*r).surface_frame, face.surface_definition().map(|d| d.kind)) {
+                    (Some(frame), Ok(1 | 2)) => Some(frame.normal),
+                    _ => None,
+                };
                 for (u, v) in parameters {
                     let (u, v) = torus.as_ref().map_or((u, v), |map| map(u, v));
-                    let c = face.face_curvatures(u, v).map_err(occt_error)?;
+                    let (u, v) = plane_to_occt(face, u, v).unwrap_or((u, v));
+                    let mut c = face.face_curvatures(u, v).map_err(occt_error)?;
+                    if axis.is_some_and(|z| values::dot(c.frame.normal, z) < 0.0) {
+                        c.frame.normal = values::scale(c.frame.normal, -1.0);
+                        c.frame.x = values::scale(c.frame.x, -1.0);
+                    }
                     let result = map(vec![
                         ("minCurvature", tags.with_units(c.radius1, "meter", -1.0)),
                         ("maxCurvature", tags.with_units(c.radius2, "meter", -1.0)),
@@ -980,6 +1026,15 @@ fn planar_edges(edges: &[Shape]) -> Option<occt::Frame> {
             if c.kind == 1 || c.kind == 2 {
                 return Some(c.frame);
             }
+            // A line: from its start, x along it, the normal the world's z × it (batch 086 c023's edge along y);
+            // along z, the world's x × it (a guess).
+            if c.kind == 0 {
+                let start = edge.edge_tangent(0.0, false).ok()?;
+                let d = start.direction;
+                let normal = values::normalize(values::cross(Vec3::new(0.0, 0.0, 1.0), d))
+                    .or_else(|| values::normalize(values::cross(Vec3::new(1.0, 0.0, 0.0), d)))?;
+                return Some(occt::Frame { origin: start.origin, normal, x: d });
+            }
         }
     }
     let mut points = Vec::new();
@@ -1014,7 +1069,17 @@ fn planar_edges(edges: &[Shape]) -> Option<occt::Frame> {
     if points.iter().any(|p| values::dot(values::sub(*p, centre), normal).abs() > 1e-8) {
         return None;
     }
-    Some(occt::Frame { origin: points[0], normal, x: values::canonical_x(normal) })
+    // Several edges' plane has its origin in the middle of their box (batch 086 c023's loop); one curve's at its
+    // start (a guess).
+    let origin = if edges.len() > 1 {
+        let lo = points.iter().fold(points[0], |a, p| Vec3::new(a.x.min(p.x), a.y.min(p.y), a.z.min(p.z)));
+        let hi = points.iter().fold(points[0], |a, p| Vec3::new(a.x.max(p.x), a.y.max(p.y), a.z.max(p.z)));
+        let middle = values::scale(values::add(lo, hi), 0.5);
+        values::sub(middle, values::scale(normal, values::dot(values::sub(middle, centre), normal)))
+    } else {
+        points[0]
+    };
+    Some(occt::Frame { origin, normal, x: values::canonical_x(normal) })
 }
 
 /// The eigenvalues of a symmetric 3 × 3 matrix, smallest first, and their unit eigenvectors, by Jacobi rotations.
