@@ -1052,13 +1052,19 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   "Execution error"). The composite part Onshape's import makes is closed: deriving its solids finds none
   (`IMPORT_DERIVED_NO_PARTS`). Each source derives once per Part Studio; reading part names from the context of a
   running feature is refused (batch 011), so the batch counts them.
-- **Sketch text** (batch 091, the engine has no `@skText`): each glyph's straight segments are lines and its curves
-  degree-2 Bézier B-splines (the font's TrueType quadratics), the box's height 0.72 em (2048-unit Open Sans: a box
-  10 high, "I" 9.9154 tall), the baseline on the box's bottom; a construction frame as tall as the box and as wide
-  as the text's advance, with a line down its middle. The points are Onshape's font engine's: multiples of the
-  box's height / 23040, up to 0.3 font units off the outlines, from font versions not the published ones (Open
-  Sans's "I" advances about 504 units there, 572 in Open Sans 3; Arimo's 522 against 569). Matching it needs those
-  fonts and that engine.
+- **Sketch text** (batch 091): Onshape draws the font's outlines as FreeType loads them unhinted at 100 pixels to
+  the em, in 64ths of a pixel (font units × 6400 / units per em, rounded half away from zero; TrueType's implied
+  points midway between those), the box's height 4608 of them (0.72 em), the baseline on the box's bottom, each
+  glyph after the last by its rounded advance (no kerning: "Ab"'s b at A's advance). Straight pieces are lines,
+  curved ones a degree-2 Bézier each. A construction frame is as tall as the box and as wide as the ink plus a
+  quarter of a space (its 64ths, rounded down), with a line down its middle; the curves' wires come before the
+  regions' sheets. The fonts are Open Sans 1.10 and Arimo 1.33 (Debian's packages), not the current releases (Open
+  Sans 3's "I" is 200 to 370 units, Onshape's 201 to 371). The engine matches it exactly. Batch 097: spaces and
+  punctuation advance as any glyph, "AV" isn't kerned either, a composite glyph ("é") is its parts' outlines, the
+  text sits at the box's lower left corner however its corners are given, and `construction : true` leaves the
+  glyphs as they are. Extruded, the Béziers nearest circular arcs become cylinders in Onshape (merged with tangent
+  neighbours, by its kernel's own heuristic), and a Bézier along its chord a plane; several glyphs' regions come
+  in an order of Onshape's own.
 - **A flat cut crossing a bend** (batch 062 c006): the cut's piece on the bend's strip goes into the definition by
   the strip's stretch, so the definition's hole crosses the bend edge and splits it in two. The part: the hole's
   arcs in the walls beyond the setback lines (120° of the 6 mm circle each), the bend in two pieces, the hole's
@@ -1093,7 +1099,9 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
 - **`derivedMirror` in a Part Studio feature** (batch 060 c001): Onshape fails with "Execution error". It builds
   its source twice, once by `@convert` and again in `instantiate` (no loaded context), which Onshape evidently
   refuses for a build function defined in the studio (it won't derive one source twice in a Part Studio, batch
-  023). It is meant for assembly mirrors.
+  023). It is meant for assembly mirrors. A Part Studio tab's build function it allows (batch 096 c004). Building
+  the source twice isn't the reason: importDerived of sheet metal builds it twice, and Onshape allows that (batch
+  045).
 - **`evPlane` of nothing** raises `CANNOT_RESOLVE_ENTITIES` (batch 060 c009, c010), not `CANNOT_RESOLVE_PLANE`.
 - **Extruding in a sheet metal flat pattern** (batch 059 c008, c009) works from a feature: a sketch on
   `qCorrespondingInFlat` of a plate's top face, extruded with `domain` `FLAT`, runs `SMFlatOp`. The sketch plane

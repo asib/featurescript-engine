@@ -1,0 +1,77 @@
+{
+  "batch": "097",
+  "title": "more sketch text",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "sketch",
+      "description": "\"Hello, World 123\" in Open Sans Regular in a 40 × 8 box, extruded 1 mm",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "sketch",
+      "description": "\"AV\" (a kerning pair) in Open Sans Regular in a 40 × 10 box",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "sketch",
+      "description": "\"é\" (a composite glyph) in Open Sans Regular in a 20 × 10 box",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "sketch",
+      "description": "\"Ab\" in Open Sans Regular with the box's corners given from (40, 10) to (0, 0)",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "sketch",
+      "description": "\"Ab\" in Open Sans Regular in a box from (5, 3) to (45, 11)",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "sketch",
+      "description": "\"T\" in Open Sans Regular as construction, in a 20 × 10 box",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "sketch",
+      "description": "\"gjpqy\" in Arimo Regular in a 40 × 10 box, extruded 1 mm",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    }
+  ]
+}
