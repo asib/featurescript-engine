@@ -991,6 +991,10 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
 - **A tab across a corner** (batch 087 c004): on a box converted with rips up its corners, a tab on the front wall
   past the corner, subtracted from the right wall with 0.2 mm clearance, closes the corner's rip (std's derip:
   its faces run on over the rip's 0.02 mm gap); the engine finds no rip to close (within 2e-6 of the volume).
+- **Help points and recognition refused** (batches 083 c001, 068 c003): a face blend given a help point where a
+  side's faces lie in parallel planes apart (a floor and a Π-shaped sheet's two walls: a blend at each) fails,
+  `FACE_BLEND_FAILED`, rather than pick one; an open box shelled from a block, three sharp walls meeting at each
+  corner, isn't recognized as sheet metal (`evOffsetDetection` finds no group: `SHEET_METAL_CANNOT_RECOGNIZE_PARTS`).
 - **A failed case's leftover parts** (batches 014, 018, 060, 064, 086): a sheet metal part a failed case can't
   delete keeps Onshape's default name, "Part" and its place among the Part Studio's parts in order (named ones
   counted, flat patterns not): 086 c017's plate, after nine parts, is Part 10. Where the engine builds more or fewer
