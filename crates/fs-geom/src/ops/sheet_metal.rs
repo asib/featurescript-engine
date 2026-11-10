@@ -1362,8 +1362,9 @@ pub fn flat_operation(model: &mut Model, id: FeatureId, definition: &Value) -> R
     let union = field(definition, "operationType").as_str() == Some("UNION");
     let mut by_definition: Vec<(usize, Vec<Shape>)> = Vec::new();
     // Cuts from one rolled wall's flat, wrapped back onto its cylinder (batch 070 c012): (definition, wall, closed
-    // edges on it).
+    // edges on it). Regions added to it: (definition, wall, the wall grown by them).
     let mut wrapped: Vec<(usize, Shape, Vec<Shape>)> = Vec::new();
+    let mut rolled_added: Vec<(crate::model::Tid, Shape, Shape)> = Vec::new();
     let mut keep_facing: Vec<(crate::model::Tid, Vec3, Vec3)> = Vec::new();
     for r in faces {
         let Some(part_tid) = model.bodies[r.body].flat_of else { continue };
@@ -1371,12 +1372,46 @@ pub fn flat_operation(model: &mut Model, id: FeatureId, definition: &Value) -> R
         if let Some(def) = definition_of_part(model, part)
             && let Some((wall, unrolled_face, layout, _, _)) = rolled_flat(&model.bodies[def])?
         {
-            if union {
-                return Err(error("@opSMFlatOperation: adding to a rolled wall's flat isn't supported yet"));
-            }
             let plane = unrolled_face.face_plane().map_err(occt_error)?;
             let radius = wall.surface_definition().map_err(occt_error)?.radius1;
             let face = model.shape(r).clone();
+            // Added in the flat: the region wrapped onto the wall's cylinder, where the wall may not reach, and joined
+            // to it (batch 080 c005: a tab past the end of a rolled half tube's flat). Straight in the flat, its
+            // edges are straight in the cylinder's parameters.
+            if union {
+                let ((u0, v0), (u1, v1)) = wall.face_uv_bounds().map_err(occt_error)?;
+                let on_wall = |p: Vec3| -> R<(f64, f64)> {
+                    let q = sub(p, scale(plane.normal, dot(sub(p, plane.origin), plane.normal)));
+                    let (fu, fv) = wall.face_fraction(layout.wrap(q, radius)).map_err(occt_error)?;
+                    Ok((u0 + fu * (u1 - u0), v0 + fv * (v1 - v0)))
+                };
+                let mut edges = Vec::new();
+                for edge in face.sub_shapes(ShapeKind::Edge) {
+                    if edge.curve_type().ok() != Some(occt::CurveType::Line) {
+                        return Err(error(
+                            "@opSMFlatOperation: adding regions other than polygons to a rolled wall's flat isn't supported yet",
+                        ));
+                    }
+                    let a = edge.edge_tangent(0.0, false).map_err(occt_error)?.origin;
+                    let b = edge.edge_tangent(1.0, false).map_err(occt_error)?.origin;
+                    edges.push(vec![on_wall(a)?, on_wall(b)?]);
+                }
+                let mut tab = occt::face_from_uv(&wall, &edges).map_err(|_| failed())?;
+                // Facing as the wall does, so they merge, and the sheet keeps facing as it did.
+                let corner = wall.face_tangent_plane(0.01, 0.01).map_err(occt_error)?;
+                let inner = tab.face_inner_point().map_err(occt_error)?;
+                if dot(normal_at(&tab, inner)?, normal_at(&wall, inner)?) < 0.0 {
+                    tab = tab.reversed();
+                }
+                keep_facing.push((model.bodies[def].tid, corner.origin, corner.normal));
+                // Joined to the wall here, as one face on its surface (a boolean leaves the two apart): the union
+                // then carries the wall's identity over to it.
+                let joined = occt::sew_faces(&[wall.clone(), tab], 1e-7).map_err(|_| failed())?;
+                let merged = occt::merge_faces(&joined.sub_shapes(ShapeKind::Face)).map_err(|_| failed())?.shape();
+                let [whole] = &merged.sub_shapes(ShapeKind::Face)[..] else { return Err(failed()) };
+                rolled_added.push((model.bodies[def].tid, wall.clone(), whole.clone()));
+                continue;
+            }
             let mut loops = Vec::new();
             for boundary in face.sub_shapes(ShapeKind::Wire) {
                 let mut uv = Vec::new();
@@ -1512,6 +1547,37 @@ pub fn flat_operation(model: &mut Model, id: FeatureId, definition: &Value) -> R
         results.push((def, op));
     }
     super::replace_bodies(model, &id, results);
+    // A rolled wall grown in its flat: the definition sheet the grown face, which keeps the wall's identity and
+    // attributes, its edges that come through unchanged theirs.
+    for (tid, wall, grown) in rolled_added {
+        let Some(b) = model.bodies.iter().position(|body| body.tid == tid) else { continue };
+        let old = model.bodies[b].clone();
+        let mut origins = Origins::default();
+        if let Some(face) = old.faces.iter().find(|f| f.shape.is_same(&wall)) {
+            origins.same(&grown, face);
+        }
+        let ends =
+            |e: &Shape| -> Option<[Vec3; 3]> {
+                Some([0.0, 0.5, 1.0].map(|t| {
+                    e.edge_tangent(t, false).map(|l| l.origin).unwrap_or(Vec3 { x: f64::NAN, y: 0.0, z: 0.0 })
+                }))
+            };
+        let close = |a: Vec3, b: Vec3| norm(sub(a, b)) < 1e-9;
+        for edge in grown.sub_shapes(ShapeKind::Edge) {
+            let Some([a, m, z]) = ends(&edge) else { continue };
+            if let Some(e) = old.edges.iter().find(|e| {
+                ends(&e.shape).is_some_and(|[p, q, r]| {
+                    close(m, q) && ((close(a, p) && close(z, r)) || (close(a, r) && close(z, p)))
+                })
+            }) {
+                origins.same(&edge, e);
+            }
+        }
+        let sheet = occt::sew_faces(&[grown], 1e-7).map_err(|_| failed())?;
+        let info = crate::model::Info::new(id.clone());
+        model.remove_bodies(&[b]);
+        model.add_body(NewBody::replacing(&old, sheet), &origins, &info, &|_| None);
+    }
     for (tid, at, normal) in keep_facing {
         let Some(b) = model.bodies.iter().position(|body| body.tid == tid) else { continue };
         let Some(face) = model.bodies[b].faces.iter().find(|f| {
