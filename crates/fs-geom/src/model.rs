@@ -115,6 +115,10 @@ pub struct Info {
     /// For a straight edge, where Onshape's line is placed, if not at the edge's middle: an extrude's edge swept
     /// from a vertex has it at the far end (a fillet's cylinder takes its origin from it, batch 047).
     pub line_origin: Option<occt::Vec3>,
+    /// Other features whose entities it was merged from (an edge where a boolean joined two sheets): `qCreatedBy`
+    /// matches them too, as Onshape's does (a sheet metal loft added to a model finds the joint among its loft's
+    /// edges, batch 044 c005).
+    pub merged_from: Vec<FeatureId>,
 }
 
 impl Info {
@@ -134,7 +138,7 @@ impl Info {
     }
 
     pub fn is_created_by(&self, feature: &[Rc<str>]) -> bool {
-        self.created_by.starts_with(feature)
+        self.created_by.starts_with(feature) || self.merged_from.iter().any(|f| f.starts_with(feature))
     }
 }
 
@@ -668,6 +672,16 @@ impl Origins {
             // An image of several entities (faces merged into one, say) comes from all of them.
             Some((_, existing)) => {
                 existing.ancestry.merge(&origin.ancestry);
+                if let (Some(info), Some(other)) = (&mut existing.info, &origin.info) {
+                    let more: Vec<FeatureId> = std::iter::once(&other.created_by)
+                        .chain(&other.merged_from)
+                        .filter(|f| **f != info.created_by && !info.merged_from.contains(f))
+                        .cloned()
+                        .collect();
+                    if !more.is_empty() {
+                        Rc::make_mut(info).merged_from.extend(more);
+                    }
+                }
                 if !origin.attributes.is_empty() {
                     Rc::make_mut(&mut existing.attributes).merge(&origin.attributes);
                 }
