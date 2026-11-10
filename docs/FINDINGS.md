@@ -993,6 +993,13 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
 - **A tab across a corner** (batch 087 c004): on a box converted with rips up its corners, a tab on the front wall
   past the corner, subtracted from the right wall with 0.2 mm clearance, closes the corner's rip (std's derip:
   its faces run on over the rip's 0.02 mm gap); the engine finds no rip to close (within 2e-6 of the volume).
+  Onshape's front wall keeps the gap up to the tab's own edges (z 5 and 15), the engine's only up to the right
+  wall's notch (z 4.8 and 15.2): there the corner's edge is one-sided in the engine's definition, and std drops a
+  one-sided edge's joint (`isEntityAppropriateForAttribute`), so it isn't a rip any more. In Onshape the derip
+  comes first (std's `subtractTab`: the tab's collisions with the part's rip faces pick the rip, `@opDerip`
+  closes it, then the subtraction and union); the engine ties no part face to a rip (its faces across the gap
+  stand a clearance off the rip's line, and rips are two-sided), so the collision finds nothing, and how
+  `@opDerip` reshapes the definition isn't known.
 - **Help points and recognition refused** (batches 083 c001, 079 c005, 068 c003): a face blend given a help point
   where it has two solutions (a floor and a Π-shaped sheet's two walls; a floor through a cylinder lying along it,
   meeting it along two lines) fails,
