@@ -1227,6 +1227,36 @@ pub fn ruled_surface(model: &mut Model, id: FeatureId, definition: &Value) -> R<
 /// other end with `flipHeuristics`).
 pub fn move_curve_boundary(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
     let trim = field(definition, "moveBoundaryType").as_str() == Some("TRIM");
+    // Trimmed to points (an offset curve's trim, batch 076 c005): each wire's edge kept between the points nearest
+    // them.
+    if trim && field(definition, "trimToPoints").as_array().is_some_and(|a| !a.is_empty()) {
+        let points: Vec<occt::Vec3> = field(definition, "trimToPoints")
+            .as_array()
+            .map(|a| a.iter().map(|p| values::vec3(p, "trimToPoints")).collect::<R<Vec<_>>>())
+            .transpose()?
+            .unwrap_or_default();
+        let [p0, p1] = points[..] else { return Err(error("@opMoveCurveBoundary: trims to other than two points aren't supported yet")) };
+        let bodies = super::owner_bodies(model, field(definition, "wires"))?;
+        let info = Info::new(id);
+        let mut results = Vec::new();
+        for b in bodies {
+            let [edge] = &model.bodies[b].edges[..] else {
+                return Err(error("@opMoveCurveBoundary: trimming wires of several edges to points isn't supported yet"));
+            };
+            let edge = edge.shape.clone();
+            let (f0, f1) = (edge.edge_fraction(p0, false).map_err(occt_error)?, edge.edge_fraction(p1, false).map_err(occt_error)?);
+            let (lo, hi) = if f0 <= f1 { (f0, f1) } else { (f1, f0) };
+            let kept = occt::edge_between(&edge, lo, hi, false).map_err(|_| regen_error("TRIM_CURVE_FAILED"))?;
+            results.push((b, kept));
+        }
+        for (b, edge) in results.into_iter().rev() {
+            let old = model.bodies[b].clone();
+            model.remove_bodies(&[b]);
+            let wire = occt::connect_edges(&[edge]).map_err(occt_error)?.into_iter().next().ok_or_else(|| regen_error("TRIM_CURVE_FAILED"))?;
+            model.add_body(NewBody::replacing(&old, wire), &Origins::default(), &info, &|_| None);
+        }
+        return Ok(Value::UNDEFINED);
+    }
     let up_to = !trim && field(definition, "endCondition").as_str() == Some("UP_TO_ENTITY");
     // What to trim or extend to: a plane (batch 018), or a straight curve, taken as the plane through it square to
     // the curve being changed (batch 021).
