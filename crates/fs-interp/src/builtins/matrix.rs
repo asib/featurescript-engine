@@ -101,6 +101,83 @@ fn inverse(m: &M) -> R<M> {
     Ok(a.into_iter().map(|row| row[n..].to_vec()).collect())
 }
 
+/// A singular value decomposition `m = u s vᵀ` by one-sided Jacobi rotations: `u` n × n and `v` p × p orthogonal, `s`
+/// n × p with the singular values down its diagonal, largest first.
+#[allow(clippy::needless_range_loop)]
+fn svd(m: &M) -> (M, M, M) {
+    let (n, p) = (m.len(), m.first().map_or(0, Vec::len));
+    let mut w = m.clone();
+    let mut v: M = (0..p).map(|i| (0..p).map(|j| if i == j { 1.0 } else { 0.0 }).collect()).collect();
+    for _ in 0..100 {
+        let mut rotated = false;
+        for i in 0..p {
+            for j in i + 1..p {
+                let (mut a, mut b, mut g) = (0.0, 0.0, 0.0);
+                for k in 0..n {
+                    a += w[k][i] * w[k][i];
+                    b += w[k][j] * w[k][j];
+                    g += w[k][i] * w[k][j];
+                }
+                if g.abs() <= 1e-15 * (a * b).sqrt() || g == 0.0 {
+                    continue;
+                }
+                rotated = true;
+                let zeta = (b - a) / (2.0 * g);
+                let t = zeta.signum() / (zeta.abs() + (1.0 + zeta * zeta).sqrt());
+                let c = 1.0 / (1.0 + t * t).sqrt();
+                let s = c * t;
+                for row in w.iter_mut().chain(v.iter_mut()) {
+                    let (x, y) = (row[i], row[j]);
+                    row[i] = c * x - s * y;
+                    row[j] = s * x + c * y;
+                }
+            }
+        }
+        if !rotated {
+            break;
+        }
+    }
+    let norms: Vec<f64> = (0..p).map(|j| (0..n).map(|k| w[k][j] * w[k][j]).sum::<f64>().sqrt()).collect();
+    let mut order: Vec<usize> = (0..p).collect();
+    order.sort_by(|&a, &b| norms[b].partial_cmp(&norms[a]).unwrap_or(std::cmp::Ordering::Equal));
+    let largest = norms.iter().cloned().fold(0.0, f64::max);
+    let mut u: M = vec![vec![0.0; n]; n];
+    let mut s: M = vec![vec![0.0; p]; n];
+    let mut columns: Vec<Vec<f64>> = Vec::new();
+    for (j, &c) in order.iter().enumerate().take(n.min(p)) {
+        s[j][j] = norms[c];
+        if norms[c] > 1e-14 * largest.max(1e-300) {
+            columns.push((0..n).map(|k| w[k][c] / norms[c]).collect());
+        } else {
+            break;
+        }
+    }
+    // The rest of u: the standard basis made orthogonal to what's there.
+    for e in 0..n {
+        if columns.len() == n {
+            break;
+        }
+        let mut x: Vec<f64> = (0..n).map(|k| if k == e { 1.0 } else { 0.0 }).collect();
+        for c in &columns {
+            let d: f64 = (0..n).map(|k| x[k] * c[k]).sum();
+            for k in 0..n {
+                x[k] -= d * c[k];
+            }
+        }
+        let norm = x.iter().map(|a| a * a).sum::<f64>().sqrt();
+        if norm > 1e-8 {
+            columns.push(x.into_iter().map(|a| a / norm).collect());
+        }
+    }
+    for (j, c) in columns.iter().enumerate() {
+        for k in 0..n {
+            u[k][j] = c[k];
+        }
+    }
+    let v = (0..p).map(|k| order.iter().map(|&c| v[k][c]).collect()).collect();
+    (u, s, v)
+}
+
 pub fn register(m: &mut HashMap<&'static str, BuiltinFn>) {
     m.insert("isMatrix", |_, args| {
         Ok(Value::bool(to_matrix(arg(&args, 0, "isMatrix")?, "isMatrix").is_ok_and(|m| !m.is_empty())))
@@ -198,5 +275,10 @@ pub fn register(m: &mut HashMap<&'static str, BuiltinFn>) {
             return Err(error("@matrixInverse: matrix must be square"));
         }
         Ok(from_matrix(inverse(&a)?))
+    });
+    m.insert("matrixSvd", |_, args| {
+        let a = to_matrix(arg(&args, 0, "matrixSvd")?, "matrixSvd")?;
+        let (u, s, v) = svd(&a);
+        Ok(super::map_value(vec![("u", from_matrix(u)), ("s", from_matrix(s)), ("v", from_matrix(v))]))
     });
 }
