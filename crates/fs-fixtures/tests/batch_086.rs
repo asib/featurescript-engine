@@ -9,10 +9,9 @@ const UNORDERED: &[&str] = &[
     "c001", "c002", "c003", "c004", "c005", "c006", "c007", "c014", "c015", "c016", "c018", "c019", "c020",
 ];
 
-/// Known gap (docs/FINDINGS.md): c004's offset sheet has two edges (where its faces meet, and at one end) running
-/// the other way from Onshape's, which keeps its source edges' directions. c017 fails in both
-/// (`SHEET_METAL_RIP_NO_CORNER`: the plate has no vertex between collinear sketch lines), its plate left as Part 10.
-const KNOWN_GAPS: &[&str] = &["c004"];
+/// c017 fails in both (`SHEET_METAL_RIP_NO_CORNER`: the plate has no vertex between collinear sketch lines), its
+/// plate left as Part 10.
+const KNOWN_GAPS: &[&str] = &[];
 
 #[test]
 fn batch_086_matches_onshape() {
