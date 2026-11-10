@@ -867,6 +867,27 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   from the plate's edge and the loft's, must count as created by both (the engine's merged entities now keep every
   creating feature): the plate's far edge lofted to a line 20 mm up and 10 mm out becomes one part with a bend
   (4123.348 mm³).
+- **Where a slanted bend's end tilts** (batch 078 c001–c003, c005): at the end of the bend's edge where neither
+  wall's edge at the vertex leans in along the bend (one square to it and the other leaning out, at either end
+  of the edge, or both leaning out, as at a square frustum's top corners) Onshape tilts the plane of the end curves
+  about the corners' chord into the bend; where one leans in (044 c003's near end, with the other leaning out) or
+  both do, it keeps the plane of the walls' edges. The tilted plane meets the bend's edge 0.48 mm inside the vertex
+  for the L's (slope 1:2, radius 1, 2 mm thick, 90°), about 0.45 for the frustum's (from its faces' areas). What
+  sets it, these don't show.
+- **Sheet metal loft connections and closed profiles** (batch 078 c004, c005): a connection holds a pair of
+  vertices in the least-distance matching, which runs in stretches between connections; a skew quad still takes
+  its shorter diagonal. In each stretch a vertex is given on the edge starting there if it starts the stretch, else
+  on the edge ending there, or as itself where the stretch has no edge of its profile; each connection ends its
+  stretch as a match hidden from view, then starts the next. An L's corner connected to a line's start leaves the
+  facets on either side of the connection in one plane, merged into one wall (the same part as without it). Two
+  closed squares run anticlockwise about the way from the first to the second, so the sheet faces out and its
+  thickness goes outward; a profile turned to run so keeps its first edge first, run backwards, and the rip is at
+  that edge's (new) start: a rectangle's left side's second corner.
+- **Variable non-circular fillets of concave edges, arcs and two edges** (batch 078 c006–c008): a concave edge
+  gets the same wedge as a convex one, added rather than taken away; two edges apart each their own. Along an
+  arc between a plane and a cylinder about it, each section is a straight edge's, its setbacks following the law
+  over the arc's angle; Onshape's surface is a cubic fit of them (degree 2 across, its sections conics), straying up
+  to 6e-4 mm off the cylinder, and runs a little past the arc's ends.
 - **`derivedMirror` in a Part Studio feature** (batch 060 c001): Onshape fails with "Execution error". It builds
   its source twice, once by `@convert` and again in `instantiate` (no loaded context), which Onshape evidently
   refuses for a build function defined in the studio (it won't derive one source twice in a Part Studio, batch
