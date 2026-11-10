@@ -722,6 +722,20 @@ fn matched_polygons_with(wires: &[Shape], forced: Option<(Vec3, Vec3)>) -> R<Opt
 }
 
 pub fn loft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
+    // Sections added along a spine that isn't straight: Onshape fails (circles along a quarter circle, either way
+    // round, along a longer arc: `LOFT_FAILED`; with two sections `LOFT_INVALID`, batches 074 c006, 075 c007, 089
+    // c006-c008). Along a straight spine the loft is the same as without it (089 c009).
+    if values::opt_bool(definition, "addSections")?.unwrap_or(false) && !field(definition, "spine").is_undefined() {
+        let spine = query::evaluate(model, field(definition, "spine"))?;
+        let straight = spine
+            .iter()
+            .filter(|r| r.kind == EntityType::Edge)
+            .all(|r| model.shape(*r).curve_type().ok() == Some(occt::CurveType::Line));
+        if !straight {
+            let sections = field(definition, "sectionCount").as_number().unwrap_or(0.0);
+            return Err(regen_error(if sections <= 2.0 { "LOFT_INVALID" } else { "LOFT_FAILED" }));
+        }
+    }
     let has = |key: &str| field(definition, key).as_array().is_some_and(|a| !a.is_empty());
     let (has_guides, has_connections) = (has("guideSubqueries"), has("connections"));
     // Conditions at the ends: a derivative along a vector (normal to the profile's plane, or a direction given) or
