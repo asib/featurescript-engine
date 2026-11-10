@@ -1300,8 +1300,12 @@ pub fn move_curve_boundary(model: &mut Model, id: FeatureId, definition: &Value)
         _ => 0.0,
     };
     let flip = values::opt_bool(definition, "flipHeuristics")?.unwrap_or(false);
+    // Onshape needs a help point to know which end to move (batch 079 c006: a vertex query finding none).
     let help = query::evaluate(model, field(definition, "helpPoint"))?;
-    let help = help.first().map(|r| model.shape(*r).clone());
+    let Some(help) = help.first().map(|r| model.shape(*r).clone()) else {
+        return Err(regen_error("MOVE_CURVE_BOUNDARY_SELECT_HELP_POINT"));
+    };
+    let help = Some(help);
     let bodies = super::owner_bodies(model, field(definition, "wires"))?;
     let mut results = Vec::new();
     for &b in &bodies {
