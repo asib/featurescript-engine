@@ -230,6 +230,7 @@ BSplineData edge_bspline(const Shape &s, double tolerance, bool force_cubic, boo
 BSplineSurfaceData face_bspline(const Shape &s);
 Conic surface_definition(const Shape &s);
 Frame face_tangent_plane(const Shape &s, double fu, double fv);
+Conic face_curvatures(const Shape &s, double fu, double fv);
 Vec3 face_fraction(const Shape &s, Vec3 p);
 Box3 face_uv_bounds(const Shape &s);
 std::unique_ptr<ShapeList> edge_end_vertices(const Shape &s);

@@ -291,6 +291,43 @@ Frame face_tangent_plane(const Shape &s, double fu, double fv) {
   return Frame{vec3(props.Value().XYZ()), vec3(normal.XYZ()), vec3(gp_Dir(x).XYZ())};
 }
 
+// A face's principal curvatures at fractions of its parameter-space box: `radius1` the least, `radius2` the
+// greatest (positive where the face bends away from its outward normal, as a convex face does), `frame.normal`
+// the least's direction and `frame.x` the greatest's; `frame.origin` the point.
+Conic face_curvatures(const Shape &s, double fu, double fv) {
+  if (s.shape.ShapeType() != TopAbs_FACE) throw std::runtime_error("not a face");
+  const TopoDS_Face &face = TopoDS::Face(s.shape);
+  double u, v;
+  face_uv_from_fraction(face, fu, fv, u, v);
+  BRepAdaptor_Surface surface(face);
+  BRepLProp_SLProps props(surface, u, v, 2, 1e-9);
+  if (!props.IsNormalDefined()) throw std::runtime_error("no normal");
+  gp_Dir normal = props.Normal();
+  // OCCT's curvatures are positive where the surface bends towards its normal; the outward normal of a convex
+  // face points away from where it bends.
+  double sign = face.Orientation() == TopAbs_REVERSED ? 1.0 : -1.0;
+  gp_Dir dmin, dmax;
+  double kmin, kmax;
+  if (props.IsCurvatureDefined() && !props.IsUmbilic()) {
+    props.CurvatureDirections(dmax, dmin);
+    kmax = props.MaxCurvature();
+    kmin = props.MinCurvature();
+  } else {
+    gp_Vec du = props.D1U();
+    gp_Vec x = du - gp_Vec(normal) * du.Dot(gp_Vec(normal));
+    dmin = x.Magnitude() < 1e-300 ? gp_Ax2(props.Value(), normal).XDirection() : gp_Dir(x);
+    dmax = gp_Dir(gp_Vec(normal).Crossed(gp_Vec(dmin)));
+    kmax = kmin = props.IsCurvatureDefined() ? props.MeanCurvature() : 0.0;
+  }
+  kmin *= sign;
+  kmax *= sign;
+  if (kmin > kmax) {
+    std::swap(kmin, kmax);
+    std::swap(dmin, dmax);
+  }
+  return Conic{0, Frame{vec3(props.Value().XYZ()), vec3(dmin.XYZ()), vec3(dmax.XYZ())}, kmin, kmax};
+}
+
 // The fractions (u in x, v in y) of a face's parameter-space bounding box at the point on it closest to `p`.
 namespace {
 

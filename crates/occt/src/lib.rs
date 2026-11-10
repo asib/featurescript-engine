@@ -389,6 +389,7 @@ mod ffi {
         fn face_bspline(s: &Shape) -> Result<BSplineSurfaceData>;
         fn surface_definition(s: &Shape) -> Result<Conic>;
         fn face_tangent_plane(s: &Shape, fu: f64, fv: f64) -> Result<Frame>;
+        fn face_curvatures(s: &Shape, fu: f64, fv: f64) -> Result<Conic>;
         fn face_fraction(s: &Shape, p: Vec3) -> Result<Vec3>;
         fn face_uv_bounds(s: &Shape) -> Result<Box3>;
         fn edge_end_vertices(s: &Shape) -> Result<UniquePtr<ShapeList>>;
@@ -704,6 +705,13 @@ impl Shape {
     /// The plane tangent to a face at fractions of its parameter-space bounding box.
     pub fn face_tangent_plane(&self, fu: f64, fv: f64) -> Result<Frame> {
         Ok(ffi::face_tangent_plane(&self.0, fu, fv)?)
+    }
+
+    /// A face's principal curvatures at fractions of its parameter-space box: `radius1` the least and `radius2`
+    /// the greatest (positive where it bends away from its outward normal), their directions `frame.normal` and
+    /// `frame.x`, the point `frame.origin`.
+    pub fn face_curvatures(&self, fu: f64, fv: f64) -> Result<Conic> {
+        Ok(ffi::face_curvatures(&self.0, fu, fv)?)
     }
 
     /// Where on a face (as fractions of its parameter-space bounding box) the point closest to `p` is.

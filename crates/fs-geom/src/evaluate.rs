@@ -822,6 +822,243 @@ pub fn register(m: &mut GeomBuiltins) {
             &tags,
         )
     });
+    m.insert("evPlanarEdge", |interp, args| {
+        let tags = tags(interp)?;
+        measure(
+            args,
+            "evPlanarEdge",
+            "edge",
+            |tags, model, found| {
+                let edge = single_edge(model, &found[..found.len().min(1)])
+                    .ok_or_else(|| regen_error("CANNOT_RESOLVE_PLANE"))?;
+                planar_edges(&[edge]).map(|f| tags.plane(f)).ok_or_else(|| regen_error("CANNOT_RESOLVE_PLANE"))
+            },
+            &tags,
+        )
+    });
+    m.insert("evPlanarEdges", |interp, args| {
+        let tags = tags(interp)?;
+        measure(
+            args,
+            "evPlanarEdges",
+            "edges",
+            |tags, model, found| {
+                let edges: Vec<Shape> =
+                    found.iter().filter(|r| r.kind == EntityType::Edge).map(|r| model.shape(*r).clone()).collect();
+                if edges.is_empty() {
+                    return Err(regen_error("CANNOT_RESOLVE_PLANE"));
+                }
+                planar_edges(&edges).map(|f| tags.plane(f)).ok_or_else(|| regen_error("CANNOT_RESOLVE_PLANE"))
+            },
+            &tags,
+        )
+    });
+    m.insert("evRaycast", |interp, args| {
+        let tags = tags(interp)?;
+        let definition = definition(&args, "evRaycast")?;
+        let ray = values::line(field(&definition, "ray"), "evRaycast ray")?;
+        let (origin, direction) = (ray.origin, ray.direction);
+        let closest = values::opt_bool(&definition, "closest")?.unwrap_or(true);
+        let behind = values::opt_bool(&definition, "includeIntersectionsBehind")?.unwrap_or(false);
+        if closest && behind {
+            return Err(error("@evRaycast: includeIntersectionsBehind needs closest false"));
+        }
+        let entity_type = tags.entity_type;
+        measure(
+            args,
+            "evRaycast",
+            "entities",
+            |tags, model, found| {
+                // A body's faces, each once.
+                let mut faces: Vec<EntityRef> = Vec::new();
+                for r in found {
+                    let more: Vec<EntityRef> = match r.kind {
+                        EntityType::Face => vec![r],
+                        EntityType::Body => (0..model.body(r).faces.len())
+                            .map(|index| EntityRef { body: r.body, kind: EntityType::Face, index })
+                            .collect(),
+                        _ => vec![],
+                    };
+                    for f in more {
+                        if !faces.contains(&f) {
+                            faces.push(f);
+                        }
+                    }
+                }
+                let mut hits: Vec<(f64, EntityRef)> = Vec::new();
+                for f in faces {
+                    for d in model.shape(f).line_crossings(origin, direction).map_err(occt_error)? {
+                        if behind || d >= -1e-9 {
+                            hits.push((d, f));
+                        }
+                    }
+                }
+                hits.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+                if closest {
+                    hits.truncate(1);
+                }
+                let mut out = Vec::new();
+                for (d, f) in hits {
+                    let point = values::add(origin, values::scale(direction, d));
+                    let uv = model.shape(f).face_fraction(point).map_err(occt_error)?;
+                    let result = map(vec![
+                        ("entity", tags.transient_query(&query::tid_string(model.tid(f)))),
+                        ("entityType", tags.enum_value(entity_type, "FACE")),
+                        ("parameter", tags.vector2(uv.0, uv.1)),
+                        ("intersection", tags.length_vector(point)),
+                        ("distance", tags.length(d)),
+                    ]);
+                    out.push(tags.tagged(result, "RaycastResult")?);
+                }
+                Ok(Value::array(out))
+            },
+            &tags,
+        )
+    });
+    m.insert("evFaceCurvatures", |interp, args| {
+        let tags = tags(interp)?;
+        let definition = definition(&args, "evFaceCurvatures")?;
+        let parameters = field(&definition, "parameters")
+            .as_array()
+            .ok_or_else(|| error("@evFaceCurvatures: parameters must be an array"))?
+            .iter()
+            .map(|uv| values::vec2(uv, "evFaceCurvatures parameter"))
+            .collect::<R<Vec<_>>>()?;
+        measure(
+            args,
+            "evFaceCurvatures",
+            "face",
+            |tags, model, found| {
+                let r = found
+                    .first()
+                    .filter(|r| r.kind == EntityType::Face)
+                    .ok_or_else(|| regen_error("CANNOT_RESOLVE_ENTITIES"))?;
+                let face = model.shape(*r);
+                let torus =
+                    model.info(*r).surface_frame.and_then(|frame| crate::ops::frames::torus_fractions(face, frame));
+                let mut out = Vec::new();
+                for (u, v) in parameters {
+                    let (u, v) = torus.as_ref().map_or((u, v), |map| map(u, v));
+                    let c = face.face_curvatures(u, v).map_err(occt_error)?;
+                    let result = map(vec![
+                        ("minCurvature", tags.with_units(c.radius1, "meter", -1.0)),
+                        ("maxCurvature", tags.with_units(c.radius2, "meter", -1.0)),
+                        ("minDirection", tags.unit_vector(c.frame.normal)),
+                        ("maxDirection", tags.unit_vector(c.frame.x)),
+                    ]);
+                    out.push(tags.tagged(result, "FaceCurvatureResult")?);
+                }
+                Ok(Value::array(out))
+            },
+            &tags,
+        )
+    });
+    m.insert("evFilletRadius", |interp, args| {
+        let tags = tags(interp)?;
+        measure(
+            args,
+            "evFilletRadius",
+            "face",
+            |tags, model, found| {
+                let r =
+                    found.first().filter(|r| r.kind == EntityType::Face).ok_or_else(|| regen_error("BAD_GEOMETRY"))?;
+                crate::selection::fillet_radius(model, *r)
+                    .map(|radius| tags.length(radius))
+                    .ok_or_else(|| regen_error("BAD_GEOMETRY"))
+            },
+            &tags,
+        )
+    });
+}
+
+/// The plane some edges lie in: a lone circle's or ellipse's own, else the one through points along them all (its
+/// origin the first edge's start, its x the canonical one), or `None` if they don't lie in one plane or all lie
+/// along one line.
+fn planar_edges(edges: &[Shape]) -> Option<occt::Frame> {
+    if let [edge] = edges {
+        if let Ok(c) = edge.curve_definition() {
+            if c.kind == 1 || c.kind == 2 {
+                return Some(c.frame);
+            }
+        }
+    }
+    let mut points = Vec::new();
+    for edge in edges {
+        for i in 0..=16 {
+            points.push(edge.edge_tangent(i as f64 / 16.0, false).ok()?.origin);
+        }
+    }
+    let n = points.len() as f64;
+    let centre = values::scale(points.iter().fold(Vec3::new(0.0, 0.0, 0.0), |a, p| values::add(a, *p)), 1.0 / n);
+    // The direction of least spread: the smallest eigenvector of the points' scatter, by inverse iteration.
+    let mut m = [[0.0; 3]; 3];
+    for p in &points {
+        let d = values::sub(*p, centre);
+        let d = [d.x, d.y, d.z];
+        for i in 0..3 {
+            for j in 0..3 {
+                m[i][j] += d[i] * d[j];
+            }
+        }
+    }
+    let size = points.iter().map(|p| values::norm(values::sub(*p, centre))).fold(0.0, f64::max);
+    if size < 1e-12 {
+        return None;
+    }
+    let (values_, vectors) = symmetric_eigen(m);
+    // Collinear: two directions without spread.
+    if values_[1] <= 1e-18 * size * size * n {
+        return None;
+    }
+    let normal = Vec3::new(vectors[0][0], vectors[0][1], vectors[0][2]);
+    if points.iter().any(|p| values::dot(values::sub(*p, centre), normal).abs() > 1e-8) {
+        return None;
+    }
+    Some(occt::Frame { origin: points[0], normal, x: values::canonical_x(normal) })
+}
+
+/// The eigenvalues of a symmetric 3 × 3 matrix, smallest first, and their unit eigenvectors, by Jacobi rotations.
+#[allow(clippy::needless_range_loop)]
+fn symmetric_eigen(mut a: [[f64; 3]; 3]) -> ([f64; 3], [[f64; 3]; 3]) {
+    let mut v = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+    for _ in 0..50 {
+        let (mut p, mut q, mut largest) = (0, 1, 0.0);
+        for i in 0..3 {
+            for j in i + 1..3 {
+                if a[i][j].abs() > largest {
+                    (p, q, largest) = (i, j, a[i][j].abs());
+                }
+            }
+        }
+        if largest <= 1e-30 {
+            break;
+        }
+        let theta = (a[q][q] - a[p][p]) / (2.0 * a[p][q]);
+        let t = theta.signum() / (theta.abs() + (theta * theta + 1.0).sqrt());
+        let t = if theta == 0.0 { 1.0 } else { t };
+        let c = 1.0 / (t * t + 1.0).sqrt();
+        let s = t * c;
+        for k in 0..3 {
+            let (akp, akq) = (a[k][p], a[k][q]);
+            a[k][p] = c * akp - s * akq;
+            a[k][q] = s * akp + c * akq;
+        }
+        for k in 0..3 {
+            let (apk, aqk) = (a[p][k], a[q][k]);
+            a[p][k] = c * apk - s * aqk;
+            a[q][k] = s * apk + c * aqk;
+        }
+        for k in 0..3 {
+            let (vkp, vkq) = (v[k][p], v[k][q]);
+            v[k][p] = c * vkp - s * vkq;
+            v[k][q] = s * vkp + c * vkq;
+        }
+    }
+    let mut order = [0, 1, 2];
+    order.sort_by(|&i, &j| a[i][i].partial_cmp(&a[j][j]).unwrap_or(std::cmp::Ordering::Equal));
+    let values_ = [a[order[0]][order[0]], a[order[1]][order[1]], a[order[2]][order[2]]];
+    let vectors = order.map(|i| [v[0][i], v[1][i], v[2][i]]);
+    (values_, vectors)
 }
 
 /// The one entity a query found, or the one edge of a body that has only one edge (a sketch line, say).

@@ -104,7 +104,7 @@ pub fn hole_faces(model: &Model, seeds: &[EntityRef]) -> Vec<EntityRef> {
 }
 
 /// A face's fillet radius, if it is a fillet: a cylinder, torus or sphere meeting at least two faces smoothly.
-fn fillet_radius(model: &Model, face: EntityRef) -> Option<f64> {
+pub(crate) fn fillet_radius(model: &Model, face: EntityRef) -> Option<f64> {
     let shape = model.shape(face);
     let s = shape.surface_definition().ok()?;
     let radius = match s.kind {
