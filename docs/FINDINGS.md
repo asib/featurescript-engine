@@ -964,6 +964,33 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   side goes over to the coaxial cylinder between the caps, which grow or shrink to it; variable conic fillets of a
   block's top front and top right edges, 4 mm where they meet, mitre there as constant ones do (to 5.4e-6 of the
   volume).
+- **Planes of edges** (batch 086 c023): `evPlanarEdge` of an arc gives the circle's own coordinate system's plane
+  (origin the centre); of a straight edge, a plane after all: origin the edge's start, x along it, the normal the
+  world's z × it. `evPlanarEdges` of a face's loop (with a hole's circle) puts the origin in the middle of the
+  edges' box, x canonical.
+- **Rays and curvatures** (batch 086 c023): `evRaycast` meets a body's faces, nearest first, behind the origin
+  too when asked (negative distances). A hit's parameter on a planar face runs as the plane's canonical axes
+  across the face's box (v up the front face of a block, x canonical, y = normal × x); on a hole's cylinder as
+  the cylinder's. `evFaceCurvatures` of a fillet's cylinder: the least curvature 0 along the cylinder's z axis
+  (Onshape's frame for fillets, batch 047), the greatest 1/r along normal × that.
+- **`evFilletRadius`** of a constant fillet's face is its radius (batch 086 c023).
+- **A partial flange holding its adjacent edges** (the default, batch 086 c016): std splits the edge with
+  `opSplitEdges` and finds its piece by `qSplitBy` and a point; the bend's joint attribute carries
+  `holdAdjacentEdges`, and the plate beside the flange keeps its edge where it was (only the reliefs cut into it),
+  where without it the pieces are cut back to the bend's setback.
+- **Collinear sketch lines thickened into sheet metal** (batch 086 c017): Onshape's plate has no vertex between
+  two collinear lines of the sketch (6 faces), so a rip between such points finds no corner
+  (`SHEET_METAL_RIP_NO_CORNER`: `qClosestTo` ties two corners). Where the vertex goes (the sketch's region, the
+  extrude std makes, or the extracted cap) isn't known yet; the engine keeps it.
+- **An offset sheet's edges** (batch 086 c004): a top and its fillet offset together keep the directions of the
+  source's edges in Onshape (the edge between them and the arc at one end run the other way in the engine).
+- **Extrude start offsets** (batch 086 c018–c020): blind, back 5 mm; from a parallel face; from a circular edge
+  (its plane through `evPlanarEdge`) all start the extrude there, as the engine's.
+- **Shells, offsets, trims, helices and bridging curves** (batch 086): a filleted block's shell (the fillets'
+  cylinders offset), a hollow sphere and an open frustum shelled outwards; a top and fillet offset together, a
+  sphere inwards; a plane and a cylinder through it trimmed to each other (merged, and both other sides kept);
+  helices round a cone, along a circle, by turns and pitch from 30°, from a start point; bridging curves with G3
+  matches and by control points; tabs of a circle and on a flange: all as the engine's.
 - **`derivedMirror` in a Part Studio feature** (batch 060 c001): Onshape fails with "Execution error". It builds
   its source twice, once by `@convert` and again in `instantiate` (no loaded context), which Onshape evidently
   refuses for a build function defined in the studio (it won't derive one source twice in a Part Studio, batch
