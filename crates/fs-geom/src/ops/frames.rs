@@ -73,7 +73,14 @@ pub(crate) fn revolved(face: &Shape, axis: occt::Axis, profile_point: Vec3) -> O
     let z = scale(axis.direction, -1.0);
     match s.kind {
         1 => Some(Frame { origin: axis.origin, normal: z, x: scale(radial, -1.0) }),
-        2 => Some(Frame { origin: s.frame.origin, normal: z, x: cross(axis.direction, radial) }),
+        // A cone's z runs from its apex the way it widens (batch 090: a frustum revolved about its own edge running
+        // down, and one about an axis running up, both down from the apex above), y from the axis towards the
+        // profile.
+        2 => {
+            let rel = sub(profile_point, s.frame.origin);
+            let widening = if dot(rel, axis.direction) >= 0.0 { axis.direction } else { scale(axis.direction, -1.0) };
+            Some(Frame { origin: s.frame.origin, normal: widening, x: cross(radial, widening) })
+        }
         // A torus: z against the axis and x as an extruded cylinder's (batch 085: about z, x along -x; about x, along
         // +z), its centre the origin.
         4 => Some(Frame { origin: s.frame.origin, normal: z, x: world_y_cross(z)? }),
