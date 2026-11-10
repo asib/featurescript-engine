@@ -813,6 +813,51 @@ pub fn loft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
             (2, Some(a), Some(b)) => Some((a, b)),
             _ => None,
         };
+        // Two circles connected at points along them (batch 082 c006): each started there, lofted start to start
+        // (a quarter along one and half along the other, a quarter turn's twist).
+        let circles: Vec<(occt::Conic, Shape)> = wires
+            .iter()
+            .filter_map(|w| match &w.sub_shapes(ShapeKind::Edge)[..] {
+                [e] if e.curve_type().ok() == Some(occt::CurveType::Circle) => {
+                    Some((e.curve_definition().ok()?, e.clone()))
+                }
+                _ => None,
+            })
+            .collect();
+        let parameters: Vec<f64> = field(&first, "connectionEdgeParameters")
+            .as_array()
+            .map(|a| a.iter().filter_map(Value::as_number).collect())
+            .unwrap_or_default();
+        let connection_edges: Vec<Shape> = query::evaluate(model, field(&first, "connectionEdgeQueries"))?
+            .into_iter()
+            .filter(|r| r.kind == EntityType::Edge)
+            .map(|r| model.shape(r).clone())
+            .collect();
+        if circles.len() == 2 && wires.len() == 2 && connection_edges.len() == 2 && parameters.len() == 2 {
+            use crate::values::{cross, normalize, sub};
+            let mut started = Vec::new();
+            for (conic, edge) in &circles {
+                let k = connection_edges
+                    .iter()
+                    .position(|e| touches(e, edge))
+                    .ok_or_else(|| regen_error("LOFT_CONNECTION_MATCHING"))?;
+                let at = connection_edges[k].edge_tangent(parameters[k], true).map_err(occt_error)?.origin;
+                // Running as the profile's own circle does.
+                let start = edge.edge_tangent(0.0, false).map_err(occt_error)?;
+                let normal = normalize(cross(sub(start.origin, conic.frame.origin), start.direction))
+                    .ok_or_else(|| regen_error("LOFT_FAILED"))?;
+                let x = normalize(sub(at, conic.frame.origin)).ok_or_else(|| regen_error("LOFT_FAILED"))?;
+                let circle = occt::circle_edge(occt::Frame { origin: conic.frame.origin, normal, x }, conic.radius1)
+                    .map_err(occt_error)?;
+                started.push(occt::ordered_wire(&[circle]).map_err(occt_error)?);
+            }
+            if ends.iter().any(Option::is_some) {
+                return Err(error("@opLoft: connections with end conditions aren't supported yet"));
+            }
+            let op = occt::loft_as_given(&started, solid).map_err(|_| regen_error("LOFT_FAILED"))?;
+            add_with_caps_facing(model, &id, &op, solid, !solid)?;
+            return Ok(Value::UNDEFINED);
+        }
         let Some(matched) = forced.map(|f| matched_polygons_with(&wires, Some(f))).transpose()?.flatten() else {
             return Err(error("@opLoft: connections other than between two polygons aren't supported yet"));
         };
