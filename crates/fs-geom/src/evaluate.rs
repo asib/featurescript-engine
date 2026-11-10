@@ -1413,6 +1413,18 @@ fn offset_group(model: &Model, b: usize) -> R<Option<Value>> {
     };
     let pairs: Vec<(usize, usize)> =
         pairs.into_iter().filter(|p| (p.2 - thickness).abs() < 1e-7).map(|p| (p.0, p.1)).collect();
+    // Three walls' faces meeting at a corner (an open box shelled from a block, batch 068 c003) aren't a sheet
+    // Onshape recognizes: no group.
+    let walls: Vec<usize> = pairs.iter().flat_map(|p| [p.0, p.1]).collect();
+    for vertex in body.shape.sub_shapes(occt::ShapeKind::Vertex) {
+        let meeting = walls
+            .iter()
+            .filter(|&&w| body.faces[w].shape.sub_shapes(occt::ShapeKind::Vertex).iter().any(|v| v.is_same(&vertex)))
+            .count();
+        if meeting >= 3 {
+            return Ok(None);
+        }
+    }
     // Sides: from the first pair, a neighbour's side0 is its face sharing an edge with a side0 face.
     let touches = |a: usize, c: usize| {
         let theirs = body.faces[c].shape.visible_sub_shapes(occt::ShapeKind::Edge);
