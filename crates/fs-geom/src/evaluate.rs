@@ -431,6 +431,11 @@ pub fn register(m: &mut GeomBuiltins) {
                         return Ok(tags.line(frame.origin, frame.normal));
                     }
                 }
+                // One entity only: a sketch region's own edge along a sketch line as well as the line is two (batch
+                // 084 c005: revolve's axis then fails).
+                if found.len() > 1 {
+                    return Err(regen_error("CANNOT_RESOLVE_ENTITIES"));
+                }
                 let shape = single_entity(model, &found).ok_or_else(|| regen_error("CANNOT_RESOLVE_ENTITIES"))?;
                 let axis = shape.axis().map_err(|_| regen_error("CANNOT_RESOLVE_ENTITIES"))?;
                 Ok(tags.line(axis.origin, axis.direction))
