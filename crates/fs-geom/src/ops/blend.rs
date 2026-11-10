@@ -1080,6 +1080,11 @@ fn planar_face_blend(model: &mut Model, id: FeatureId, definition: &Value) -> R<
     // c004: a hold line 4 mm up a side, a 4 mm blend; Onshape's surface a B-spline).
     let held =
         if values::opt_bool(definition, "tangentHoldLines")?.unwrap_or(false) { along("tangentEdges")? } else { None };
+    // An inverse tangent hold line on a side's boundary leaves the blend nothing beyond it to run tangent to (batch
+    // 080 c002); between two of its faces it is passed over as the others are (084 c002).
+    if values::opt_bool(definition, "tangentHoldLines")?.unwrap_or(false) && along("inverseTangentEdges")?.is_some() {
+        return Err(regen_error("FACE_BLEND_DIMENSION_TOO_LARGE"));
+    }
     let (s1, s2) = match held {
         Some((0, h)) if h > 1e-9 => (h, s2 * h / s1),
         Some((_, h)) if h > 1e-9 => (s1 * h / s2, h),

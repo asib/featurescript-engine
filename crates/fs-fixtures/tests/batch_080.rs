@@ -11,11 +11,9 @@ const LOOSE: &[(&str, f64)] = &[("c007", 0.1), ("c008", 0.05)];
 /// Faces and curved edges come in an order of Onshape's own.
 const UNORDERED: &[&str] = &["c001", "c005", "c007", "c008"];
 
-/// Known gaps (docs/std-coverage.md): Onshape refuses an inverse tangent hold line on the edge of a side
-/// (`FACE_BLEND_DIMENSION_TOO_LARGE`, c002) for a reason one case doesn't show; a hole cut across a rolled wall
-/// (c004, to 3.8e-5 of the volume) has its wall in two B-spline faces and two planar slivers in Onshape, four
-/// quarters in the engine.
-const KNOWN_GAPS: &[&str] = &["c002", "c004", "failed probe"];
+/// Known gap (docs/std-coverage.md): a hole cut across a rolled wall (c004, to 3.8e-5 of the volume) has its wall in
+/// two B-spline faces and two planar slivers in Onshape, four quarters in the engine.
+const KNOWN_GAPS: &[&str] = &["c004"];
 
 #[test]
 fn batch_080_matches_onshape() {
