@@ -60,7 +60,8 @@ pub fn import_foreign(model: &mut Model, id: FeatureId, definition: &Value) -> R
         let shapes: Vec<Shape> = added.iter().map(|&b| model.bodies[b].shape.clone()).collect();
         let members: Rc<[crate::model::Tid]> = added.iter().map(|&b| model.bodies[b].tid).collect();
         let mut new = NewBody::new(occt::compound(&shapes), BodyType::Composite, info.clone());
-        new.composite = Some((members, false));
+        // Closed: its parts aren't parts of their own, so a derive of them finds none (batch 096 c003, c005).
+        new.composite = Some((members, true));
         if let Some(name) = field(definition, "compositeName").as_str() {
             Rc::make_mut(&mut new.properties).insert("NAME".into(), Value::string(name));
         }
