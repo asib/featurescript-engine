@@ -1,0 +1,237 @@
+{
+  "batch": "086",
+  "title": "shells, offset surfaces, a mutual trim of a plane and a cylinder, helices, bridging curves, sheet metal tabs and a rip",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "shell",
+      "description": "a 40 × 30 × 20 block with its upright edges filleted 5 mm: its top removed, shelled 2 mm inwards",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "shell",
+      "description": "a sphere of radius 10 hollowed, 2 mm",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "shell",
+      "description": "a cone frustum (radius 10 to 6, 20 tall): its top and bottom removed, shelled 1.5 mm outwards",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "offset-surface",
+      "description": "a 40 × 30 × 20 block with its top back edge filleted 5 mm: the top and the fillet offset 2 mm outwards together",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "offset-surface",
+      "description": "a sphere of radius 10: its face offset 3 mm inwards",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "mutual-trim",
+      "description": "a level sheet and an upright cylindrical sheet through it, trimmed to each other and merged",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "mutual-trim",
+      "description": "the same, keeping the other sides of both, not merged",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c008",
+      "kind": "helix",
+      "description": "round a cone frustum's side (radius 10 to 6, 20 tall), 3 turns",
+      "slotMeters": [
+        2.8000000000000003,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c009",
+      "kind": "helix",
+      "description": "along a circle of radius 8 in the xy plane, 4 turns, 20 high, clockwise",
+      "slotMeters": [
+        3.2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c010",
+      "kind": "helix",
+      "description": "about an axis, 3 turns of 4 mm pitch, radius 6, starting at 30°",
+      "slotMeters": [
+        3.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c011",
+      "kind": "helix",
+      "description": "about an axis from a start point at (8, 0, 0), 2 turns, 15 high",
+      "slotMeters": [
+        0,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c012",
+      "kind": "bridging-curve",
+      "description": "a line and an arc bridged with flow (G3) matches at both ends",
+      "slotMeters": [
+        0.4,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c013",
+      "kind": "bridging-curve",
+      "description": "a line and an arc bridged by control points, tangent to the line and matching the arc's curvature, magnitudes 1.5 and 0.8",
+      "slotMeters": [
+        0.8,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c014",
+      "kind": "sheet-metal-tab",
+      "description": "a circle of radius 8 about the middle of a 40 × 30 plate's right edge, merged into it as a tab",
+      "slotMeters": [
+        1.2000000000000002,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c015",
+      "kind": "sheet-metal-tab",
+      "description": "a plate with a 15 mm flange on its right edge: a 10 × 8 tab on the flange's top edge",
+      "slotMeters": [
+        1.6,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c016",
+      "kind": "sheet-metal-flange",
+      "description": "a 40 × 30 plate: a partial flange on its right edge, 5 mm in from each end, holding the adjacent edges (the default)",
+      "slotMeters": [
+        2,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c017",
+      "kind": "sheet-metal-rip",
+      "description": "a 40 × 30 plate whose long edges are each two lines meeting at x = 20, ripped across between those vertices (default gap)",
+      "slotMeters": [
+        2.4000000000000004,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c018",
+      "kind": "extrude",
+      "description": "a 20 × 10 rectangle on the xy plane extruded 10 mm, starting 5 mm below it",
+      "slotMeters": [
+        2.8000000000000003,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c019",
+      "kind": "extrude",
+      "description": "the same, starting from the top of a separate block 8 mm high",
+      "slotMeters": [
+        3.2,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c020",
+      "kind": "extrude",
+      "description": "the same, starting from the top edge of a cylinder (radius 5 about (40, 0), 12 tall)",
+      "slotMeters": [
+        3.6,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c021",
+      "kind": "edit-curve",
+      "description": "a spline through four points in space flattened onto its best-fit plane",
+      "slotMeters": [
+        0,
+        0.8,
+        0
+      ]
+    },
+    {
+      "name": "c022",
+      "kind": "edit-curve",
+      "description": "the same, its ends locked",
+      "slotMeters": [
+        0.4,
+        0.8,
+        0
+      ]
+    },
+    {
+      "name": "c023",
+      "kind": "evaluate",
+      "description": "the planes of a fillet's arc, a hole's circle, a top face's loop and a straight edge; rays through the part; the fillet's curvatures and radius",
+      "slotMeters": [
+        0.8,
+        0.8,
+        0
+      ]
+    }
+  ]
+}
