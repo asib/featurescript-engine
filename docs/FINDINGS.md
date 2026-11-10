@@ -903,7 +903,8 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
 - **Face blend conic and inverse hold lines** (batch 080 c001, c002): a conic hold line 4 mm up a side sets that
   side back to it alone, the other keeping the radius's 5 mm: the section the circle's conic between them, an
   elliptical quarter 4 by 5 (its length 7.0904 mm, the ellipse's to the digit), a B-spline surface. An inverse
-  tangent hold line on the same edge fails, `FACE_BLEND_DIMENSION_TOO_LARGE`.
+  tangent hold line on the same edge fails, `FACE_BLEND_DIMENSION_TOO_LARGE`: on a side's boundary there's nothing
+  beyond it for the blend to run tangent to (between two of a side's faces it is passed over, batch 084 c002).
 - **A circle's region has no vertex to connect** (batch 080 c003): a loft connection naming the vertex at a sketch
   circle's start finds none on its region, `LOFT_CONNECTION_MATCHING`.
 - **Rolled walls cut and added to** (batch 080 c004, c005): a hole extruded across a rolled half tube's top is cut
@@ -943,8 +944,10 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   upright split 4 mm up) is passed over as a tangent, inverse tangent or conic hold line and as a cliff edge alike:
   the plain blend is made, consuming the split, the side's faces above it one face. Only an edge on the side's
   boundary holds the blend (batches 079, 080).
-- **`evAxis` of two edges fails** (batch 084 c005): a query for a sketch line finds the line's wire edge and its
-  region sheet's edge along it, and revolve's axis then fails (`REVOLVE_SELECT_AXIS`).
+- **A revolve about its own sketch edge** (batch 084 c005): a trapezoid revolved about its own edge on the axis,
+  the axis queried as the sketch's edges through a point on it (the line's wire edge and its region's edge along
+  it), fails in Onshape (`REVOLVE_SELECT_AXIS`), though batch 065 c005's quarter disc revolved about its own edge,
+  queried the same way, succeeds; what tells them apart isn't known.
 - **Fillets of a concave circular edge, and a conic blend round a cylinder** (batch 084 c006, c007): the edge round
   a boss's foot takes the same curvature wedge, added; a floor and an upright cylinder blend with the conic section
   revolved round its axis, a B-spline surface in Onshape (to 5e-5 of its area).
