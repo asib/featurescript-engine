@@ -1447,16 +1447,16 @@ fn variable_section_fillet(model: &mut Model, id: FeatureId, definition: &Value,
     let mut results = Vec::new();
     for (b, edges) in groups {
         let body = model.bodies[b].shape.clone();
-        // Edges apart from each other each get a fillet of their own (batch 078 c008); ones meeting at a vertex
-        // would need their fillets blended there.
+        // Edges apart from each other each get a fillet of their own (batch 078 c008).
         let ends: Vec<occt::Vec3> = edges
             .iter()
             .flat_map(|e| [0.0, 1.0].map(|t| e.edge_tangent(t, false).map(|l| l.origin)))
             .collect::<Result<_, _>>()
             .map_err(crate::occt_error)?;
-        if ends.iter().enumerate().any(|(i, p)| ends[..i - i % 2].iter().any(|q| norm(sub(*p, *q)) < 1e-9)) {
+        // Two meeting at a vertex end in a mitre, their wedges overlapping there (batch 085 c005); three need a blend.
+        if ends.iter().any(|p| ends.iter().filter(|q| norm(sub(*p, **q)) < 1e-9).count() > 2) {
             return Err(error(
-                "@opFillet: variable non-circular fillets of edges meeting at a vertex aren't supported yet",
+                "@opFillet: variable non-circular fillets of three edges meeting at a vertex aren't supported yet",
             ));
         }
         // What to take away from convex edges, and add at concave ones.
