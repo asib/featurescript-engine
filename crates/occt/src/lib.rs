@@ -246,6 +246,7 @@ mod ffi {
 
         fn sketch_regions(edges: &ShapeList, f: Frame) -> Result<UniquePtr<ShapeList>>;
         fn merge_faces(faces: &ShapeList) -> Result<UniquePtr<Operation>>;
+        fn merge_edges(s: &Shape) -> Result<UniquePtr<Operation>>;
         fn prism(profile: &Shape, v: Vec3) -> Result<UniquePtr<Operation>>;
         fn boolean_op(
             kind: i32,
@@ -1127,6 +1128,12 @@ impl Operation {
 /// Merges faces that share edges and lie on the same surface.
 pub fn merge_faces(faces: &[Shape]) -> Result<Operation> {
     Ok(Operation(ffi::merge_faces(&to_list(faces))?))
+}
+
+/// A shape with its same-domain edges merged (collinear lines meeting at a vertex only they share), its faces
+/// left as they are.
+pub fn merge_edges(s: &Shape) -> Result<Operation> {
+    Ok(Operation(ffi::merge_edges(&s.0)?))
 }
 
 /// Sweeps a profile along `v`.

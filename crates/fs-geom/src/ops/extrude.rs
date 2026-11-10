@@ -118,6 +118,18 @@ fn untransformed_profile(model: &Model, definition: &Value) -> R<(Vec<Shape>, bo
     if !faces.is_empty() {
         let merged =
             if faces.len() == 1 { faces } else { vec![occt::merge_faces(&faces).map_err(occt_error)?.shape()] };
+        // Collinear lines along a region's boundary sweep one side face in Onshape, not one each (batch 087 c001:
+        // the extrude's cap has the merged edges); faces without any keep their own edges.
+        let merged = merged
+            .into_iter()
+            .map(|face| {
+                let count = |s: &Shape| s.sub_shapes(occt::ShapeKind::Edge).len();
+                match occt::merge_edges(&face) {
+                    Ok(op) if count(&op.shape()) < count(&face) => op.shape(),
+                    _ => face,
+                }
+            })
+            .collect();
         return Ok((merged, true));
     }
     let edges: Vec<Shape> =

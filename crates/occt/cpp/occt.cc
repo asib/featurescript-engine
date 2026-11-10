@@ -222,6 +222,17 @@ std::unique_ptr<Operation> merge_faces(const ShapeList &faces) {
   return op;
 }
 
+// A shape with its same-domain edges merged (collinear lines meeting at a vertex only they share, arcs of one
+// circle), faces left as they are.
+std::unique_ptr<Operation> merge_edges(const Shape &s) {
+  auto op = std::make_unique<Operation>();
+  ShapeUpgrade_UnifySameDomain unify(s.shape, Standard_True, Standard_False, Standard_False);
+  unify.Build();
+  op->result = unify.Shape();
+  op->history = unify.History();
+  return op;
+}
+
 std::unique_ptr<Operation> prism(const Shape &profile, Vec3 v) {
   BRepPrimAPI_MakePrism maker(profile.shape, gp_Vec(v.x, v.y, v.z), Standard_False, Standard_True);
   maker.Build();
