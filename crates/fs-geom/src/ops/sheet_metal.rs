@@ -141,9 +141,13 @@ fn normal_at(face: &Shape, p: Vec3) -> R<Vec3> {
 fn into_face(face: &Shape, m: Vec3, along: Vec3) -> R<Vec3> {
     let n = normal_at(face, m)?;
     let d = normalize(cross(n, along)).ok_or_else(|| regen_error("SHEET_METAL_REBUILD_ERROR"))?;
-    let probe = add(m, scale(d, 1e-6));
-    let inside = occt::vertex(probe).and_then(|v| v.distance(face)).map_err(occt_error)?.distance < 1e-9;
-    Ok(if inside { d } else { scale(d, -1.0) })
+    // The side whose probe lies on the face (closer than the other's: a probe just inside a face rebuilt by a flat
+    // cut can measure a hair off it, batch 062 c006).
+    let off = |side: f64| -> R<f64> {
+        let probe = add(m, scale(d, side * 1e-5));
+        Ok(occt::vertex(probe).and_then(|v| v.distance(face)).map_err(occt_error)?.distance)
+    };
+    Ok(if off(1.0)? <= off(-1.0)? { d } else { scale(d, -1.0) })
 }
 
 fn bend_of(
@@ -1838,7 +1842,24 @@ fn cut_back(wall: &Shape, edges: &[Shape], distances: &[f64], extra: &[Shape], h
     }
     let op = occt::boolean(occt::BooleanKind::Subtraction, std::slice::from_ref(wall), &strips, true)
         .map_err(|_| regen_error("SHEET_METAL_REBUILD_ERROR"))?;
-    Ok(op.shape())
+    let cut = op.shape();
+    if !cut.sub_shapes(ShapeKind::Face).is_empty() {
+        return Ok(cut);
+    }
+    // Overlapping strips along one line (a bend split by a hole cut across it, batch 062 c006) can leave the boolean
+    // with nothing: the tools taken away one at a time instead.
+    let mut cut = wall.clone();
+    for strip in &strips {
+        cut = occt::boolean(
+            occt::BooleanKind::Subtraction,
+            std::slice::from_ref(&cut),
+            std::slice::from_ref(strip),
+            true,
+        )
+        .map_err(|_| regen_error("SHEET_METAL_REBUILD_ERROR"))?
+        .shape();
+    }
+    Ok(cut)
 }
 
 /// A rigid motion: rotation rows and a translation.
@@ -2359,7 +2380,8 @@ fn bend_reliefs(def: &Body, wall: &Shape, bends: &[Bend], relief: &BendRelief) -
         let on_line = |p: Vec3| norm(sub(sub(p, a), scale(e, dot(sub(p, a), e)))) < 1e-9;
         let into = into_face(wall, scale(add(a, b), 0.5), e)?;
         for edge in &edges {
-            if edge.is_same(&bend.edge) {
+            // Another bend along the same line (a bend split by a hole cut across it, batch 062 c006) is no stub.
+            if edge.is_same(&bend.edge) || bends.iter().any(|b| b.edge.is_same(edge)) {
                 continue;
             }
             let Some((c, d)) = segment(edge) else { continue };
@@ -2854,17 +2876,98 @@ fn build_part(
                 span = (ta.min(tb), ta.max(tb));
             }
         }
+        // A bend split by a hole cut across it (batch 062 c006) is its pieces along one line between the same walls:
+        // built once, by the first, across them all, the hole carried onto it.
+        let index = bends.iter().position(|b| std::ptr::eq(b, bend)).expect("a bend of the model");
+        let siblings: Vec<usize> = (0..bends.len())
+            .filter(|&k| {
+                let other = &bends[k];
+                let off = sub(other.at, bend.at);
+                let same_walls = (other.walls.0.is_same(&bend.walls.0) && other.walls.1.is_same(&bend.walls.1))
+                    || (other.walls.0.is_same(&bend.walls.1) && other.walls.1.is_same(&bend.walls.0));
+                same_walls
+                    && norm(cross(other.axis_direction, bend.axis_direction)) < 1e-9
+                    && norm(sub(off, scale(bend.axis_direction, dot(off, bend.axis_direction)))) < 1e-9
+            })
+            .collect();
+        if siblings.first().is_some_and(|&k| k != index) {
+            continue;
+        }
         // No further than the bend's own edge (a wall's edge can run on past a bend that covers part of it).
-        if let Some((a, b)) = segment(&bend.edge) {
-            let (ta, tb) = (dot(sub(a, bend.at), bend.axis_direction), dot(sub(b, bend.at), bend.axis_direction));
-            span = (span.0.max(ta.min(tb)), span.1.min(ta.max(tb)));
+        let mut own = (f64::MAX, f64::MIN);
+        for &k in &siblings {
+            if let Some((a, b)) = segment(&bends[k].edge) {
+                let (ta, tb) = (dot(sub(a, bend.at), bend.axis_direction), dot(sub(b, bend.at), bend.axis_direction));
+                own = (own.0.min(ta.min(tb)), own.1.max(ta.max(tb)));
+            }
+        }
+        if own.0 <= own.1 {
+            span = (span.0.max(own.0), span.1.min(own.1));
         }
         if span.1 - span.0 <= 1e-9 {
             continue;
         }
-        if !relieved.is_empty() && !bend.unfolded {
-            // Built flat, the reliefs cut from it, and wrapped round the bend at its neutral radius.
-            let base = &relieved[0].base;
+        // The hole's pieces in the walls' setback zones, laid back onto the bend's flat strip (the inverse of the
+        // flat cut's stretch: the setback line at the strip's edge, the bend's edge at its middle).
+        let mut bend_holes: Vec<Shape> = Vec::new();
+        if siblings.len() > 1 && !bend.unfolded {
+            let k = bend.flat_length / (2.0 * bend.setback);
+            let base_into = bend.into.0;
+            let base_normal = bend.normals.0;
+            for side in 0..2 {
+                let (wall, into, normal) = if side == 0 {
+                    (&bend.walls.0, bend.into.0, bend.normals.0)
+                } else {
+                    (&bend.walls.1, bend.into.1, bend.normals.1)
+                };
+                let origin = add(bend.at, scale(bend.axis_direction, span.0));
+                let v_axis = cross(normal, bend.axis_direction);
+                let (v0, v1) = if dot(v_axis, into) > 0.0 { (0.0, bend.setback) } else { (-bend.setback, 0.0) };
+                let zone = occt::plane_face(
+                    occt::Frame { origin, normal, x: bend.axis_direction },
+                    0.0,
+                    span.1 - span.0,
+                    v0,
+                    v1,
+                )
+                .map_err(occt_error)?;
+                let missing = occt::boolean(occt::BooleanKind::Subtraction, &[zone], std::slice::from_ref(wall), true)
+                    .map_err(|_| regen_error("SHEET_METAL_REBUILD_ERROR"))?
+                    .shape();
+                if missing.area().unwrap_or(0.0) < 1e-14 {
+                    continue;
+                }
+                // q = at + u axis + d into  ->  at + u axis + c into_base, with c = setback - k setback + k d on the
+                // base's side and setback - flat length + k setback - k d on the other's.
+                let (scale_into, offset) = if side == 0 {
+                    (k, bend.setback - k * bend.setback)
+                } else {
+                    (-k, bend.setback - bend.flat_length + k * bend.setback)
+                };
+                let a = bend.axis_direction;
+                let mut m = [[0.0; 3]; 3];
+                let (av, iv, nv) = ([a.x, a.y, a.z], [into.x, into.y, into.z], [normal.x, normal.y, normal.z]);
+                let (bi, bn) = ([base_into.x, base_into.y, base_into.z], [base_normal.x, base_normal.y, base_normal.z]);
+                for r in 0..3 {
+                    for c in 0..3 {
+                        m[r][c] = av[r] * av[c] + scale_into * bi[r] * iv[c] + bn[r] * nv[c];
+                    }
+                }
+                let at = [bend.at.x, bend.at.y, bend.at.z];
+                let t: Vec<f64> =
+                    (0..3).map(|r| at[r] - (0..3).map(|c| m[r][c] * at[c]).sum::<f64>() + offset * bi[r]).collect();
+                let affine = occt::Transform {
+                    m: [
+                        m[0][0], m[0][1], m[0][2], t[0], m[1][0], m[1][1], m[1][2], t[1], m[2][0], m[2][1], m[2][2],
+                        t[2],
+                    ],
+                };
+                bend_holes.push(occt::transform(&missing, &affine).map_err(occt_error)?.shape());
+            }
+        }
+        if (!relieved.is_empty() || !bend_holes.is_empty()) && !bend.unfolded {
+            // Built flat, the reliefs (and holes) cut from it, and wrapped round the bend at its neutral radius.
+            let base = if relieved.is_empty() { &bend.walls.0 } else { &relieved[0].base };
             let (toward, into, normal) = if bend.walls.0.is_same(base) {
                 (bend.toward.0, bend.into.0, bend.normals.0)
             } else {
@@ -2877,14 +2980,14 @@ fn build_part(
             let (v0, v1) = if dot(v_axis, away) > 0.0 { (0.0, bend.flat_length) } else { (-bend.flat_length, 0.0) };
             let frame = occt::Frame { origin: start, normal, x: bend.axis_direction };
             let strip = occt::plane_face(frame, 0.0, span.1 - span.0, v0, v1).map_err(occt_error)?;
-            let index = bends.iter().position(|b| std::ptr::eq(b, bend)).expect("a bend of the model");
-            let holes: Vec<Shape> = relieved
+            let mut holes: Vec<Shape> = relieved
                 .iter()
                 .map(|c| match c.closed.iter().find(|(k, _)| *k == index) {
                     Some((_, region)) => region.clone(),
                     None => c.hole.clone(),
                 })
                 .collect();
+            holes.extend(bend_holes.iter().cloned());
             let cut = occt::boolean(occt::BooleanKind::Subtraction, &[strip], &holes, true)
                 .map_err(|_| regen_error("SHEET_METAL_REBUILD_ERROR"))?
                 .shape();
