@@ -441,10 +441,11 @@ fn extend_revolution(body: &crate::model::Body, edges: &[Shape], distance: f64, 
         }
         points
     };
+    // Both sides run up the curve, as Onshape's new side does (batch 080 c008).
     let right = column(last, extend[1], 1.0, true);
-    let left = column(first, extend[0], -1.0, false);
-    let bottom = vec![(left[left.len() - 1].0, nv0), (right[0].0, nv0)];
-    let top = vec![(right[right.len() - 1].0, nv1), (left[0].0, nv1)];
+    let left = column(first, extend[0], -1.0, true);
+    let bottom = vec![(left[0].0, nv0), (right[0].0, nv0)];
+    let top = vec![(right[right.len() - 1].0, nv1), (left[left.len() - 1].0, nv1)];
     occt::face_from_uv(&new_face, &[bottom, right, top, left]).map(Some).map_err(|_| failed())
 }
 
