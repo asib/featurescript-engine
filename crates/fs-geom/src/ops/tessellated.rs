@@ -171,7 +171,11 @@ fn matched(model: &Model, definition: &Value) -> R<(Profile, Profile, Vec<(usize
             let (a, b, c, d) = (first.vertex(i), first.vertex(i + 1), second.vertex(j + 1), second.vertex(j));
             let normal = values::normalize(values::cross(values::sub(b, a), values::sub(d, a)));
             if normal.is_some_and(|n| values::dot(values::sub(c, a), n).abs() > 1e-9) {
-                pairs.push(if values::norm(values::sub(d, b)) < values::norm(values::sub(c, a)) { (i + 1, j) } else { (i, j + 1) });
+                pairs.push(if values::norm(values::sub(d, b)) < values::norm(values::sub(c, a)) {
+                    (i + 1, j)
+                } else {
+                    (i, j + 1)
+                });
             }
         }
         pairs.push(next);
@@ -219,7 +223,8 @@ fn facet(points: &[Vec3], normal: Vec3) -> R<Shape> {
 /// The sheet faces along the first profile crossed with the way to the second (batch 017).
 pub fn loft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
     let (first, second, pairs) = matched(model, definition)?;
-    let tolerance = values::length(field(definition, "chordalTolerance"), "opTessellatedLoft chordalTolerance").unwrap_or(1e-4);
+    let tolerance =
+        values::length(field(definition, "chordalTolerance"), "opTessellatedLoft chordalTolerance").unwrap_or(1e-4);
     let normal = |p: Vec3, q: Vec3, r: Vec3| {
         values::normalize(values::cross(values::sub(q, p), values::sub(r, p))).ok_or_else(|| regen_error("TL_FAILED"))
     };
