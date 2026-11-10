@@ -841,10 +841,12 @@ fn boolean_bodies_with(
     }
     model.remove_bodies(&consumed);
     for (solid, body, tid, origins) in results {
-        // A construction plane cut by a boolean is construction no longer (a default plane cut by an aligned
-        // section's cuts, batch 037); a sketch's sheet stays a sketch's.
-        let new =
-            NewBody { body_type: BodyType::of(&solid), tid, construction: false, ..NewBody::replacing(&body, solid) };
+        // A construction plane cut away by a subtraction stays construction (an extrude's cut, an aligned section's
+        // cuts of default planes' copies: batches 092, 090); kept only where a tool is, by a subtraction of its
+        // complement (a crop view, batches 092 c003, 037), or by another boolean, it's construction no longer. A
+        // sketch's sheet stays a sketch's.
+        let construction = body.construction && matches!(kind, BooleanKind::Subtraction);
+        let new = NewBody { body_type: BodyType::of(&solid), tid, construction, ..NewBody::replacing(&body, solid) };
         model.add_body(new, &origins, &default, &|_| None);
     }
     Ok(())
