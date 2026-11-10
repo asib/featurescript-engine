@@ -127,6 +127,9 @@ struct Bend {
     flat_length: f64,
     /// Laid flat (`sheetMetalUnfold`).
     unfolded: bool,
+    /// A partial flange's bend holding the edges beside it (`holdAdjacentEdges`): the pieces of its edge's line
+    /// beyond it stay where they are rather than being cut back to the bend's setback (batch 086 c016).
+    hold_adjacent: bool,
 }
 
 fn normal_at(face: &Shape, p: Vec3) -> R<Vec3> {
@@ -200,6 +203,7 @@ fn bend_of(
         normals: (n1, n2),
         flat_length,
         unfolded,
+        hold_adjacent: false,
     })
 }
 
@@ -332,7 +336,8 @@ fn joint_bend(def: &Body, edge_index: usize, joint: &Value, front: f64, back: f6
     )?;
     let k_factor = attribute_value(joint, "k-factor").and_then(Value::as_number).unwrap_or(model_k_factor);
     let unfolded = joint.get("unfolded").and_then(Value::as_bool) == Some(true);
-    bend_of(def, edge_index, radius, front, back, k_factor, unfolded)
+    let hold_adjacent = attribute_value(joint, "holdAdjacentEdges").and_then(Value::as_bool) == Some(true);
+    Ok(Bend { hold_adjacent, ..bend_of(def, edge_index, radius, front, back, k_factor, unfolded)? })
 }
 
 /// A definition sheet's thickness on the side its faces' normals point to, and on the other.
@@ -441,6 +446,7 @@ fn bend_beside_rolled(
         normals,
         flat_length: (radii.0 + k_factor * thickness) * turn,
         unfolded: false,
+        hold_adjacent: false,
     }))
 }
 
@@ -2355,7 +2361,9 @@ fn bend_reliefs(def: &Body, wall: &Shape, bends: &[Bend], relief: &BendRelief) -
             if !(on_line(c) && on_line(d)) {
                 continue;
             }
-            stubs.push((edge.clone(), bend.setback));
+            if !bend.hold_adjacent {
+                stubs.push((edge.clone(), bend.setback));
+            }
             // The end of the bend this stub carries on from, and the way out along it.
             let (end, out) =
                 if norm(sub(c, a)) < 1e-9 || norm(sub(d, a)) < 1e-9 { (a, scale(e, -1.0)) } else { (b, e) };
