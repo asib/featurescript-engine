@@ -1038,6 +1038,13 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   parameter `foreignId`), and a blob's data id isn't one it can import (`PARASOLID_IMPORT_FAILED`). Onshape's own
   upload makes a Part Studio whose Import feature depends on the file's tab by a reference (`<element id>::m<
   microversion>`, seen in the page's websocket frames); its parts are the file's, named as in it.
+- **Part Studio tabs imported** (batch 096, with 060 c001): a Feature Studio imports a Part Studio tab
+  (`Fp::import(path : "<element id>", version : "<microversion>")`) as a module whose `build` is a function value
+  taking the configuration (`Fp::build({})`), usable as a `PartStudioData`'s build function. `derivedMirror` of one
+  works, mirroring its parts across the xy plane (with a build function from the Feature Studio Onshape fails it,
+  "Execution error"). The composite part Onshape's import makes is closed: deriving its solids finds none
+  (`IMPORT_DERIVED_NO_PARTS`). Each source derives once per Part Studio; reading part names from the context of a
+  running feature is refused (batch 011), so the batch counts them.
 - **Sketch text** (batch 091, the engine has no `@skText`): each glyph's straight segments are lines and its curves
   degree-2 Bézier B-splines (the font's TrueType quadratics), the box's height 0.72 em (2048-unit Open Sans: a box
   10 high, "I" 9.9154 tall), the baseline on the box's bottom; a construction frame as tall as the box and as wide

@@ -5,11 +5,11 @@
 use std::path::PathBuf;
 
 /// Cases the engine and Onshape don't agree on (see docs/std-coverage.md): `derivedMirror` builds its source Part
-/// Studio twice (once to load it, once more inside `instantiate`), which Onshape refuses with an "Execution error"
-/// for a build function defined in the studio itself, so it can't be compared (c001). The bent flat cases (c009,
-/// c010) query the wrong feature id and fail in both, with the same error; their brackets are left, unnamed: Part 12
-/// and Part 13 in Onshape's model, their places among the parts, Part 14 and Part 15 in the engine's, after c001's
-/// two parts, which Onshape doesn't build.
+/// Studio twice (once to load it, once more inside `instantiate`), which Onshape refuses with an "Execution error" for
+/// a build function defined in the studio itself (a Part Studio tab's it allows, batch 096 c004), so it can't be
+/// compared (c001). The bent flat cases (c009, c010) query the wrong feature id and fail in both, with the same error;
+/// their brackets are left, unnamed: Part 12 and Part 13 in Onshape's model, their places among the parts, Part 14 and
+/// Part 15 in the engine's, after c001's two parts, which Onshape doesn't build.
 const KNOWN_GAPS: &[&str] = &["c001", "Part 12", "Part 13", "Part 14", "Part 15"];
 
 /// Intersection curves: Onshape's are nearly, not exactly, parametrised by length; their middles by parameter are

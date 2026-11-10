@@ -1,0 +1,6 @@
+probe c001 { bodies : [] , construction : [] , values : { names : [ Block , Ball ] , volumes : [ 12000 , 2144.661 ] } }
+probe c002 { bodies : [ { area : 3799.9999999999986 , bounds : [ 400 , 0 , 0 , 440 , 30 , 10 ] , edges : 12 , faces : 6 , name : c002.1 , type : SOLID , vertices : 8 , volume : 11999.999999999995 } , { area : 804.247719318987 , bounds : [ 452 , 6.999999999999999 , 0 , 468 , 23 , 16 ] , edges : 0 , faces : 1 , name : c002.2 , type : SOLID , vertices : 0 , volume : 2144.660584850632 } ] , construction : [] , values : { composites : 0 , solids : 2 } }
+probe c003 failed IMPORT_DERIVED_NO_PARTS
+probe c004 { bodies : [ { area : 3800.0000000000027 , bounds : [ 1200 , -10 , -30 , 1240 , 0 , 0 ] , edges : 12 , faces : 6 , name : c004.1 , type : SOLID , vertices : 8 , volume : 12000.000000000007 } , { area : 804.247719318987 , bounds : [ 1252 , -16 , -23 , 1268 , 0 , -6.999999999999999 ] , edges : 0 , faces : 1 , name : c004.2 , type : SOLID , vertices : 0 , volume : 2144.660584850632 } ] , construction : [] , values : { composites : 0 , solids : 2 } }
+probe c005 { bodies : [] , construction : [] , values : { closed : 1 , composites : [ fixture-parts ] , open : 0 , solids : [ Block , Ball ] } }
+batch-096 failed cases: [ c003 ]

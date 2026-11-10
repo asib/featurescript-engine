@@ -1,0 +1,57 @@
+{
+  "batch": "096",
+  "title": "Part Studio tabs imported: built, derived and mirrored",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "studio",
+      "description": "fixture-parts built: its solids' names and volumes",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "derived",
+      "description": "every solid of fixture-parts derived at the origin",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "derived",
+      "description": "every solid of fixture-parts (2) (its parts in a composite) derived",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "mirror",
+      "description": "the solids of fixture-parts (1) (Y up) mirrored with derivedMirror",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "studio",
+      "description": "fixture-parts (2) built: its composites, open and closed, its solids and their names",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    }
+  ]
+}
