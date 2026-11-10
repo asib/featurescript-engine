@@ -1,0 +1,9 @@
+probe c001 failed FACE_BLEND_INCONSISTENT_DATA
+probe c002 failed FACE_BLEND_INCONSISTENT_DATA
+probe c003 { bodies : [ { area : 636.4146512604367 , bounds : [ 800 , 0 , 0 , 830.0000000000001 , 20 , 3 ] , edges : 7 , faces : 2 , name : c003.1 , type : SHEET , vertices : 6 } ] , construction : [] , values : { faces : [ { area : 173.891922 , type : CYLINDER } , { area : 462.522729 , type : PLANE } ] } }
+probe c004 { bodies : [ { area : 668.4955429698989 , bounds : [ 1200 , 0 , 0 , 1230.0000000000005 , 20 , 4 ] , edges : 7 , faces : 2 , name : c004.1 , type : SHEET , vertices : 6 } ] , construction : [] , values : { faces : [ { area : 188.495543 , type : OTHER } , { area : 480 , type : PLANE } ] } }
+probe c005 failed FACE_BLEND_FAILED
+probe c006 failed MOVE_CURVE_BOUNDARY_SELECT_HELP_POINT
+probe c007 failed MOVE_CURVE_BOUNDARY_SELECT_HELP_POINT
+probe c008 { bodies : [ { area : 677.2489338459267 , bounds : [ 2800 , -4.942046521771643 , 0 , 2815.03200922538 , 15.03200922537974 , 24.513540885942557 ] , edges : 4 , faces : 1 , name : c008.1 , type : SHEET , vertices : 4 } ] , construction : [] , values : { faces : [ { area : 677.248934 , type : REVOLVED } ] } }
+batch-079 failed cases: [ c001 , c002 , c005 , c006 , c007 ]
