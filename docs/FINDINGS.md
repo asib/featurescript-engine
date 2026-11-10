@@ -916,6 +916,38 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   top edge its own fit, bulging 0.006 mm at its middle); round past its side alone each point goes 5 mm round its
   circle (0.5 rad at radius 10, 0.4167 at 12), the new side running up the curve. Only both at once differ (batch
   079 c008).
+- **How far a slanted bend's end tilts** (batch 081, with 044 c001, 078 c001–c003): the plane through the end
+  curves' corners meets the bend's edge λ inside the vertex, the sum over the two walls' edges at it of
+  (T/2) t tan(φ/2) / (1 + t² r / 2(r + T)), where t is the slope at which the edge leans out along the bend (the
+  tangent of its angle from the plane square to it, negative leaning in), r the definition's radius, T how far the
+  other side of the material lies from it outward (negative when the material is inside), and φ the bend's angle;
+  where the sum comes to nothing or less the plane holds both edges. For the L's (90°, one edge square): 0.48 (r 1,
+  T 2, t 1/2), 0.4704 (r 2), 0.2348 (T 1), 0.2471 (t 1/4), 0.8569 (t 1), all to 6e-4 mm; with the material inside
+  (r 3, T -2) the near end tilts 0.3645 and the far one not at all. The square frustum's top corners (86.6°, both
+  edges leaning out) come within 3.6e-5 of the volume, the arcs' (11.25°) to the digit; edges leaning opposite ways
+  (044 c003's near end) cancel.
+- **Conic, curvature and asymmetric fillets of a circular edge** (batch 082 c001–c003): a cylinder's top edge
+  filleted 3 mm takes a straight edge's section all round, swept about the axis (the asymmetric one 3 mm across the
+  top, 2 down the side); Onshape's surfaces are its fits, their boundary circles enclosing the top 0.03 mm² more than
+  the exact circle, the volumes to 8e-6.
+- **A face blend side across two bodies** (batch 082 c004, c005): two upright sheets, each its own body, as one side
+  fail with `FACE_BLEND_RIGHT_WALL_MULTIPLE_BODIES`, help point or not.
+- **Circles lofted with a connection at points along them** (batch 082 c006): each circle starts at its connection
+  (a quarter along the first, half along the second) and the loft runs start to start: a quarter turn's twist, the
+  ruled solid between them (4188.79 mm³, Onshape's own surface 2.7e-5 under).
+- **Face blends with two solutions** (batch 083 c001, c002): a floor and a Π-shaped sheet's two walls standing on it
+  blend at both walls, the floor kept between them and the Π's roof with the rest; a help point near one wall makes
+  Onshape fail (`FACE_BLEND_FAILED`). A side's coplanar faces (an upright split along its length) have their sense
+  checked as one face's (`FACE_BLEND_WRONG_LEFT_WALL_SENSE`, c003–c006).
+- **Hold lines and cliff edges inside a side** (batch 084 c001–c004): an edge between two of a side's faces (an
+  upright split 4 mm up) is passed over as a tangent, inverse tangent or conic hold line and as a cliff edge alike:
+  the plain blend is made, consuming the split, the side's faces above it one face. Only an edge on the side's
+  boundary holds the blend (batches 079, 080).
+- **`evAxis` of two edges fails** (batch 084 c005): a query for a sketch line finds the line's wire edge and its
+  region sheet's edge along it, and revolve's axis then fails (`REVOLVE_SELECT_AXIS`).
+- **Fillets of a concave circular edge, and a conic blend round a cylinder** (batch 084 c006, c007): the edge round
+  a boss's foot takes the same curvature wedge, added; a floor and an upright cylinder blend with the conic section
+  revolved round its axis, a B-spline surface in Onshape (to 5e-5 of its area).
 - **`derivedMirror` in a Part Studio feature** (batch 060 c001): Onshape fails with "Execution error". It builds
   its source twice, once by `@convert` and again in `instantiate` (no loaded context), which Onshape evidently
   refuses for a build function defined in the studio (it won't derive one source twice in a Part Studio, batch
