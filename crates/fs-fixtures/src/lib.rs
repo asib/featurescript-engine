@@ -89,6 +89,14 @@ pub fn build(batch: &Path) -> Result<Build, String> {
             engine.interp.missing_builtins, engine.interp.output
         ));
     }
+    // The cases that failed: what one leaves behind and can't delete (a sheet metal part) stays, unnamed.
+    let failed: Vec<String> = engine
+        .interp
+        .output
+        .lines()
+        .filter_map(|l| l.split_once("failed cases: [").map(|(_, rest)| rest.to_string()))
+        .flat_map(|rest| rest.split([',', ' ', ']']).filter(|t| !t.is_empty()).map(str::to_string).collect::<Vec<_>>())
+        .collect();
     let parts = fs_geom::with_model(&context, |model| {
         // A closed composite part's bodies are its own; Onshape doesn't export them under their names.
         let consumed: Vec<_> = model
@@ -100,8 +108,22 @@ pub fn build(batch: &Path) -> Result<Build, String> {
         model
             .bodies
             .iter()
+            // A sheet metal model's flat pattern isn't a part (nor counted among them).
             .filter(|body| body.body_type == BodyType::Solid && !consumed.contains(&body.tid))
-            .filter_map(|body| Some(Part { name: body.name()?.to_string(), shape: body.shape.clone() }))
+            .filter(|body| !fs_geom::ops::sheet_metal::is_flat_pattern(body))
+            // The parts: the named bodies, and what failed cases left (other unnamed solids, such as a form's tool
+            // bodies, aren't parts in Onshape).
+            .filter(|body| {
+                body.name().is_some()
+                    || body.info.created_by.get(1).is_some_and(|case| failed.iter().any(|f| **f == **case))
+            })
+            .enumerate()
+            // An unnamed part has Onshape's default name: "Part" and its place among the parts (batch 086 c017's
+            // plate, the tenth, is "Part 10").
+            .map(|(i, body)| Part {
+                name: body.name().map_or_else(|| format!("Part {}", i + 1), str::to_string),
+                shape: body.shape.clone(),
+            })
             .collect()
     })
     .ok_or("the context has no geometry")?;
@@ -632,8 +654,9 @@ pub fn sort_faces(line: &str) -> String {
         ["faces : [", "edges : [", "bendLines : [", "curves : ["]
             .iter()
             .filter_map(|m| rest.find(m).map(|i| (i, m.len() - 1)))
-            // Any list of faces, whatever its key (batch 083: a floor's).
+            // Any list of faces, whatever its key (batch 083: a floor's), or of edges (batch 087: a region's).
             .chain(rest.find("[ { area :").map(|i| (i, 0)))
+            .chain(rest.find("[ { length :").map(|i| (i, 0)))
             .min_by_key(|x| x.0)
     };
     while let Some((start, marker)) = next(rest) {

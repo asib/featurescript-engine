@@ -5,9 +5,9 @@ use std::path::PathBuf;
 
 /// Cases the engine can't build as Onshape does yet (see docs/std-coverage.md): curvature fillets past magnitude
 /// 0.979, whose sections follow constraints Onshape's construction switches between by a rule not found (c003–c006).
-/// c008's point lies on no face of the flange, so it fails in both; its plate is left, unnamed, which Onshape's model
-/// keeps as Part 8 and the engine's leaves out.
-const KNOWN_GAPS: &[&str] = &["c003", "c004", "c005", "c006", "Part 8"];
+/// c008's point lies on no face of the flange, so it fails in both; its plate is left, unnamed: Part 8 in Onshape's
+/// model, its place among the parts, Part 4 in the engine's, without c003–c006's.
+const KNOWN_GAPS: &[&str] = &["c003", "c004", "c005", "c006", "Part 4", "Part 8"];
 
 /// Curvature fillets of magnitude 0.975 and 0.9775: Onshape's third pole there still falls as the engine's, but
 /// its β₃ stays near 7.3e-5 where the engine's formula gives 1.7e-4 and 2.9e-5, so their areas are within 0.006

@@ -3,9 +3,9 @@
 
 use std::path::PathBuf;
 
-/// The mitred flanges fail in Onshape and the engine alike (c006); Onshape can't delete the plate the case leaves
-/// behind (nor can the engine), and it keeps its default name, which the engine doesn't give.
-const KNOWN_GAPS: &[&str] = &["Part 6"];
+/// The mitred flanges fail in Onshape and the engine alike (c006); neither can delete the plate the case leaves
+/// behind, which keeps its default name, "Part 6", its place among the parts.
+const KNOWN_GAPS: &[&str] = &[];
 
 #[test]
 fn batch_014_matches_onshape() {

@@ -5,8 +5,8 @@ use std::path::PathBuf;
 
 /// c013 fails in Onshape and the engine alike (its hold face pick misses). Onshape leaves the case's three sheet
 /// metal parts, which can't be deleted (a rolled wall between two flat ones, ripped apart), and names them
-/// "Part 13" to "Part 15"; the engine doesn't name what a failed case leaves.
-const KNOWN_GAPS: &[&str] = &["Part 13", "Part 14", "Part 15"];
+/// "Part 13" to "Part 15", their places among the parts; the engine leaves four, "Part 12" and "Part 14" to "Part 16".
+const KNOWN_GAPS: &[&str] = &["Part 12", "Part 13", "Part 14", "Part 15", "Part 16"];
 
 #[test]
 fn batch_018_matches_onshape() {
