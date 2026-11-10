@@ -982,11 +982,12 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   but `opExtrude` sweeps one side face along collinear lines (its caps have one edge there), so a plate thickened
   into sheet metal (std extrudes the region and extracts the cap) has no vertex between them, and a rip between
   such points finds no corner (`SHEET_METAL_RIP_NO_CORNER`: `qClosestTo` ties two corners).
-- **Edge directions** (batch 086 c004, 087 c003, c007): an offset sheet's edges keep their source edges'
-  directions; a block's (an extruded rectangle's) upright edges run from the extrude's end back to its start, its
-  cap edges as the sketch's lines; of a fillet along its top back edge, the edge on the top runs -x and the arc at
-  x = 0 from the top down, the others as the engine's. The engine's upright and those fillet edges run the other
-  way (a known gap: their points' order, and the planes `evPlanarEdge` starts at their start).
+- **Edge directions** (batch 088, with 086 c004, 087 c003, c007): an extrude's side edges (swept from the profile's
+  vertices) run from its end back to its start, up, down or symmetric; a revolve's edges swept round from the
+  profile's vertices run back against the revolve; cap edges, circles and a cut hole's edges as the sketch's
+  curves; a fillet's and a chamfer's edges as they run in their older faces' loops (anticlockwise about those
+  faces' outward normals); an offset sheet's edges as the edges they're offset from. The engine records the way
+  (`Info::sense`) and measures edges (`evEdgeTangentLines`, curvatures, `evLine`, `evPlanarEdge`) that way.
 - **A tab across a corner** (batch 087 c004): on a box converted with rips up its corners, a tab on the front wall
   past the corner, subtracted from the right wall with 0.2 mm clearance, closes the corner's rip (std's derip:
   its faces run on over the rip's 0.02 mm gap); the engine finds no rip to close (within 2e-6 of the volume).
