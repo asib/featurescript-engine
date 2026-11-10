@@ -951,6 +951,19 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
 - **Fillets of a concave circular edge, and a conic blend round a cylinder** (batch 084 c006, c007): the edge round
   a boss's foot takes the same curvature wedge, added; a floor and an upright cylinder blend with the conic section
   revolved round its axis, a B-spline surface in Onshape (to 5e-5 of its area).
+- **Onshape's torus parameters** (batch 085 c002–c004, and 073 c004–c005): a torus a revolve makes has its
+  coordinate system's z back along the revolve's axis and its x the world's y × z, as an extruded cylinder's (about
+  z, x along -x; about x, along +z). Its u runs from x towards z × x, its v from the tube's inner equator:
+  P(u, v) = C + (R − r cos v)(cos u x + sin u y) − r sin v z. OpenCascade's torus on the same axis runs u the other
+  way and v from the outer equator, and its frame may be left-handed (a revolve about x). Isoparametric curves run
+  in these parameters: equally spaced round a whole period at k / n from zero (across a part of one at k / (n − 1),
+  the ends left out as the face's edges), tube circles from the inner equator round the tube, the others from x round
+  the axis. The curve lying on a full torus's seam starts where the revolved profile circle starts (a sketch circle's
+  -90°) instead.
+- **A cone's side replaced by a cylinder, and two variable fillets meeting at a corner** (batch 085 c001, c005): the
+  side goes over to the coaxial cylinder between the caps, which grow or shrink to it; variable conic fillets of a
+  block's top front and top right edges, 4 mm where they meet, mitre there as constant ones do (to 5.4e-6 of the
+  volume).
 - **`derivedMirror` in a Part Studio feature** (batch 060 c001): Onshape fails with "Execution error". It builds
   its source twice, once by `@convert` and again in `instantiate` (no loaded context), which Onshape evidently
   refuses for a build function defined in the studio (it won't derive one source twice in a Part Studio, batch
