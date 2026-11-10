@@ -711,8 +711,8 @@ pub fn register(m: &mut GeomBuiltins) {
                     return Err(regen_error("INVALID_INPUT"));
                 }
                 let mut s = model.shape(*r).surface_definition().map_err(occt_error)?;
-                // Cylinders and cones made by an extrude or revolve carry the coordinate system Onshape gives them.
-                if let (1 | 2, Some(frame)) = (s.kind, model.info(*r).surface_frame) {
+                // Cylinders, cones and tori made by an extrude or revolve carry the coordinate system Onshape gives them.
+                if let (1 | 2 | 4, Some(frame)) = (s.kind, model.info(*r).surface_frame) {
                     s.frame = frame;
                 }
                 let cs = || tags.coord_system(s.frame);
@@ -808,8 +808,12 @@ pub fn register(m: &mut GeomBuiltins) {
                     .filter(|r| r.kind == EntityType::Face)
                     .ok_or_else(|| regen_error("NO_TANGENT_PLANE"))?;
                 let face = model.shape(*r);
+                // A torus's parameters as Onshape's run (batch 085).
+                let torus =
+                    model.info(*r).surface_frame.and_then(|frame| crate::ops::frames::torus_fractions(face, frame));
                 let mut planes = Vec::new();
                 for (u, v) in parameters {
+                    let (u, v) = torus.as_ref().map_or((u, v), |map| map(u, v));
                     let frame = face.face_tangent_plane(u, v).map_err(|_| regen_error("NO_TANGENT_PLANE"))?;
                     planes.push(tags.plane(frame));
                 }

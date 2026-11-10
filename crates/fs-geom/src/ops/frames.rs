@@ -27,6 +27,16 @@ pub(crate) fn circles(profiles: &[Shape]) -> Vec<Circle> {
     out
 }
 
+/// The x axis Onshape gives an extruded cylinder or a revolved torus with z along `z`: y × z, y being the world's y
+/// axis square to z, or the world's x if z is along y.
+fn world_y_cross(z: Vec3) -> Option<Vec3> {
+    let world_y = Vec3 { x: 0.0, y: 1.0, z: 0.0 };
+    let y = normalize(sub(world_y, scale(z, dot(world_y, z))))
+        .filter(|_| crate::values::norm(cross(world_y, z)) > 1e-9)
+        .unwrap_or(Vec3 { x: 1.0, y: 0.0, z: 0.0 });
+    normalize(cross(y, z))
+}
+
 /// A cylinder an extrude swept along `direction` from one of `circles`: its origin is on the axis at the face's far
 /// end, z points back along the extrude, and x is y × z, y being the world's y axis square to the axis however the
 /// circle was drawn (batch 060: cylinders about x sketched with their x along y or z both have x along +z; batch
@@ -46,11 +56,7 @@ pub(crate) fn extruded(face: &Shape, circles: &[Circle], direction: Vec3, sheet:
             && crate::values::norm(cross(c.normal, a)) < 1e-9
     })?;
     let z = if sheet { direction } else { scale(direction, -1.0) };
-    let world_y = Vec3 { x: 0.0, y: 1.0, z: 0.0 };
-    let y = normalize(sub(world_y, scale(z, dot(world_y, z))))
-        .filter(|_| crate::values::norm(cross(world_y, z)) > 1e-9)
-        .unwrap_or(Vec3 { x: 1.0, y: 0.0, z: 0.0 });
-    let x = normalize(cross(y, z))?;
+    let x = world_y_cross(z)?;
     let local = Frame { origin: circle.centre, normal: direction, x: crate::values::canonical_x(direction) };
     let bounds = face.bounding_box_in(local, true).ok()?;
     let along = if sheet { bounds.min.z } else { bounds.max.z };
@@ -68,6 +74,57 @@ pub(crate) fn revolved(face: &Shape, axis: occt::Axis, profile_point: Vec3) -> O
     match s.kind {
         1 => Some(Frame { origin: axis.origin, normal: z, x: scale(radial, -1.0) }),
         2 => Some(Frame { origin: s.frame.origin, normal: z, x: cross(axis.direction, radial) }),
+        // A torus: z against the axis and x as an extruded cylinder's (batch 085: about z, x along -x; about x, along
+        // +z), its centre the origin.
+        4 => Some(Frame { origin: s.frame.origin, normal: z, x: world_y_cross(z)? }),
         _ => None,
     }
+}
+
+/// For a torus face with Onshape's coordinate system `frame`, the face fractions OCCT's own parameters give for
+/// fractions of Onshape's (batch 085): Onshape's u runs from its x axis towards z × x, OCCT's from its own x towards
+/// its y with z the other way, so u turns back; and Onshape's v starts at the tube's inner equator and runs the
+/// other way round it from OCCT's, which starts at the outer one. Round a whole period each runs from its start.
+pub(crate) fn torus_fractions(face: &Shape, frame: Frame) -> Option<impl Fn(f64, f64) -> (f64, f64)> {
+    use std::f64::consts::{PI, TAU};
+    let s = face.surface_definition().ok()?;
+    if s.kind != 4 {
+        return None;
+    }
+    let ((u0, v0), (u1, v1)) = face.face_uv_bounds().ok()?;
+    let (xo, zo) = (s.frame.x, s.frame.normal);
+    // OCCT's frame may be left-handed (a revolve's about x, batch 085 c004): y is where u runs from x.
+    let mid = face.face_tangent_plane(0.5, 0.5).ok()?;
+    let rel = sub(mid.origin, s.frame.origin);
+    let radial = sub(rel, scale(zo, dot(rel, zo)));
+    let yo = if dot(mid.x, cross(zo, radial)) >= 0.0 { cross(zo, xo) } else { cross(xo, zo) };
+    // Onshape's z against the way OCCT's u turns: u runs back; with it, on.
+    let flipped = dot(frame.normal, cross(xo, yo)) < 0.0;
+    let theta = dot(frame.x, yo).atan2(dot(frame.x, xo));
+    let (su, sv) = (u1 - u0, v1 - v0);
+    let wrap = |x: f64| x.rem_euclid(TAU);
+    // The tube's height runs along OCCT's z as r sin v, along Onshape's as -r sin v: v turns back where they agree.
+    let v_flipped = dot(frame.normal, zo) < 0.0;
+    let whole = |span: f64| span >= TAU - 1e-9;
+    // Onshape's ranges: the images of OCCT's, from Onshape's zero round a whole period.
+    let lo_u = if whole(su) {
+        0.0
+    } else if flipped {
+        wrap(theta - u1)
+    } else {
+        wrap(u0 - theta)
+    };
+    let lo_v = if whole(sv) {
+        0.0
+    } else if v_flipped {
+        wrap(PI - v1)
+    } else {
+        wrap(v0 - PI)
+    };
+    Some(move |fu: f64, fv: f64| {
+        let (un, vn) = (lo_u + fu * su, lo_v + fv * sv);
+        let uo = if flipped { theta - un } else { theta + un };
+        let vo = if v_flipped { PI - vn } else { PI + vn };
+        (wrap(uo - u0) / su, wrap(vo - v0) / sv)
+    })
 }

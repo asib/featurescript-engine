@@ -4,7 +4,7 @@ mod blend;
 mod curve;
 mod direct;
 mod extrude;
-mod frames;
+pub(crate) mod frames;
 mod hole;
 mod intersection;
 mod isocline;

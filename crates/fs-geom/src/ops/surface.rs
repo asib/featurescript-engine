@@ -704,6 +704,19 @@ pub fn curves_on_face(model: &mut Model, id: FeatureId, definition: &Value) -> R
             .find(|r| r.kind == EntityType::Face)
             .and_then(|r| model.info(r).surface_frame);
         let creation = field(group, "creationType").as_str().unwrap_or_default().to_string();
+        if let Some(frame) = onshape_frame
+            && let Some(curves) = torus_curves(&face, frame, group, &creation)?
+        {
+            let names = field(group, "names").as_array();
+            for (i, edge) in curves.into_iter().enumerate() {
+                let mut curve_id = id.to_vec();
+                if let Some(name) = names.and_then(|n| n.get(i)).and_then(Value::as_str) {
+                    curve_id.push(name.into());
+                }
+                add_wires(model, &curve_id.into(), &[edge])?;
+            }
+            continue;
+        }
         // DIR1 curves run along the face's v parameter at fixed u (on a cylinder, lines along it), DIR2 the other
         // way. (Batch 005, c007 and c008.)
         let along_u = !creation.starts_with("DIR1");
@@ -765,6 +778,76 @@ pub fn curves_on_face(model: &mut Model, id: FeatureId, definition: &Value) -> R
         }
     }
     Ok(Value::UNDEFINED)
+}
+
+/// Isoparametric curves on a torus with Onshape's coordinate system `frame` (batch 085, 073 c004–c005), in Onshape's
+/// own parameters: P(u, v) = C + (R − r cos v)(cos u x + sin u y) − r sin v z, v from the tube's inner equator. DIR1
+/// curves are tube circles at fixed u, starting at the face's least v and running round it; DIR2 ones run round the
+/// axis at fixed v from its least u. Equally spaced round a whole period at k / n from zero, across a part of one at
+/// k / (n − 1) without the ends (which are the face's edges). None for other faces.
+fn torus_curves(face: &Shape, frame: occt::Frame, group: &Value, creation: &str) -> R<Option<Vec<Shape>>> {
+    use crate::values::{add, cross, scale};
+    use std::f64::consts::TAU;
+    let Ok(s) = face.surface_definition() else { return Ok(None) };
+    if s.kind != 4 {
+        return Ok(None);
+    }
+    let Some(fractions) = super::frames::torus_fractions(face, frame) else { return Ok(None) };
+    let (big, small) = (s.radius1, s.radius2);
+    let (c, z, x) = (frame.origin, frame.normal, frame.x);
+    let y = cross(z, x);
+    // Onshape's ranges: where its fractions 0 and 1 fall.
+    let ((u0, v0), (u1, v1)) = face.face_uv_bounds().map_err(occt_error)?;
+    let (su, sv) = (u1 - u0, v1 - v0);
+    let at = |fu: f64, fv: f64| -> R<occt::Vec3> {
+        let (a, b) = fractions(fu, fv);
+        Ok(face.face_tangent_plane(a, b).map_err(occt_error)?.origin)
+    };
+    // The start of Onshape's ranges, from the point at fractions (0, 0).
+    let start = at(0.0, 0.0)?;
+    let rel = crate::values::sub(start, c);
+    let height = crate::values::dot(rel, z);
+    let flat = crate::values::sub(rel, scale(z, height));
+    let lo_u = crate::values::dot(flat, y).atan2(crate::values::dot(flat, x)).rem_euclid(TAU);
+    let rho = crate::values::norm(flat);
+    let lo_v = (-height).atan2(big - rho).rem_euclid(TAU);
+    let dir1 = creation.starts_with("DIR1");
+    let span = if dir1 { su } else { sv };
+    let whole = |s: f64| s >= TAU - 1e-9;
+    let fractions_wanted: Vec<f64> = if creation.contains("AUTO_SPACED") {
+        let n = field(group, "nCurves").as_number().unwrap_or(1.0).max(1.0) as usize;
+        if whole(span) {
+            (0..n).map(|i| i as f64 / n as f64).collect()
+        } else if n <= 2 {
+            vec![0.5]
+        } else {
+            (1..n - 1).map(|i| i as f64 / (n - 1) as f64).collect()
+        }
+    } else {
+        values::numbers(field(group, "parameters"), "parameters")?
+    };
+    let mut curves = Vec::new();
+    for f in fractions_wanted {
+        let edge = if dir1 {
+            let u = lo_u + f * su;
+            let radial = add(scale(x, u.cos()), scale(y, u.sin()));
+            let centre = add(c, scale(radial, big));
+            let circle = occt::Frame { origin: centre, normal: cross(radial, z), x: scale(radial, -1.0) };
+            if whole(sv) { occt::circle_edge(circle, small) } else { occt::arc_edge(circle, small, lo_v, lo_v + sv) }
+        } else {
+            let v = lo_v + f * sv;
+            let circle = occt::Frame { origin: add(c, scale(z, -small * v.sin())), normal: z, x };
+            let radius = big - small * v.cos();
+            if whole(su) {
+                occt::circle_edge(occt::Frame { x: add(scale(x, lo_u.cos()), scale(y, lo_u.sin())), ..circle }, radius)
+            } else {
+                occt::arc_edge(circle, radius, lo_u, lo_u + su)
+            }
+        }
+        .map_err(occt_error)?;
+        curves.push(edge);
+    }
+    Ok(Some(curves))
 }
 
 pub fn boundary_surface(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
