@@ -1154,6 +1154,9 @@ fn single_entity(model: &Model, found: &[EntityRef]) -> Option<Shape> {
             _ => None,
         };
     }
+    if r.kind == EntityType::Edge {
+        return Some(crate::ops::onshape_edge(model, *r));
+    }
     Some(model.shape(*r).clone())
 }
 

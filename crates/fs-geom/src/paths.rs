@@ -12,7 +12,8 @@ use occt::Shape;
 
 /// Edges chained end to end: each path as (edges with whether each runs backwards, closed).
 fn chains(model: &Model, edges: &[EntityRef]) -> Vec<(Vec<(EntityRef, bool)>, bool)> {
-    let ends: Vec<Vec<Shape>> = edges.iter().map(|r| model.shape(*r).edge_end_vertices().unwrap_or_default()).collect();
+    // Each edge's ends, its start first as Onshape's edge runs.
+    let ends: Vec<Vec<Shape>> = edges.iter().map(|r| crate::topology::end_vertices(model, *r)).collect();
     let mut used = vec![false; edges.len()];
     let mut out = Vec::new();
     let meets = |a: &Shape, b: &Shape| a.is_same(b) || a.distance(b).is_ok_and(|d| d.distance < 1e-8);

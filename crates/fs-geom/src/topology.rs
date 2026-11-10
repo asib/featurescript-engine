@@ -66,10 +66,25 @@ pub fn adjacent(model: &Model, seeds: &[EntityRef], via: EntityType, kind: Optio
 }
 
 /// The start or end vertex of each edge, in the edge's own direction. Closed edges have none.
+/// An edge's end vertices, its start first, as Onshape's edge runs (`Info::sense`, else as its shape runs).
+pub fn end_vertices(model: &Model, r: EntityRef) -> Vec<occt::Shape> {
+    let edge = crate::ops::onshape_edge(model, r);
+    let mut ends = edge.edge_end_vertices().unwrap_or_default();
+    if let (Ok(start), [first, last]) = (edge.edge_tangent(0.0, false), &ends[..]) {
+        let gap = |v: &occt::Shape| {
+            v.vertex_point().map_or(f64::MAX, |p| crate::values::norm(crate::values::sub(p, start.origin)))
+        };
+        if gap(last) < gap(first) {
+            ends.reverse();
+        }
+    }
+    ends
+}
+
 pub fn edge_vertices(model: &Model, edges: &[EntityRef], at_start: bool) -> Vec<EntityRef> {
     let mut out = Vec::new();
     for r in edges.iter().filter(|r| r.kind == EntityType::Edge) {
-        let ends = model.shape(*r).edge_end_vertices().unwrap_or_default();
+        let ends = end_vertices(model, *r);
         let Some(v) = (if at_start { ends.first() } else { ends.last() }) else { continue };
         let vertices = &model.bodies[r.body].vertices;
         if let Some(index) = vertices.iter().position(|e| e.shape.is_same(v)) {

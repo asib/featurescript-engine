@@ -379,10 +379,14 @@ pub fn extrude(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
             } else {
                 a.origin
             };
+            let near = if far == b.origin { a.origin } else { b.origin };
+            // It runs from the far end back (batch 088).
+            let sense = crate::values::normalize(crate::values::sub(near, far)).map(|d| (far, d));
             Some(Rc::new(Info {
                 created_by: created.created_by.clone(),
                 dependency: created.dependency.clone(),
                 line_origin: Some(far),
+                sense,
                 ..Default::default()
             }))
         } else {

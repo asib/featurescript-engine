@@ -435,10 +435,16 @@ pub(crate) fn carry_frames(
     }
     let edge_images = moved.sub_shapes(occt::ShapeKind::Edge);
     let mut edge_updates: Vec<(Shape, Vec3)> = Vec::new();
+    let mut sense_updates: Vec<(Shape, (Vec3, Vec3))> = Vec::new();
     for (i, edge) in source.shape.sub_shapes(occt::ShapeKind::Edge).iter().enumerate() {
         let Some(entity) = source.edges.iter().find(|e| e.shape.is_same(edge)) else { continue };
         if let (Some(origin), Some(image)) = (entity.info.line_origin, edge_images.get(i)) {
             edge_updates.push((image.clone(), point(origin)));
+        }
+        if let (Some((p, d)), Some(image)) = (entity.info.sense, edge_images.get(i)) {
+            let q = point(p);
+            let direction = values::normalize(values::sub(point(values::add(p, d)), q)).unwrap_or(d);
+            sense_updates.push((image.clone(), (q, direction)));
         }
     }
     model.update_body(target, |body| {
@@ -452,7 +458,52 @@ pub(crate) fn carry_frames(
                 e.info = Rc::new(Info { line_origin: Some(*origin), ..(*e.info).clone() });
             }
         }
+        for (image, sense) in &sense_updates {
+            if let Some(e) = body.edges.iter_mut().find(|e| e.shape.is_same(image)) {
+                e.info = Rc::new(Info { sense: Some(*sense), ..(*e.info).clone() });
+            }
+        }
     });
+}
+
+/// Gives each edge an operation made between one of its new faces and an older face the way it runs in the older
+/// face's loop (anticlockwise about its outward normal), as Onshape's fillets' and chamfers' edges run (batch 088).
+pub(crate) fn sense_from_older_faces(model: &mut Model, id: &FeatureId) {
+    for b in 0..model.bodies.len() {
+        let body = &model.bodies[b];
+        let mut updates: Vec<(usize, (Vec3, Vec3))> = Vec::new();
+        for (i, edge) in body.edges.iter().enumerate() {
+            if !edge.info.is_created_by(id) || edge.info.sense.is_some() {
+                continue;
+            }
+            let used = body.faces.iter().filter(|f| !f.info.is_created_by(id)).find_map(|f| {
+                f.shape.sub_shapes(occt::ShapeKind::Edge).into_iter().find(|e| e.is_same(&edge.shape))
+            });
+            if let Some(tangent) = used.and_then(|e| e.edge_tangent(0.5, false).ok()) {
+                updates.push((i, (tangent.origin, tangent.direction)));
+            }
+        }
+        if updates.is_empty() {
+            continue;
+        }
+        model.update_body(b, |body| {
+            for (i, sense) in &updates {
+                let e = &mut body.edges[*i];
+                e.info = Rc::new(Info { sense: Some(*sense), ..(*e.info).clone() });
+            }
+        });
+    }
+}
+
+/// An edge as Onshape's runs (`Info::sense`): its shape, turned round if it runs the other way.
+pub(crate) fn onshape_edge(model: &Model, r: crate::model::EntityRef) -> Shape {
+    let shape = model.shape(r).clone();
+    let Some((p, d)) = model.info(r).sense else { return shape };
+    let t = shape.edge_fraction(p, false).unwrap_or(0.5);
+    match shape.edge_tangent(t, false) {
+        Ok(a) if values::dot(a.direction, d) < 0.0 => shape.reversed(),
+        _ => shape,
+    }
 }
 
 pub(crate) fn id_and_definition(args: &[Value], name: &str) -> R<(FeatureId, Value)> {

@@ -115,6 +115,30 @@ pub fn extract_surface(model: &mut Model, id: FeatureId, definition: &Value) -> 
             }
         }
     }
+    // An offset copy's edges run as the edges they're offset from, as Onshape's (batch 086 c004, 087 c003): each
+    // source edge as Onshape's runs.
+    let mut source_edges: Vec<Shape> = Vec::new();
+    if offset != 0.0 {
+        for (b, body) in model.bodies.iter().enumerate() {
+            for (index, edge) in body.edges.iter().enumerate() {
+                if faces.iter().any(|f| f.sub_shapes(ShapeKind::Edge).iter().any(|e| e.is_same(&edge.shape))) {
+                    let r = crate::model::EntityRef { body: b, kind: EntityType::Edge, index };
+                    source_edges.push(super::onshape_edge(model, r));
+                }
+            }
+        }
+    }
+    let sense_of = |copy: &Shape| -> Option<(occt::Vec3, occt::Vec3)> {
+        let mid = copy.edge_tangent(0.5, false).ok()?;
+        let p = occt::vertex(mid.origin).ok()?;
+        let (source, _) = source_edges
+            .iter()
+            .filter_map(|e| e.distance(&p).ok().map(|d| (e, d.distance)))
+            .filter(|(_, d)| (d - offset.abs()).abs() < 1e-6)
+            .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))?;
+        let along = source.edge_tangent(source.edge_fraction(mid.origin, false).ok()?, false).ok()?;
+        (values::dot(along.direction, mid.direction).abs() > 1.0 - 1e-6).then_some((mid.origin, along.direction))
+    };
     for sheet in occt::extract_faces(&faces, offset).map_err(|_| regen_error("EXTRACT_SURFACE_FAILED"))? {
         let mut origins = Origins::default();
         for kind in [ShapeKind::Face, ShapeKind::Edge, ShapeKind::Vertex] {
@@ -127,7 +151,13 @@ pub fn extract_surface(model: &mut Model, id: FeatureId, definition: &Value) -> 
             }
         }
         let info = Info::new(id.clone());
-        model.add_body(NewBody::new(sheet, BodyType::Sheet, info.clone()), &origins, &info, &|_| None);
+        let special = |s: &Shape| {
+            if s.kind() != Some(ShapeKind::Edge) || source_edges.is_empty() {
+                return None;
+            }
+            sense_of(s).map(|sense| std::rc::Rc::new(Info { sense: Some(sense), ..(*info).clone() }))
+        };
+        model.add_body(NewBody::new(sheet, BodyType::Sheet, info.clone()), &origins, &info, &special);
     }
     Ok(Value::UNDEFINED)
 }

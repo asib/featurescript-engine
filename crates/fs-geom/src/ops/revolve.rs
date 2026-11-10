@@ -155,11 +155,27 @@ pub fn revolve(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
     // Cylinders and cones get Onshape's coordinate system.
     let profile_point =
         profile.bounding_box(false).ok().map(|b| values::scale(values::add(b.min, b.max), 0.5)).unwrap_or(axis.origin);
+    // OCCT turns the profile anticlockwise about the axis it's given (backward for a start bound).
+    let revolve_sign = if reversed { -1.0 } else { 1.0 };
     let special = |s: &Shape| {
         if end_cap.contains(s) {
             Some(end_info.clone())
         } else if start_cap.contains(s) {
             Some(start_info.clone())
+        } else if s.kind() == Some(ShapeKind::Edge) && s.curve_type().ok() == Some(occt::CurveType::Circle) {
+            // An edge swept from a vertex, round the axis: it runs back against the revolve (batch 088 c007).
+            let c = s.curve_definition().ok()?;
+            if values::norm(values::cross(c.frame.normal, axis.direction)) > 1e-9 {
+                return None;
+            }
+            let mid = s.edge_tangent(0.5, false).ok()?;
+            let radial = values::sub(mid.origin, c.frame.origin);
+            let forward = values::normalize(values::cross(values::scale(axis.direction, revolve_sign), radial))?;
+            Some(Rc::new(Info {
+                created_by: created.created_by.clone(),
+                sense: Some((mid.origin, values::scale(forward, -1.0))),
+                ..Default::default()
+            }))
         } else if s.kind() == Some(ShapeKind::Face) {
             super::frames::revolved(s, axis, profile_point).map(|frame| {
                 Rc::new(Info {

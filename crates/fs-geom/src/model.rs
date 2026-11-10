@@ -119,6 +119,10 @@ pub struct Info {
     /// matches them too, as Onshape's does (a sheet metal loft added to a model finds the joint among its loft's
     /// edges, batch 044 c005).
     pub merged_from: Vec<FeatureId>,
+    /// For an edge, which way Onshape's runs: a point on it and its direction there (batch 088: an extrude's side
+    /// edges run from its end back to its start, a fillet's edges as their older faces' loops run). Edges without
+    /// one run as the engine's shape does.
+    pub sense: Option<(occt::Vec3, occt::Vec3)>,
 }
 
 impl Info {

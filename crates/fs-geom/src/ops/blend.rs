@@ -120,6 +120,7 @@ pub fn fillet(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> 
         results.push((b, op));
     }
     replace_bodies(model, &id, results);
+    super::sense_from_older_faces(model, &id);
     // The fillets' cylinders get Onshape's coordinate systems.
     for (face, frame) in framed {
         let Some((b, i)) = model
@@ -486,6 +487,7 @@ pub fn chamfer(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
         results.push((b, op));
     }
     replace_bodies(model, &id, results);
+    super::sense_from_older_faces(model, &id);
     Ok(Value::UNDEFINED)
 }
 
