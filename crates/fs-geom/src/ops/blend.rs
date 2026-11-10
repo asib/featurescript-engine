@@ -662,16 +662,39 @@ pub fn face_blend(model: &mut Model, id: FeatureId, definition: &Value) -> R<Val
     if field(definition, "crossSection").as_str().is_some_and(|c| c != "ROLLING_BALL") {
         return Err(error("@opFaceBlend: only rolling ball blends are supported yet"));
     }
+    // Each side's faces must belong to one body (batch 082 c004, c005: two upright sheets on a floor).
+    for (key, error_name) in
+        [("side1", "FACE_BLEND_LEFT_WALL_MULTIPLE_BODIES"), ("side2", "FACE_BLEND_RIGHT_WALL_MULTIPLE_BODIES")]
+    {
+        let mut bodies: Vec<usize> =
+            query::evaluate(model, field(definition, key))?.into_iter().map(|r| r.body).collect();
+        bodies.sort_unstable();
+        bodies.dedup();
+        if bodies.len() > 1 {
+            return Err(regen_error(error_name));
+        }
+    }
     let plain = field(definition, "blendControlType").as_str().is_none_or(|c| c == "RADIUS")
         && !values::opt_bool(definition, "hasLimits")?.unwrap_or(false)
+        && !values::opt_bool(definition, "tangentHoldLines")?.unwrap_or(false)
+        && !values::opt_bool(definition, "conicHoldLines")?.unwrap_or(false)
+        && !values::opt_bool(definition, "hasCliffEdges")?.unwrap_or(false)
         && !values::opt_bool(definition, "hasCaps")?.unwrap_or(false)
         && !values::opt_bool(definition, "asymmetric")?.unwrap_or(false)
-        && field(definition, "crossSectionShape").as_str().is_none_or(|c| c == "CIRCULAR")
         && field(definition, "trim").as_str().is_none_or(|t| t == "WALLS")
         && !values::opt_bool(definition, "detach")?.unwrap_or(false);
     if !plain {
         return planar_face_blend(model, id, definition);
     }
+    let section = match field(definition, "crossSectionShape").as_str() {
+        Some("CONIC") => {
+            Section::Conic(field(definition, "rho").as_number().ok_or_else(|| regen_error("FACE_BLEND_FAILED"))?)
+        }
+        Some("CURVATURE") => Section::Curvature(
+            field(definition, "magnitude").as_number().ok_or_else(|| regen_error("FACE_BLEND_FAILED"))?,
+        ),
+        _ => Section::Circular,
+    };
     let radius = values::length(field(definition, "radius"), "opFaceBlend radius")?;
     let side = |key: &str| -> R<Vec<EntityRef>> {
         Ok(query::evaluate(model, field(definition, key))?.into_iter().filter(|r| r.kind == EntityType::Face).collect())
@@ -681,13 +704,44 @@ pub fn face_blend(model: &mut Model, id: FeatureId, definition: &Value) -> R<Val
         return Err(regen_error("FACE_BLEND_SELECT_FACES"));
     }
     let shapes = |refs: &[EntityRef]| -> Vec<Shape> { refs.iter().map(|r| model.shape(*r).clone()).collect() };
+    // Sides each in one plane (of one face or several, batch 083 c003–c006: an upright split along its length):
+    // each side's sense must point to where the other side is, as between single faces.
+    let one_plane = |faces: &[Shape]| -> Option<(occt::Frame, Shape)> {
+        let first = faces.first()?.face_plane().ok()?;
+        faces
+            .iter()
+            .all(|f| {
+                f.face_plane().is_ok_and(|p| {
+                    crate::values::dot(p.normal, first.normal).abs() > 1.0 - 1e-9
+                        && crate::values::dot(crate::values::sub(p.origin, first.origin), first.normal).abs() < 1e-9
+                })
+            })
+            .then(|| (first, faces[0].clone()))
+    };
+    if let (Some((plane1, face1)), Some((plane2, face2))) = (one_plane(&shapes(&side1)), one_plane(&shapes(&side2))) {
+        side_senses(definition, (&plane1, &face1), (&plane2, &face2))?;
+    }
     let reverse1 = !values::opt_bool(definition, "flipSide1Normal")?.unwrap_or(false);
     let reverse2 = !values::opt_bool(definition, "flipSide2Normal")?.unwrap_or(false);
-    if let Some(sheet) = floor_wall_blend(&shapes(&side1), reverse1, &shapes(&side2), reverse2, radius)? {
+    if let Some(sheet) = floor_wall_blend(&shapes(&side1), reverse1, &shapes(&side2), reverse2, radius, section)? {
         let first = model.bodies[side1[0].body].clone();
         let mut bodies: Vec<usize> = side1.iter().chain(&side2).map(|r| r.body).collect();
         bodies.sort_unstable();
         bodies.dedup();
+        // The sides' bodies' other faces stay, joined to it (batch 083 c002: the roof between two walls).
+        let sides: Vec<Shape> = shapes(&side1).into_iter().chain(shapes(&side2)).collect();
+        let others: Vec<Shape> = bodies
+            .iter()
+            .flat_map(|&b| model.bodies[b].faces.iter().map(|f| f.shape.clone()))
+            .filter(|f| !sides.iter().any(|s| s.is_same(f)))
+            .collect();
+        let sheet = if others.is_empty() {
+            sheet
+        } else {
+            let mut faces = sheet.sub_shapes(ShapeKind::Face);
+            faces.extend(others);
+            occt::sew_faces(&faces, 1e-6).map_err(|_| regen_error("FACE_BLEND_FAILED"))?
+        };
         let info = crate::model::Info::new(id);
         model.remove_bodies(&bodies);
         let new = crate::model::NewBody {
@@ -697,6 +751,9 @@ pub fn face_blend(model: &mut Model, id: FeatureId, definition: &Value) -> R<Val
         };
         model.add_body(new, &crate::model::Origins::default(), &info, &|_| None);
         return Ok(Value::UNDEFINED);
+    }
+    if !matches!(section, Section::Circular) {
+        return planar_face_blend(model, id, definition);
     }
     let Ok(op) = occt::face_blend(&shapes(&side1), reverse1, &shapes(&side2), reverse2, radius) else {
         // Sheets apart: OCCT only rounds an edge they share.
@@ -722,13 +779,50 @@ pub fn face_blend(model: &mut Model, id: FeatureId, definition: &Value) -> R<Val
     Ok(Value::UNDEFINED)
 }
 
+/// Each side's sense (its normal, flipped if asked) must point to the side of it the blend is on, where the other
+/// side goes (batch 054: Onshape refuses sheets apart whose flips std works out wrongly).
+fn side_senses(definition: &Value, side1: (&occt::Frame, &Shape), side2: (&occt::Frame, &Shape)) -> R<()> {
+    use crate::values::{add, cross, dot, normalize, scale, sub};
+    let failed = || regen_error("FACE_BLEND_FAILED");
+    let ((plane1, face1), (plane2, face2)) = (side1, side2);
+    let Some(t) = normalize(cross(plane1.normal, plane2.normal)) else { return Ok(()) };
+    let (n1, n2) = (plane1.normal, plane2.normal);
+    let (h1, h2) = (dot(n1, plane1.origin), dot(n2, plane2.origin));
+    let k = dot(n1, n2);
+    let det = 1.0 - k * k;
+    let c = add(scale(n1, (h1 - k * h2) / det), scale(n2, (h2 - k * h1) / det));
+    let into = |plane: &occt::Frame, face: &Shape| -> R<occt::Vec3> {
+        let u = normalize(cross(plane.normal, t)).ok_or_else(failed)?;
+        let inner = face.face_inner_point().map_err(|_| failed())?;
+        Ok(if dot(sub(inner, c), u) >= 0.0 { u } else { scale(u, -1.0) })
+    };
+    let (u1, u2) = (into(plane1, face1)?, into(plane2, face2)?);
+    let flipped = |key: &str| -> R<bool> { Ok(values::opt_bool(definition, key)?.unwrap_or(false)) };
+    let sense = |n: occt::Vec3, flip: bool| if flip { scale(n, -1.0) } else { n };
+    if dot(sense(n1, flipped("flipSide1Normal")?), u2) < 0.0 {
+        return Err(regen_error("FACE_BLEND_WRONG_LEFT_WALL_SENSE"));
+    }
+    if dot(sense(n2, flipped("flipSide2Normal")?), u1) < 0.0 {
+        return Err(regen_error("FACE_BLEND_WRONG_RIGHT_WALL_SENSE"));
+    }
+    Ok(())
+}
+
 /// A rolling ball blend between a planar floor (side 1) and walls standing square on it (side 2: planes square to
 /// it and cylinders about axes square to it, batch 071 c004–c007): along the walls' base curves, offset the radius
 /// towards the blend over the floor, the ball's centre runs at the radius above it, sweeping a quarter cylinder
 /// along each line and a quarter torus round each arc. The floor keeps what lies beyond the offset curves (the
 /// pieces not touching the walls), the walls what lies more than the radius above the floor, all sewn into one
-/// sheet. Each side's normal, reversed if asked, points away from the blend. `None` if the sides aren't so.
-fn floor_wall_blend(side1: &[Shape], reverse1: bool, side2: &[Shape], reverse2: bool, r: f64) -> R<Option<Shape>> {
+/// sheet. Each side's normal, reversed if asked, points away from the blend. `None` if the sides aren't so. A conic
+/// or curvature section takes the quarter circle's place, its surface a B-spline as Onshape's is (batch 084 c007).
+fn floor_wall_blend(
+    side1: &[Shape],
+    reverse1: bool,
+    side2: &[Shape],
+    reverse2: bool,
+    r: f64,
+    section: Section,
+) -> R<Option<Shape>> {
     use crate::values::{add, cross, dot, norm, normalize, scale, sub};
     let failed = || regen_error("FACE_BLEND_FAILED");
     let [floor] = side1 else { return Ok(None) };
@@ -743,6 +837,28 @@ fn floor_wall_blend(side1: &[Shape], reverse1: bool, side2: &[Shape], reverse2: 
     // Towards the blend.
     let up = scale(n_floor, -1.0);
     let height = |p: occt::Vec3| dot(sub(p, plane.origin), up);
+    // The section at a point of a wall's base, the wall towards the blend along `w`: a quarter circle from the floor
+    // round to the wall, or the section's conic or curvature curve with the base its middle control point.
+    let profile = |at: occt::Vec3, w: occt::Vec3| -> R<Shape> {
+        let (on_floor, on_wall) = (add(at, scale(w, r)), add(at, scale(up, r)));
+        match section {
+            Section::Circular => {
+                let centre = add(at, add(scale(w, r), scale(up, r)));
+                let frame =
+                    occt::Frame { origin: centre, normal: cross(scale(up, -1.0), scale(w, -1.0)), x: scale(up, -1.0) };
+                occt::arc_edge(frame, r, 0.0, std::f64::consts::FRAC_PI_2).map_err(|_| failed())
+            }
+            Section::Conic(rho) => conic_edge(on_floor, at, on_wall, rho / (1.0 - rho)),
+            Section::Curvature(m) => curvature_section(on_floor, at, on_wall, m),
+        }
+    };
+    let finish = |piece: Shape| -> R<Shape> {
+        if matches!(section, Section::Circular) {
+            Ok(piece)
+        } else {
+            occt::nurbs_converted(&piece).map_err(crate::occt_error)
+        }
+    };
     let mut pieces = Vec::new();
     let mut offsets = Vec::new();
     let mut bases = Vec::new();
@@ -767,10 +883,8 @@ fn floor_wall_blend(side1: &[Shape], reverse1: bool, side2: &[Shape], reverse2: 
             0 if dot(s.frame.normal, up).abs() < 1e-9 && base.curve_type().ok() == Some(occt::CurveType::Line) => {
                 let w = scale(s.frame.normal, if dot(s.frame.normal, w) >= 0.0 { 1.0 } else { -1.0 });
                 // A quarter circle about the centre line, from the floor (−up) round to the wall (−w).
-                let centre = add(a.origin, add(scale(w, r), scale(up, r)));
-                let frame = occt::Frame { origin: centre, normal: cross(scale(up, -1.0), scale(w, -1.0)), x: scale(up, -1.0) };
-                let arc = occt::arc_edge(frame, r, 0.0, std::f64::consts::FRAC_PI_2).map_err(|_| failed())?;
-                pieces.push(occt::prism(&arc, sub(b.origin, a.origin)).map_err(|_| failed())?.shape());
+                let arc = profile(a.origin, w)?;
+                pieces.push(finish(occt::prism(&arc, sub(b.origin, a.origin)).map_err(|_| failed())?.shape())?);
                 offsets.push(occt::line_edge(add(a.origin, scale(w, r)), add(b.origin, scale(w, r))).map_err(|_| failed())?);
             }
             1 if norm(cross(s.frame.normal, up)) < 1e-9 => {
@@ -778,9 +892,7 @@ fn floor_wall_blend(side1: &[Shape], reverse1: bool, side2: &[Shape], reverse2: 
                 let radial = normalize(sub(a.origin, axis_point)).ok_or_else(failed)?;
                 let outward = dot(radial, w) > 0.0;
                 let w = if outward { radial } else { scale(radial, -1.0) };
-                let centre = add(a.origin, add(scale(w, r), scale(up, r)));
-                let frame = occt::Frame { origin: centre, normal: cross(scale(up, -1.0), scale(w, -1.0)), x: scale(up, -1.0) };
-                let arc = occt::arc_edge(frame, r, 0.0, std::f64::consts::FRAC_PI_2).map_err(|_| failed())?;
+                let arc = profile(a.origin, w)?;
                 // How far round the axis the base runs, from its start towards its end.
                 let closed = norm(sub(a.origin, b.origin)) < 1e-9;
                 let turn = if closed {
@@ -799,7 +911,7 @@ fn floor_wall_blend(side1: &[Shape], reverse1: bool, side2: &[Shape], reverse2: 
                     if sense < 0.0 { -t } else { t }
                 };
                 let axis = occt::Axis { origin: axis_point, direction: up };
-                pieces.push(occt::revolve(&arc, axis, turn).map_err(|_| failed())?.shape());
+                pieces.push(finish(occt::revolve(&arc, axis, turn).map_err(|_| failed())?.shape())?);
                 let start = add(a.origin, scale(w, r));
                 let rho = norm(sub(start, axis_point));
                 let x = normalize(sub(start, axis_point)).ok_or_else(failed)?;
@@ -859,10 +971,26 @@ fn planar_face_blend(model: &mut Model, id: FeatureId, definition: &Value) -> R<
     if side1.is_empty() || side2.is_empty() {
         return Err(regen_error("FACE_BLEND_SELECT_FACES"));
     }
-    let ([f1], [f2]) = (&side1[..], &side2[..]) else {
+    // Each side one face, or coplanar faces of one body merged into one (batch 084 c001–c004: an upright split
+    // along its length).
+    let merged = |refs: &[EntityRef]| -> R<Option<Shape>> {
+        match refs {
+            [one] => Ok(Some(model.shape(*one).clone())),
+            _ => {
+                let shapes: Vec<Shape> = refs.iter().map(|r| model.shape(*r).clone()).collect();
+                let joined = occt::sew_faces(&shapes, 1e-7).map_err(|_| failed())?;
+                let faces = occt::merge_faces(&joined.sub_shapes(ShapeKind::Face)).map_err(|_| failed())?.shape();
+                Ok(match &faces.sub_shapes(ShapeKind::Face)[..] {
+                    [one] if one.face_plane().is_ok() => Some(one.clone()),
+                    _ => None,
+                })
+            }
+        }
+    };
+    let (Some(face1), Some(face2)) = (merged(&side1)?, merged(&side2)?) else {
         return Err(error("@opFaceBlend: blends other than between two single faces aren't supported yet"));
     };
-    let (face1, face2) = (model.shape(*f1).clone(), model.shape(*f2).clone());
+    let (f1, f2) = (&side1[0], &side2[0]);
     let not_planar = || error("@opFaceBlend: blends other than between planar faces aren't supported yet");
     let (plane1, plane2) =
         (face1.face_plane().map_err(|_| not_planar())?, face2.face_plane().map_err(|_| not_planar())?);
@@ -914,8 +1042,21 @@ fn planar_face_blend(model: &mut Model, id: FeatureId, definition: &Value) -> R<
         return Err(failed());
     }
     // A straight edge of either side along the line: which side it lies on and how far from the line.
+    // Only an edge on a side's boundary holds the blend; one between two of its faces is passed over (batch 084
+    // c001–c004: a split 4 mm up an upright, the plain blend consuming it).
     let along = |key: &str| -> R<Option<(usize, f64)>> {
         for r in query::evaluate(model, field(definition, key))? {
+            let body = &model.bodies[r.body];
+            let edge_shape = model.shape(r);
+            if body
+                .faces
+                .iter()
+                .filter(|f| f.shape.sub_shapes(ShapeKind::Edge).iter().any(|e| e.is_same(edge_shape)))
+                .count()
+                > 1
+            {
+                continue;
+            }
             let Some((a, b)) =
                 model.shape(r).edge_tangent(0.0, false).ok().zip(model.shape(r).edge_tangent(1.0, false).ok())
             else {
