@@ -891,6 +891,45 @@ fn planar_face_blend(model: &mut Model, id: FeatureId, definition: &Value) -> R<
     if !(s1 > 1e-9 && s2 > 1e-9) {
         return Err(failed());
     }
+    // A straight edge of either side along the line: which side it lies on and how far from the line.
+    let along = |key: &str| -> R<Option<(usize, f64)>> {
+        for r in query::evaluate(model, field(definition, key))? {
+            let Some((a, b)) =
+                model.shape(r).edge_tangent(0.0, false).ok().zip(model.shape(r).edge_tangent(1.0, false).ok())
+            else {
+                continue;
+            };
+            let (a, b) = (a.origin, b.origin);
+            if values::norm(cross(sub(b, a), t)) > 1e-9 * values::norm(sub(b, a)) {
+                return Err(error(
+                    "@opFaceBlend: hold lines and cliff edges other than straight along the blend aren't supported yet",
+                ));
+            }
+            for (k, (plane, u)) in [(&plane1, u1), (&plane2, u2)].into_iter().enumerate() {
+                if dot(sub(a, plane.origin), plane.normal).abs() < 1e-7 {
+                    return Ok(Some((k, dot(sub(a, c), u))));
+                }
+            }
+        }
+        Ok(None)
+    };
+    // A tangent hold line sets the blend back to it on its side, the other side's setback in proportion (batch 079
+    // c004: a hold line 4 mm up a side, a 4 mm blend; Onshape's surface a B-spline).
+    let held =
+        if values::opt_bool(definition, "tangentHoldLines")?.unwrap_or(false) { along("tangentEdges")? } else { None };
+    let (s1, s2) = match held {
+        Some((0, h)) if h > 1e-9 => (h, s2 * h / s1),
+        Some((_, h)) if h > 1e-9 => (s1 * h / s2, h),
+        _ => (s1, s2),
+    };
+    // A cliff edge nearer the line than the blend would reach: the ball rests on it and on the other side (batch 079
+    // c003: on the top edge of a side 3 mm high, radius 5, set back sqrt(21) on the other side).
+    let cliff =
+        if values::opt_bool(definition, "hasCliffEdges")?.unwrap_or(false) { along("cliffEdges")? } else { None };
+    let cliff = match cliff {
+        Some((k, h)) if h > 1e-9 && h < if k == 0 { s1 } else { s2 } => Some((k, h)),
+        _ => None,
+    };
     let section = match field(definition, "crossSectionShape").as_str() {
         Some("CONIC") => Section::Conic(field(definition, "rho").as_number().ok_or_else(failed)?),
         Some("CURVATURE") => Section::Curvature(field(definition, "magnitude").as_number().ok_or_else(failed)?),
@@ -968,7 +1007,33 @@ fn planar_face_blend(model: &mut Model, id: FeatureId, definition: &Value) -> R<
         Section::Conic(rho) => (2.0 * rho / (1.0 - rho) * s2, 2.0 * rho / (1.0 - rho) * s1),
         Section::Curvature(m) => (3.0 * m * s2, 3.0 * m * s1),
     };
+    // With a cliff edge, a circle of the radius about a point that far from the other side and from the edge.
+    let (s1, s2, p1, p2) = match cliff {
+        Some((k, h)) => {
+            let radius = values::length(field(definition, "radius"), "opFaceBlend radius")?;
+            let (u_edge, u_rest) = if k == 0 { (u1, u2) } else { (u2, u1) };
+            let (sin, cos) = (angle.sin(), angle.cos());
+            let reach = (2.0 * radius * h * sin - h * h * sin * sin).max(0.0).sqrt();
+            let d = h * cos + reach;
+            let (edge_point, rest_point) = (add(corner, scale(u_edge, h)), add(corner, scale(u_rest, d)));
+            if k == 0 { (h, d, edge_point, rest_point) } else { (d, h, rest_point, edge_point) }
+        }
+        None => (s1, s2, p1, p2),
+    };
     let curve = match section {
+        _ if cliff.is_some() => {
+            let (k, _) = cliff.ok_or_else(failed)?;
+            let radius = values::length(field(definition, "radius"), "opFaceBlend radius")?;
+            let (rest_point, u_rest) = if k == 0 { (p2, u2) } else { (p1, u1) };
+            // The centre: off the other side by the radius, toward the edge's side.
+            let off = normalize(sub(sub(p1, corner), scale(u_rest, dot(sub(p1, corner), u_rest))))
+                .or_else(|| normalize(sub(sub(p2, corner), scale(u_rest, dot(sub(p2, corner), u_rest)))))
+                .ok_or_else(failed)?;
+            let centre = add(rest_point, scale(off, radius));
+            let mid = add(centre, scale(normalize(sub(scale(add(p1, p2), 0.5), centre)).ok_or_else(failed)?, radius));
+            occt::arc_through(p2, mid, p1).map_err(crate::occt_error)?
+        }
+        Section::Circular if held.is_some() => conic_edge(p2, corner, p1, (angle / 2.0).sin())?,
         Section::Circular if (s1 - s2).abs() < 1e-12 => {
             let bisector = normalize(add(u1, u2)).ok_or_else(failed)?;
             let radius = s1 * (angle / 2.0).tan();
@@ -983,6 +1048,23 @@ fn planar_face_blend(model: &mut Model, id: FeatureId, definition: &Value) -> R<
     };
     let swept = occt::prism(&curve, scale(t, hi - lo)).map_err(crate::occt_error)?.shape();
     let mut blend_faces = swept.sub_shapes(ShapeKind::Face);
+    // A hold line's blend is a B-spline surface in Onshape: the section's conic, carried straight along the line.
+    if held.is_some() && cliff.is_none() && matches!(section, Section::Circular) {
+        let w = (angle / 2.0).sin();
+        let shift = scale(t, hi - lo);
+        let poles = [p2, corner, p1, add(p2, shift), add(corner, shift), add(p1, shift)];
+        blend_faces = vec![
+            occt::rational_bspline_surface_face(
+                &poles,
+                &[1.0, w, 1.0, 1.0, w, 1.0],
+                (2, 3),
+                &[0.0, 0.0, 1.0, 1.0],
+                &[0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+                (1, 2),
+            )
+            .map_err(|_| failed())?,
+        ];
+    }
     // Trimmed to walls of unequal extent, the blend runs along each wall as far as that wall does, and its ends
     // slant across from one wall's corner to the other's: in the blend's parameters, a cubic leaving each corner
     // along the section, as fast as the chord between the corners is long (batch 055 c004, a circular blend OCCT
