@@ -1413,6 +1413,21 @@ pub fn move_curve_boundary(model: &mut Model, id: FeatureId, definition: &Value)
     Ok(Value::UNDEFINED)
 }
 
+/// A clamped, non-rational B-spline edge of a degree other than 3 (and more than 1), if it is one.
+fn other_degree(edge: &Shape) -> Option<occt::BSplineData> {
+    if !matches!(edge.curve_type().ok()?, occt::CurveType::BSpline | occt::CurveType::Bezier) {
+        return None;
+    }
+    let data = edge.edge_bspline(1e-7, false, false).ok()?;
+    let d = data.degree as usize;
+    let clamped = |k: &[f64]| k.windows(2).all(|w| (w[1] - w[0]).abs() < 1e-12);
+    // Weights all alike are no weights (an elevated curve's, batch 076 c003).
+    let rational = data.rational && data.weights.iter().any(|w| (w - data.weights[0]).abs() > 1e-12);
+    (d != 3 && d > 1 && !rational && !data.periodic && data.knots.len() == data.poles.len() + d + 1
+        && clamped(&data.knots[..=d]) && clamped(&data.knots[data.knots.len() - d - 1..]))
+        .then_some(data)
+}
+
 /// A curve as Onshape extends or trims it (batches 036, 038): an arc or elliptical arc made a B-spline, or the
 /// clamped cubic B-spline it is.
 fn edge_as_cubic(edge: &Shape) -> R<crate::curve_extend::Cubic> {
@@ -1916,6 +1931,40 @@ fn curved_boundary_moved(
         };
         let to = add(p, scale(d, straight(p, d, 0.0)?));
         if at_end { occt::line_edge(fixed, to) } else { occt::line_edge(to, fixed) }.map_err(occt_error)?
+    } else if let Some(data) = other_degree(edge) {
+        // A B-spline of another degree, straight on (curving on too where it ends without curvature, as a fit spline
+        // raised to degree 4 does, batch 076 c003, c004): as many evenly spaced poles as its degree, after a knot of
+        // that multiplicity, as fast as the curve ends.
+        let d = data.degree as usize;
+        let (mut poles, mut knots) = (data.poles.clone(), data.knots.clone());
+        if !at_end {
+            poles.reverse();
+            let (lo, hi) = (knots[0], *knots.last().expect("knots"));
+            knots = knots.iter().rev().map(|k| lo + hi - k).collect();
+        }
+        let n = poles.len();
+        let (u_end, u_before) = (*knots.last().expect("knots"), knots[knots.len() - d - 2]);
+        let derivative = scale(sub(poles[n - 1], poles[n - 2]), d as f64 / (u_end - u_before));
+        let speed = values::norm(derivative);
+        let flat = {
+            let (a, b, c) = (poles[n - 3], poles[n - 2], poles[n - 1]);
+            values::norm(cross(sub(b, a), sub(c, b))) <= 1e-12 * values::norm(sub(c, a)).powi(2)
+        };
+        if curving && !flat {
+            return Err(error("@opMoveCurveBoundary: curving extensions of B-splines of other degrees aren't supported yet"));
+        }
+        let direction = values::normalize(derivative).ok_or_else(|| regen_error("TRIM_CURVE_FAILED"))?;
+        let length = straight(poles[n - 1], direction, 0.0)?;
+        let end = poles[n - 1];
+        knots.pop();
+        knots.extend(std::iter::repeat_n(u_end + length / speed, d + 1));
+        poles.extend((1..=d).map(|k| add(end, scale(direction, length * k as f64 / d as f64))));
+        if !at_end {
+            poles.reverse();
+            let (lo, hi) = (knots[0], *knots.last().expect("knots"));
+            knots = knots.iter().rev().map(|k| lo + hi - k).collect();
+        }
+        occt::bspline_edge(&poles, &[], &knots, d as i32, false).map_err(occt_error)?
     } else {
         // At its start, the curve is extended as its reverse is at its end, its own parameters kept (batch 038).
         let forward = as_cubic(edge, &start, &end)?;
