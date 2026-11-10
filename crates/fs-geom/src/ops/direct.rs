@@ -211,6 +211,55 @@ fn inferred_draft_options(
     Ok(out)
 }
 
+/// A sheet whose faces are planar quadrilaterals each running between two planes along straight sides (a thin
+/// loft's between its two profiles), carried past the planes: each face's corners moved out along its sides.
+fn carried_past(sheet: &Shape, planes: &[occt::Frame], margin: f64) -> R<Shape> {
+    use crate::values::{add, dot, norm, scale, sub};
+    let failed = || {
+        error("@opThicken: trimming to side surfaces of faces other than planar quadrilaterals between them isn't supported yet")
+    };
+    let [p0, p1] = planes else { return Err(failed()) };
+    let on = |p: occt::Vec3, plane: &occt::Frame| dot(sub(p, plane.origin), plane.normal).abs() < 1e-7;
+    let points = |s: &Shape| -> Vec<occt::Vec3> { s.sub_shapes(ShapeKind::Vertex).iter().filter_map(|v| v.vertex_point().ok()).collect() };
+    let mut faces = Vec::new();
+    for face in sheet.sub_shapes(ShapeKind::Face) {
+        let plane = face.face_plane().map_err(|_| failed())?;
+        let corners = points(&face);
+        let low: Vec<occt::Vec3> = corners.iter().copied().filter(|c| on(*c, p0)).collect();
+        let high: Vec<occt::Vec3> = corners.iter().copied().filter(|c| on(*c, p1)).collect();
+        if corners.len() != 4 || low.len() != 2 || high.len() != 2 {
+            return Err(failed());
+        }
+        // Each low corner's side runs to the high corner an edge joins it to.
+        let joined = |a: occt::Vec3, b: occt::Vec3| {
+            face.sub_shapes(ShapeKind::Edge).iter().any(|e| {
+                let ends = points(e);
+                ends.len() == 2
+                    && ((norm(sub(ends[0], a)) < 1e-9 && norm(sub(ends[1], b)) < 1e-9)
+                        || (norm(sub(ends[0], b)) < 1e-9 && norm(sub(ends[1], a)) < 1e-9))
+            })
+        };
+        let mut sides = Vec::new();
+        for &a in &low {
+            let b = *high.iter().find(|&&b| joined(a, b)).ok_or_else(failed)?;
+            let d = sub(b, a);
+            let k = 4.0 * margin / norm(d).max(1e-12);
+            sides.push((sub(a, scale(d, k)), add(b, scale(d, k))));
+        }
+        let [(a0, b0), (a1, b1)] = sides[..] else { return Err(failed()) };
+        let edges = [occt::line_edge(a0, a1), occt::line_edge(a1, b1), occt::line_edge(b1, b0), occt::line_edge(b0, a0)]
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(crate::occt_error)?;
+        let mut extended = occt::fill_edges(&edges).map_err(crate::occt_error)?;
+        if dot(extended.face_plane().map_err(crate::occt_error)?.normal, plane.normal) < 0.0 {
+            extended = extended.reversed();
+        }
+        faces.push(extended);
+    }
+    occt::sew_faces(&faces, 1e-7).map_err(crate::occt_error)
+}
+
 pub fn thicken(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
     let t1 = values::length(field(definition, "thickness1"), "opThicken thickness1")?;
     let t2 = values::length(field(definition, "thickness2"), "opThicken thickness2")?;
@@ -269,6 +318,61 @@ pub fn thicken(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
     });
     let (mut start_cap, mut end_cap) = (ShapeSet::default(), ShapeSet::default());
     let mut made = Vec::new();
+    // Side surfaces supplied (a thin loft's ends trimmed to its profiles' planes, batch 076 c008): each sheet carried
+    // past them along its straight sides, thickened, and cut back to them.
+    let side_planes: Vec<occt::Frame> = match field(definition, "sideGeometryRule") {
+        rule if field(rule, "type").as_str() == Some("SUPPLIED") => {
+            let mut planes = Vec::new();
+            for group in field(rule, "sideSurfacesEdgeFaceGroups").as_array().map(|a| a.to_vec()).unwrap_or_default() {
+                let face = query::evaluate(model, field(&group, "face"))?
+                    .into_iter()
+                    .find(|r| r.kind == EntityType::Face)
+                    .ok_or_else(|| regen_error("THICKEN_FAILED"))?;
+                planes.push(
+                    model
+                        .shape(face)
+                        .face_plane()
+                        .map_err(|_| error("@opThicken: side surfaces other than planes aren't supported yet"))?,
+                );
+            }
+            planes
+        }
+        _ => Vec::new(),
+    };
+    if !side_planes.is_empty() {
+        for (input, _) in &inputs {
+            let inside = input.sub_shapes(ShapeKind::Face).first().and_then(|f| f.face_inner_point().ok());
+            let Some(inside) = inside else { return Err(regen_error("THICKEN_FAILED")) };
+            let extended = carried_past(input, &side_planes, t1.abs() + t2.abs())?;
+            let mut solid = occt::thicken(&extended, t1, t2).map_err(|_| regen_error("THICKEN_FAILED"))?.shape();
+            for plane in &side_planes {
+                // Away from the sheet, past the plane.
+                let n = if values::dot(values::sub(inside, plane.origin), plane.normal) >= 0.0 {
+                    values::scale(plane.normal, -1.0)
+                } else {
+                    plane.normal
+                };
+                let bounds = solid.bounding_box(false).map_err(crate::occt_error)?;
+                let size = values::norm(values::sub(bounds.max, bounds.min)) * 4.0 + 1.0;
+                let frame = occt::Frame { origin: plane.origin, normal: n, x: values::canonical_x(n) };
+                let slab = occt::plane_face(frame, -size, size, -size, size).map_err(crate::occt_error)?;
+                let away = occt::prism(&slab, values::scale(n, size)).map_err(crate::occt_error)?.shape();
+                solid = occt::boolean(occt::BooleanKind::Subtraction, std::slice::from_ref(&solid), &[away], true)
+                    .map_err(|_| regen_error("THICKEN_FAILED"))?
+                    .shape();
+            }
+            for piece in solid.sub_shapes(ShapeKind::Solid) {
+                made.push((piece, Rc::new(Origins::default())));
+            }
+        }
+        if !keep_tools {
+            model.remove_bodies(&whole_sheets);
+        }
+        for (solid, origins) in made {
+            model.add_body(NewBody::new(solid, BodyType::Solid, info.clone()), &origins, &info, &|_| None);
+        }
+        return Ok(Value::UNDEFINED);
+    }
     for (input, body) in &inputs {
         let op = occt::thicken(input, t1, t2).map_err(|_| regen_error("THICKEN_FAILED"))?;
         let entities: Vec<&Entity> = model.bodies[*body].all_entities().collect();

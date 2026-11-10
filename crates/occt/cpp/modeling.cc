@@ -1550,6 +1550,34 @@ std::unique_ptr<Operation> loft_op_matching(const ShapeList &wires, bool solid, 
   TopoDS_Shape first = maker.FirstShape(), last = maker.LastShape();
   if (!first.IsNull()) op->first.push_back(first);
   if (!last.IsNull()) op->last.push_back(last);
+  // A sheet's caps are its edges along its first and last profiles (std trims a thin loft's ends to their planes
+  // by them, batch 076 c008).
+  if (!solid && !wires.shapes.empty()) {
+    auto along = [&](const TopoDS_Shape &profile) {
+      TopoDS_Compound found;
+      BRep_Builder builder;
+      builder.MakeCompound(found);
+      bool any = false;
+      for (TopExp_Explorer e(op->result, TopAbs_EDGE); e.More(); e.Next()) {
+        BRepAdaptor_Curve curve(TopoDS::Edge(e.Current()));
+        TopoDS_Vertex mid = BRepBuilderAPI_MakeVertex(curve.Value(0.5 * (curve.FirstParameter() + curve.LastParameter())));
+        BRepExtrema_DistShapeShape d(mid, profile);
+        if (d.IsDone() && d.Value() < 1e-7) {
+          builder.Add(found, e.Current());
+          any = true;
+        }
+      }
+      return any ? TopoDS_Shape(found) : TopoDS_Shape();
+    };
+    if (first.IsNull()) {
+      TopoDS_Shape f = along(wires.shapes.front());
+      if (!f.IsNull()) op->first.push_back(f);
+    }
+    if (last.IsNull()) {
+      TopoDS_Shape l = along(wires.shapes.back());
+      if (!l.IsNull()) op->last.push_back(l);
+    }
+  }
   return op;
 }
 
