@@ -900,6 +900,22 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   Extended past its top edge and round past its side, it covers 216.07 mm² more; carrying each point 5 mm round its
   circle and the curve 5 mm straight on (the engine's) covers 220.04, rising 0.02 mm less and reaching 0.034 mm less
   far round at its widest. Neither uniform turns nor the curve's own polynomial carried on fit.
+- **Face blend conic and inverse hold lines** (batch 080 c001, c002): a conic hold line 4 mm up a side sets that
+  side back to it alone, the other keeping the radius's 5 mm: the section the circle's conic between them, an
+  elliptical quarter 4 by 5 (its length 7.0904 mm, the ellipse's to the digit), a B-spline surface. An inverse
+  tangent hold line on the same edge fails, `FACE_BLEND_DIMENSION_TOO_LARGE`.
+- **A circle's region has no vertex to connect** (batch 080 c003): a loft connection naming the vertex at a sketch
+  circle's start finds none on its region, `LOFT_CONNECTION_MATCHING`.
+- **Rolled walls cut and added to** (batch 080 c004, c005): a hole extruded across a rolled half tube's top is cut
+  square to its definition sheet, the hole's outline on the inner cylinder and its walls radial (106.10 mm³ taken
+  away that way, Onshape 105.98; its wall two B-spline faces and two planar slivers at its ends). A tab added in the
+  flat pattern past the end of the flat wraps onto the cylinder at the neutral radius as part of the same wall,
+  one cylindrical face inside and out (120 mm³ for 10 × 6 × 2).
+- **A revolved sheet extended one way at a time** (batch 080 c007, c008): past its top edge alone the curve goes
+  straight on its tangent, revolved (its end at radius 9.80572, height 24.492787, as the engine's; Onshape's new
+  top edge its own fit, bulging 0.006 mm at its middle); round past its side alone each point goes 5 mm round its
+  circle (0.5 rad at radius 10, 0.4167 at 12), the new side running up the curve. Only both at once differ (batch
+  079 c008).
 - **`derivedMirror` in a Part Studio feature** (batch 060 c001): Onshape fails with "Execution error". It builds
   its source twice, once by `@convert` and again in `instantiate` (no loaded context), which Onshape evidently
   refuses for a build function defined in the studio (it won't derive one source twice in a Part Studio, batch
