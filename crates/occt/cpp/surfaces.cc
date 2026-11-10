@@ -236,7 +236,8 @@ std::unique_ptr<Shape> extend_planar_face(const Shape &sheet, const ShapeList &e
     }
     lines.emplace_back(a, b);
   }
-  // Corners where consecutive lines meet.
+  // Corners where consecutive lines meet. Parallel lines apart (a piece of an edge moved, its collinear neighbour
+  // held: a partial flange's) are joined by a step square to them; collinear ones meet where they join.
   std::vector<gp_Pnt> corners;
   size_t n = lines.size();
   for (size_t i = 0; i < n; ++i) {
@@ -246,7 +247,10 @@ std::unique_ptr<Shape> extend_planar_face(const Shape &sheet, const ShapeList &e
     gp_Vec w(p.first, q.first);
     gp_Vec cross = d1.Crossed(d2);
     double denom = cross.SquareMagnitude();
-    if (denom < 1e-24) {
+    if (denom < 1e-24 * d1.SquareMagnitude() * d2.SquareMagnitude()) {
+      gp_Vec apart(p.second, q.first);
+      gp_Vec along = d1.Normalized();
+      if ((apart - along * apart.Dot(along)).Magnitude() > 1e-9) corners.push_back(p.second);
       corners.push_back(q.first);
       continue;
     }
@@ -254,7 +258,11 @@ std::unique_ptr<Shape> extend_planar_face(const Shape &sheet, const ShapeList &e
     corners.push_back(p.first.Translated(d1 * t));
   }
   BRepBuilderAPI_MakeWire wire;
-  for (size_t i = 0; i < n; ++i) wire.Add(BRepBuilderAPI_MakeEdge(corners[i], corners[(i + 1) % n]).Edge());
+  const size_t m = corners.size();
+  for (size_t i = 0; i < m; ++i) {
+    if (corners[i].Distance(corners[(i + 1) % m]) < 1e-12) continue;
+    wire.Add(BRepBuilderAPI_MakeEdge(corners[i], corners[(i + 1) % m]).Edge());
+  }
   BRepBuilderAPI_MakeFace maker(plane, wire.Wire(), Standard_True);
   if (!maker.IsDone()) throw std::runtime_error("extend failed");
   TopoDS_Face result = maker.Face();

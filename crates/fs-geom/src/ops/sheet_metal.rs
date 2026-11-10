@@ -1797,7 +1797,7 @@ fn cut_rolled_back(wall: &Shape, bend: &Bend, toward: Vec3) -> R<Shape> {
     }
 }
 
-fn cut_back(wall: &Shape, edges: &[Shape], distances: &[f64], extra: &[Shape]) -> R<Shape> {
+fn cut_back(wall: &Shape, edges: &[Shape], distances: &[f64], extra: &[Shape], held: &[Shape]) -> R<Shape> {
     let plane = wall.face_plane().map_err(occt_error)?;
     let n = plane.normal;
     let bounds = wall.bounding_box(false).map_err(occt_error)?;
@@ -1821,7 +1821,12 @@ fn cut_back(wall: &Shape, edges: &[Shape], distances: &[f64], extra: &[Shape]) -
             })
         };
         let length = norm(sub(b, a));
-        let (u0, u1) = (if carries_on(a) { 0.0 } else { -far }, if carries_on(b) { length } else { length + far });
+        // A held bend's strip stops at its ends: the pieces of the wall beyond them stay (batch 087 c006).
+        let bounded = held.iter().any(|h| h.is_same(edge));
+        let (u0, u1) = (
+            if bounded || carries_on(a) { 0.0 } else { -far },
+            if bounded || carries_on(b) { length } else { length + far },
+        );
         let v_axis = cross(n, e);
         let (v0, v1) = if dot(v_axis, into) > 0.0 { (-far, depth) } else { (-depth, far) };
         let frame = occt::Frame { origin: a, normal: n, x: e };
@@ -2358,15 +2363,25 @@ fn bend_reliefs(def: &Body, wall: &Shape, bends: &[Bend], relief: &BendRelief) -
                 continue;
             }
             let Some((c, d)) = segment(edge) else { continue };
-            if !(on_line(c) && on_line(d)) {
-                continue;
-            }
-            if !bend.hold_adjacent {
-                stubs.push((edge.clone(), bend.setback));
+            let at_a = norm(sub(c, a)) < 1e-9 || norm(sub(d, a)) < 1e-9;
+            let at_b = norm(sub(c, b)) < 1e-9 || norm(sub(d, b)) < 1e-9;
+            if on_line(c) && on_line(d) {
+                if !bend.hold_adjacent {
+                    stubs.push((edge.clone(), bend.setback));
+                }
+            } else {
+                // A held bend moved off its edge's line (a partial flange aligned outside, batch 087 c006) is
+                // joined to the pieces it left by steps leaving its ends outward: each gets the relief a stub would.
+                let leaves = |end: Vec3, other: Vec3| normalize(sub(other, end)).is_some_and(|v| dot(v, into) < -0.5);
+                let step = bend.hold_adjacent
+                    && ((at_a && leaves(a, if norm(sub(c, a)) < 1e-9 { d } else { c }))
+                        || (at_b && leaves(b, if norm(sub(c, b)) < 1e-9 { d } else { c })));
+                if !step {
+                    continue;
+                }
             }
             // The end of the bend this stub carries on from, and the way out along it.
-            let (end, out) =
-                if norm(sub(c, a)) < 1e-9 || norm(sub(d, a)) < 1e-9 { (a, scale(e, -1.0)) } else { (b, e) };
+            let (end, out) = if at_a { (a, scale(e, -1.0)) } else { (b, e) };
             let relief = relief.at(def, end)?;
             if relief.style == "TEAR" {
                 continue;
@@ -2763,7 +2778,8 @@ fn build_part(
         let mut cut = if (edges.is_empty() && slots.is_empty()) || !planar {
             base
         } else {
-            cut_back(&base, &edges, &distances, &slots)?
+            let held: Vec<Shape> = bends.iter().filter(|b| b.hold_adjacent).map(|b| b.edge.clone()).collect();
+            cut_back(&base, &edges, &distances, &slots, &held)?
         };
         // A rolled wall stops where a bend beside it leaves it: along the line through that point and the axis.
         if !planar && !unfolded_rolled {
