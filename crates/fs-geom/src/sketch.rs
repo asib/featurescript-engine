@@ -173,6 +173,43 @@ pub fn register(m: &mut GeomBuiltins) {
         })?;
         Ok(ids(&id, &[("startId", "start"), ("endId", "end")]))
     });
+    // An image placed in the sketch: Onshape bounds it with four construction lines, as wide as the corners are
+    // apart and as tall as the image's shape makes that, from the lower left corner (batch 094).
+    m.insert("skImage", |_, args| {
+        let sketch = sketch_arg(&args, "skImage")?;
+        let id: Rc<str> = string(&args, 1, "skImage")?.into();
+        let value = arg(&args, 2, "skImage")?;
+        if sketch.solved.get() {
+            return Err(error("@skImage: the sketch has already been solved"));
+        }
+        let first = point(value, "firstCorner", "skImage firstCorner")?;
+        let second = point(value, "secondCorner", "skImage secondCorner")?;
+        let pixels = |key: &str| {
+            field(value, key)
+                .as_number()
+                .filter(|n| *n > 0.0)
+                .ok_or_else(|| error(format!("@skImage: blobInfo has no {key}: it must be an image's BLOB_DATA")))
+        };
+        let (width, height) = (pixels("imageWidth")?, pixels("imageHeight")?);
+        let (x0, y0) = (first.0.min(second.0), first.1.min(second.1));
+        let x1 = x0 + (second.0 - first.0).abs();
+        let y1 = y0 + (x1 - x0) * height / width;
+        let mut entities = sketch.entities.borrow_mut();
+        let sides = [
+            ("bottom", (x0, y0), (x1, y0)),
+            ("right", (x1, y0), (x1, y1)),
+            ("top", (x1, y1), (x0, y1)),
+            ("left", (x0, y1), (x0, y0)),
+        ];
+        for (side, a, b) in sides {
+            let side_id: Rc<str> = format!("{id}.{side}").into();
+            if entities.iter().any(|e| e.id == side_id) {
+                return Err(error(format!("@skImage: sketch entity id {side_id:?} is already used")));
+            }
+            entities.push(SketchEntity { id: side_id, geometry: Geometry::Line(a, b), construction: true });
+        }
+        Ok(values::map(vec![("imageId", Value::string(id))]))
+    });
     m.insert("skCircle", |_, args| {
         let id = add(&args, "skCircle", |v| {
             let center = point(v, "center", "skCircle center")?;
