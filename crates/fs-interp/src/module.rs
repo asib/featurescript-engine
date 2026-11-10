@@ -85,11 +85,23 @@ pub struct Modules {
     std_dir: PathBuf,
     /// Operator overloads from every loaded module.
     pub operators: HashMap<OverloadableOp, Vec<FunctionRef>>,
+    /// Modules standing for tabs that aren't Feature Studios (uploaded files, fixtures/blobs), by the element id
+    /// an import's path gives: their source, where each `@BUILTIN@` is one of Onshape's opaque ids.
+    pub uploads: HashMap<String, String>,
+    /// The next opaque id's number: Onshape's print as `BuiltIn: 2` and on, in the order the imports load.
+    next_builtin: u32,
 }
 
 impl Modules {
     pub fn new(std_dir: PathBuf) -> Modules {
-        Modules { list: Vec::new(), by_path: HashMap::new(), std_dir, operators: HashMap::new() }
+        Modules {
+            list: Vec::new(),
+            by_path: HashMap::new(),
+            std_dir,
+            operators: HashMap::new(),
+            uploads: HashMap::new(),
+            next_builtin: 2,
+        }
     }
 
     /// Where an import path points. `onshape/std/<file>` is in the vendored std; other paths are relative to the
@@ -170,8 +182,13 @@ impl Modules {
         let mut imports = Vec::new();
         for item in &ast.items {
             if let ItemKind::Import { namespace, path: import_path, .. } = &item.kind {
-                let target_path = self.resolve_import(path, import_path);
-                let target = self.load_file(&target_path)?;
+                let target = match self.uploads.get(import_path.as_str()).cloned() {
+                    Some(source) => self.load_upload(import_path, &source)?,
+                    None => {
+                        let target_path = self.resolve_import(path, import_path);
+                        self.load_file(&target_path)?
+                    }
+                };
                 imports.push(Import {
                     target,
                     namespace: namespace.as_ref().map(|n| n.name.as_str().into()),
@@ -181,6 +198,24 @@ impl Modules {
         }
         self.list[id].imports = imports;
         Ok(id)
+    }
+
+    /// The module for an uploaded file's tab, loaded once.
+    fn load_upload(&mut self, element: &str, source: &str) -> Result<ModuleId, LoadError> {
+        let name = PathBuf::from(format!("<upload {element}>"));
+        if let Some(&id) = self.by_path.get(&name) {
+            return Ok(id);
+        }
+        let mut text = String::new();
+        let mut rest = source;
+        while let Some(at) = rest.find("@BUILTIN@") {
+            text.push_str(&rest[..at]);
+            text.push_str(&format!("BuiltIn: {}", self.next_builtin));
+            self.next_builtin += 1;
+            rest = &rest[at + "@BUILTIN@".len()..];
+        }
+        text.push_str(rest);
+        self.load_source(&name, &text)
     }
 
     /// Everything a module exports: its own exported declarations and its `export import`s' exports.

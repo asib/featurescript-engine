@@ -51,6 +51,27 @@ fn exception(e: fs_interp::Exception) -> String {
     }
 }
 
+/// Makes the files uploaded to the fixture document (`dir`/uploads.txt: element id, version, file, BLOB_DATA) what
+/// imports of their tabs give and what `opImportForeign` reads for references to them.
+pub fn register_uploads(engine: &mut fs_interp::Engine, dir: &Path) -> Result<(), String> {
+    let manifest = dir.join("uploads.txt");
+    if !manifest.exists() {
+        return Ok(());
+    }
+    for line in read(&manifest)?.lines().filter(|l| !l.starts_with('#') && !l.trim().is_empty()) {
+        let mut fields = line.splitn(4, ' ');
+        let (Some(element), Some(_version), Some(file), Some(blob)) =
+            (fields.next(), fields.next(), fields.next(), fields.next())
+        else {
+            return Err(format!("{}: malformed line {line:?}", manifest.display()));
+        };
+        let source = format!("FeatureScript {};\nexport const BLOB_DATA = {blob};\n", fs_interp::LANGUAGE_VERSION);
+        engine.interp.modules.uploads.insert(element.to_string(), source);
+        fs_geom::uploads::register(element, &dir.join(file));
+    }
+    Ok(())
+}
+
 /// Runs a batch's generator feature on the engine, on a new context with the default planes.
 pub fn build(batch: &Path) -> Result<Build, String> {
     // Onshape's Feature Studio held cases.fs followed by generator.fs.
@@ -62,6 +83,7 @@ pub fn build(batch: &Path) -> Result<Build, String> {
     let source = format!("{}\n{}", read(&batch.join("cases.fs"))?, generator);
     let mut engine = fs_geom::engine();
     engine.interp.trace_catches = std::env::var_os("FS_TRACE_CATCHES").is_some();
+    register_uploads(&mut engine, &batch.join("../blobs"))?;
     let module = engine.load_source(&batch.join("feature-studio.fs").to_string_lossy(), &source)?;
     let generator = engine.interp.modules.list[module]
         .ast

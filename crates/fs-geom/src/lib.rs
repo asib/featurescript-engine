@@ -24,6 +24,7 @@ pub mod sketch;
 pub mod splines;
 pub mod topology;
 pub mod unmodelled;
+pub mod uploads;
 pub mod values;
 pub mod variables;
 

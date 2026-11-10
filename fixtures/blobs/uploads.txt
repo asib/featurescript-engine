@@ -1,0 +1,5 @@
+# One uploaded tab per line: its element id, the version the Feature Studio's Import dialog gave, the file here, and
+# the BLOB_DATA importing it gives (FeatureScript; @BUILTIN@ stands for each of Onshape's opaque ids, printed
+# `BuiltIn: N`, numbered from 2 in the order the imports load). Read by tools/fixtures and by the engine's harness.
+d89f289fc5686fc9db3411af 16c22bbc8dfa02cc0434f0b7 fixture-image.png { "blobType" : "IMAGE", "dataId" : "6af39880830999c232b6f44e", "documentId" : "@BUILTIN@", "versionId" : "@BUILTIN@", "elementId" : "@BUILTIN@", "microversionId" : "@BUILTIN@", "imageHeight" : 4, "imageWidth" : 8, "mediaType" : "image/png" }
+aa7eee42ff6b54ecfee8ac2b 07911cc73b87f0bd2f9a105b fixture-parts.step { "blobType" : "BREP", "dataId" : "6af399348a72ff53f64ba446", "documentId" : "@BUILTIN@", "versionId" : "@BUILTIN@", "elementId" : "@BUILTIN@", "microversionId" : "@BUILTIN@", "mediaType" : "application/step" }
