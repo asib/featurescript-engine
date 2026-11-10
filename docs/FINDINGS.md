@@ -991,8 +991,9 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
 - **A tab across a corner** (batch 087 c004): on a box converted with rips up its corners, a tab on the front wall
   past the corner, subtracted from the right wall with 0.2 mm clearance, closes the corner's rip (std's derip:
   its faces run on over the rip's 0.02 mm gap); the engine finds no rip to close (within 2e-6 of the volume).
-- **Help points and recognition refused** (batches 083 c001, 068 c003): a face blend given a help point where a
-  side's faces lie in parallel planes apart (a floor and a Π-shaped sheet's two walls: a blend at each) fails,
+- **Help points and recognition refused** (batches 083 c001, 079 c005, 068 c003): a face blend given a help point
+  where it has two solutions (a floor and a Π-shaped sheet's two walls; a floor through a cylinder lying along it,
+  meeting it along two lines) fails,
   `FACE_BLEND_FAILED`, rather than pick one; an open box shelled from a block, three sharp walls meeting at each
   corner, isn't recognized as sheet metal (`evOffsetDetection` finds no group: `SHEET_METAL_CANNOT_RECOGNIZE_PARTS`).
 - **Axes found by a point on a sketch's edges, and spines** (batch 089, with 084 c005, 065 c005, 074 c006, 075
@@ -1000,6 +1001,15 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   fails, `REVOLVE_SELECT_AXIS` (evAxis takes one entity); the sketch entity alone works. A loft's sections added
   along a spine that isn't straight fail, `LOFT_FAILED` (with two sections `LOFT_INVALID`), whichever way the arc
   runs or however far past the profiles; along a straight spine the loft is the plain one.
+- **Mate connectors by axis points, a cone's tip** (batch 090): top, middle and bottom axis points run along the
+  face's coordinate system's z: an extruded cylinder's back along the extrude, a revolved cone's from its apex the
+  way it widens (a frustum revolved about its own edge running down has z down, as one about an axis running up);
+  so a cone's "bottom" is its narrow end's side. `POINT` on a cone's face is its tip, z along that. `LOOP_CENTER`
+  and `VIRTUAL_SHARP` fail in FeatureScript (`MATECONNECTOR_QUERY_CSYS_FAILED`). A sphere's `CENTER` is the world
+  frame at its centre.
+- **An aligned section of a composite part** (batch 090 c010): the composite keeps its two bodies, cut, its shape
+  theirs as they are after. Onshape leaves two of the section's planes as construction planes 6 inches across,
+  where the engine leaves sheets 150 mm across (a known gap).
 - **A failed case's leftover parts** (batches 014, 018, 060, 064, 086): a sheet metal part a failed case can't
   delete keeps Onshape's default name, "Part" and its place among the Part Studio's parts in order (named ones
   counted, flat patterns not): 086 c017's plate, after nine parts, is Part 10. Where the engine builds more or fewer
