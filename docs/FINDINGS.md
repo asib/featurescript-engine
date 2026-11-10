@@ -995,6 +995,11 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   side's faces lie in parallel planes apart (a floor and a Π-shaped sheet's two walls: a blend at each) fails,
   `FACE_BLEND_FAILED`, rather than pick one; an open box shelled from a block, three sharp walls meeting at each
   corner, isn't recognized as sheet metal (`evOffsetDetection` finds no group: `SHEET_METAL_CANNOT_RECOGNIZE_PARTS`).
+- **Axes found by a point on a sketch's edges, and spines** (batch 089, with 084 c005, 065 c005, 074 c006, 075
+  c007): `qContainsPoint` on a sketch's edges finds its line and its region's edge both, and a revolve about them
+  fails, `REVOLVE_SELECT_AXIS` (evAxis takes one entity); the sketch entity alone works. A loft's sections added
+  along a spine that isn't straight fail, `LOFT_FAILED` (with two sections `LOFT_INVALID`), whichever way the arc
+  runs or however far past the profiles; along a straight spine the loft is the plain one.
 - **A failed case's leftover parts** (batches 014, 018, 060, 064, 086): a sheet metal part a failed case can't
   delete keeps Onshape's default name, "Part" and its place among the Part Studio's parts in order (named ones
   counted, flat patterns not): 086 c017's plate, after nine parts, is Part 10. Where the engine builds more or fewer
