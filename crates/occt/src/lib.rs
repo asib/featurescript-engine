@@ -326,6 +326,7 @@ mod ffi {
         fn edge_is_seam(root: &Shape, edge: &Shape) -> Result<bool>;
         fn shape_valid(s: &Shape) -> Result<bool>;
         fn visible_sub_shapes(s: &Shape, kind: i32) -> Result<UniquePtr<ShapeList>>;
+        fn hidden_edge_pieces(s: &Shape) -> Result<UniquePtr<ShapeList>>;
         fn shape_axis(s: &Shape) -> Result<Axis>;
         fn edge_tangent(s: &Shape, t: f64, arc_length: bool) -> Result<Axis>;
         fn edge_fraction(s: &Shape, p: Vec3, arc_length: bool) -> Result<f64>;
@@ -552,6 +553,13 @@ impl Shape {
             }
             _ => self.sub_shapes(kind),
         }
+    }
+
+    /// The pieces of edges OCCT split at a seam vertex that [`Shape::visible_sub_shapes`] hides behind the piece it
+    /// shows: (the piece shown, a hidden piece).
+    pub fn hidden_edge_pieces(&self) -> Vec<(Shape, Shape)> {
+        let list = from_list(&ffi::hidden_edge_pieces(&self.0).expect("a shape"));
+        list.chunks(2).map(|pair| (pair[0].clone(), pair[1].clone())).collect()
     }
 
     /// The shapes of `kind` inside `self` that contain `part`, such as the faces next to an edge.

@@ -7,6 +7,7 @@ use fs_interp::Value;
 use fs_interp::builtins::arg;
 use fs_interp::eval::{R, error};
 use occt::{Box3, Shape, ShapeKind, Vec3};
+use std::collections::HashMap;
 
 fn definition(args: &[Value], name: &str) -> R<Value> {
     Ok(arg(args, 1, name)?.clone())
@@ -379,7 +380,21 @@ pub fn register(m: &mut GeomBuiltins) {
             args,
             "evLength",
             "edges",
-            |tags, model, found| Ok(tags.length(sum(model, &found, |s| s.length())?)),
+            |tags, model, found| {
+                let mut total = sum(model, &found, |s| s.length())?;
+                // An edge OCCT split at a seam vertex is one edge: its hidden pieces count too (a dome's silhouette
+                // crossing its seam, batch 093 c010).
+                let mut pieces: HashMap<usize, Vec<(Shape, Shape)>> = HashMap::new();
+                for r in found.iter().filter(|r| r.kind == EntityType::Edge) {
+                    let shown = model.shape(*r);
+                    let hidden =
+                        pieces.entry(r.body).or_insert_with(|| model.bodies[r.body].shape.hidden_edge_pieces());
+                    for (_, piece) in hidden.iter().filter(|(s, _)| s.is_same(shown)) {
+                        total += piece.length().map_err(occt_error)?;
+                    }
+                }
+                Ok(tags.length(total))
+            },
             &tags,
         )
     });

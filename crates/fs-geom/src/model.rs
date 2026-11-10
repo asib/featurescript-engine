@@ -706,6 +706,7 @@ impl Origins {
                 }
             }
         }
+        origins.inherit_hidden_pieces(op, inputs, &|_| false);
         for body in inputs {
             for entity in body.all_entities() {
                 for image in op.generated(&entity.shape) {
@@ -714,6 +715,33 @@ impl Origins {
             }
         }
         origins
+    }
+
+    /// The hidden pieces of an input's edges (those OCCT split at a seam vertex, shown as one edge) carry the edge
+    /// on into the result as its shown piece does: where an operation keeps or reshapes a hidden piece and the shown
+    /// one goes, the edge the result shows is still the input's.
+    fn inherit_hidden_pieces(&mut self, op: &occt::Operation, inputs: &[&Body], skip: &dyn Fn(&Shape) -> bool) {
+        let mut result_edges: Option<Vec<Shape>> = None;
+        for body in inputs {
+            let pieces = body.shape.hidden_edge_pieces();
+            if pieces.is_empty() {
+                continue;
+            }
+            for entity in &body.edges {
+                for (_, hidden) in pieces.iter().filter(|(shown, _)| shown.is_same(&entity.shape)) {
+                    let modified = op.modified(hidden);
+                    if modified.is_empty() {
+                        let edges = result_edges.get_or_insert_with(|| op.shape().sub_shapes(occt::ShapeKind::Edge));
+                        if edges.iter().any(|e| e.is_same(hidden)) && !skip(hidden) {
+                            self.inherit(hidden, entity);
+                        }
+                    }
+                    for image in modified.iter().filter(|image| !skip(image)) {
+                        self.inherit(image, entity);
+                    }
+                }
+            }
+        }
     }
 
     /// As `of_operation`, but an input entity that comes through geometrically unchanged keeps its transient id
@@ -748,6 +776,7 @@ impl Origins {
                 }
             }
         }
+        origins.inherit_hidden_pieces(op, inputs, &twin_of);
         for body in inputs {
             for entity in body.all_entities() {
                 for image in op.generated(&entity.shape) {

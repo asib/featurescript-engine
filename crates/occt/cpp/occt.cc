@@ -552,7 +552,8 @@ bool edge_is_seam(const Shape &root, const Shape &edge) {
 // The edges (kind 6) or vertices (kind 7) Parasolid, and so Onshape, would give the shape. OCCT gives a closed face
 // a seam edge, a pole a degenerate edge, and a closed edge a vertex; Parasolid has none of these, apart from a vertex
 // at a pole that isn't a sphere's, such as a cone's apex.
-std::unique_ptr<ShapeList> visible_sub_shapes(const Shape &s, int32_t kind) {
+// With `pairs`, each hidden piece of an edge goes there after the piece shown for it.
+static std::unique_ptr<ShapeList> visible_sub_shapes_impl(const Shape &s, int32_t kind, ShapeList *pairs) {
   TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
   TopExp::MapShapesAndUniqueAncestors(s.shape, TopAbs_EDGE, TopAbs_FACE, edge_faces);
   auto visible_edge = [&](const TopoDS_Edge &edge) {
@@ -631,6 +632,10 @@ std::unique_ptr<ShapeList> visible_sub_shapes(const Shape &s, int32_t kind) {
             if (!other.IsSame(edge) && !hidden.Contains(other) && visible_edge(TopoDS::Edge(other))) {
               hidden.Add(other);
               stack.push_back(TopoDS::Edge(other));
+              if (pairs) {
+                pairs->shapes.push_back(edge.Oriented(TopAbs_FORWARD));
+                pairs->shapes.push_back(other);
+              }
             }
         }
       }
@@ -658,6 +663,16 @@ std::unique_ptr<ShapeList> visible_sub_shapes(const Shape &s, int32_t kind) {
     if (keep) out->shapes.push_back(vertex_edges.FindKey(i));
   }
   return out;
+}
+
+std::unique_ptr<ShapeList> visible_sub_shapes(const Shape &s, int32_t kind) {
+  return visible_sub_shapes_impl(s, kind, nullptr);
+}
+
+std::unique_ptr<ShapeList> hidden_edge_pieces(const Shape &s) {
+  auto pairs = std::make_unique<ShapeList>();
+  visible_sub_shapes_impl(s, TopAbs_EDGE, pairs.get());
+  return pairs;
 }
 
 bool shape_valid(const Shape &s) { return BRepCheck_Analyzer(s.shape).IsValid(); }

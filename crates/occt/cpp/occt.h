@@ -198,6 +198,7 @@ int32_t curve_type(const Shape &edge);
 bool edge_is_seam(const Shape &root, const Shape &edge);
 bool shape_valid(const Shape &s);
 std::unique_ptr<ShapeList> visible_sub_shapes(const Shape &s, int32_t kind);
+std::unique_ptr<ShapeList> hidden_edge_pieces(const Shape &s);
 Axis shape_axis(const Shape &s);
 Axis edge_tangent(const Shape &s, double t, bool arc_length);
 double edge_fraction(const Shape &s, Vec3 p, bool arc_length);
