@@ -1024,7 +1024,8 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   arcs in the walls beyond the setback lines (120° of the 6 mm circle each), the bend in two pieces, the hole's
   walls through the bend B-spline faces. The engine builds the bend once across its pieces, the hole's pieces in
   the walls' setback zones laid back onto the bend's flat strip (the stretch inverted) and cut from it before it's
-  wrapped (to 3e-7 of the volume; its hole walls are two faces each, Onshape's one). Its other pieces along the
+  wrapped, each piece's two curves (one from each wall's side) joined first so the hole's walls are one face each
+  as Onshape's (to 3e-7 of the volume; those walls are Onshape's own fits, 0.0004 mm² off). Its other pieces along the
   bend's line aren't stubs (no reliefs), and the side a wall lies on is probed 10 µm out (a wall rebuilt by the cut
   measures a micron off itself).
 - **A failed case's leftover parts** (batches 014, 018, 060, 064, 086): a sheet metal part a failed case can't
