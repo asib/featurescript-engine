@@ -1801,6 +1801,54 @@ fn cut_rolled_back(wall: &Shape, bend: &Bend, toward: Vec3) -> R<Shape> {
     }
 }
 
+/// A planar face with each pair of its curved edges that meet end to end (tangent: pieces of one curve) joined into
+/// one edge; `None` if there are none, or the rebuilt face isn't the same.
+fn joined_curves(face: &Shape) -> Option<Shape> {
+    let edges = face.sub_shapes(ShapeKind::Edge);
+    let straight = |e: &Shape| e.curve_type().ok() == Some(occt::CurveType::Line);
+    let curved: Vec<&Shape> = edges.iter().filter(|e| !straight(e)).collect();
+    let joint = |a: &Shape, b: &Shape| -> bool {
+        let ends = |e: &Shape| -> Option<[occt::Axis; 2]> {
+            Some([e.edge_tangent(0.0, false).ok()?, e.edge_tangent(1.0, false).ok()?])
+        };
+        let (Some(ea), Some(eb)) = (ends(a), ends(b)) else { return false };
+        ea.iter().any(|p| {
+            eb.iter().any(|q| norm(sub(p.origin, q.origin)) < 1e-9 && norm(cross(p.direction, q.direction)) < 1e-6)
+        })
+    };
+    let mut used = vec![false; curved.len()];
+    let mut out: Vec<Shape> = edges.iter().filter(|e| straight(e)).cloned().collect();
+    let mut joined_any = false;
+    for i in 0..curved.len() {
+        if used[i] {
+            continue;
+        }
+        used[i] = true;
+        match (i + 1..curved.len()).find(|&j| !used[j] && joint(curved[i], curved[j])) {
+            Some(j) => {
+                used[j] = true;
+                let wire = occt::ordered_wire(&[curved[i].clone(), curved[j].clone()]).ok()?;
+                out.push(occt::join_edges(&wire).ok()?);
+                joined_any = true;
+            }
+            None => out.push(curved[i].clone()),
+        }
+    }
+    if !joined_any {
+        return None;
+    }
+    let plane = face.face_plane().ok()?;
+    let regions = occt::sketch_regions(&out, plane).ok()?;
+    let [rebuilt] = &regions[..] else { return None };
+    let area = |s: &Shape| s.area().unwrap_or(0.0);
+    if (area(rebuilt) - area(face)).abs() > 1e-9 * area(face).max(1e-12) {
+        return None;
+    }
+    // Facing as the piece did.
+    let flipped = rebuilt.face_plane().is_ok_and(|p| dot(p.normal, plane.normal) < 0.0);
+    Some(if flipped { rebuilt.reversed() } else { rebuilt.clone() })
+}
+
 fn cut_back(wall: &Shape, edges: &[Shape], distances: &[f64], extra: &[Shape], held: &[Shape]) -> R<Shape> {
     let plane = wall.face_plane().map_err(occt_error)?;
     let n = plane.normal;
@@ -2999,9 +3047,14 @@ fn build_part(
             .map_err(occt_error)?;
             let turn = std::f64::consts::PI - dot(bend.into.0, bend.into.1).clamp(-1.0, 1.0).acos();
             let neutral = bend.flat_length / turn;
-            let faces = cut.sub_shapes(ShapeKind::Face);
+            let mut faces = cut.sub_shapes(ShapeKind::Face);
             if faces.is_empty() {
                 continue;
+            }
+            // Where a hole was laid back from both walls, its edge is two curves meeting at the strip's middle: each
+            // piece rebuilt with them joined, so the hole's wall is one face on the bend (batch 062 c006).
+            if !bend_holes.is_empty() {
+                faces = faces.into_iter().map(|f| joined_curves(&f).unwrap_or(f)).collect();
             }
             let wrapped =
                 occt::wrap_onto_cylinder(&faces, (start, away, normal), &cylinder, start, away, Some(neutral))
