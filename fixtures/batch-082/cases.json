@@ -1,0 +1,67 @@
+{
+  "batch": "082",
+  "title": "conic, curvature and asymmetric fillets of a circular edge, a face blend with two solutions and a help point, circles lofted with a connection",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "fillet",
+      "description": "a cylinder of radius 10, 20 tall: its top edge filleted with a conic section (rho 0.7), 3 mm",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "fillet",
+      "description": "the same, a curvature section (magnitude 0.5)",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "fillet",
+      "description": "the same, asymmetric: 3 mm and 2 mm",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "face-blend",
+      "description": "a floor sheet and two parallel upright sheets standing on it 20 mm apart, blended 3 mm, a help point at (15, 18, 1) picking one",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "face-blend",
+      "description": "the same, no help point",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "loft",
+      "description": "circles of radius 10 at z = 0 and z = 20, connected from a quarter along the first to half along the second",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    }
+  ]
+}
