@@ -1009,9 +1009,12 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   frame at its centre.
 - **An aligned section of a composite part** (batch 090 c010): the composite keeps its two bodies, cut, its shape
   theirs as they are after. The fixture document is in inches, so its default planes are 6 inches across (std's
-  `PLANE_SIZE_BOUNDS`); the engine's harness now makes them so. Onshape keeps the cut pieces of two default
-  planes' rotated copies construction planes here, where batch 037 c004's piece is a sheet (a known gap: the
-  engine makes both sheets).
+  `PLANE_SIZE_BOUNDS`); the engine's harness now makes them so. The cut pieces of two default planes' rotated
+  copies stay construction planes (see batch 092).
+- **Construction planes cut** (batch 092, with 090 c010, 037 c004): a construction plane cut away by a subtraction
+  (an extrude's cut, an aligned section's) stays construction, and so does a pattern copy of one; one kept only
+  where a tool is (a crop view's subtraction of the tool's complement) is construction no longer, so batch 037's
+  later aligned section copies the Top plane as a sheet.
 - **Sketch text** (batch 091, the engine has no `@skText`): each glyph's straight segments are lines and its curves
   degree-2 Bézier B-splines (the font's TrueType quadratics), the box's height 0.72 em (2048-unit Open Sans: a box
   10 high, "I" 9.9154 tall), the baseline on the box's bottom; a construction frame as tall as the box and as wide
