@@ -946,8 +946,10 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   boundary holds the blend (batches 079, 080).
 - **A revolve about its own sketch edge** (batch 084 c005): a trapezoid revolved about its own edge on the axis,
   the axis queried as the sketch's edges through a point on it (the line's wire edge and its region's edge along
-  it), fails in Onshape (`REVOLVE_SELECT_AXIS`), though batch 065 c005's quarter disc revolved about its own edge,
-  queried the same way, succeeds; what tells them apart isn't known.
+  it), fails in Onshape (`REVOLVE_SELECT_AXIS`). Batch 065 c005's quarter disc, queried the same way, failed with
+  an "Execution error" instead: that case passes `RevolveBoundingType.FULL`, which isn't a value of the enum, and
+  Onshape fails on the expression before the revolve runs (a missing enum value isn't undefined, as a missing map
+  key is); the engine now does too.
 - **Fillets of a concave circular edge, and a conic blend round a cylinder** (batch 084 c006, c007): the edge round
   a boss's foot takes the same curvature wedge, added; a floor and an upright cylinder blend with the conic section
   revolved round its axis, a B-spline surface in Onshape (to 5e-5 of its area).

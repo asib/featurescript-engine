@@ -4,10 +4,10 @@
 
 use std::path::PathBuf;
 
-/// Cases the engine and Onshape don't agree on (see docs/std-coverage.md): the hemisphere for an offset curve up a
-/// sphere, revolved about its profile's own edge found by a point (the sketch's line and its region's edge both),
-/// fails in both, Onshape's error "Execution error", the engine's `REVOLVE_SELECT_AXIS` (c005).
-const KNOWN_GAPS: &[&str] = &["c005"];
+/// Cases the engine and Onshape don't agree on (see docs/std-coverage.md): none. The hemisphere for an offset
+/// curve up a sphere passes `RevolveBoundingType.FULL`, which isn't a value of that enum: both fail on it with an
+/// "Execution error" before the revolve runs (c005).
+const KNOWN_GAPS: &[&str] = &[];
 
 /// Sweeps along a spline: the engine lofts through copies carried by the rotation-minimising frame, within 1.0e-4
 /// (twisted) and 2.5e-4 (scaled) of Onshape's volumes (c001, c002). The extended sheet: Onshape's surface and new

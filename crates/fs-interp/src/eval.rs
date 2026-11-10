@@ -208,6 +208,12 @@ impl Interp {
         map
     }
 
+    /// Whether `value` is the map of an enum's values, as an enum's name evaluates to.
+    fn is_enum_map(&self, value: &Value) -> bool {
+        let Kind::Map(map) = &value.kind else { return false };
+        self.enum_maps.values().any(|m| matches!(&m.kind, Kind::Map(e) if Rc::ptr_eq(e, map)))
+    }
+
     /// Runs `f` in a fresh frame of `module`, seeing only `captured` and module-level names.
     fn in_frame<T>(&mut self, module: ModuleId, captured: Option<Captured>, f: impl FnOnce(&mut Self) -> R<T>) -> R<T> {
         if self.depth >= MAX_CALL_DEPTH {
@@ -629,7 +635,13 @@ impl Interp {
                 if *optional && target.is_undefined() {
                     Value::UNDEFINED
                 } else {
-                    index_value(&target, &Value::string(name.name.as_str()))?
+                    let value = index_value(&target, &Value::string(name.name.as_str()))?;
+                    // An enum has no such value: Onshape fails on the expression (batch 065 c005's
+                    // `RevolveBoundingType.FULL`) rather than giving undefined as a map would.
+                    if value.is_undefined() && self.is_enum_map(&target) {
+                        return Err(execution_error(format!("the enum has no value {}", name.name)));
+                    }
+                    value
                 }
             }
             ExprKind::BoxValue(target) => {
