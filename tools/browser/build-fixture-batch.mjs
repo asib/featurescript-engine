@@ -99,6 +99,12 @@ const probeFile = join(batchDir, 'onshape-probes.txt');
 writeFileSync(probeFile, [...[...probes.keys()].sort().map((k) => probes.get(k)), failed].join('\n') + '\n');
 console.log(`  saved ${probeFile}`);
 
+if (parts === 'Parts (0)') {
+  // Onshape offers no export of a Part Studio with no parts: the batch's probe lines are all there is.
+  rmSync(join(batchDir, 'onshape.step'), { force: true });
+  console.log('no parts: nothing to export');
+  process.exit(0);
+}
 console.log('exporting STEP');
 const box = await page.evaluate(`(() => { const r = ${tab(PART_STUDIO)}.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; })()`);
 await page.clickAt(box.x, box.y, { button: 'right' });

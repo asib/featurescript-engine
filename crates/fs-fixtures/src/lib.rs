@@ -153,9 +153,13 @@ fn only_cases(generator: &str, only: &[&str]) -> String {
     out
 }
 
-/// Onshape's parts, from the batch's STEP file.
+/// Onshape's parts, from the batch's STEP file (none if it has none).
 pub fn read_fixture(batch: &Path) -> Result<Vec<Part>, String> {
     let path = batch.join("onshape.step");
+    // A batch whose Part Studio has no parts has nothing to export (Onshape offers no export then).
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
     let parts = occt::read_step(&path.to_string_lossy()).map_err(|e| format!("{}: {e}", path.display()))?;
     // Solids without a name, such as those of a closed composite part, aren't any case's.
     Ok(parts.into_iter().filter(|(name, _)| !name.is_empty()).map(|(name, shape)| Part { name, shape }).collect())
