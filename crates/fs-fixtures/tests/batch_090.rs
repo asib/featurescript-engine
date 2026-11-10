@@ -3,10 +3,9 @@
 
 use std::path::PathBuf;
 
-/// Known gap (docs/FINDINGS.md): after the aligned section of the composite (c010) Onshape keeps the cut pieces of two
-/// default planes' rotated copies construction planes; the engine makes them sheets, as batch 037 c004's piece is in
-/// both. Their sizes, the composite (its bodies and shape) and the section's parts match.
-const KNOWN_GAPS: &[&str] = &["c010.4", "c010.5", "c010 probe"];
+/// After the aligned section of the composite (c010) the cut pieces of the default planes' rotated copies stay
+/// construction planes (a subtraction keeps them so, batch 092).
+const KNOWN_GAPS: &[&str] = &[];
 
 #[test]
 fn batch_090_matches_onshape() {

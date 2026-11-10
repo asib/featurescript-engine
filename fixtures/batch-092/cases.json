@@ -1,0 +1,37 @@
+{
+  "batch": "092",
+  "title": "construction planes cut by operations",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "extrude",
+      "description": "a 40 × 40 construction plane cut by a 30 × 30 extrude through it",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "extrude",
+      "description": "a pattern copy of a 40 × 40 construction plane, cut by a 30 × 30 extrude through it",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "section",
+      "description": "a block and pin cropped to a closed spline (batch 037 c002): the default planes after",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    }
+  ]
+}
