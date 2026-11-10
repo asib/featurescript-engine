@@ -978,12 +978,33 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   `opSplitEdges` and finds its piece by `qSplitBy` and a point; the bend's joint attribute carries
   `holdAdjacentEdges`, and the plate beside the flange keeps its edge where it was (only the reliefs cut into it),
   where without it the pieces are cut back to the bend's setback.
-- **Collinear sketch lines thickened into sheet metal** (batch 086 c017): Onshape's plate has no vertex between
-  two collinear lines of the sketch (6 faces), so a rip between such points finds no corner
-  (`SHEET_METAL_RIP_NO_CORNER`: `qClosestTo` ties two corners). Where the vertex goes (the sketch's region, the
-  extrude std makes, or the extracted cap) isn't known yet; the engine keeps it.
-- **An offset sheet's edges** (batch 086 c004): a top and its fillet offset together keep the directions of the
-  source's edges in Onshape (the edge between them and the arc at one end run the other way in the engine).
+- **Collinear sketch lines extruded** (batch 086 c017, 087 c001, c002): the sketch's region keeps an edge per line,
+  but `opExtrude` sweeps one side face along collinear lines (its caps have one edge there), so a plate thickened
+  into sheet metal (std extrudes the region and extracts the cap) has no vertex between them, and a rip between
+  such points finds no corner (`SHEET_METAL_RIP_NO_CORNER`: `qClosestTo` ties two corners).
+- **Edge directions** (batch 086 c004, 087 c003, c007): an offset sheet's edges keep their source edges'
+  directions; a block's (an extruded rectangle's) upright edges run from the extrude's end back to its start, its
+  cap edges as the sketch's lines; of a fillet along its top back edge, the edge on the top runs -x and the arc at
+  x = 0 from the top down, the others as the engine's. The engine's upright and those fillet edges run the other
+  way (a known gap: their points' order, and the planes `evPlanarEdge` starts at their start).
+- **A tab across a corner** (batch 087 c004): on a box converted with rips up its corners, a tab on the front wall
+  past the corner, subtracted from the right wall with 0.2 mm clearance, closes the corner's rip (std's derip:
+  its faces run on over the rip's 0.02 mm gap); the engine finds no rip to close (within 2e-6 of the volume).
+- **A failed case's leftover parts** (batches 014, 018, 060, 064, 086): a sheet metal part a failed case can't
+  delete keeps Onshape's default name, "Part" and its place among the Part Studio's parts in order (named ones
+  counted, flat patterns not): 086 c017's plate, after nine parts, is Part 10. Where the engine builds more or fewer
+  parts before it (060's c001, 064's c003-c006), its number differs by as many.
+- **A cone replaced by a cone** (batch 087 c005) fails in Onshape as in the engine
+  (`DIRECT_EDIT_REPLACE_FACE_FAILED`).
+- **A held partial flange aligned outside** (batch 087 c006): the flange's piece of the edge moves in by the
+  thickness, joined to the held pieces by short steps; the plate beside it keeps its edge, rectangular reliefs
+  cut in at the bend's ends as beside a stub.
+- **Principal directions and parameters of revolved faces** (batch 087 c008-c010): where a face's curvatures
+  differ, the least's direction has its largest component negative and the greatest's is the normal × it (a
+  torus, a cone, a fillet's cylinder); a sphere's, all alike, are Onshape's own choice. On a whole torus or cone a
+  ray hit's (and on a cone `evFaceTangentPlanes`') u runs round from the world's y × z (-x about z, as the torus's
+  x), whatever the cone's coordinate system's x; a cone's v along its z (from a frustum's top). A vertical line's
+  plane (`evPlanarEdge`) has its normal the line × x (a line along y, the line × -z).
 - **Extrude start offsets** (batch 086 c018–c020): blind, back 5 mm; from a parallel face; from a circular edge
   (its plane through `evPlanarEdge`) all start the extrude there, as the engine's.
 - **Shells, offsets, trims, helices and bridging curves** (batch 086): a filleted block's shell (the fillets'
