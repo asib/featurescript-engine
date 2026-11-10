@@ -281,6 +281,7 @@ pub fn register(m: &mut GeomBuiltins) {
     });
     m.insert("opPattern", |_, args| run_op(&args, "opPattern", pattern::pattern));
     m.insert("opSplitPart", |_, args| run_op(&args, "opSplitPart", split::split_part));
+    m.insert("opSplitEdges", |_, args| run_op(&args, "opSplitEdges", split::split_edges));
     m.insert("opSplitFace", |interp, args| {
         let tags = crate::tags(interp)?;
         run_op(&args, "opSplitFace", |model, id, definition| split::split_face(model, id, definition, &tags))

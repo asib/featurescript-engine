@@ -117,6 +117,67 @@ pub fn split_part(model: &mut Model, id: FeatureId, definition: &Value) -> R<Val
 /// `@opSplitFace`: splits faces where tools cross them, leaving the rest of their bodies as they are. Edge tools
 /// are swept along the projection direction (for faces of planes, their normal by default) into cutting sheets;
 /// plane tools are infinite. Returns the edges the split made (`splittingEdges`).
+/// `@opSplitEdges` at parameters: each edge split at the points its own array of parameters gives (by arc length
+/// unless `arcLengthParameterization` is false), by splitting its body with vertices there.
+pub fn split_edges(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
+    if !field(definition, "splittingSurface").is_undefined() {
+        return Err(error("@opSplitEdges: splitting by a surface isn't supported yet"));
+    }
+    let edges: Vec<crate::model::EntityRef> = query::evaluate(model, field(definition, "edges"))?
+        .into_iter()
+        .filter(|r| r.kind == EntityType::Edge)
+        .collect();
+    if edges.is_empty() {
+        return Err(crate::regen_error("SPLIT_EDGE_SELECT_EDGES"));
+    }
+    let parameters = field(definition, "parameters")
+        .as_array()
+        .ok_or_else(|| error("@opSplitEdges: parameters must be an array of arrays"))?
+        .clone();
+    let arc_length = values::opt_bool(definition, "arcLengthParameterization")?.unwrap_or(true);
+    let mut by_body: Vec<(usize, Vec<Shape>)> = Vec::new();
+    let mut split_tids = Vec::new();
+    for (i, r) in edges.iter().enumerate() {
+        let Some(list) = parameters.get(i) else { break };
+        let ts = values::numbers(list, "opSplitEdges parameters")?;
+        let edge = model.shape(*r).clone();
+        let length = edge.length().map_err(occt_error)?;
+        for t in ts {
+            if !(-1e-12..=1.0 + 1e-12).contains(&t) {
+                return Err(crate::regen_error("SPLIT_EDGE_PARAMETER_BOUND"));
+            }
+            // At an end there's nothing to split.
+            if t * length < 1e-8 || (1.0 - t) * length < 1e-8 {
+                continue;
+            }
+            let point = edge.edge_tangent(t, arc_length).map_err(occt_error)?.origin;
+            split_tids.push(model.tid(*r));
+            let vertex = occt::vertex(point).map_err(occt_error)?;
+            match by_body.iter_mut().find(|(b, _)| *b == r.body) {
+                Some((_, vertices)) => vertices.push(vertex),
+                None => by_body.push((r.body, vec![vertex])),
+            }
+        }
+    }
+    let mut results = Vec::new();
+    for (b, vertices) in by_body {
+        let op = occt::split(std::slice::from_ref(&model.bodies[b].shape), &vertices)
+            .map_err(|_| crate::regen_error("SPLIT_EDGE_FAILED"))?;
+        results.push((b, op));
+    }
+    super::replace_bodies(model, &id, results);
+    // The pieces of each split edge, for `qSplitBy` (std finds the piece a partial flange goes on by a point on it).
+    let mut pieces = Vec::new();
+    for r in model.everything(Some(EntityType::Edge)) {
+        let entity = model.entity(r).expect("an edge");
+        if split_tids.contains(&entity.tid) || entity.ancestry.identity.iter().any(|t| split_tids.contains(t)) {
+            pieces.push((id.clone(), entity.tid, false));
+        }
+    }
+    std::rc::Rc::make_mut(&mut model.splits).extend(pieces);
+    Ok(Value::UNDEFINED)
+}
+
 pub fn split_face(model: &mut Model, id: FeatureId, definition: &Value, tags: &values::Tags) -> R<Value> {
     let groups = super::by_body(model, field(definition, "faceTargets"), EntityType::Face)?;
     if groups.is_empty() {
