@@ -936,7 +936,8 @@ fn planar_face_blend(model: &mut Model, id: FeatureId, definition: &Value) -> R<
     if hi - lo < 1e-9 {
         return Err(failed());
     }
-    // A cap across the blend where both sides run on past it, in its middle, is inconsistent (batch 071 c003).
+    // A cap across the blend where either side runs on past it is inconsistent: in its middle (batch 071 c003), or
+    // past one side's end (batch 079 c001, c002).
     if values::opt_bool(definition, "hasCaps")?.unwrap_or(false) {
         for cap in field(definition, "caps").as_array().map(|a| a.to_vec()).unwrap_or_default() {
             for r in query::evaluate(model, field(&cap, "entity"))? {
@@ -948,7 +949,7 @@ fn planar_face_blend(model: &mut Model, id: FeatureId, definition: &Value) -> R<
                     continue;
                 }
                 let x = dot(sub(cap_plane.origin, c), cap_plane.normal) / rate;
-                if x > lo1.max(lo2) + 1e-9 && x < hi1.min(hi2) - 1e-9 {
+                if x > lo1.min(lo2) + 1e-9 && x < hi1.max(hi2) - 1e-9 {
                     return Err(regen_error("FACE_BLEND_INCONSISTENT_DATA"));
                 }
             }
