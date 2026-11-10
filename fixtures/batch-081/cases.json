@@ -1,0 +1,57 @@
+{
+  "batch": "081",
+  "title": "how far a slanted sheet metal bend's far end tilts",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "sheet-metal-loft",
+      "description": "batch 044 c001's L to an L (shifted 10 mm along y, 20 mm up), the bend radius 2",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "sheet-metal-loft",
+      "description": "the same L to an L, radius 1, 1 mm thick",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "sheet-metal-loft",
+      "description": "the L to the same L shifted 5 mm along y, 20 mm up, radius 1, 2 mm thick",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "sheet-metal-loft",
+      "description": "the L to the same L shifted 20 mm along y, 20 mm up, radius 1, 2 mm thick",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "sheet-metal-loft",
+      "description": "batch 044 c001's L to an L, the material on the other side",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    }
+  ]
+}
