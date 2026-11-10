@@ -245,6 +245,7 @@ pub fn extend_sheet(model: &mut Model, id: FeatureId, definition: &Value) -> R<V
         let shape = match extend_cylindrical(&model.bodies[b], &edges, distance)?
             .map(Ok)
             .or_else(|| extend_revolved(&model.bodies[b], &edges, distance).transpose())
+            .or_else(|| extend_revolution(&model.bodies[b], &edges, distance, curving).transpose())
             .transpose()?
         {
             Some(patch) => patch,
@@ -366,6 +367,85 @@ fn extend_revolved(body: &crate::model::Body, edges: &[Shape], distance: f64) ->
     loops.push(top);
     loops.push(left);
     occt::face_from_uv(face, &loops).map(Some).map_err(|_| failed())
+}
+
+/// A sheet of one face revolved from a cubic curve (batch 079 c008), bounded by two copies of the curve and two
+/// circles: past a circle the curve is extended as `trimCurve` extends it (straight on, or keeping its curvature)
+/// and revolved again; past a copy of the curve each point goes the distance round its circle, as a cone's does.
+fn extend_revolution(body: &crate::model::Body, edges: &[Shape], distance: f64, curving: bool) -> R<Option<Shape>> {
+    use crate::values::{dot, norm, scale, sub};
+    let [face] = &body.faces[..] else { return Ok(None) };
+    let face = &face.shape;
+    if face.surface_type().ok() != Some(occt::SurfaceType::Revolution) {
+        return Ok(None);
+    }
+    let failed = || regen_error("EXTEND_SHEET_BODY_FAILED");
+    let ((u0, _), (u1, _)) = face.face_uv_bounds().map_err(occt_error)?;
+    let mut extend = [false; 4];
+    for e in edges {
+        let mid = e.edge_tangent(0.5, false).map_err(occt_error)?.origin;
+        let (fu, fv) = face.face_fraction(mid).map_err(occt_error)?;
+        let near = |f: f64, at: f64| (f - at).abs() < 1e-6;
+        match () {
+            _ if near(fu, 0.0) => extend[0] = true,
+            _ if near(fu, 1.0) => extend[1] = true,
+            _ if near(fv, 0.0) => extend[2] = true,
+            _ if near(fv, 1.0) => extend[3] = true,
+            _ => return Ok(None),
+        }
+    }
+    // The axis, from a circle round it; the curve, at the first angle.
+    let circle = occt::iso_curves(face, true, 0.5).map_err(occt_error)?.into_iter().next().ok_or_else(failed)?;
+    let Ok(c) = circle.curve_definition() else { return Ok(None) };
+    let axis = occt::Axis { origin: c.frame.origin, direction: c.frame.normal };
+    let meridian = occt::iso_curves(face, false, 0.0).map_err(occt_error)?.into_iter().next().ok_or_else(failed)?;
+    let Ok(mut profile) = edge_as_cubic(&meridian) else { return Ok(None) };
+    // Which end of the curve is the face's v1.
+    let top = face.face_tangent_plane(0.0, 1.0).map_err(|_| failed())?.origin;
+    let ends_top = norm(sub(profile.derivative(profile.end(), 0), top)) < 1e-6;
+    for (k, at_end) in [(2, !ends_top), (3, ends_top)] {
+        if extend[k] {
+            profile = extended_cubic(profile, at_end, curving, distance, true)?;
+        }
+    }
+    let radius = |p: occt::Vec3| {
+        let d = sub(p, axis.origin);
+        norm(sub(d, scale(axis.direction, dot(d, axis.direction))))
+    };
+    let (start, end) = (profile.knots[0], profile.end());
+    let samples = 32;
+    let at = |i: usize| start + (end - start) * i as f64 / samples as f64;
+    let radii: Vec<f64> = (0..=samples).map(|i| radius(profile.derivative(at(i), 0))).collect();
+    if radii.iter().any(|r| *r < 1e-9) {
+        return Err(failed());
+    }
+    let reach = distance / radii.iter().cloned().fold(f64::MAX, f64::min);
+    let before = if extend[0] { reach } else { 0.0 };
+    let total = (u1 - u0) + before + if extend[1] { reach } else { 0.0 };
+    // Revolved from `before` short of the first angle.
+    let curve = occt::transform(&profile.edge()?, &super::rotation(axis, u0 - before)).map_err(occt_error)?.shape();
+    let swept = occt::revolve(&curve, axis, total).map_err(|_| failed())?.shape();
+    let new_face = swept.sub_shapes(ShapeKind::Face).into_iter().next().ok_or_else(failed)?;
+    let ((nu0, nv0), (_, nv1)) = new_face.face_uv_bounds().map_err(occt_error)?;
+    // The new face's u from the first angle `before` back; its v along the extended curve, either way.
+    let (first, last) = (nu0 + before, nu0 + before + (u1 - u0));
+    let v_of = |i: usize| nv0 + (nv1 - nv0) * i as f64 / samples as f64;
+    let column = |at_u: f64, out: bool, sign: f64, up: bool| -> Vec<(f64, f64)> {
+        let mut points: Vec<(f64, f64)> =
+            (0..=samples).map(|i| (if out { at_u + sign * distance / radii[i] } else { at_u }, v_of(i))).collect();
+        if !out {
+            points = vec![points[0], points[samples]];
+        }
+        if !up {
+            points.reverse();
+        }
+        points
+    };
+    let right = column(last, extend[1], 1.0, true);
+    let left = column(first, extend[0], -1.0, false);
+    let bottom = vec![(left[left.len() - 1].0, nv0), (right[0].0, nv0)];
+    let top = vec![(right[right.len() - 1].0, nv1), (left[0].0, nv1)];
+    occt::face_from_uv(&new_face, &[bottom, right, top, left]).map(Some).map_err(|_| failed())
 }
 
 /// A sheet of one face extruded from a curve, bounded by two copies of the curve and two straight edges (batch 039):
