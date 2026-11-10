@@ -842,9 +842,12 @@ pub fn register(m: &mut GeomBuiltins) {
                 // A torus's parameters as Onshape's run (batch 085).
                 let torus =
                     model.info(*r).surface_frame.and_then(|frame| crate::ops::frames::torus_fractions(face, frame));
+                let cone =
+                    model.info(*r).surface_frame.and_then(|frame| crate::ops::frames::cone_fractions(face, frame));
                 let mut planes = Vec::new();
                 for (u, v) in parameters {
                     let (u, v) = torus.as_ref().map_or((u, v), |map| map(u, v));
+                    let (u, v) = cone.as_ref().map_or((u, v), |map| map(u, v));
                     let (u, v) = plane_to_occt(face, u, v).unwrap_or((u, v));
                     let frame = face.face_tangent_plane(u, v).map_err(|_| regen_error("NO_TANGENT_PLANE"))?;
                     planes.push(tags.plane(frame));
@@ -932,7 +935,11 @@ pub fn register(m: &mut GeomBuiltins) {
                 let mut out = Vec::new();
                 for (d, f) in hits {
                     let point = values::add(origin, values::scale(direction, d));
-                    let uv = match plane_parameters_at(model.shape(f), point) {
+                    let revolved = model
+                        .info(f)
+                        .surface_frame
+                        .and_then(|frame| crate::ops::frames::revolved_fractions_at(model.shape(f), frame, point));
+                    let uv = match plane_parameters_at(model.shape(f), point).or(revolved) {
                         Some(uv) => uv,
                         None => model.shape(f).face_fraction(point).map_err(occt_error)?,
                     };
@@ -971,21 +978,31 @@ pub fn register(m: &mut GeomBuiltins) {
                 let face = model.shape(*r);
                 let torus =
                     model.info(*r).surface_frame.and_then(|frame| crate::ops::frames::torus_fractions(face, frame));
+                let cone =
+                    model.info(*r).surface_frame.and_then(|frame| crate::ops::frames::cone_fractions(face, frame));
                 let mut out = Vec::new();
-                // Onshape's least curvature runs along a cylinder's or cone's z axis (a fillet's, batch 086 c023);
-                // the greatest is the normal × that.
-                let axis = match (model.info(*r).surface_frame, face.surface_definition().map(|d| d.kind)) {
-                    (Some(frame), Ok(1 | 2)) => Some(frame.normal),
-                    _ => None,
+                // Where the curvatures differ, Onshape's least curvature's direction has its largest component
+                // negative and the greatest's is the normal × it (a fillet's cylinder, a torus, a cone: batches
+                // 086 c023, 087 c009, c010).
+                let sense = |c: &mut occt::Conic, normal: Vec3| {
+                    if (c.radius2 - c.radius1).abs() <= 1e-9 * c.radius2.abs().max(1.0) {
+                        return;
+                    }
+                    let m = c.frame.normal;
+                    let largest =
+                        [m.x, m.y, m.z].into_iter().fold(0.0f64, |a, x| if x.abs() > a.abs() + 1e-9 { x } else { a });
+                    if largest > 0.0 {
+                        c.frame.normal = values::scale(m, -1.0);
+                    }
+                    c.frame.x = values::cross(normal, c.frame.normal);
                 };
                 for (u, v) in parameters {
                     let (u, v) = torus.as_ref().map_or((u, v), |map| map(u, v));
+                    let (u, v) = cone.as_ref().map_or((u, v), |map| map(u, v));
                     let (u, v) = plane_to_occt(face, u, v).unwrap_or((u, v));
                     let mut c = face.face_curvatures(u, v).map_err(occt_error)?;
-                    if axis.is_some_and(|z| values::dot(c.frame.normal, z) < 0.0) {
-                        c.frame.normal = values::scale(c.frame.normal, -1.0);
-                        c.frame.x = values::scale(c.frame.x, -1.0);
-                    }
+                    let normal = face.face_tangent_plane(u, v).map_err(occt_error)?.normal;
+                    sense(&mut c, normal);
                     let result = map(vec![
                         ("minCurvature", tags.with_units(c.radius1, "meter", -1.0)),
                         ("maxCurvature", tags.with_units(c.radius2, "meter", -1.0)),
@@ -1026,13 +1043,13 @@ fn planar_edges(edges: &[Shape]) -> Option<occt::Frame> {
             if c.kind == 1 || c.kind == 2 {
                 return Some(c.frame);
             }
-            // A line: from its start, x along it, the normal the world's z × it (batch 086 c023's edge along y);
-            // along z, the world's x × it (a guess).
+            // A line: from its start, x along it, the normal it × -z (batch 086 c023's edge along y); upright, it
+            // × x (087 c007's, running down).
             if c.kind == 0 {
                 let start = edge.edge_tangent(0.0, false).ok()?;
                 let d = start.direction;
-                let normal = values::normalize(values::cross(Vec3::new(0.0, 0.0, 1.0), d))
-                    .or_else(|| values::normalize(values::cross(Vec3::new(1.0, 0.0, 0.0), d)))?;
+                let normal = values::normalize(values::cross(d, Vec3::new(0.0, 0.0, -1.0)))
+                    .or_else(|| values::normalize(values::cross(d, Vec3::new(1.0, 0.0, 0.0))))?;
                 return Some(occt::Frame { origin: start.origin, normal, x: d });
             }
         }

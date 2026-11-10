@@ -128,3 +128,70 @@ pub(crate) fn torus_fractions(face: &Shape, frame: Frame) -> Option<impl Fn(f64,
         (wrap(uo - u0) / su, wrap(vo - v0) / sv)
     })
 }
+
+/// Onshape's parameters (as fractions of its face's ranges) at a point on a whole torus, cylinder or cone with
+/// Onshape's coordinate system `frame` (batch 087 c009, c010: ray hits): u round from x towards z × x; on a torus
+/// v from the tube's inner equator, on a cylinder or cone OCCT's along it. `None` for other faces and for faces
+/// not all the way round.
+pub(crate) fn revolved_fractions_at(face: &Shape, frame: Frame, p: Vec3) -> Option<(f64, f64)> {
+    use std::f64::consts::TAU;
+    let s = face.surface_definition().ok()?;
+    let ((u0, v0), (u1, v1)) = face.face_uv_bounds().ok()?;
+    if u1 - u0 < TAU - 1e-9 {
+        return None;
+    }
+    // u starts at the world's y × z, as a torus's x lies (a cone's coordinate system has another x, but its
+    // parameter starts there too: batch 087 c010); a cylinder keeps OCCT's.
+    if !matches!(s.kind, 2 | 4) {
+        return None;
+    }
+    let x = world_y_cross(frame.normal)?;
+    let d = sub(p, frame.origin);
+    let y = cross(frame.normal, x);
+    let u = dot(d, y).atan2(dot(d, x)).rem_euclid(TAU) / TAU;
+    match s.kind {
+        4 => {
+            if v1 - v0 < TAU - 1e-9 {
+                return None;
+            }
+            let (major, minor) = (s.radius1, s.radius2);
+            let radial = (dot(d, x).powi(2) + dot(d, y).powi(2)).sqrt();
+            let v = (-dot(d, frame.normal) / minor).atan2((major - radial) / minor).rem_euclid(TAU) / TAU;
+            Some((u, v))
+        }
+        _ => {
+            // v along Onshape's z, which may run against OCCT's.
+            let v = face.face_fraction(p).ok()?.1;
+            Some((u, if dot(frame.normal, s.frame.normal) > 0.0 { v } else { 1.0 - v }))
+        }
+    }
+}
+
+/// For a whole cone with Onshape's coordinate system `frame`, the face fractions OCCT's parameters give for fractions
+/// of Onshape's (batch 087 c010): u round from the world's y × z towards z × that, v along Onshape's z (from the
+/// top of a revolved frustum, its z against the axis).
+pub(crate) fn cone_fractions(face: &Shape, frame: Frame) -> Option<impl Fn(f64, f64) -> (f64, f64)> {
+    use std::f64::consts::TAU;
+    let s = face.surface_definition().ok()?;
+    if s.kind != 2 {
+        return None;
+    }
+    let ((u0, _), (u1, _)) = face.face_uv_bounds().ok()?;
+    if u1 - u0 < TAU - 1e-9 {
+        return None;
+    }
+    let (xo, zo) = (s.frame.x, s.frame.normal);
+    let mid = face.face_tangent_plane(0.5, 0.5).ok()?;
+    let rel = sub(mid.origin, s.frame.origin);
+    let radial = sub(rel, scale(zo, dot(rel, zo)));
+    let yo = if dot(mid.x, cross(zo, radial)) >= 0.0 { cross(zo, xo) } else { cross(xo, zo) };
+    let x = world_y_cross(frame.normal)?;
+    let y = cross(frame.normal, x);
+    let along = dot(frame.normal, zo) > 0.0;
+    Some(move |fu: f64, fv: f64| {
+        let (sin, cos) = (TAU * fu).sin_cos();
+        let dir = add(scale(x, cos), scale(y, sin));
+        let theta = dot(dir, yo).atan2(dot(dir, xo));
+        ((theta - u0).rem_euclid(TAU) / (u1 - u0), if along { fv } else { 1.0 - fv })
+    })
+}
