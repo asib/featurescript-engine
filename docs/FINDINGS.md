@@ -1012,6 +1012,13 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   `PLANE_SIZE_BOUNDS`); the engine's harness now makes them so. Onshape keeps the cut pieces of two default
   planes' rotated copies construction planes here, where batch 037 c004's piece is a sheet (a known gap: the
   engine makes both sheets).
+- **Sketch text** (batch 091, the engine has no `@skText`): each glyph's straight segments are lines and its curves
+  degree-2 Bézier B-splines (the font's TrueType quadratics), the box's height 0.72 em (2048-unit Open Sans: a box
+  10 high, "I" 9.9154 tall), the baseline on the box's bottom; a construction frame as tall as the box and as wide
+  as the text's advance, with a line down its middle. The points are Onshape's font engine's: multiples of the
+  box's height / 23040, up to 0.3 font units off the outlines, from font versions not the published ones (Open
+  Sans's "I" advances about 504 units there, 572 in Open Sans 3; Arimo's 522 against 569). Matching it needs those
+  fonts and that engine.
 - **A failed case's leftover parts** (batches 014, 018, 060, 064, 086): a sheet metal part a failed case can't
   delete keeps Onshape's default name, "Part" and its place among the Part Studio's parts in order (named ones
   counted, flat patterns not): 086 c017's plate, after nine parts, is Part 10. Where the engine builds more or fewer
