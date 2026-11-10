@@ -22,21 +22,33 @@ for (;;) {
     await sleep(minutes * 60 * 1000);
     continue;
   }
+  // Each nudge gets a minute: a CDP call that never answers (the loop once hung that way for hours, logging nothing)
+  // must not stall the loop.
+  let page;
   try {
-    const page = await connectToPage({ urlIncludes: 'onshape' });
-    // A small move inside the page's lower right corner, away from the toolbars, then a Shift tap.
-    const x = 900 + (step % 2) * 20;
-    const y = 700 + (step % 3) * 10;
-    await page.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
-    await page.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Shift', code: 'ShiftLeft', windowsVirtualKeyCode: 16 });
-    await page.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Shift', code: 'ShiftLeft', windowsVirtualKeyCode: 16 });
-    const title = await page.evaluate('document.title');
-    const href = await page.evaluate('location.href');
-    page.close();
+    const nudge = async () => {
+      page = await connectToPage({ urlIncludes: 'onshape' });
+      // A small move inside the page's lower right corner, away from the toolbars, then a Shift tap.
+      const x = 900 + (step % 2) * 20;
+      const y = 700 + (step % 3) * 10;
+      await page.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
+      await page.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Shift', code: 'ShiftLeft', windowsVirtualKeyCode: 16 });
+      await page.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Shift', code: 'ShiftLeft', windowsVirtualKeyCode: 16 });
+      return { title: await page.evaluate('document.title'), href: await page.evaluate('location.href') };
+    };
+    let timer;
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error('timed out after 60 s')), 60 * 1000);
+    });
+    const { title, href } = await Promise.race([nudge(), timeout]).finally(() => clearTimeout(timer));
     const signedOut = href.includes('/signin');
     console.log(`${new Date().toISOString()} ${signedOut ? 'SIGNED OUT' : 'signed in'}: ${title}`);
   } catch (error) {
     console.log(`${new Date().toISOString()} no Onshape tab reachable: ${error.message}`);
+  } finally {
+    try {
+      page?.close();
+    } catch {}
   }
   step += 1;
   await sleep(minutes * 60 * 1000);
