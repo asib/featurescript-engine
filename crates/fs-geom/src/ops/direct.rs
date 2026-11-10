@@ -708,7 +708,8 @@ fn parallel_offset(face: &occt::Shape, template: &occt::Shape) -> R<Option<f64>>
 
 /// Planar faces replaced by a curved template face's surface (batch 020): see `occt::replace_face_with_surface`.
 /// A solid of a cylindrical side and two planar caps square to its axis, its side replaced by a cylinder parallel to
-/// it but off its axis: the template's cylinder (its radius plus `offset`) between the caps. `None` otherwise.
+/// it but off its axis, or of a conical side replaced by a cylinder along its axis: the template's cylinder (its
+/// radius plus `offset`) between the caps. `None` otherwise.
 fn off_axis_cylinder(
     solid: &occt::Shape,
     face: &occt::Shape,
@@ -717,11 +718,12 @@ fn off_axis_cylinder(
 ) -> R<Option<occt::Operation>> {
     use values::{add, cross, dot, norm, scale, sub};
     let (Ok(a), Ok(b)) = (face.surface_definition(), template.surface_definition()) else { return Ok(None) };
-    if a.kind != 1 || b.kind != 1 || norm(cross(a.frame.normal, b.frame.normal)) > 1e-9 {
+    if !matches!(a.kind, 1 | 2) || b.kind != 1 || norm(cross(a.frame.normal, b.frame.normal)) > 1e-9 {
         return Ok(None);
     }
     let axis = b.frame.normal;
-    if norm(cross(sub(a.frame.origin, b.frame.origin), axis)) < 1e-9 {
+    // A coaxial cylinder moves the side out or in instead (a cone's goes over to the cylinder, batch 085 c001).
+    if a.kind == 1 && norm(cross(sub(a.frame.origin, b.frame.origin), axis)) < 1e-9 {
         return Ok(None);
     }
     let faces = solid.sub_shapes(occt::ShapeKind::Face);
