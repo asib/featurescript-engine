@@ -26,13 +26,26 @@ pub fn error(message: impl Into<String>) -> Flow {
     Flow::Throw(Value::string(message.into()))
 }
 
-/// What Onshape throws when a builtin refuses to run, such as reading properties during regeneration: a caught
-/// error whose message is just "Execution error" (batch 011). The reason is kept alongside, for debugging.
+/// What Onshape throws when something fails below FeatureScript (a builtin refusing to run, such as reading
+/// properties during regeneration, a precondition failing, an enum value that doesn't exist): caught, it is just
+/// "Execution error" (batches 011, 065, 095). The reason is kept aside, for `trace_catches`.
 pub fn execution_error(detail: impl Into<String>) -> Flow {
-    let mut entries = crate::value::ValueMap::new();
-    entries.insert(Value::string("message"), Value::string("Execution error"));
-    entries.insert(Value::string("detail"), Value::string(detail.into()));
-    Flow::Throw(Value::map(entries))
+    EXECUTION_ERROR_DETAIL.with(|d| *d.borrow_mut() = detail.into());
+    Flow::Throw(Value::string("Execution error"))
+}
+
+thread_local! {
+    /// Why the last execution error was thrown.
+    static EXECUTION_ERROR_DETAIL: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
+}
+
+/// A caught exception as `trace_catches` shows it: an execution error with its reason.
+fn traced(exception: &Value) -> String {
+    if exception.as_str() == Some("Execution error") {
+        let detail = EXECUTION_ERROR_DETAIL.with(|d| d.borrow().clone());
+        return format!("{exception:?} ({detail})");
+    }
+    format!("{exception:?}")
 }
 
 const MAX_CALL_DEPTH: usize = 2000;
@@ -385,8 +398,10 @@ impl Interp {
             if let Some(precondition) = &function.precondition {
                 this.failed_predicate = None;
                 if !this.exec_predicate(precondition)? {
+                    // Onshape fails with an "Execution error" (an importForeign given a plain string as its foreign
+                    // id, batch 095 c003).
                     let detail = this.failed_predicate.take().map(|s| format!(" ({s})")).unwrap_or_default();
-                    return Err(error(format!("Precondition of {name} failed{detail}")));
+                    return Err(execution_error(format!("Precondition of {name} failed{detail}")));
                 }
             }
             let value = match &function.body {
@@ -669,7 +684,7 @@ impl Interp {
                 Ok(v) => v,
                 Err(Flow::Throw(exception)) => {
                     if self.trace_catches {
-                        eprintln!("caught by try(): {exception:?}");
+                        eprintln!("caught by try(): {}", traced(&exception));
                     }
                     Value::UNDEFINED
                 }
@@ -845,7 +860,7 @@ impl Interp {
             StmtKind::Try { body, catch, .. } => match self.exec_block(body) {
                 Err(Flow::Throw(exception)) => {
                     if self.trace_catches {
-                        eprintln!("caught: {exception:?}");
+                        eprintln!("caught: {}", traced(&exception));
                     }
                     if let Some(catch) = catch {
                         self.in_scope(|this| {
