@@ -93,8 +93,14 @@ fn locked_to_revolution(model: &mut Model, id: &FeatureId, definition: &Value) -
     }
     let circle = edge.curve_definition().map_err(occt_error)?;
     let (axis, origin) = (cyl.frame.normal, cyl.frame.origin);
-    // (A three-point arc's centre may be a few nanometres off, batch 070 c009.)
-    if norm(cross(circle.frame.normal, axis)) > 1e-9 || norm(cross(sub(circle.frame.origin, origin), axis)) > 1e-7 {
+    // (A three-point arc's centre may be a few nanometres off, batch 070 c009.) A sphere turns about any axis
+    // through its centre: a circle on it whose axis passes there (a great circle, batch 076 c001).
+    let about_axis = if cyl.kind == 3 {
+        norm(cross(sub(origin, circle.frame.origin), circle.frame.normal)) <= 1e-7
+    } else {
+        norm(cross(circle.frame.normal, axis)) <= 1e-9 && norm(cross(sub(circle.frame.origin, origin), axis)) <= 1e-7
+    };
+    if !about_axis {
         return Ok(None);
     }
     // How far round: the whole circle, or the arc from its start to its end about the circle's own normal.
