@@ -1,0 +1,77 @@
+{
+  "batch": "084",
+  "title": "hold lines and a cliff edge inside a side, fillets of circular edges on a cone and round a boss, a conic blend with a cylinder",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "face-blend",
+      "description": "an upright of two faces (split 4 mm up) and a level wall, blended 5 mm, the split a tangent hold line",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "face-blend",
+      "description": "the same, the split an inverse tangent hold line",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "face-blend",
+      "description": "the same, the split a conic hold line",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "face-blend",
+      "description": "the same, the split a cliff edge",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "fillet",
+      "description": "a cone frustum (radius 10 at the bottom, 6 at the top, 20 tall): its top edge filleted with a conic section (rho 0.7), 2 mm",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "fillet",
+      "description": "a 40 × 40 × 10 block with a boss of radius 8, 10 tall, on its top: the edge round the boss's foot filleted with a curvature section (magnitude 0.5), 3 mm",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "face-blend",
+      "description": "a floor sheet and an upright cylinder sheet of radius 10 on it, blended 3 mm with a conic section (rho 0.7)",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    }
+  ]
+}
