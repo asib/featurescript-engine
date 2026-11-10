@@ -1,0 +1,57 @@
+{
+  "batch": "085",
+  "title": "a cone side replaced by a cylinder, isoparametric curves and parameters of full tori, a variable fillet at a corner",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "replace-face",
+      "description": "a cone frustum (radius 10 to 6, 20 tall): its side replaced by a coaxial cylinder of radius 8",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "isoparametric-curve",
+      "description": "four isoparametric curves in the U direction on a full torus about z, and its parameters",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "isoparametric-curve",
+      "description": "four in the V direction on the same torus",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "isoparametric-curve",
+      "description": "four in the U direction on a full torus about x (the circle about (0, 20) in the xy plane revolved)",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "fillet",
+      "description": "a variable conic fillet (rho 0.7) of a block's top front and top right edges, meeting at a corner: 2 mm at the far ends, 4 mm at the corner",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    }
+  ]
+}
