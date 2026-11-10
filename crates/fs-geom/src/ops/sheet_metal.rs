@@ -203,6 +203,99 @@ fn bend_of(
     })
 }
 
+/// A slanted bend end (batch 077): at a vertex of the bend's edge where each wall has an edge of its own at a slant
+/// to the axis, Onshape ends the bend with a ruled face between a curve on its outer cylinder and one on its inner,
+/// each a cubic Bézier through where a plane cuts the cylinder. On the definition's own surface the plane holds both
+/// walls' edges at the vertex; offset across the thickness, it passes through the corners there offset along each
+/// wall's normal and the vertex offset to where both walls' offset planes meet square to the axis. Each Bézier runs
+/// round the axis by angle: a circle's cubic (handles 4/3 tan(φ/4) of the turn's rate) carried onto the plane along
+/// the axis. The outer curve's poles then the inner's, from the first wall to the second; none for an end square to
+/// the axis, or one whose walls' edges there aren't lines.
+fn slanted_end(bend: &Bend, vertex: Vec3, front: f64, back: f64) -> Option<([Vec3; 4], [Vec3; 4])> {
+    let ax = bend.axis_direction;
+    let wall_edge = |wall: &Shape| -> Option<Vec3> {
+        wall.sub_shapes(ShapeKind::Edge).iter().filter(|e| !e.is_same(&bend.edge)).find_map(|e| {
+            let (a, b) = segment(e)?;
+            let near = |p: Vec3| norm(sub(p, vertex)) < 1e-7;
+            if near(a) {
+                normalize(sub(b, a))
+            } else if near(b) {
+                normalize(sub(a, b))
+            } else {
+                None
+            }
+        })
+    };
+    let (e0, e1) = (wall_edge(&bend.walls.0)?, wall_edge(&bend.walls.1)?);
+    let slant = dot(normalize(cross(e0, e1))?, ax).abs();
+    if slant > 1.0 - 1e-9 {
+        return None;
+    }
+    // Where each wall's line on the definition's surface meets its edge at the vertex.
+    let corner = |u: Vec3, e: Vec3| -> Option<Vec3> {
+        let w = sub(add(bend.axis_origin, scale(u, bend.sheet_radius)), vertex);
+        let b = dot(ax, e);
+        let t = (dot(e, w) - b * dot(ax, w)) / (1.0 - b * b);
+        (1.0 - b * b > 1e-12).then(|| add(vertex, scale(e, t)))
+    };
+    let (u0, u1) = bend.toward;
+    let (c0, c1) = (corner(u0, e0)?, corner(u1, e1)?);
+    let (n0, n1) = bend.normals;
+    let sum = add(n0, n1);
+    let lift = scale(sum, 2.0 / dot(sum, sum));
+    // Across the thickness along the normals the radius shrinks where they point into the bend.
+    let shrinks = dot(n0, bend.into.1) > 0.0;
+    let phi = dot(u0, u1).clamp(-1.0, 1.0).acos();
+    let v_dir = normalize(sub(u1, scale(u0, dot(u1, u0))))?;
+    let k = 4.0 / 3.0 * (phi / 4.0).tan();
+    let curve = |delta: f64| -> Option<[Vec3; 4]> {
+        let radius = bend.sheet_radius + if shrinks { -delta } else { delta };
+        let v = add(vertex, scale(lift, delta));
+        let (p0, p1) = (add(c0, scale(n0, delta)), add(c1, scale(n1, delta)));
+        let n = normalize(cross(sub(p0, v), sub(p1, v)))?;
+        let rate = dot(ax, n);
+        if rate.abs() < 1e-9 {
+            return None;
+        }
+        let at = |th: f64| {
+            let base = add(bend.axis_origin, add(scale(u0, radius * th.cos()), scale(v_dir, radius * th.sin())));
+            add(base, scale(ax, -dot(sub(base, v), n) / rate))
+        };
+        let turn = |th: f64| {
+            let d = add(scale(u0, -radius * th.sin()), scale(v_dir, radius * th.cos()));
+            sub(d, scale(ax, dot(d, n) / rate))
+        };
+        let (q0, q1) = (at(0.0), at(phi));
+        Some([q0, add(q0, scale(turn(0.0), k)), sub(q1, scale(turn(phi), k)), q1])
+    };
+    let (inner, outer) = if shrinks { (front, -back) } else { (-back, front) };
+    Some((curve(outer)?, curve(inner)?))
+}
+
+/// A cubic Bézier's poles over `[a, b]` of its parameter (its blossom), to carry it on past its ends.
+fn bezier_over(p: &[Vec3; 4], a: f64, b: f64) -> [Vec3; 4] {
+    let blossom = |t: [f64; 3]| {
+        let lerp = |x: Vec3, y: Vec3, s: f64| add(x, scale(sub(y, x), s));
+        let l1 = [lerp(p[0], p[1], t[0]), lerp(p[1], p[2], t[0]), lerp(p[2], p[3], t[0])];
+        let l2 = [lerp(l1[0], l1[1], t[1]), lerp(l1[1], l1[2], t[1])];
+        lerp(l2[0], l2[1], t[2])
+    };
+    [blossom([a, a, a]), blossom([a, a, b]), blossom([a, b, b]), blossom([b, b, b])]
+}
+
+/// The face a slanted bend end is cut with: the ruled face between its outer and inner curves, carried on past both
+/// (a tenth as far again across the thickness and round at each side) so it cuts right across. Carried further,
+/// OCCT misses where it crosses the bend's flat sides.
+fn end_cutter(outer: &[Vec3; 4], inner: &[Vec3; 4]) -> R<Shape> {
+    let (o, i) = (bezier_over(outer, -0.1, 1.1), bezier_over(inner, -0.1, 1.1));
+    let poles: Vec<Vec3> = (0..4)
+        .map(|k| add(o[k], scale(sub(o[k], i[k]), 0.1)))
+        .chain((0..4).map(|k| sub(i[k], scale(sub(o[k], i[k]), 0.1))))
+        .collect();
+    occt::bspline_surface_face(&poles, (2, 4), &[0.0, 0.0, 1.0, 1.0], &[0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0], (1, 3))
+        .map_err(occt_error)
+}
+
 /// The bend at a definition edge with a bend joint attribute.
 fn joint_bend(def: &Body, edge_index: usize, joint: &Value, front: f64, back: f64, model_k_factor: f64) -> R<Bend> {
     let radius = values::length(
@@ -2722,6 +2815,21 @@ fn build_part(
             pieces.push(place(solid, from)?);
             continue;
         }
+        // Slanted ends (batch 077): the bend carried on past them, then cut off by their ruled faces.
+        let mut cutters = Vec::new();
+        if let Some((a, b)) = segment(&bend.edge) {
+            for v in [a, b] {
+                let Some((outer, inner)) = slanted_end(bend, v, front, back) else { continue };
+                let axial = outer.iter().chain(&inner).map(|p| dot(sub(*p, bend.at), bend.axis_direction));
+                let pad = bend.radii.1;
+                if dot(sub(v, bend.at), bend.axis_direction) < 0.0 {
+                    span.0 = axial.fold(f64::MAX, f64::min) - pad;
+                } else {
+                    span.1 = axial.fold(f64::MIN, f64::max) + pad;
+                }
+                cutters.push(end_cutter(&outer, &inner)?);
+            }
+        }
         let centre = add(bend.axis_origin, scale(bend.axis_direction, span.0));
         let (r_in, r_out) = bend.radii;
         let (u1, u2) = bend.toward;
@@ -2734,7 +2842,18 @@ fn build_part(
             occt::line_edge(at(u1, r_out), at(u1, r_in)).map_err(occt_error)?,
         ];
         let section = occt::fill_edges(&edges).map_err(occt_error)?;
-        let piece = occt::prism(&section, scale(bend.axis_direction, span.1 - span.0)).map_err(occt_error)?.shape();
+        let mut piece = occt::prism(&section, scale(bend.axis_direction, span.1 - span.0)).map_err(occt_error)?.shape();
+        if !cutters.is_empty() {
+            let middle = add(bend.axis_origin, scale(um, (r_in + r_out) / 2.0));
+            let split = occt::split(std::slice::from_ref(&piece), &cutters)
+                .map_err(|_| regen_error("SHEET_METAL_REBUILD_ERROR"))?
+                .shape();
+            piece = split
+                .sub_shapes(ShapeKind::Solid)
+                .into_iter()
+                .find(|s| s.contains_point(middle).unwrap_or(false))
+                .ok_or_else(|| regen_error("SHEET_METAL_REBUILD_ERROR"))?;
+        }
         pieces.push(place(piece, wall_index(&bend.walls.0))?);
     }
     if pieces.is_empty() {
