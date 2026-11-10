@@ -4,8 +4,9 @@
 
 use std::path::PathBuf;
 
-/// Cases the engine and Onshape don't agree on (see docs/std-coverage.md): an offset curve up a sphere from its
-/// equator, which Onshape fails ("Execution error") and the engine makes, along geodesics (c005).
+/// Cases the engine and Onshape don't agree on (see docs/std-coverage.md): the hemisphere for an offset curve up a
+/// sphere, revolved about its profile's own edge found by a point (the sketch's line and its region's edge both),
+/// fails in both, Onshape's error "Execution error", the engine's `REVOLVE_SELECT_AXIS` (c005).
 const KNOWN_GAPS: &[&str] = &["c005"];
 
 /// Sweeps along a spline: the engine lofts through copies carried by the rotation-minimising frame, within 1.0e-4
@@ -30,6 +31,6 @@ fn batch_065_matches_onshape() {
             .filter(|p| !KNOWN_GAPS.iter().any(|case| p.starts_with(case)) && !p.starts_with("failed probe"))
             .collect();
         assert!(unexpected.is_empty(), "{report}");
-        assert_eq!(report.probes_matched, (7 - KNOWN_GAPS.len() - 1, 7), "{report}");
+        assert_eq!(report.probes_matched, (7 - KNOWN_GAPS.len(), 7), "{report}");
     });
 }

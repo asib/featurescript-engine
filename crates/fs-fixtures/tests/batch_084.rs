@@ -10,10 +10,9 @@ const LOOSE: &[(&str, f64)] = &[("c006", 0.15), ("c007", 0.15)];
 /// Faces come in an order of Onshape's own.
 const UNORDERED: &[&str] = &["c001", "c002", "c003", "c004", "c006", "c007"];
 
-/// Known gap (docs/FINDINGS.md): Onshape refuses c005's revolve of a trapezoid about its own sketch edge
-/// (`REVOLVE_SELECT_AXIS`) though batch 065 c005's of a quarter disc about its own edge, queried the same way,
-/// succeeds; the engine revolves both.
-const KNOWN_GAPS: &[&str] = &["c005", "failed probe"];
+/// c005's revolve about the profile's own sketch edge, found by a point on it (the sketch's line and its region's
+/// edge both), fails in both (`REVOLVE_SELECT_AXIS`, batch 089).
+const KNOWN_GAPS: &[&str] = &[];
 
 #[test]
 fn batch_084_matches_onshape() {

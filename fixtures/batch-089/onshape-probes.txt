@@ -1,0 +1,10 @@
+probe c001 failed REVOLVE_SELECT_AXIS
+probe c002 { bodies : [ { area : 1452.4753045307143 , bounds : [ 390 , -10.000000000000002 , -5.204170427930421e-15 , 410.00000000000006 , 10.000000000000002 , 20 ] , edges : 2 , faces : 3 , name : c002.1 , type : SOLID , vertices : 0 , volume : 4105.014400690664 } ] , construction : [] , values : { axis : 1 , faces : [ { area : 314.159265 , type : PLANE } , { area : 1025.218704 , type : CONE } , { area : 113.097336 , type : PLANE } ] } }
+probe c003 failed REVOLVE_SELECT_AXIS
+probe c004 failed REVOLVE_SELECT_AXIS
+probe c005 failed REVOLVE_SELECT_AXIS
+probe c006 failed LOFT_INVALID
+probe c007 failed LOFT_FAILED
+probe c008 failed LOFT_FAILED
+probe c009 { bodies : [ { area : 433.5397861953915 , bounds : [ 3197 , -3 , 0 , 3203.0000000000005 , 3 , 20 ] , edges : 2 , faces : 3 , name : c009.1 , type : SOLID , vertices : 0 , volume : 565.4866776461627 } ] , construction : [] , values : { faces : [ { area : 376.991118 , type : CYLINDER } , { area : 28.274334 , type : PLANE } , { area : 28.274334 , type : PLANE } ] } }
+batch-089 failed cases: [ c001 , c003 , c004 , c005 , c006 , c007 , c008 ]
