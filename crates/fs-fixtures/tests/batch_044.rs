@@ -3,9 +3,10 @@
 
 use std::path::PathBuf;
 
-/// Every case differs yet (docs/std-coverage.md): where a bend meets the profiles' planes at a slant, Onshape ends
-/// it with B-spline faces (c001, c002: within 1.3e-3 and 8.7e-5 of the volume); unlike profiles (c003), arcs
-/// (c004) and lofts added to a model (c005) aren't supported. Onshape's results are kept for that work.
+/// Every case differs yet (docs/std-coverage.md): where a bend meets the profiles' planes at a slant, Onshape runs
+/// it on to the walls' facet edges and ends it with B-spline faces (c001, c002: within 1.3e-3 and 8.7e-5 of the
+/// volume; c004, arcs in 8 chords each as Onshape's, within 5.7e-6); unlike profiles (c003) and lofts added to a
+/// model (c005) aren't supported. Onshape's results are kept for that work.
 const KNOWN_GAPS: &[&str] = &["c001", "c002", "c003", "c004", "c005", "failed probe"];
 
 #[test]

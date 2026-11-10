@@ -839,6 +839,13 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   goes off the face, the top being planar and the round curved).
 - **A thin loft's ends trimmed** (batch 076 c008): the walls run on to the profiles' planes and stop flat there
   (end rings of 86.71 and 45.48 mm² for a 1 mm wall from a 20 mm square to a 10 mm one).
+- **Sheet metal lofts' facets and bend ends** (batch 044, looked at again): arcs of radius 20 and 10 (quarter
+  circles) are each cut into 8 equal chords, the fewest keeping the larger arc's sagitta within the 0.1 mm chordal
+  tolerance (0.096 mm; 7 would give 0.126). Where a bend meets the profiles at a slant (c002: a skew quad split
+  along its shorter diagonal), each wall's tangent line runs on to that wall's own facet edges (the inner one from
+  (29.8031, 0, 0) on the profile to (0, 9.9344, 19.8687) on the facet's edge x = 0), and the bend's ends join the
+  two walls' corners with curves bulging beyond them (its inner face 8.7292 mm², more than any interpolation
+  between the corners gives), closed by a twisted B-spline face each.
 - **`derivedMirror` in a Part Studio feature** (batch 060 c001): Onshape fails with "Execution error". It builds
   its source twice, once by `@convert` and again in `instantiate` (no loaded context), which Onshape evidently
   refuses for a build function defined in the studio (it won't derive one source twice in a Part Studio, batch
