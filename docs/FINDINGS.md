@@ -1019,6 +1019,11 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   box's height / 23040, up to 0.3 font units off the outlines, from font versions not the published ones (Open
   Sans's "I" advances about 504 units there, 572 in Open Sans 3; Arimo's 522 against 569). Matching it needs those
   fonts and that engine.
+- **A flat cut crossing a bend, in the engine** (batch 062 c006): the cut's piece on the bend's strip is mapped into
+  the definition by the strip's stretch, so the definition's hole crosses the bend edge and splits it; cutting the
+  walls back by the bends' setbacks then leaves one wall with no faces at all (the boolean fails on the hole's curve
+  across the bend line), and the part can't be built (`SHEET_METAL_REBUILD_ERROR`). Matching Onshape (the hole
+  wrapped onto the bend's cylinder) needs the walls cut back around such holes and the hole carried onto the bend.
 - **A failed case's leftover parts** (batches 014, 018, 060, 064, 086): a sheet metal part a failed case can't
   delete keeps Onshape's default name, "Part" and its place among the Part Studio's parts in order (named ones
   counted, flat patterns not): 086 c017's plate, after nine parts, is Part 10. Where the engine builds more or fewer
