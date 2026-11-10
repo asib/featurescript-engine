@@ -420,7 +420,7 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
 - **Sheet metal lofts** (batch 044): a sketch's lines are wire bodies of their own, so a profile's edges chain
   where their ends coincide. A quad between matched points that isn't planar splits along its shorter diagonal,
   with a bend between the triangles. Where a bend meets the profiles' planes at a slant, Onshape ends it with
-  B-spline faces (not yet matched).
+  B-spline faces (matched since batch 077).
 - **Unfolding rolled walls** (batch 043): a rolled wall unrolls into the plane tangent to it along the held edge,
   as long as its arc at the neutral radius by the model's rolled k-factor (`kFactorRolled`, 0.5 by default): half a
   tube of radius 20 and 2 mm thick lies flat 21π mm long. A sketch line running on into a tangent arc makes a rip
@@ -846,6 +846,27 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   (29.8031, 0, 0) on the profile to (0, 9.9344, 19.8687) on the facet's edge x = 0), and the bend's ends join the
   two walls' corners with curves bulging beyond them (its inner face 8.7292 mm², more than any interpolation
   between the corners gives), closed by a twisted B-spline face each.
+- **Sheet metal loft matches** (batch 077 c001–c003): `evTessellatedLoftMatches` gives the profiles' vertices
+  only, an arc's tessellation points not among them (the loft cuts arcs into chords between matches itself). Each
+  item is an edge and a parameter, a vertex too: on the edge ending there at 1, the first on the first edge at 0.
+  Vertices pair by least total distance, so an L (0, 0)-(30, 0)-(30, 20) to a line (0, 10)-(40, 10) fans its corner
+  and its end both to the line's end; a skew quad between two lines takes its shorter diagonal as a match of its
+  own, between its two sides' pairs.
+- **Slanted bend ends** (batch 077 c004, batch 044): the end face is ruled radially, each line square to the axis
+  from the inner cylinder to the outer at one angle round it, so the inner and outer end curves lie at the same
+  height along the axis at every angle. On the definition's side the curve is where the plane holding both walls'
+  edges at the end vertex cuts the cylinder (044 c002's ends, c003's, c001's near end, 077 c004's both; offsets
+  within 8e-6 mm). A single Bézier for a 13° bend (handles within 2e-4 mm of a circle's cubic carried onto the plane
+  along the axis), a piecewise cubic for a 90° one. At 044 c001's far end, where the corner on one wall lies past
+  the vertex along the axis and the other level with it, Onshape tilts the plane about the corners' chord into the
+  bend instead: it meets the bend's edge 0.48 mm inside the vertex (h = 0.98(1 − cos θ) − 0.48 sin θ from the
+  first wall, against 0.5(1 − cos θ) at the near end). Why, one case doesn't show; the arcs' far ends (044 c004)
+  agree with it (none bulges past its corners).
+- **A sheet metal loft added to a model** (batch 044 c005): std joins the loft's sheet to the model's definition
+  sheet with a surface union, then makes bends of the two-sided edges `qCreatedBy` its loft. The joint edge, merged
+  from the plate's edge and the loft's, must count as created by both (the engine's merged entities now keep every
+  creating feature): the plate's far edge lofted to a line 20 mm up and 10 mm out becomes one part with a bend
+  (4123.348 mm³).
 - **`derivedMirror` in a Part Studio feature** (batch 060 c001): Onshape fails with "Execution error". It builds
   its source twice, once by `@convert` and again in `instantiate` (no loaded context), which Onshape evidently
   refuses for a build function defined in the studio (it won't derive one source twice in a Part Studio, batch
