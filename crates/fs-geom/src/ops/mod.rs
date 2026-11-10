@@ -279,6 +279,40 @@ pub fn register(m: &mut GeomBuiltins) {
             Ok(Value::UNDEFINED)
         })
     });
+    // Bodies added to or removed from a composite part (an aligned section's rotated copies of a composite's parts,
+    // `sectionPart`): the composite keeps its identity.
+    m.insert("opModifyCompositePart", |_, args| {
+        run_op(&args, "opModifyCompositePart", |model, id, definition| {
+            let composite = owner_bodies(model, field(definition, "composite"))?
+                .into_iter()
+                .find(|&b| model.bodies[b].composite.is_some())
+                .ok_or_else(|| regen_error("COMPOSITE_PART_SELECT_BODIES"))?;
+            let optional = |model: &Model, key: &str| -> R<Vec<usize>> {
+                match field(definition, key) {
+                    v if v.is_undefined() => Ok(Vec::new()),
+                    v => owner_bodies(model, v),
+                }
+            };
+            let (add, remove) = (optional(model, "toAdd")?, optional(model, "toRemove")?);
+            let old = model.bodies[composite].clone();
+            let (members, closed) = old.composite.clone().expect("a composite");
+            let removed: Vec<crate::model::Tid> = remove.iter().map(|&b| model.bodies[b].tid).collect();
+            let mut tids: Vec<crate::model::Tid> = members.iter().copied().filter(|t| !removed.contains(t)).collect();
+            for &b in &add {
+                let tid = model.bodies[b].tid;
+                if b != composite && !tids.contains(&tid) {
+                    tids.push(tid);
+                }
+            }
+            let shapes: Vec<Shape> = model.composite_members(&tids).iter().map(|&b| model.bodies[b].shape.clone()).collect();
+            let info = Info::new(id);
+            let mut new = NewBody { tid: Some(old.tid), ..NewBody::replacing(&old, occt::compound(&shapes)) };
+            new.composite = Some((tids.into(), closed));
+            model.remove_bodies(&[composite]);
+            model.add_body(new, &Origins::default(), &info, &|_| None);
+            Ok(Value::UNDEFINED)
+        })
+    });
     m.insert("opPattern", |_, args| run_op(&args, "opPattern", pattern::pattern));
     m.insert("opSplitPart", |_, args| run_op(&args, "opSplitPart", split::split_part));
     m.insert("opSplitEdges", |_, args| run_op(&args, "opSplitEdges", split::split_edges));
@@ -369,13 +403,29 @@ fn run_op(args: &[Value], name: &str, f: impl FnOnce(&mut Model, FeatureId, &Val
     let (id, definition) = id_and_definition(args, name)?;
     let result = model_mut(args, name, |model| {
         model.last_operation = Some(id.clone());
-        f(model, id, &definition)
+        let result = f(model, id, &definition);
+        refresh_composites(model);
+        result
     });
     if let Err(Flow::Throw(error)) = &result {
         let status = error.get("message").and_then(Value::as_str).unwrap_or("REGEN_ERROR");
         context_arg(args, 0, name)?.report_status(&args[1], "ERROR", status);
     }
     result
+}
+
+/// A composite part's shape is its bodies' shapes as they are now (an aligned section cuts them, batch 090 c010).
+fn refresh_composites(model: &mut Model) {
+    for b in 0..model.bodies.len() {
+        let Some((members, _)) = model.bodies[b].composite.clone() else { continue };
+        let shapes: Vec<Shape> =
+            model.composite_members(&members).iter().filter(|&&m| m != b).map(|&m| model.bodies[m].shape.clone()).collect();
+        if shapes.is_empty() {
+            continue;
+        }
+        let shape = occt::compound(&shapes);
+        model.update_body(b, |body| body.shape = shape);
+    }
 }
 
 fn transform_bodies(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
