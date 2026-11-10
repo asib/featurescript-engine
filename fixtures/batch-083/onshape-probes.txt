@@ -1,0 +1,7 @@
+probe c001 failed FACE_BLEND_FAILED
+probe c002 { bodies : [] , construction : [] , values : { floor : [ { area : 600 , type : PLANE } , { area : 141.371669 , type : CYLINDER } , { area : 141.371669 , type : CYLINDER } , { area : 420 , type : PLANE } , { area : 360 , type : PLANE } , { area : 360 , type : PLANE } ] } }
+probe c003 failed FACE_BLEND_WRONG_LEFT_WALL_SENSE
+probe c004 failed FACE_BLEND_WRONG_LEFT_WALL_SENSE
+probe c005 failed FACE_BLEND_WRONG_LEFT_WALL_SENSE
+probe c006 failed FACE_BLEND_WRONG_LEFT_WALL_SENSE
+batch-083 failed cases: [ c001 , c003 , c004 , c005 , c006 ]

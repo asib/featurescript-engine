@@ -1,0 +1,9 @@
+ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION(('Empty: Onshape offered no export for this Part Studio, which held no parts (batch 083)'),'2;1');
+FILE_NAME('onshape.step','2026-11-10T03:40:00',(''),(''),'','','');
+FILE_SCHEMA(('AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF { 1 0 10303 442 1 1 4 }'));
+ENDSEC;
+DATA;
+ENDSEC;
+END-ISO-10303-21;
