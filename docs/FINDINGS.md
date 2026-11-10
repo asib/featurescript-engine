@@ -1008,8 +1008,10 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   and `VIRTUAL_SHARP` fail in FeatureScript (`MATECONNECTOR_QUERY_CSYS_FAILED`). A sphere's `CENTER` is the world
   frame at its centre.
 - **An aligned section of a composite part** (batch 090 c010): the composite keeps its two bodies, cut, its shape
-  theirs as they are after. Onshape leaves two of the section's planes as construction planes 6 inches across,
-  where the engine leaves sheets 150 mm across (a known gap).
+  theirs as they are after. The fixture document is in inches, so its default planes are 6 inches across (std's
+  `PLANE_SIZE_BOUNDS`); the engine's harness now makes them so. Onshape keeps the cut pieces of two default
+  planes' rotated copies construction planes here, where batch 037 c004's piece is a sheet (a known gap: the
+  engine makes both sheets).
 - **A failed case's leftover parts** (batches 014, 018, 060, 064, 086): a sheet metal part a failed case can't
   delete keeps Onshape's default name, "Part" and its place among the Part Studio's parts in order (named ones
   counted, flat patterns not): 086 c017's plate, after nine parts, is Part 10. Where the engine builds more or fewer
