@@ -706,6 +706,22 @@ pub fn face_blend(model: &mut Model, id: FeatureId, definition: &Value) -> R<Val
         return Err(regen_error("FACE_BLEND_SELECT_FACES"));
     }
     let shapes = |refs: &[EntityRef]| -> Vec<Shape> { refs.iter().map(|r| model.shape(*r).clone()).collect() };
+    // A help point where a side's faces lie in parallel planes apart, so that the blend has a solution at each:
+    // Onshape fails rather than pick one (batch 083 c001: a floor and a Π-shaped sheet's two walls).
+    if !field(definition, "helpPointPosition").is_undefined() {
+        for faces in [shapes(&side1), shapes(&side2)] {
+            let planes: Vec<occt::Frame> = faces.iter().filter_map(|f| f.face_plane().ok()).collect();
+            let apart = planes.iter().enumerate().any(|(i, a)| {
+                planes[i + 1..].iter().any(|b| {
+                    crate::values::dot(a.normal, b.normal).abs() > 1.0 - 1e-9
+                        && crate::values::dot(crate::values::sub(b.origin, a.origin), a.normal).abs() > 1e-7
+                })
+            });
+            if apart {
+                return Err(regen_error("FACE_BLEND_FAILED"));
+            }
+        }
+    }
     // Sides each in one plane (of one face or several, batch 083 c003–c006: an upright split along its length):
     // each side's sense must point to where the other side is, as between single faces.
     let one_plane = |faces: &[Shape]| -> Option<(occt::Frame, Shape)> {

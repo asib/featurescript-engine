@@ -7,9 +7,9 @@ use std::path::PathBuf;
 /// Faces come in an order of Onshape's own.
 const UNORDERED: &[&str] = &["c002"];
 
-/// Known gap (docs/std-coverage.md): with a help point near one of the two blends a floor makes with a Π-shaped
-/// sheet's walls, Onshape fails (`FACE_BLEND_FAILED`, c001) where the engine blends both, as both do without one.
-const KNOWN_GAPS: &[&str] = &["c001", "failed probe"];
+/// With a help point near one of the two blends a floor makes with a Π-shaped sheet's walls, Onshape fails
+/// (`FACE_BLEND_FAILED`, c001), and so does the engine; without one both blend at both walls.
+const KNOWN_GAPS: &[&str] = &[];
 
 #[test]
 fn batch_083_matches_onshape() {
