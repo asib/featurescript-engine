@@ -372,6 +372,13 @@ mod ffi {
             radius: f64,
         ) -> Result<UniquePtr<Operation>>;
         fn split_faces_op(body: &Shape, faces: &ShapeList, tools: &ShapeList) -> Result<UniquePtr<Operation>>;
+        fn merge_faces_across_op(body: &Shape, removable: &ShapeList) -> Result<UniquePtr<Operation>>;
+        fn split_faces_paired_op(
+            body: &Shape,
+            faces: &ShapeList,
+            tools: &ShapeList,
+            owners: &[i32],
+        ) -> Result<UniquePtr<Operation>>;
         fn split_by_bands_op(
             body: &Shape,
             face: &Shape,
@@ -1388,6 +1395,18 @@ pub fn split_face_by_edges(body: &Shape, face: &Shape, edges: &[Shape]) -> Resul
 
 pub fn split_faces(body: &Shape, faces: &[Shape], tools: &[Shape]) -> Result<Operation> {
     Ok(Operation(ffi::split_faces_op(&body.0, &to_list(faces), &to_list(tools))?))
+}
+
+/// A body with faces on one surface merged across the `removable` edges between them (and edges left on one curve
+/// where those met them joined); every other edge stays.
+pub fn merge_faces_across(body: &Shape, removable: &[Shape]) -> Result<Operation> {
+    Ok(Operation(ffi::merge_faces_across_op(&body.0, &to_list(removable))?))
+}
+
+/// Splits faces of a body where tools cross them, each tool only the face `owners` gives it (by index into
+/// `faces`; a negative owner, every face). Tools that cross nothing leave the body as it was.
+pub fn split_faces_paired(body: &Shape, faces: &[Shape], tools: &[Shape], owners: &[i32]) -> Result<Operation> {
+    Ok(Operation(ffi::split_faces_paired_op(&body.0, &to_list(faces), &to_list(tools), owners)?))
 }
 
 /// A body of one doubly periodic face (a whole torus) split along two closed curves that each go once round it the

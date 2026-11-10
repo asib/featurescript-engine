@@ -118,7 +118,8 @@ engine doesn't have. After batch 002, std calls 269 builtins; these are implemen
   (bodies and faces), `opSplitPart`, `opSplitFace`, `opSplitEdges` (at parameters), `opDeleteBodies`, `opFillet`
   (circular), `opChamfer`, `opShell`, `opDraft` (reference surface and entity), `opBodyDraft`, `opThicken`,
   `opOffsetFace`, `opDeleteFace`, `opMoveFace`, `opReplaceFace`, `opModifyFillet`, `opHole`, `opCreateCompositePart`,
-  `opNameEntity`, `opCreateIsocline`, `opSplitByIsocline`, `opMergeContexts`, `opEditCurve`, `opPolyline`,
+  `opNameEntity`, `opCreateIsocline`, `opSplitByIsocline`, `opSplitBySelfShadow` (planar, cylindrical, conical
+  and spherical faces; batch 093), `opMergeContexts`, `opEditCurve`, `opPolyline`,
   `opConstrainedSurface`, `updateSheetMetalGeometry` (planar walls, straight bends, edge-to-edge rips, simple
   corners), `opEdgeChange` (moving straight free edges of planar faces) (the cases above), and the curve and surface
   operations of batches 004 and 005.

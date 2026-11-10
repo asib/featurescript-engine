@@ -1017,6 +1017,15 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   (an extrude's cut, an aligned section's) stays construction, and so does a pattern copy of one; one kept only
   where a tool is (a crop view's subtraction of the tool's complement) is construction no longer, so batch 037's
   later aligned section copies the Top plane as a sheet.
+- **Splits by self shadow** (batch 093, `opSplitBySelfShadow`): the view direction is the way the viewer looks;
+  faces whose normal points against it are visible, faces edge-on to it invisible. Curved faces split along their
+  silhouettes (a cylinder's two lines, a cone's two lines through its apex, at r · v⊥ = tan α (axis · v) for a
+  cone widening along its axis, a sphere's great circle); front faces split where outlines (edges between a face in
+  front and one not) cast shadows, a tower's on its step, a boss's and a dome's on their plates. The given bodies
+  shadow each other, and a body not given shadows nothing. `qSplitBy(id, FACE, false)` finds the split faces' visible
+  pieces, `true` the invisible ones. The new edges are split where they're deepest or shallowest along the view (a
+  shadow of a circle or of a great circle at its far point), old edges only where new ones meet them. The shadows
+  cast on the plates are Onshape's approximations: 0.0078 mm² over the boss's 150 mm², 0.028 over the dome's 65.06.
 - **Sketch text** (batch 091, the engine has no `@skText`): each glyph's straight segments are lines and its curves
   degree-2 Bézier B-splines (the font's TrueType quadratics), the box's height 0.72 em (2048-unit Open Sans: a box
   10 high, "I" 9.9154 tall), the baseline on the box's bottom; a construction frame as tall as the box and as wide

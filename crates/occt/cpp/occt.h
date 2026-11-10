@@ -221,6 +221,9 @@ std::unique_ptr<Operation> wrap_onto_cylinder(const ShapeList &faces, Vec3 sourc
 std::unique_ptr<Operation> face_blend_op(const ShapeList &side1, bool reverse1, const ShapeList &side2, bool reverse2,
                                          double radius);
 std::unique_ptr<Operation> split_faces_op(const Shape &body, const ShapeList &faces, const ShapeList &tools);
+std::unique_ptr<Operation> merge_faces_across_op(const Shape &body, const ShapeList &removable);
+std::unique_ptr<Operation> split_faces_paired_op(const Shape &body, const ShapeList &faces, const ShapeList &tools,
+                                                 rust::Slice<const int32_t> owners);
 std::unique_ptr<Operation> split_by_bands_op(const Shape &body, const Shape &face, rust::Slice<const Vec3> first,
                                              rust::Slice<const Vec3> second);
 std::unique_ptr<Operation> split_by_open_bands_op(const Shape &body, const Shape &face, rust::Slice<const Vec3> first,

@@ -91,6 +91,7 @@
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
+#include <TopTools_MapOfShape.hxx>
 #include <gp_Ax1.hxx>
 #include <gp_GTrsf.hxx>
 #include <gp_Trsf.hxx>
@@ -891,7 +892,10 @@ std::unique_ptr<Shape> face_feature_solid(const ShapeList &faces) {
 }
 
 // Splits faces of a body where tools (sheets, faces, wires) cross them, leaving the rest of the body as it is.
-std::unique_ptr<Operation> split_faces_op(const Shape &body, const ShapeList &faces, const ShapeList &tools) {
+// Splits `faces` of `body` where `tools` cross them. With `owners`, tool i cuts only face `owners[i]` (or every
+// face if that's negative), and tools that cross nothing leave the body as it was rather than failing.
+static std::unique_ptr<Operation> split_faces_impl(const Shape &body, const ShapeList &faces, const ShapeList &tools,
+                                                   const rust::Slice<const int32_t> *owners) {
   BRepFeat_SplitShape splitter(body.shape);
   bool any = false;
   TopoDS_Compound tool;
@@ -925,6 +929,21 @@ std::unique_ptr<Operation> split_faces_op(const Shape &body, const ShapeList &fa
     }
     return false;
   };
+  // Each tool's faces, to tell which tool a section edge came from.
+  std::vector<TopTools_IndexedMapOfShape> tool_faces(tools.shapes.size());
+  if (owners)
+    for (size_t i = 0; i < tools.shapes.size(); i++) TopExp::MapShapes(tools.shapes[i], TopAbs_FACE, tool_faces[i]);
+  auto allowed = [&](const TopoDS_Shape &edge, const TopoDS_Shape &face) {
+    if (!owners) return true;
+    TopoDS_Shape tool_face;
+    if (!section.HasAncestorFaceOn2(edge, tool_face)) return false;
+    for (size_t i = 0; i < tools.shapes.size(); i++) {
+      if (!tool_faces[i].Contains(tool_face)) continue;
+      int32_t owner = (*owners)[i];
+      if (owner < 0 || faces.shapes[owner].IsSame(face)) return true;
+    }
+    return false;
+  };
   bool crossed = false;
   if (section.IsDone())
     for (TopExp_Explorer it(section.Shape(), TopAbs_EDGE); it.More(); it.Next()) {
@@ -932,11 +951,12 @@ std::unique_ptr<Operation> split_faces_op(const Shape &body, const ShapeList &fa
       crossed = true;
       TopoDS_Shape face;
       if (!section.HasAncestorFaceOn1(it.Current(), face)) continue;
+      if (!allowed(it.Current(), face)) continue;
       if (on_boundary(TopoDS::Edge(it.Current()), face)) continue;
       splitter.Add(TopoDS::Edge(it.Current()), TopoDS::Face(face));
       any = true;
     }
-  if (!crossed) throw std::runtime_error("split faces: the tools don't cross the faces");
+  if (!crossed && !owners) throw std::runtime_error("split faces: the tools don't cross the faces");
   if (!any) {
     // The tools only meet the faces along edges they already have: nothing changes.
     auto op = std::make_unique<Operation>();
@@ -946,6 +966,33 @@ std::unique_ptr<Operation> split_faces_op(const Shape &body, const ShapeList &fa
   }
   splitter.Build();
   return finish(one(body.shape), splitter, "split faces");
+}
+
+std::unique_ptr<Operation> split_faces_op(const Shape &body, const ShapeList &faces, const ShapeList &tools) {
+  return split_faces_impl(body, faces, tools, nullptr);
+}
+
+// Merges faces of a body that lie on one surface across the `removable` edges between them, and edges left on one
+// curve where those edges met them; every other edge stays.
+std::unique_ptr<Operation> merge_faces_across_op(const Shape &body, const ShapeList &removable) {
+  TopTools_IndexedMapOfShape remove;
+  for (const TopoDS_Shape &e : removable.shapes) remove.Add(e);
+  TopTools_MapOfShape keep;
+  for (TopExp_Explorer it(body.shape, TopAbs_EDGE); it.More(); it.Next())
+    if (!remove.Contains(it.Current())) keep.Add(it.Current());
+  ShapeUpgrade_UnifySameDomain unifier(body.shape, Standard_True, Standard_True, Standard_False);
+  unifier.KeepShapes(keep);
+  unifier.Build();
+  auto op = std::make_unique<Operation>();
+  op->history = unifier.History();
+  op->result = unifier.Shape();
+  return op;
+}
+
+std::unique_ptr<Operation> split_faces_paired_op(const Shape &body, const ShapeList &faces, const ShapeList &tools,
+                                                 rust::Slice<const int32_t> owners) {
+  if (owners.size() != tools.shapes.size()) throw std::runtime_error("split faces: one owner per tool");
+  return split_faces_impl(body, faces, tools, &owners);
 }
 
 // A body of one doubly periodic face (a whole torus) split along two closed curves that each go once round it the
