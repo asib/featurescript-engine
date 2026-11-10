@@ -772,6 +772,10 @@ pub fn register(m: &mut GeomBuiltins) {
                     _ if model.shape(*r).surface_type().ok() == Some(occt::SurfaceType::Extrusion) => {
                         Ok(map(vec![kind("EXTRUDED")]))
                     }
+                    // A surface revolved from a curve (a sheet revolved from a spline, batch 079 c008).
+                    _ if model.shape(*r).surface_type().ok() == Some(occt::SurfaceType::Revolution) => {
+                        Ok(map(vec![kind("REVOLVED")]))
+                    }
                     _ => Ok(map(vec![kind("OTHER")])),
                 }
             },
