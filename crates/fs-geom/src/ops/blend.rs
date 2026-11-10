@@ -1208,6 +1208,19 @@ fn variable_section_fillet(model: &mut Model, id: FeatureId, definition: &Value,
             if leading_face(&body, edge).is_some_and(|l| l.is_same(&faces[1])) {
                 faces.swap(0, 1);
             }
+            if edge.curve_type().ok() == Some(occt::CurveType::Circle) {
+                let start = edge.edge_tangent(0.0, false).map_err(crate::occt_error)?.origin;
+                let end = edge.edge_tangent(1.0, false).map_err(crate::occt_error)?.origin;
+                let ((ra, oa), (rz, oz)) = (radii_at(start), radii_at(end));
+                let (d1, d2) = if asymmetric { (law(oa, oz), law(ra, rz)) } else { (law(ra, rz), law(oa, oz)) };
+                let (wedge, inside) = arc_variable_wedge(&body, edge, [&faces[0], &faces[1]], [d1, d2], section)?;
+                if inside {
+                    cut.push(wedge)
+                } else {
+                    join.push(wedge)
+                }
+                continue;
+            }
             if edge.curve_type().ok() != Some(occt::CurveType::Line) {
                 return Err(error("@opFillet: variable non-circular fillets of curved edges aren't supported yet"));
             }
@@ -1335,6 +1348,174 @@ fn variable_section_fillet(model: &mut Model, id: FeatureId, definition: &Value,
     }
     replace_bodies(model, &id, results);
     Ok(Value::UNDEFINED)
+}
+
+/// The wedge a variable fillet takes away along an arc (or adds, at a concave one; batch 078 c007), between faces
+/// that run straight away from it square to it at every point, such as a plane and a cylinder about the arc's axis:
+/// at each point the section of a straight edge's fillet between the directions into the two faces, its setbacks
+/// following the laws (Bézier values over the edge's parameter) `d`. The fillet surface carries the sections, its
+/// rows cubic splines through them at 32 points along the arc (Onshape's is a fit too); strips of the faces and the
+/// end sections close it. Whether the edge is convex comes with it.
+#[allow(clippy::type_complexity)]
+fn arc_variable_wedge(
+    body: &Shape,
+    edge: &Shape,
+    faces: [&Shape; 2],
+    d: [[f64; 4]; 2],
+    section: Section,
+) -> R<(Shape, bool)> {
+    use crate::values::{add, cross, dot, normalize, scale, sub};
+    let failed = || regen_error("FILLET_FAILED");
+    let unsupported =
+        || error("@opFillet: variable non-circular fillets of curved edges between these faces aren't supported yet");
+    let bezier = |c: [f64; 4], t: f64| {
+        let s = 1.0 - t;
+        c[0] * s * s * s + 3.0 * c[1] * s * s * t + 3.0 * c[2] * s * t * t + c[3] * t * t * t
+    };
+    // The point at a fraction along the edge, and the directions into each face square to it there.
+    let frame = |t: f64| -> R<(occt::Vec3, [occt::Vec3; 2])> {
+        let at = edge.edge_tangent(t, false).map_err(crate::occt_error)?;
+        let mut into = [at.direction; 2];
+        for (k, face) in faces.iter().enumerate() {
+            let (fu, fv) = face.face_fraction(at.origin).map_err(crate::occt_error)?;
+            let n = face.face_tangent_plane(fu, fv).map_err(crate::occt_error)?.normal;
+            let mut u = normalize(cross(n, at.direction)).ok_or_else(failed)?;
+            let on = |d: occt::Vec3| {
+                occt::vertex(add(at.origin, scale(d, 1e-6)))
+                    .and_then(|v| v.distance(face))
+                    .is_ok_and(|x| x.distance < 1e-7)
+            };
+            if !on(u) {
+                u = scale(u, -1.0);
+            }
+            into[k] = u;
+        }
+        Ok((at.origin, into))
+    };
+    let (_, [u1, u2]) = frame(0.5)?;
+    let angle = dot(u1, u2).clamp(-1.0, 1.0).acos();
+    let (coefficients, weights, knots_v, degree_v): (Vec<(f64, f64)>, Vec<f64>, Vec<f64>, i32) = match section {
+        Section::Curvature(m) => (
+            curvature_coefficients(m)?.into_iter().map(|(s2c, s1c)| (s1c, s2c)).collect(),
+            Vec::new(),
+            CURVATURE_KNOTS.to_vec(),
+            5,
+        ),
+        Section::Conic(rho) => (
+            vec![(1.0, 0.0), (0.0, 0.0), (0.0, 1.0)],
+            vec![1.0, rho / (1.0 - rho), 1.0],
+            vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+            2,
+        ),
+        Section::Circular => (
+            vec![(1.0, 0.0), (0.0, 0.0), (0.0, 1.0)],
+            vec![1.0, (angle / 2.0).sin(), 1.0],
+            vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+            2,
+        ),
+    };
+    // A section pole at a fraction along the edge.
+    let pole = |t: f64, (c1, c2): (f64, f64)| -> R<occt::Vec3> {
+        let (p, [u1, u2]) = frame(t)?;
+        let angle = dot(u1, u2).clamp(-1.0, 1.0).acos();
+        let (sin, cos) = (angle.sin(), angle.cos());
+        let (r1, r2) = (bezier(d[0], t), bezier(d[1], t));
+        let (s1, s2) = ((r2 + r1 * cos) / sin, (r1 + r2 * cos) / sin);
+        if !(s1 > 1e-9 && s2 > 1e-9) {
+            return Err(failed());
+        }
+        Ok(add(p, add(scale(u1, c1 * s1), scale(u2, c2 * s2))))
+    };
+    // The setback points must lie on their faces: the faces run straight away from the edge.
+    for t in [0.0, 0.25, 0.5, 0.75, 1.0] {
+        for (k, c) in [(0, (1.0, 0.0)), (1, (0.0, 1.0))] {
+            let q = pole(t, c)?;
+            if occt::vertex(q).and_then(|v| v.distance(faces[k])).map_err(crate::occt_error)?.distance > 1e-7 {
+                return Err(unsupported());
+            }
+        }
+    }
+    const SAMPLES: usize = 32;
+    let parameters: Vec<f64> = (0..=SAMPLES).map(|k| k as f64 / SAMPLES as f64).collect();
+    let row = |c: (f64, f64)| -> R<occt::BSplineData> {
+        let h = 1e-5;
+        let points: Vec<occt::Vec3> = parameters.iter().map(|&t| pole(t, c)).collect::<R<_>>()?;
+        let derivatives: Vec<occt::Vec3> = parameters
+            .iter()
+            .map(|&t| {
+                let (a, b) = ((t - h).max(0.0), (t + h).min(1.0));
+                Ok(scale(sub(pole(b, c)?, pole(a, c)?), 1.0 / (b - a)))
+            })
+            .collect::<R<_>>()?;
+        // Each span the cubic Hermite segment between its ends, as Bézier spans joined (knots of multiplicity 3).
+        let mut poles = vec![points[0]];
+        let mut knots = vec![0.0; 4];
+        for k in 0..SAMPLES {
+            let span = parameters[k + 1] - parameters[k];
+            poles.push(add(points[k], scale(derivatives[k], span / 3.0)));
+            poles.push(sub(points[k + 1], scale(derivatives[k + 1], span / 3.0)));
+            poles.push(points[k + 1]);
+            knots.extend([parameters[k + 1]; 3]);
+        }
+        knots.push(1.0);
+        Ok(occt::BSplineData { degree: 3, periodic: false, rational: false, poles, weights: Vec::new(), knots })
+    };
+    let rows: Vec<occt::BSplineData> = coefficients.iter().map(|&c| row(c)).collect::<R<_>>()?;
+    let nu = rows[0].poles.len();
+    if rows.iter().any(|r| r.poles.len() != nu || r.knots != rows[0].knots) {
+        return Err(failed());
+    }
+    let nv = coefficients.len();
+    let mut poles = Vec::with_capacity(nu * nv);
+    let mut grid_weights = Vec::new();
+    for i in 0..nu {
+        for r in &rows {
+            poles.push(r.poles[i]);
+        }
+        grid_weights.extend(weights.iter().copied());
+    }
+    let knots_u = rows[0].knots.clone();
+    let fillet = if weights.is_empty() {
+        occt::bspline_surface_face(&poles, (nu, nv), &knots_u, &knots_v, (3, degree_v))
+    } else {
+        occt::rational_bspline_surface_face(&poles, &grid_weights, (nu, nv), &knots_u, &knots_v, (3, degree_v))
+    }
+    .map_err(|_| failed())?;
+    let curve_of =
+        |r: &occt::BSplineData| occt::bspline_edge(&r.poles, &[], &r.knots, 3, false).map_err(crate::occt_error);
+    let line = |p: occt::Vec3, q: occt::Vec3| occt::line_edge(p, q).map_err(crate::occt_error);
+    let (first, last) = (&rows[0], &rows[nv - 1]);
+    let (a, z) = (pole(0.0, (0.0, 0.0))?, pole(1.0, (0.0, 0.0))?);
+    let (f1a, f1z) = (first.poles[0], first.poles[nu - 1]);
+    let (f2a, f2z) = (last.poles[0], last.poles[nu - 1]);
+    // The strips of the faces between the edge and the setback curves: a planar one filled, any other ruled from
+    // the edge to its setback curve (the faces run straight away from the edge).
+    let edge_row = row((0.0, 0.0))?;
+    let strip = |face: &Shape, far: &occt::BSplineData, fa: occt::Vec3, fz: occt::Vec3| -> R<Shape> {
+        if face.surface_type().ok() == Some(occt::SurfaceType::Plane) {
+            return occt::fill_edges(&[edge.clone(), line(z, fz)?, curve_of(far)?, line(fa, a)?]).map_err(|_| failed());
+        }
+        let ruled: Vec<occt::Vec3> = (0..nu).flat_map(|i| [edge_row.poles[i], far.poles[i]]).collect();
+        occt::bspline_surface_face(&ruled, (nu, 2), &knots_u, &[0.0, 0.0, 1.0, 1.0], (3, 1)).map_err(|_| failed())
+    };
+    let strip1 = strip(faces[0], first, f1a, f1z)?;
+    let strip2 = strip(faces[1], last, f2a, f2z)?;
+    let end_section = |t: f64| -> R<Shape> {
+        let points: Vec<occt::Vec3> = coefficients.iter().map(|&c| pole(t, c)).collect::<R<_>>()?;
+        occt::bspline_edge(&points, &weights, &knots_v, degree_v, false).map_err(crate::occt_error)
+    };
+    let cap0 = occt::fill_edges(&[line(a, f1a)?, end_section(0.0)?, line(f2a, a)?]).map_err(|_| failed())?;
+    let cap1 = occt::fill_edges(&[line(z, f1z)?, end_section(1.0)?, line(f2z, z)?]).map_err(|_| failed())?;
+    let shell = occt::sew_faces(&[fillet, strip1, strip2, cap0, cap1], 1e-6).map_err(|_| failed())?;
+    let mut wedge = occt::solid_from(&shell).map_err(|_| failed())?;
+    if wedge.volume().map_err(crate::occt_error)? < 0.0 {
+        wedge = wedge.reversed();
+    }
+    let (p, [u1, u2]) = frame(0.5)?;
+    let inside = body
+        .contains_point(add(p, scale(add(u1, u2), 0.01 * (bezier(d[0], 0.5).min(bezier(d[1], 0.5))))))
+        .unwrap_or(true);
+    Ok((wedge, inside))
 }
 
 /// A partial fillet: what a full fillet would remove, only where a bound keeps it. Each bound is a plane square to
