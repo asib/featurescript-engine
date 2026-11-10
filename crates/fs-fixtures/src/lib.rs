@@ -76,7 +76,8 @@ pub fn build(batch: &Path) -> Result<Build, String> {
         .ok_or("generator.fs has no buildFixtureBatch feature")?;
 
     let start = Instant::now();
-    let context = engine.eval(module, "newContextWithDefaults()").map_err(exception)?;
+    // The fixture document is in inches: its default planes are 6 inches across (batch 090 c010).
+    let context = engine.eval(module, "newContextWithDefaults(inch)").map_err(exception)?;
     let id = engine.eval(module, "makeId(\"Fgenerator\")").map_err(exception)?;
     let definition = Value::map(Default::default());
     engine.call(module, &generator, vec![context.clone(), id.clone(), definition]).map_err(exception)?;
