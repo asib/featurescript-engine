@@ -462,6 +462,11 @@ pub fn register(m: &mut GeomBuiltins) {
                         return Ok(tags.line(frame.origin, frame.normal));
                     }
                 }
+                // More than one entity (a sketch's line and its region's edge both through a point) is no axis
+                // (batch 089: Onshape's revolves about them fail, REVOLVE_SELECT_AXIS).
+                if found.len() > 1 {
+                    return Err(regen_error("CANNOT_RESOLVE_ENTITIES"));
+                }
                 let shape = single_entity(model, &found).ok_or_else(|| regen_error("CANNOT_RESOLVE_ENTITIES"))?;
                 let axis = shape.axis().map_err(|_| regen_error("CANNOT_RESOLVE_ENTITIES"))?;
                 Ok(tags.line(axis.origin, axis.direction))
