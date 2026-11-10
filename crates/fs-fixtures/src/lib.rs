@@ -621,15 +621,15 @@ pub fn check_batch_bodies(
     check_batch_unordered(batch, step, loose, bodies_only, &[])
 }
 
-/// A probe line with each `faces : [ … ]`, `edges : [ … ]` and `bendLines : [ … ]` array's entries sorted by their
-/// contents (numbers rounded to 0.01), for cases where Onshape lists them in an order of its own (its internal ids:
-/// a loft's sides, batch 060; two wire bodies' edges, not in the bodies' order, batch 061; a PCB's bend lines,
-/// batch 071).
+/// A probe line with each `faces : [ … ]`, `edges : [ … ]`, `bendLines : [ … ]` and `curves : [ … ]` array's
+/// entries sorted by their contents (numbers rounded to 0.01), for cases where Onshape lists them in an order of its
+/// own (its internal ids: a loft's sides, batch 060; two wire bodies' edges, not in the bodies' order, batch 061; a
+/// PCB's bend lines, batch 071; an extended sheet's curved edges, batch 080).
 pub fn sort_faces(line: &str) -> String {
     let mut out = String::new();
     let mut rest = line;
     let next = |rest: &str| {
-        ["faces : [", "edges : [", "bendLines : ["]
+        ["faces : [", "edges : [", "bendLines : [", "curves : ["]
             .iter()
             .filter_map(|m| rest.find(m).map(|i| (i, m.len() - 1)))
             .min_by_key(|x| x.0)
