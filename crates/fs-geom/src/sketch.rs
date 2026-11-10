@@ -210,6 +210,93 @@ pub fn register(m: &mut GeomBuiltins) {
         }
         Ok(values::map(vec![("imageId", Value::string(id))]))
     });
+    // Text as Onshape's font engine draws it (batch 091, exactly): the font's outlines (fs-geom/fonts) as FreeType
+    // loads them unhinted at 100 pixels to the em, in 64ths of a pixel (font units × 6400 / units per em, rounded
+    // half away from zero; TrueType's implied points midway between those), the box's height 4608 of them (0.72
+    // em), the baseline on its bottom, each glyph after the last by its rounded advance (no kerning); lines and
+    // quadratic Béziers, and a construction frame as tall as the box, a quarter of a space (rounded down) wider
+    // than the ink, with a line down its middle.
+    m.insert("skText", |_, args| {
+        let sketch = sketch_arg(&args, "skText")?;
+        let id: Rc<str> = string(&args, 1, "skText")?.into();
+        let value = arg(&args, 2, "skText")?;
+        if sketch.solved.get() {
+            return Err(error("@skText: the sketch has already been solved"));
+        }
+        let text = field(value, "text").as_str().ok_or_else(|| error("@skText: text must be a string"))?.to_string();
+        let font_name = field(value, "fontName").as_str().unwrap_or("OpenSans-Regular.ttf");
+        let font = crate::font::by_name(font_name)
+            .ok_or_else(|| error(format!("@skText: the font {font_name} isn't one the engine has (fs-geom/fonts)")))?;
+        for key in ["mirrorHorizontal", "mirrorVertical"] {
+            if field(value, key).as_bool() == Some(true) {
+                return Err(error(format!("@skText: {key} isn't supported yet")));
+            }
+        }
+        let first = point(value, "firstCorner", "skText firstCorner")?;
+        let second = point(value, "secondCorner", "skText secondCorner")?;
+        let (x0, y0) = (first.0.min(second.0), first.1.min(second.1));
+        let height = (second.1 - first.1).abs();
+        if height <= 0.0 {
+            return Err(error("@skText: the box has no height"));
+        }
+        // Font units to 64ths of a pixel at 100 pixels to the em, and those to lengths.
+        let scale = 6400.0 / font.units_per_em;
+        let ft = |u: f64| ((u * scale).abs() + 0.5).floor().copysign(u);
+        let length = height / 4608.0;
+        let mut glyphs = Vec::new();
+        let (mut pen, mut ink) = (0.0, None::<f64>);
+        for c in text.chars() {
+            let index = font.glyph_index(c);
+            let mut glyph = font.glyph(index);
+            for contour in &mut glyph.contours {
+                for point in contour.iter_mut() {
+                    *point = (ft(point.0) + pen, ft(point.1), point.2);
+                }
+            }
+            if !glyph.contours.is_empty() {
+                let right = pen + ft(glyph.x_max);
+                ink = Some(ink.map_or(right, |x: f64| x.max(right)));
+            }
+            glyphs.push(glyph);
+            pen += ft(font.advance(index));
+        }
+        let space = ft(font.advance(font.glyph_index(' ')));
+        let width = (ink.unwrap_or(0.0) + (space / 4.0).floor()) * length;
+        let mut entities = sketch.entities.borrow_mut();
+        let mut add = |name: String, geometry: Geometry, construction: bool| -> R<()> {
+            let entity_id: Rc<str> = format!("{id}.{name}").into();
+            if entities.iter().any(|e| e.id == entity_id) {
+                return Err(error(format!("@skText: sketch entity id {entity_id:?} is already used")));
+            }
+            entities.push(SketchEntity { id: entity_id, geometry, construction });
+            Ok(())
+        };
+        let (x1, y1) = (x0 + width, y0 + height);
+        let frame = [
+            ("bottom", (x0, y0), (x1, y0)),
+            ("top", (x0, y1), (x1, y1)),
+            ("left", (x0, y0), (x0, y1)),
+            ("middle", (x0 + width / 2.0, y0), (x0 + width / 2.0, y1)),
+            ("right", (x1, y0), (x1, y1)),
+        ];
+        for (name, a, b) in frame {
+            add(format!("frame.{name}"), Geometry::Line(a, b), true)?;
+        }
+        for (i, glyph) in glyphs.iter().enumerate() {
+            for (k, contour) in glyph.contours.iter().enumerate() {
+                for (j, piece) in crate::font::segments(contour).into_iter().enumerate() {
+                    let points: Vec<P2> = piece.iter().map(|&(x, y)| (x0 + x * length, y0 + y * length)).collect();
+                    if points.windows(2).all(|w| w[0] == w[1]) {
+                        continue;
+                    }
+                    let geometry =
+                        if points.len() == 2 { Geometry::Line(points[0], points[1]) } else { Geometry::Bezier(points) };
+                    add(format!("{i}.{k}.{j}"), geometry, false)?;
+                }
+            }
+        }
+        Ok(Value::UNDEFINED)
+    });
     m.insert("skCircle", |_, args| {
         let id = add(&args, "skCircle", |v| {
             let center = point(v, "center", "skCircle center")?;

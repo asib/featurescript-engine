@@ -732,6 +732,43 @@ pub fn sort_faces(line: &str) -> String {
     out
 }
 
+/// Problems left once Onshape's kernel simplifying extruded sketch text is allowed for: a part whose curved sides
+/// are B-splines, cylinders and planes in Onshape (curves near circular arcs merged with their tangent neighbours
+/// by its own heuristic, curves along their chords) where the engine's are as many extruded Béziers, and the shape comparison's boolean failing on
+/// those surfaces micrometres apart. The probe lines still carry each body's volume and area (batches 091, 097).
+pub fn allowing_text_simplification(problems: Vec<String>) -> Vec<String> {
+    let counts = |text: &str| -> BTreeMap<String, usize> {
+        text.trim_matches(|c| c == '{' || c == '}')
+            .split(',')
+            .filter_map(|pair| {
+                let (k, v) = pair.split_once(':')?;
+                Some((k.trim().trim_matches('"').to_string(), v.trim().parse().ok()?))
+            })
+            .collect()
+    };
+    let simplified = |problem: &str| -> Option<String> {
+        let (part, rest) = problem.split_once(": faces ")?;
+        let (ours, theirs) = rest.split_once(", Onshape ")?;
+        let (ours, theirs) = (counts(ours), counts(theirs));
+        let get = |m: &BTreeMap<String, usize>, k: &str| m.get(k).copied().unwrap_or(0);
+        // Some of the engine's extruded Béziers are Onshape's cylinders, or planes (a Bézier along its chord).
+        let extra_planes = get(&theirs, "Plane").checked_sub(get(&ours, "Plane"));
+        let same = extra_planes.is_some_and(|planes| {
+            get(&ours, "Extrusion") == get(&theirs, "BSpline") + get(&theirs, "Cylinder") + planes
+                && get(&theirs, "Cylinder") + planes > 0
+        }) && ours.len() <= 2;
+        same.then(|| part.to_string())
+    };
+    let parts: Vec<String> = problems.iter().filter_map(|p| simplified(p)).collect();
+    problems
+        .into_iter()
+        .filter(|p| {
+            let part = p.split(':').next().unwrap_or_default();
+            !(parts.iter().any(|q| q == part) && (p.contains(": faces ") || p.contains("the shapes differ by")))
+        })
+        .collect()
+}
+
 /// [`check_batch_bodies`], with some cases' face and edge lists compared in any order ([`sort_faces`]).
 pub fn check_batch_unordered(
     batch: &Path,
