@@ -888,6 +888,18 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   arc between a plane and a cylinder about it, each section is a straight edge's, its setbacks following the law
   over the arc's angle; Onshape's surface is a cubic fit of them (degree 2 across, its sections conics), straying up
   to 6e-4 mm off the cylinder, and runs a little past the arc's ends.
+- **Face blend caps, cliff edges and hold lines** (batch 079 c001–c004): a cap past the end of one side, within the
+  other, is inconsistent data (as one in the middle is, batch 071), flipped or not. A cliff edge nearer the corner
+  than the blend would reach holds the ball: on a side 3 mm high, a 5 mm blend is a cylinder resting on its top
+  edge and touching the other side sqrt(21) mm out, and the side under it goes. A tangent hold line on a side sets
+  the blend back to it (4 mm up, a 4 mm blend), the side between going too; that blend's surface is a B-spline.
+- **`moveCurveBoundary` needs its help point**: one naming no vertex (an elliptical arc from parameter 0 to π/2,
+  1.57 turns of its period of 1, ends nowhere near the point asked for) fails with
+  `MOVE_CURVE_BOUNDARY_SELECT_HELP_POINT` (batch 079 c006, c007).
+- **A revolved spline sheet extended** (batch 079 c008): one face still, `REVOLVED` to `evSurfaceDefinition`.
+  Extended past its top edge and round past its side, it covers 216.07 mm² more; carrying each point 5 mm round its
+  circle and the curve 5 mm straight on (the engine's) covers 220.04, rising 0.02 mm less and reaching 0.034 mm less
+  far round at its widest. Neither uniform turns nor the curve's own polynomial carried on fit.
 - **`derivedMirror` in a Part Studio feature** (batch 060 c001): Onshape fails with "Execution error". It builds
   its source twice, once by `@convert` and again in `instantiate` (no loaded context), which Onshape evidently
   refuses for a build function defined in the studio (it won't derive one source twice in a Part Studio, batch
