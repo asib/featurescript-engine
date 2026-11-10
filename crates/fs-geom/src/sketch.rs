@@ -425,23 +425,8 @@ fn solve(model: &mut Model, sketch: &Sketch) -> R<()> {
 
     let created = Info::new(sketch.id.clone());
     let none = Origins::default();
-    // Regions, from the edges that aren't construction: a sheet body for each set of regions joined by shared edges
-    // (a ring and the square inside it are one sheet; frame relies on it).
+    // The curves' wire bodies come first, then the regions' sheets, as Onshape lists them (batch 091).
     let shapes: Vec<Shape> = edges.iter().filter(|(_, _, c)| !c).map(|(_, e, _)| e.clone()).collect();
-    let regions = occt::sketch_regions(&shapes, plane).map_err(occt_error)?;
-    let sheets = if regions.len() > 1 {
-        occt::connected_shells(&occt::compound(&regions)).map_err(occt_error)?
-    } else {
-        regions
-    };
-    for sheet in sheets {
-        let new = NewBody {
-            sketch_plane: Some(plane),
-            flat_of: sketch.flat_of,
-            ..NewBody::new(sheet, BodyType::Sheet, created.clone())
-        };
-        model.add_body(new, &none, &created, &|_| None);
-    }
     // Curves: a wire body each; a construction curve's edge and vertices are construction.
     for (id, edge, construction) in edges {
         let info = Rc::new(Info {
@@ -478,6 +463,22 @@ fn solve(model: &mut Model, sketch: &Sketch) -> R<()> {
             named_ends.iter().find(|(q, _)| values::norm(values::sub(p, *q)) < 1e-12).map(|(_, info)| info.clone())
         };
         model.add_body(new, &none, &info, &special);
+    }
+    // Regions, from the edges that aren't construction: a sheet body for each set of regions joined by shared edges
+    // (a ring and the square inside it are one sheet; frame relies on it).
+    let regions = occt::sketch_regions(&shapes, plane).map_err(occt_error)?;
+    let sheets = if regions.len() > 1 {
+        occt::connected_shells(&occt::compound(&regions)).map_err(occt_error)?
+    } else {
+        regions
+    };
+    for sheet in sheets {
+        let new = NewBody {
+            sketch_plane: Some(plane),
+            flat_of: sketch.flat_of,
+            ..NewBody::new(sheet, BodyType::Sheet, created.clone())
+        };
+        model.add_body(new, &none, &created, &|_| None);
     }
     for (id, p, construction) in points {
         let info = Rc::new(Info {
