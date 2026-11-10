@@ -721,6 +721,12 @@ pub fn face_blend(model: &mut Model, id: FeatureId, definition: &Value) -> R<Val
                 return Err(regen_error("FACE_BLEND_FAILED"));
             }
         }
+        // Or where the sides meet along separate curves (a floor through a cylinder lying along it, batch 079 c005).
+        if let Ok(curves) = occt::section_edges(&shapes(&side1), &shapes(&side2)) {
+            if separate_chains(&curves) > 1 {
+                return Err(regen_error("FACE_BLEND_FAILED"));
+            }
+        }
     }
     // Sides each in one plane (of one face or several, batch 083 c003–c006: an upright split along its length):
     // each side's sense must point to where the other side is, as between single faces.
@@ -795,6 +801,32 @@ pub fn face_blend(model: &mut Model, id: FeatureId, definition: &Value) -> R<Val
         model.add_body(new, &crate::model::Origins::default(), &info, &|_| None);
     }
     Ok(Value::UNDEFINED)
+}
+
+/// How many separate chains some edges make, joined where their ends meet.
+fn separate_chains(edges: &[Shape]) -> usize {
+    let ends: Vec<Vec<occt::Vec3>> = edges
+        .iter()
+        .map(|e| [0.0, 1.0].iter().filter_map(|&t| e.edge_tangent(t, false).ok().map(|a| a.origin)).collect())
+        .collect();
+    let mut group: Vec<usize> = (0..edges.len()).collect();
+    fn root(group: &mut [usize], mut i: usize) -> usize {
+        while group[i] != i {
+            i = group[i];
+        }
+        i
+    }
+    for i in 0..edges.len() {
+        for j in i + 1..edges.len() {
+            let meet =
+                ends[i].iter().any(|p| ends[j].iter().any(|q| crate::values::norm(crate::values::sub(*p, *q)) < 1e-7));
+            if meet {
+                let (a, b) = (root(&mut group, i), root(&mut group, j));
+                group[a] = b;
+            }
+        }
+    }
+    (0..edges.len()).filter(|&i| root(&mut group, i) == i).count()
 }
 
 /// Each side's sense (its normal, flipped if asked) must point to the side of it the blend is on, where the other

@@ -6,11 +6,11 @@ use std::path::PathBuf;
 /// Faces come in an order of Onshape's own.
 const UNORDERED: &[&str] = &["c003", "c004"];
 
-/// Known gaps (docs/std-coverage.md): Onshape fails a blend between a floor and a cylinder lying through it
-/// (c005, FACE_BLEND_FAILED) where the engine doesn't blend planes with cylinders that way at all; a revolved spline
-/// sheet extended round and past its top (c008) is within 5.9e-3 of Onshape's area, which goes round further at
-/// its widest and rises higher, yet covers less.
-const KNOWN_GAPS: &[&str] = &["c005", "c008"];
+/// A blend between a floor and a cylinder lying through it, a help point picking one of its two sides, fails in both
+/// (c005, `FACE_BLEND_FAILED`). Known gap (docs/std-coverage.md): a revolved spline sheet extended round and past its
+/// top (c008) is within 5.9e-3 of Onshape's area, which goes round further at its widest and rises higher, yet
+/// covers less.
+const KNOWN_GAPS: &[&str] = &["c008"];
 
 #[test]
 fn batch_079_matches_onshape() {
