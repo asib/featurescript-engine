@@ -1019,11 +1019,14 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   box's height / 23040, up to 0.3 font units off the outlines, from font versions not the published ones (Open
   Sans's "I" advances about 504 units there, 572 in Open Sans 3; Arimo's 522 against 569). Matching it needs those
   fonts and that engine.
-- **A flat cut crossing a bend, in the engine** (batch 062 c006): the cut's piece on the bend's strip is mapped into
-  the definition by the strip's stretch, so the definition's hole crosses the bend edge and splits it; cutting the
-  walls back by the bends' setbacks then leaves one wall with no faces at all (the boolean fails on the hole's curve
-  across the bend line), and the part can't be built (`SHEET_METAL_REBUILD_ERROR`). Matching Onshape (the hole
-  wrapped onto the bend's cylinder) needs the walls cut back around such holes and the hole carried onto the bend.
+- **A flat cut crossing a bend** (batch 062 c006): the cut's piece on the bend's strip goes into the definition by
+  the strip's stretch, so the definition's hole crosses the bend edge and splits it in two. The part: the hole's
+  arcs in the walls beyond the setback lines (120° of the 6 mm circle each), the bend in two pieces, the hole's
+  walls through the bend B-spline faces. The engine builds the bend once across its pieces, the hole's pieces in
+  the walls' setback zones laid back onto the bend's flat strip (the stretch inverted) and cut from it before it's
+  wrapped (to 3e-7 of the volume; its hole walls are two faces each, Onshape's one). Its other pieces along the
+  bend's line aren't stubs (no reliefs), and the side a wall lies on is probed 10 µm out (a wall rebuilt by the cut
+  measures a micron off itself).
 - **A failed case's leftover parts** (batches 014, 018, 060, 064, 086): a sheet metal part a failed case can't
   delete keeps Onshape's default name, "Part" and its place among the Part Studio's parts in order (named ones
   counted, flat patterns not): 086 c017's plate, after nine parts, is Part 10. Where the engine builds more or fewer
