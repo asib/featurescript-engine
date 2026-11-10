@@ -1185,105 +1185,152 @@ fn variable_section_fillet(model: &mut Model, id: FeatureId, definition: &Value,
     }
     let mut results = Vec::new();
     for (b, edges) in groups {
-        let [edge] = &edges[..] else {
-            return Err(error("@opFillet: variable non-circular fillets of more than one edge aren't supported yet"));
-        };
-        if edge.curve_type().ok() != Some(occt::CurveType::Line) {
-            return Err(error("@opFillet: variable non-circular fillets of curved edges aren't supported yet"));
-        }
         let body = model.bodies[b].shape.clone();
-        let mut faces = body.ancestors(edge, ShapeKind::Face);
-        if faces.len() != 2 {
-            return Err(failed());
+        // Edges apart from each other each get a fillet of their own (batch 078 c008); ones meeting at a vertex
+        // would need their fillets blended there.
+        let ends: Vec<occt::Vec3> = edges
+            .iter()
+            .flat_map(|e| [0.0, 1.0].map(|t| e.edge_tangent(t, false).map(|l| l.origin)))
+            .collect::<Result<_, _>>()
+            .map_err(crate::occt_error)?;
+        if ends.iter().enumerate().any(|(i, p)| ends[..i - i % 2].iter().any(|q| norm(sub(*p, *q)) < 1e-9)) {
+            return Err(error(
+                "@opFillet: variable non-circular fillets of edges meeting at a vertex aren't supported yet",
+            ));
         }
-        if leading_face(&body, edge).is_some_and(|l| l.is_same(&faces[1])) {
-            faces.swap(0, 1);
-        }
-        let a = edge.edge_tangent(0.0, false).map_err(crate::occt_error)?.origin;
-        let z = edge.edge_tangent(1.0, false).map_err(crate::occt_error)?.origin;
-        let t = normalize(sub(z, a)).ok_or_else(failed)?;
-        let mid = scale(add(a, z), 0.5);
-        let mut into = Vec::new();
-        for face in &faces {
-            let plane = face.face_plane().map_err(|_| error("@opFillet: variable fillets between curved faces aren't supported yet"))?;
-            let mut u = normalize(cross(plane.normal, t)).ok_or_else(failed)?;
-            let on = |d: occt::Vec3| {
-                occt::vertex(add(mid, scale(d, 1e-6))).and_then(|v| v.distance(face)).is_ok_and(|x| x.distance < 1e-7)
+        // What to take away from convex edges, and add at concave ones.
+        let (mut cut, mut join) = (Vec::new(), Vec::new());
+        for edge in &edges {
+            let mut faces = body.ancestors(edge, ShapeKind::Face);
+            if faces.len() != 2 {
+                return Err(failed());
+            }
+            if leading_face(&body, edge).is_some_and(|l| l.is_same(&faces[1])) {
+                faces.swap(0, 1);
+            }
+            if edge.curve_type().ok() != Some(occt::CurveType::Line) {
+                return Err(error("@opFillet: variable non-circular fillets of curved edges aren't supported yet"));
+            }
+            let a = edge.edge_tangent(0.0, false).map_err(crate::occt_error)?.origin;
+            let z = edge.edge_tangent(1.0, false).map_err(crate::occt_error)?.origin;
+            let t = normalize(sub(z, a)).ok_or_else(failed)?;
+            let mid = scale(add(a, z), 0.5);
+            let mut into = Vec::new();
+            for face in &faces {
+                let plane = face
+                    .face_plane()
+                    .map_err(|_| error("@opFillet: variable fillets between curved faces aren't supported yet"))?;
+                let mut u = normalize(cross(plane.normal, t)).ok_or_else(failed)?;
+                let on = |d: occt::Vec3| {
+                    occt::vertex(add(mid, scale(d, 1e-6)))
+                        .and_then(|v| v.distance(face))
+                        .is_ok_and(|x| x.distance < 1e-7)
+                };
+                if !on(u) {
+                    u = scale(u, -1.0);
+                }
+                into.push(u);
+            }
+            let [u1, u2] = into[..] else { return Err(failed()) };
+            let angle = dot(u1, u2).clamp(-1.0, 1.0).acos();
+            let ((ra, oa), (rz, oz)) = (radii_at(a), radii_at(z));
+            // At a concave edge the same wedge, between the faces and the fillet, is added rather than taken away
+            // (batch 078 c006).
+            let inside =
+                body.contains_point(add(mid, scale(add(u1, u2), ra.min(oa).min(rz).min(oz) * 0.05))).unwrap_or(true);
+            // Varying, the radii go the other way round from a constant asymmetric fillet's: `radius` at the leading
+            // face (batch 073 c007: a block's front set back 2 to 4, its top 3 to 5).
+            let (d1, d2) = if asymmetric { (law(oa, oz), law(ra, rz)) } else { (law(ra, rz), law(oa, oz)) };
+            let (sin, cos) = (angle.sin(), angle.cos());
+            // Setbacks on the leading face and the other, at each Bézier point.
+            let s1: Vec<f64> = (0..4).map(|i| (d2[i] + d1[i] * cos) / sin).collect();
+            let s2: Vec<f64> = (0..4).map(|i| (d1[i] + d2[i] * cos) / sin).collect();
+            if s1.iter().chain(&s2).any(|x| !(*x > 1e-9)) {
+                return Err(failed());
+            }
+            let base = |i: usize| add(a, scale(sub(z, a), i as f64 / 3.0));
+            // The section's poles as (along u1, along u2) multiples of the setbacks, and weights.
+            let (coefficients, weights, knots_v, degree_v): (Vec<(f64, f64)>, Vec<f64>, Vec<f64>, i32) = match section {
+                Section::Curvature(m) => (
+                    curvature_coefficients(m)?.into_iter().map(|(s2c, s1c)| (s1c, s2c)).collect(),
+                    Vec::new(),
+                    CURVATURE_KNOTS.to_vec(),
+                    5,
+                ),
+                Section::Conic(rho) => (
+                    vec![(1.0, 0.0), (0.0, 0.0), (0.0, 1.0)],
+                    vec![1.0, rho / (1.0 - rho), 1.0],
+                    vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+                    2,
+                ),
+                Section::Circular => (
+                    vec![(1.0, 0.0), (0.0, 0.0), (0.0, 1.0)],
+                    vec![1.0, (angle / 2.0).sin(), 1.0],
+                    vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+                    2,
+                ),
             };
-            if !on(u) {
-                u = scale(u, -1.0);
+            let section_pole =
+                |i: usize, (c1, c2): (f64, f64)| add(base(i), add(scale(u1, c1 * s1[i]), scale(u2, c2 * s2[i])));
+            let nv = coefficients.len();
+            let mut poles = Vec::new();
+            let mut grid_weights = Vec::new();
+            for i in 0..4 {
+                for &c in &coefficients {
+                    poles.push(section_pole(i, c));
+                }
+                grid_weights.extend(weights.iter().copied());
             }
-            into.push(u);
-        }
-        let [u1, u2] = into[..] else { return Err(failed()) };
-        let angle = dot(u1, u2).clamp(-1.0, 1.0).acos();
-        let ((ra, oa), (rz, oz)) = (radii_at(a), radii_at(z));
-        let inside = body.contains_point(add(mid, scale(add(u1, u2), ra.min(oa).min(rz).min(oz) * 0.05))).unwrap_or(true);
-        if !inside {
-            return Err(error("@opFillet: variable non-circular fillets of concave edges aren't supported yet"));
-        }
-        // Varying, the radii go the other way round from a constant asymmetric fillet's: `radius` at the leading
-        // face (batch 073 c007: a block's front set back 2 to 4, its top 3 to 5).
-        let (d1, d2) = if asymmetric { (law(oa, oz), law(ra, rz)) } else { (law(ra, rz), law(oa, oz)) };
-        let (sin, cos) = (angle.sin(), angle.cos());
-        // Setbacks on the leading face and the other, at each Bézier point.
-        let s1: Vec<f64> = (0..4).map(|i| (d2[i] + d1[i] * cos) / sin).collect();
-        let s2: Vec<f64> = (0..4).map(|i| (d1[i] + d2[i] * cos) / sin).collect();
-        if s1.iter().chain(&s2).any(|x| !(*x > 1e-9)) {
-            return Err(failed());
-        }
-        let base = |i: usize| add(a, scale(sub(z, a), i as f64 / 3.0));
-        // The section's poles as (along u1, along u2) multiples of the setbacks, and weights.
-        let (coefficients, weights, knots_v, degree_v): (Vec<(f64, f64)>, Vec<f64>, Vec<f64>, i32) = match section {
-            Section::Curvature(m) => (
-                curvature_coefficients(m)?.into_iter().map(|(s2c, s1c)| (s1c, s2c)).collect(),
-                Vec::new(),
-                CURVATURE_KNOTS.to_vec(),
-                5,
-            ),
-            Section::Conic(rho) => (vec![(1.0, 0.0), (0.0, 0.0), (0.0, 1.0)], vec![1.0, rho / (1.0 - rho), 1.0], vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0], 2),
-            Section::Circular => (vec![(1.0, 0.0), (0.0, 0.0), (0.0, 1.0)], vec![1.0, (angle / 2.0).sin(), 1.0], vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0], 2),
-        };
-        let section_pole = |i: usize, (c1, c2): (f64, f64)| add(base(i), add(scale(u1, c1 * s1[i]), scale(u2, c2 * s2[i])));
-        let nv = coefficients.len();
-        let mut poles = Vec::new();
-        let mut grid_weights = Vec::new();
-        for i in 0..4 {
-            for &c in &coefficients {
-                poles.push(section_pole(i, c));
+            let knots_u = [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0];
+            let fillet = if weights.is_empty() {
+                occt::bspline_surface_face(&poles, (4, nv), &knots_u, &knots_v, (3, degree_v))
+            } else {
+                occt::rational_bspline_surface_face(&poles, &grid_weights, (4, nv), &knots_u, &knots_v, (3, degree_v))
             }
-            grid_weights.extend(weights.iter().copied());
+            .map_err(|_| failed())?;
+            let cubic = |points: Vec<occt::Vec3>| -> R<Shape> {
+                occt::bspline_edge(&points, &[], &knots_u, 3, false).map_err(crate::occt_error)
+            };
+            let end_section = |i: usize| -> R<Shape> {
+                let points: Vec<occt::Vec3> = coefficients.iter().map(|&c| section_pole(i, c)).collect();
+                occt::bspline_edge(&points, &weights, &knots_v, degree_v, false).map_err(crate::occt_error)
+            };
+            let line = |p: occt::Vec3, q: occt::Vec3| occt::line_edge(p, q).map_err(crate::occt_error);
+            let (f1a, f1z) = (section_pole(0, (1.0, 0.0)), section_pole(3, (1.0, 0.0)));
+            let (f2a, f2z) = (section_pole(0, (0.0, 1.0)), section_pole(3, (0.0, 1.0)));
+            let strip1 = occt::fill_edges(&[
+                line(a, z)?,
+                line(z, f1z)?,
+                cubic((0..4).map(|i| section_pole(i, (1.0, 0.0))).collect())?,
+                line(f1a, a)?,
+            ])
+            .map_err(|_| failed())?;
+            let strip2 = occt::fill_edges(&[
+                line(a, z)?,
+                line(z, f2z)?,
+                cubic((0..4).map(|i| section_pole(i, (0.0, 1.0))).collect())?,
+                line(f2a, a)?,
+            ])
+            .map_err(|_| failed())?;
+            let cap0 = occt::fill_edges(&[line(a, f1a)?, end_section(0)?, line(f2a, a)?]).map_err(|_| failed())?;
+            let cap1 = occt::fill_edges(&[line(z, f1z)?, end_section(3)?, line(f2z, z)?]).map_err(|_| failed())?;
+            let shell = occt::sew_faces(&[fillet, strip1, strip2, cap0, cap1], 1e-7).map_err(|_| failed())?;
+            let mut wedge = occt::solid_from(&shell).map_err(|_| failed())?;
+            if wedge.volume().map_err(crate::occt_error)? < 0.0 {
+                wedge = wedge.reversed();
+            }
+            if inside { cut.push(wedge) } else { join.push(wedge) }
         }
-        let knots_u = [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0];
-        let fillet = if weights.is_empty() {
-            occt::bspline_surface_face(&poles, (4, nv), &knots_u, &knots_v, (3, degree_v))
-        } else {
-            occt::rational_bspline_surface_face(&poles, &grid_weights, (4, nv), &knots_u, &knots_v, (3, degree_v))
-        }
-        .map_err(|_| failed())?;
-        let cubic = |points: Vec<occt::Vec3>| -> R<Shape> {
-            occt::bspline_edge(&points, &[], &knots_u, 3, false).map_err(crate::occt_error)
+        let (kind, tools) = match (cut.is_empty(), join.is_empty()) {
+            (false, true) => (occt::BooleanKind::Subtraction, cut),
+            (true, false) => (occt::BooleanKind::Union, join),
+            _ => {
+                return Err(error(
+                    "@opFillet: variable non-circular fillets of convex and concave edges at once aren't supported yet",
+                ));
+            }
         };
-        let end_section = |i: usize| -> R<Shape> {
-            let points: Vec<occt::Vec3> = coefficients.iter().map(|&c| section_pole(i, c)).collect();
-            occt::bspline_edge(&points, &weights, &knots_v, degree_v, false).map_err(crate::occt_error)
-        };
-        let line = |p: occt::Vec3, q: occt::Vec3| occt::line_edge(p, q).map_err(crate::occt_error);
-        let (f1a, f1z) = (section_pole(0, (1.0, 0.0)), section_pole(3, (1.0, 0.0)));
-        let (f2a, f2z) = (section_pole(0, (0.0, 1.0)), section_pole(3, (0.0, 1.0)));
-        let strip1 = occt::fill_edges(&[line(a, z)?, line(z, f1z)?, cubic((0..4).map(|i| section_pole(i, (1.0, 0.0))).collect())?, line(f1a, a)?])
-            .map_err(|_| failed())?;
-        let strip2 = occt::fill_edges(&[line(a, z)?, line(z, f2z)?, cubic((0..4).map(|i| section_pole(i, (0.0, 1.0))).collect())?, line(f2a, a)?])
-            .map_err(|_| failed())?;
-        let cap0 = occt::fill_edges(&[line(a, f1a)?, end_section(0)?, line(f2a, a)?]).map_err(|_| failed())?;
-        let cap1 = occt::fill_edges(&[line(z, f1z)?, end_section(3)?, line(f2z, z)?]).map_err(|_| failed())?;
-        let shell = occt::sew_faces(&[fillet, strip1, strip2, cap0, cap1], 1e-7).map_err(|_| failed())?;
-        let mut wedge = occt::solid_from(&shell).map_err(|_| failed())?;
-        if wedge.volume().map_err(crate::occt_error)? < 0.0 {
-            wedge = wedge.reversed();
-        }
-        let op = occt::boolean(occt::BooleanKind::Subtraction, std::slice::from_ref(&body), &[wedge], true)
-            .map_err(|_| failed())?;
+        let op = occt::boolean(kind, std::slice::from_ref(&body), &tools, true).map_err(|_| failed())?;
         results.push((b, op));
     }
     replace_bodies(model, &id, results);
