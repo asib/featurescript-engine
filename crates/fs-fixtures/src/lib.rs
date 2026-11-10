@@ -52,7 +52,8 @@ fn exception(e: fs_interp::Exception) -> String {
 }
 
 /// Makes the files uploaded to the fixture document (`dir`/uploads.txt: element id, version, file, BLOB_DATA) what
-/// imports of their tabs give and what `opImportForeign` reads for references to them.
+/// imports of their tabs give and what `opImportForeign` reads for references to them, and the Part Studio tabs'
+/// stand-in modules what imports of those give.
 pub fn register_uploads(engine: &mut fs_interp::Engine, dir: &Path) -> Result<(), String> {
     let manifest = dir.join("uploads.txt");
     if !manifest.exists() {
@@ -65,9 +66,14 @@ pub fn register_uploads(engine: &mut fs_interp::Engine, dir: &Path) -> Result<()
         else {
             return Err(format!("{}: malformed line {line:?}", manifest.display()));
         };
-        let source = format!("FeatureScript {};\nexport const BLOB_DATA = {blob};\n", fs_interp::LANGUAGE_VERSION);
+        // A Part Studio's tab: the module standing for it. An uploaded file's: its BLOB_DATA, and the file.
+        let source = if file.ends_with(".fs") {
+            read(&dir.join(file))?
+        } else {
+            fs_geom::uploads::register(element, &dir.join(file));
+            format!("FeatureScript {};\nexport const BLOB_DATA = {blob};\n", fs_interp::LANGUAGE_VERSION)
+        };
         engine.interp.modules.uploads.insert(element.to_string(), source);
-        fs_geom::uploads::register(element, &dir.join(file));
     }
     Ok(())
 }

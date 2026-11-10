@@ -18,3 +18,7 @@ through the UI (`node tools/browser/export-step.mjs fixtures/blobs <document> <t
 fixture-parts-onshape.step, fixture-parts-y-up-onshape.step and fixture-parts-composite-onshape.step: Onshape's
 importForeign, which tests/import_foreign.rs compares the engine's with. Their Import features' parameters were
 read from the page's own websocket frames (the composite is named after the file, `fixture-parts`).
+
+The Part Studios are tabs too: imported into the Feature Studio (batch 096), each is a module with a build
+function. The engine stands in for each with a FeatureScript module replaying its one Import feature
+(fixture-parts.studio.fs, fixture-parts-y-up.studio.fs, fixture-parts-composite.studio.fs), listed in uploads.txt.
