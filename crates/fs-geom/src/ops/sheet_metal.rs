@@ -245,6 +245,34 @@ fn slanted_end(bend: &Bend, vertex: Vec3, front: f64, back: f64) -> Option<([Vec
     let lift = scale(sum, 2.0 / dot(sum, sum));
     // Across the thickness along the normals the radius shrinks where they point into the bend.
     let shrinks = dot(n0, bend.into.1) > 0.0;
+    // Where neither wall's edge leans in along the bend, Onshape tilts the plane about the corners' chord into the
+    // bend: it meets the bend's edge λ inside the vertex, each edge leaning out at a slope t adding
+    // (T/2) t tan(φ/2) / (1 + t² r / 2(r + T)), r the definition's radius, T how far the other side of the material is
+    // from it, outward, and φ the bend's angle (batch 044 c001, 078 c001–c003, 081: 90° bends, r 1 and 2, T 1, 2 and -2,
+    // t 1/4 to 1, to 9e-4 mm; tan(φ/2) as the setback goes for the square frustum's 86.6° bends, 078 c005, and the
+    // arcs' 11.25°, 044 c004).
+    let out = if dot(sub(vertex, bend.at), ax) > 0.0 { ax } else { scale(ax, -1.0) };
+    let phi = dot(bend.toward.0, bend.toward.1).clamp(-1.0, 1.0).acos();
+    let other = if front > 0.0 && back == 0.0 {
+        Some(front)
+    } else if back > 0.0 && front == 0.0 {
+        Some(-back)
+    } else {
+        None
+    };
+    let tilt = other.map_or(0.0, |delta| {
+        let (r, t_offset) = (bend.sheet_radius, if shrinks { -delta } else { delta });
+        [e0, e1]
+            .iter()
+            .map(|e| {
+                let lean = dot(*e, out);
+                let t = lean / (1.0 - lean * lean).max(1e-12).sqrt();
+                t_offset / 2.0 * t * (phi / 2.0).tan() / (1.0 + t * t * r / (2.0 * (r + t_offset)))
+            })
+            .sum::<f64>()
+            .max(0.0)
+    });
+    let vertex = sub(vertex, scale(out, tilt));
     let phi = dot(u0, u1).clamp(-1.0, 1.0).acos();
     let v_dir = normalize(sub(u1, scale(u0, dot(u1, u0))))?;
     let k = 4.0 / 3.0 * (phi / 4.0).tan();
