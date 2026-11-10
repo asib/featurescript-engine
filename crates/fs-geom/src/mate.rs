@@ -66,9 +66,23 @@ fn inferred(model: &Model, definition: &Value) -> R<Frame> {
                 }
             }
         }
+        // A cone's tip, z along the cone's z (batch 090 c008).
+        (EntityType::Face, "POINT") if shape.surface_definition().is_ok_and(|s| s.kind == 2) => {
+            let apex = shape.surface_definition().map_err(occt_error)?.frame.origin;
+            let z =
+                model.info(r).surface_frame.map(|f| f.normal).unwrap_or(shape.axis().map_err(|_| failed())?.direction);
+            frame_with_canonical_x(apex, z)
+        }
         (EntityType::Face, "CENTER" | "MID_AXIS_POINT" | "TOP_AXIS_POINT" | "BOTTOM_AXIS_POINT") => {
-            // A point on the face's axis: its middle, top or bottom over the face's extent along the axis.
+            // A point on the face's axis: its middle, top or bottom over the face's extent along the axis, which
+            // runs along Onshape's z for the face (a revolved cone's down its axis, batch 090 c003, c004).
             let axis = shape.axis().map_err(|_| failed())?;
+            let axis = match model.info(r).surface_frame {
+                Some(f) if values::norm(values::cross(f.normal, axis.direction)) < 1e-9 => {
+                    occt::Axis { origin: axis.origin, direction: f.normal }
+                }
+                _ => axis,
+            };
             let frame = frame_with_canonical_x(axis.origin, axis.direction);
             let extent = shape.bounding_box_in(frame, true).map_err(occt_error)?;
             let along = match inference {
@@ -86,6 +100,8 @@ fn inferred(model: &Model, definition: &Value) -> R<Frame> {
             let tangent = shape.edge_tangent(0.5, true).map_err(occt_error)?;
             frame_with_canonical_x(tangent.origin, tangent.direction)
         }
+        // A loop's centre and a virtual sharp aren't for FeatureScript (batch 090 c005-c007).
+        (_, "LOOP_CENTER" | "VIRTUAL_SHARP") => return Err(regen_error("MATECONNECTOR_QUERY_CSYS_FAILED")),
         (kind, inference) => {
             return Err(error(format!(
                 "@evMateConnectorCoordSystem: inferring {inference} from a {} isn't supported yet",
