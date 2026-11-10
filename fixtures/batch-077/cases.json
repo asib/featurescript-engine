@@ -1,0 +1,57 @@
+{
+  "batch": "077",
+  "title": "sheet metal loft matches and slanted bend ends, a top replaced by a sphere",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "sheet-metal-loft",
+      "description": "the matches of an L (0, 0)-(30, 0)-(30, 20) to a line (0, 10)-(40, 10) 20 mm up",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "sheet-metal-loft",
+      "description": "the matches of a quarter circle of radius 20 to one of radius 10 20 mm up",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "sheet-metal-loft",
+      "description": "the matches of a line (0, 0)-(30, 0) to a line 20 mm up turned 10°",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "sheet-metal-loft",
+      "description": "batch 044 c002's loft (a line to a line turned 10°): its B-spline faces and their edges",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "replace-face",
+      "description": "a 40 x 30 x 10 block's top replaced by a sphere of radius 50 about (20, 15, -32)",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    }
+  ]
+}
