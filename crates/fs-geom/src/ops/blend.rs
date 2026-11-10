@@ -922,6 +922,16 @@ fn planar_face_blend(model: &mut Model, id: FeatureId, definition: &Value) -> R<
         Some((_, h)) if h > 1e-9 => (s1 * h / s2, h),
         _ => (s1, s2),
     };
+    // A conic hold line sets the blend back to it on its side alone, the other side's setback kept: the section the
+    // circle's conic between unequal setbacks (batch 080 c001: an elliptical quarter 4 by 5).
+    let conic_held =
+        if values::opt_bool(definition, "conicHoldLines")?.unwrap_or(false) { along("conicEdges")? } else { None };
+    let (s1, s2) = match conic_held {
+        Some((0, h)) if h > 1e-9 => (h, s2),
+        Some((_, h)) if h > 1e-9 => (s1, h),
+        _ => (s1, s2),
+    };
+    let held = held.or(conic_held);
     // A cliff edge nearer the line than the blend would reach: the ball rests on it and on the other side (batch 079
     // c003: on the top edge of a side 3 mm high, radius 5, set back sqrt(21) on the other side).
     let cliff =
