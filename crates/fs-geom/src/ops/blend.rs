@@ -186,6 +186,28 @@ fn section_fillet(model: &mut Model, id: FeatureId, definition: &Value, section:
         }
         let (mut cut, mut fill) = (Vec::new(), Vec::new());
         for edge in &edges {
+            // Along an arc between a plane and a cylinder about it, the variable fillet's wedge with the setbacks
+            // held (batch 082 c001–c003).
+            if edge.curve_type().ok() == Some(occt::CurveType::Circle) {
+                let mut faces = body.ancestors(edge, ShapeKind::Face);
+                if faces.len() != 2 {
+                    return Err(failed());
+                }
+                if leading_face(&body, edge).is_some_and(|l| l.is_same(&faces[1])) {
+                    faces.swap(0, 1);
+                }
+                let (_, convex) =
+                    arc_variable_wedge(&body, edge, [&faces[0], &faces[1]], [[radius; 4], [radius; 4]], section)?;
+                let (d1, d2) = if convex { (radius, other) } else { (other, radius) };
+                let (wedge, inside) =
+                    arc_variable_wedge(&body, edge, [&faces[0], &faces[1]], [[d1; 4], [d2; 4]], section)?;
+                if inside {
+                    cut.push((wedge.clone(), wedge))
+                } else {
+                    fill.push((wedge.clone(), wedge))
+                }
+                continue;
+            }
             if edge.curve_type().ok() != Some(occt::CurveType::Line) {
                 return Err(error(
                     "@opFillet: conic, curvature and asymmetric fillets of curved edges aren't supported yet",
@@ -1577,14 +1599,24 @@ fn arc_variable_wedge(
     let curve_of =
         |r: &occt::BSplineData| occt::bspline_edge(&r.poles, &[], &r.knots, 3, false).map_err(crate::occt_error);
     let line = |p: occt::Vec3, q: occt::Vec3| occt::line_edge(p, q).map_err(crate::occt_error);
-    let (first, last) = (&rows[0], &rows[nv - 1]);
+    // The setback curves on each face, whichever end of the section each is.
+    let (first, last) = (&row((1.0, 0.0))?, &row((0.0, 1.0))?);
     let (a, z) = (pole(0.0, (0.0, 0.0))?, pole(1.0, (0.0, 0.0))?);
     let (f1a, f1z) = (first.poles[0], first.poles[nu - 1]);
     let (f2a, f2z) = (last.poles[0], last.poles[nu - 1]);
     // The strips of the faces between the edge and the setback curves: a planar one filled, any other ruled from
     // the edge to its setback curve (the faces run straight away from the edge).
     let edge_row = row((0.0, 0.0))?;
+    // Round a whole circle the wedge closes on itself: a planar strip is the ring between the edge and its setback
+    // curve, and there are no ends (batch 082: a cylinder's top edge).
+    let closed = crate::values::norm(sub(a, z)) < 1e-9;
     let strip = |face: &Shape, far: &occt::BSplineData, fa: occt::Vec3, fz: occt::Vec3| -> R<Shape> {
+        if closed && face.surface_type().ok() == Some(occt::SurfaceType::Plane) {
+            let plane = face.face_plane().map_err(crate::occt_error)?;
+            let regions = occt::sketch_regions(&[edge.clone(), curve_of(far)?], plane).map_err(|_| failed())?;
+            // The ring: the region whose boundary has both curves.
+            return regions.into_iter().find(|r| r.sub_shapes(ShapeKind::Wire).len() == 2).ok_or_else(failed);
+        }
         if face.surface_type().ok() == Some(occt::SurfaceType::Plane) {
             return occt::fill_edges(&[edge.clone(), line(z, fz)?, curve_of(far)?, line(fa, a)?]).map_err(|_| failed());
         }
@@ -1597,9 +1629,12 @@ fn arc_variable_wedge(
         let points: Vec<occt::Vec3> = coefficients.iter().map(|&c| pole(t, c)).collect::<R<_>>()?;
         occt::bspline_edge(&points, &weights, &knots_v, degree_v, false).map_err(crate::occt_error)
     };
-    let cap0 = occt::fill_edges(&[line(a, f1a)?, end_section(0.0)?, line(f2a, a)?]).map_err(|_| failed())?;
-    let cap1 = occt::fill_edges(&[line(z, f1z)?, end_section(1.0)?, line(f2z, z)?]).map_err(|_| failed())?;
-    let shell = occt::sew_faces(&[fillet, strip1, strip2, cap0, cap1], 1e-6).map_err(|_| failed())?;
+    let mut faces = vec![fillet, strip1, strip2];
+    if !closed {
+        faces.push(occt::fill_edges(&[line(a, f1a)?, end_section(0.0)?, line(f2a, a)?]).map_err(|_| failed())?);
+        faces.push(occt::fill_edges(&[line(z, f1z)?, end_section(1.0)?, line(f2z, z)?]).map_err(|_| failed())?);
+    }
+    let shell = occt::sew_faces(&faces, 1e-6).map_err(|_| failed())?;
     let mut wedge = occt::solid_from(&shell).map_err(|_| failed())?;
     if wedge.volume().map_err(crate::occt_error)? < 0.0 {
         wedge = wedge.reversed();
