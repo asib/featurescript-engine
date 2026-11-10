@@ -1026,6 +1026,18 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   pieces, `true` the invisible ones. The new edges are split where they're deepest or shallowest along the view (a
   shadow of a circle or of a great circle at its far point), old edges only where new ones meet them. The shadows
   cast on the plates are Onshape's approximations: 0.0078 mm² over the boss's 150 mm², 0.028 over the dome's 65.06.
+- **Uploaded files** (batches 094, 095; fixtures/blobs): a file uploaded to a document is a tab a Feature Studio can
+  import (`Image::import(path : "<element id>", version : "<microversion>")`), its `BLOB_DATA` a map of the blob's
+  type (`IMAGE`, `BREP` for a STEP file), data id, media type and an image's size in pixels, the document, element,
+  version and microversion ids opaque (printed `BuiltIn: 2` and on, in the order the imports load). `skImage`
+  bounds the image with four construction lines as wide as its corners are apart and as tall as the image's shape
+  makes that, from the lower left corner, whatever the box's height. FeatureScript can't import a STEP file:
+  `importForeign`'s precondition refuses a plain map as `CADImportData` and a plain string as `ForeignId` (`is`
+  checks a custom type's tag, not its predicate), which fails as an "Execution error" (status `REGEN_ERROR`), as
+  every failed precondition does in Onshape; `opImportForeign` wants a foreign id (`INVALID_INPUT`, faulty
+  parameter `foreignId`), and a blob's data id isn't one it can import (`PARASOLID_IMPORT_FAILED`). Onshape's own
+  upload makes a Part Studio whose Import feature depends on the file's tab by a reference (`<element id>::m<
+  microversion>`, seen in the page's websocket frames); its parts are the file's, named as in it.
 - **Sketch text** (batch 091, the engine has no `@skText`): each glyph's straight segments are lines and its curves
   degree-2 Bézier B-splines (the font's TrueType quadratics), the box's height 0.72 em (2048-unit Open Sans: a box
   10 high, "I" 9.9154 tall), the baseline on the box's bottom; a construction frame as tall as the box and as wide

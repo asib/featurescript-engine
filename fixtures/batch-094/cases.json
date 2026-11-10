@@ -1,0 +1,97 @@
+{
+  "batch": "094",
+  "title": "uploaded files: an image in a sketch, a STEP file imported",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "blob",
+      "description": "the BLOB_DATA of the image and of the STEP file",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "sketch",
+      "description": "the image in a 40 × 20 box from the origin, its own shape",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "sketch",
+      "description": "the image in a 40 × 10 box, wider than it",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "sketch",
+      "description": "the image in the 40 × 20 box, its corners given the other way round",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "import",
+      "description": "the STEP file (a block \"Block\" and a ball \"Ball\") imported as it is",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "import",
+      "description": "the same with its Y axis up",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "import",
+      "description": "the same as a composite part named \"Imported\"",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c008",
+      "kind": "import",
+      "description": "the same with its units given as inches, from millimetres",
+      "slotMeters": [
+        2.8000000000000003,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c009",
+      "kind": "import",
+      "description": "opImportForeign given only the file",
+      "slotMeters": [
+        3.2,
+        0,
+        0
+      ]
+    }
+  ]
+}

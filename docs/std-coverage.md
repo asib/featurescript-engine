@@ -76,7 +76,7 @@ Onshape.
 | `cutlist` (cutlist.fs) | matches: the two tubes of a mitred L, grouped and tabled; a column overridden for all frames, and for one frame (034); a frame's tangent segments merged, listed apart or, given the closed composite, as one item (035). Known gap: a round tube along an arc (072 c001: Onshape finds no length and angles of 1e-8 rad; the engine's curves give 72.26 mm and square ends); a square tube along a three-point spline matches loosely (c002: Onshape's sweep is its own fit, 3e-4 of the volume) | 011, 030, 034, 035, 072 |
 | `tag` (tag.fs) | matches: a form's positive part; a frame profile with an alignment point (034); plated PCB holes, standard content (038) | 011, 034, 038 |
 | `derivedMirror` (derivedMirror.fs) | runs: mirrors a Part Studio's parts across the xy plane. Can't be compared: Onshape fails it with "Execution error" from a feature (it builds its source twice, which Onshape refuses for a build function in the studio, 060 c001); it is meant for assembly mirrors | 060 |
-| `importForeign` | not started (needs uploaded data) | later |
+| `importForeign` (importForeign.fs) | matches: an uploaded STEP file's parts (a block and a ball, named as in the file) imported as Onshape's own Import feature did on upload, its reference to the file's tab given: as it is, Y axis up, and as a composite part (tests/import_foreign.rs against those Part Studios' exports; fixtures/blobs). From FeatureScript, refused as Onshape does: given a tab's `BLOB_DATA` or a plain string the precondition fails ("Execution error"); `opImportForeign` with no foreign id is `INVALID_INPUT`, with a blob's data id `PARASOLID_IMPORT_FAILED` (094, 095). Not yet compared: units overridden (meshes), assemblies flattened | 094, 095 |
 | `sheetMetalRecognize` (sheetMetalStart.fs) | matches: an extruded L bracket recognized as sheet metal with bends; an L with its bend already rounded, a rolled wall (half a tube), an L of two thicknesses (042). An open box shelled from a block (three sharp walls meeting at each corner) and half a conical shell refused as Onshape refuses them (068 c003, 070 c011). Rips aren't recognized by std itself (its TODO) | 031, 042, 068, 070 |
 | `sheetMetalStart` (sheetMetalStart.fs) | matches: thickening sketch regions (both ways), extruding sketch lines into an L and a U (with bends), converting a block into an open box (bends along the bottom, rips up the corners) | 012 |
 | `sheetMetalFlange` (sheetMetalFlange.fs) | matches: 90° and 45° flanges (inner, outer, middle and hold-line alignment, default and own radius, the other way), up to a plane, flanges on two edges meeting at a corner (simple corner, edge-to-edge rip), on an edge of a converted box (whose rips leave the wall short of the edge's ends). Mitred flanges at 30° fail in Onshape and the engine alike. Partial flanges, with their bend reliefs (obround, rectangular, tear; scaled). Corner reliefs where two flanges meet: round and rectangular (scaled), sized round and square, closed; their areas and volumes within 0.01 (2e-6 of them), as Onshape's relieved bends are B-spline faces; a flange from a rolled wall's straight edge, the bend beside the rolled wall exactly (069 c001). A partial flange holding its adjacent edges, the default (`opSplitEdges`, 086 c016). Held, aligned outside, with rectangular reliefs (087 c006) | 012, 013, 014, 015, 016, 086, 087 |
@@ -109,7 +109,9 @@ engine doesn't have. After batch 002, std calls 269 builtins; these are implemen
 - context and features: contexts, feature start/end/abort, statuses, computed parameters, `getLastActiveId`.
 - variables: `setVariable`, `getVariable`, `setQueryVariable`, `getQueryVariable`, `getAllVariables`,
   `getAllVariablesAndDescriptions`.
-- sketches: `newSketch`, `skPoint`, `skLineSegment`, `skCircle`, `skArc`, `skSolve`; `skConstraint` constraints are
+- imports of uploaded files' tabs (fixtures/blobs/uploads.txt): `BLOB_DATA` as Onshape's (batch 094).
+- sketches: `newSketch`, `skPoint`, `skLineSegment`, `skCircle`, `skArc`, `skImage` (its bounding construction
+  lines; batch 094), `skSolve`; `skConstraint` constraints are
   solved where the entities don't already meet them (fix, coincident, tangent, perpendicular, parallel,
   horizontal, vertical, distance; batch 029); others are ignored.
 - evaluations added: `evOffsetDetection` (planar walls; batch 031); `evPlanarEdge`, `evPlanarEdges`, `evRaycast`,
@@ -118,7 +120,7 @@ engine doesn't have. After batch 002, std calls 269 builtins; these are implemen
   (bodies and faces), `opSplitPart`, `opSplitFace`, `opSplitEdges` (at parameters), `opDeleteBodies`, `opFillet`
   (circular), `opChamfer`, `opShell`, `opDraft` (reference surface and entity), `opBodyDraft`, `opThicken`,
   `opOffsetFace`, `opDeleteFace`, `opMoveFace`, `opReplaceFace`, `opModifyFillet`, `opHole`, `opCreateCompositePart`,
-  `opNameEntity`, `opCreateIsocline`, `opSplitByIsocline`, `opSplitBySelfShadow` (planar, cylindrical, conical
+  `opNameEntity`, `opCreateIsocline`, `opSplitByIsocline`, `opImportForeign` (STEP files), `opSplitBySelfShadow` (planar, cylindrical, conical
   and spherical faces; batch 093), `opMergeContexts`, `opEditCurve`, `opPolyline`,
   `opConstrainedSurface`, `updateSheetMetalGeometry` (planar walls, straight bends, edge-to-edge rips, simple
   corners), `opEdgeChange` (moving straight free edges of planar faces) (the cases above), and the curve and surface

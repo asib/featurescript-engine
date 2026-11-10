@@ -1,0 +1,10 @@
+probe c001 { bodies : [] , construction : [] , values : { image : { blobType : IMAGE , dataId : 6af39880830999c232b6f44e , documentId : BuiltIn: 2 , elementId : BuiltIn: 4 , imageHeight : 4 , imageWidth : 8 , mediaType : image/png , microversionId : BuiltIn: 5 , versionId : BuiltIn: 3 } , parts : { blobType : BREP , dataId : 6af399348a72ff53f64ba446 , documentId : BuiltIn: 6 , elementId : BuiltIn: 8 , mediaType : application/step , microversionId : BuiltIn: 9 , versionId : BuiltIn: 7 } } }
+probe c002 { bodies : [] , construction : [] , values : { placed : { imageId : image1 } , sketch : { bodies : { COMPOSITE : 0 , POINT : 0 , SHEET : 0 , SOLID : 0 , WIRE : 4 } , edges : 4 , points : [ [ 0 , 0 , 0 ] , [ 0 , 0 , 0 ] , [ 0 , 20 , 0 ] , [ 0 , 20 , 0 ] , [ 40 , 0 , 0 ] , [ 40 , 0 , 0 ] , [ 40 , 20 , 0 ] , [ 40 , 20 , 0 ] ] } } }
+probe c003 { bodies : [] , construction : [] , values : { placed : { imageId : image1 } , sketch : { bodies : { COMPOSITE : 0 , POINT : 0 , SHEET : 0 , SOLID : 0 , WIRE : 4 } , edges : 4 , points : [ [ 0 , 0 , 0 ] , [ 0 , 0 , 0 ] , [ 0 , 20 , 0 ] , [ 0 , 20 , 0 ] , [ 40 , 0 , 0 ] , [ 40 , 0 , 0 ] , [ 40 , 20 , 0 ] , [ 40 , 20 , 0 ] ] } } }
+probe c004 { bodies : [] , construction : [] , values : { placed : { imageId : image1 } , sketch : { bodies : { COMPOSITE : 0 , POINT : 0 , SHEET : 0 , SOLID : 0 , WIRE : 4 } , edges : 4 , points : [ [ 0 , 0 , 0 ] , [ 0 , 0 , 0 ] , [ 0 , 20 , 0 ] , [ 0 , 20 , 0 ] , [ 40 , 0 , 0 ] , [ 40 , 0 , 0 ] , [ 40 , 20 , 0 ] , [ 40 , 20 , 0 ] ] } } }
+probe c005 failed Execution error
+probe c006 failed Execution error
+probe c007 failed Execution error
+probe c008 failed Execution error
+probe c009 failed INVALID_INPUT
+batch-094 failed cases: [ c005 , c006 , c007 , c008 , c009 ]

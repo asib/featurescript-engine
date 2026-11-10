@@ -1,0 +1,6 @@
+probe c001 { bodies : [] , construction : [] , values : { error : Execution error , status : REGEN_ERROR } }
+probe c002 { bodies : [] , construction : [] , values : { error : { faultyParameters : [ foreignId ] , message : INVALID_INPUT } , status : INVALID_INPUT } }
+probe c003 { bodies : [] , construction : [] , values : { error : Execution error , status : REGEN_ERROR } }
+probe c004 { bodies : [] , construction : [] , values : { error : { message : PARASOLID_IMPORT_FAILED } , status : PARASOLID_IMPORT_FAILED } }
+probe c005 { bodies : [] , construction : [] , values : { error : { faultyParameters : [ foreignId ] , message : INVALID_INPUT } , status : INVALID_INPUT } }
+batch-095 failed cases: []
