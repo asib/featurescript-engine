@@ -1,0 +1,37 @@
+{
+  "batch": "115",
+  "title": "Onshape's own curves and surfaces in an aligned section, a closed hem corner and a revolved sheet extended",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "section-part",
+      "description": "batch 037 c004's aligned section, every sheet left with its curved edges' definitions",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "sheet-metal",
+      "description": "batch 021 c012's straight hems on two edges meeting at a closed corner, its faces' surfaces",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "extend-surface",
+      "description": "batch 079 c008's revolved spline sheet extended round and past its top, its faces and curved edges",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    }
+  ]
+}

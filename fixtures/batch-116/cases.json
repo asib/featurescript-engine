@@ -1,0 +1,47 @@
+{
+  "batch": "116",
+  "title": "batch 037's sections again, the aligned section's leftover sheets' curves probed",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "section-part",
+      "description": "batch 037 c001: nothing",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "section-part",
+      "description": "batch 037 c002",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "section-part",
+      "description": "batch 037 c003",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "section-part",
+      "description": "batch 037 c004's aligned section, its leftover sheets with their curved edges' definitions",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    }
+  ]
+}

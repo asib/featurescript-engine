@@ -213,7 +213,11 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   face only touches that box at a point (a vertex, or where a curve turns) rather than along a straight edge, the
   box reaches 0.6% of its size further out (batch 004 c034, batch 024 c008–c010, to 1e-7). A filled right
   triangle with 30 and 12 mm legs along the axes gets (15.09, 6.036), not (15, 6); a ruled trapezoid whose long
-  side runs along x moves only across it; symmetric faces (rectangles, discs) keep the box's middle.
+  side runs along x moves only across it; symmetric faces (rectangles, discs) keep the box's middle. A curved edge
+  that is a B-spline reaches the box with its control points, as Parasolid boxes curves (batch 116 c004: an aligned
+  section's leftover piece of a plane, bounded by a section curve that is a cubic in Onshape, the cubic through the
+  ends of the engine's quartic with its end derivatives; its lowest pole sets the box's side, 0.05 mm past the
+  curve, which is why the engine was 0.025 mm off before, batch 037 c004).
 - **Through all** (batch 007, c007) goes as far as the diagonal of the box round the Part Studio's parts (not
   construction or sketch bodies: a sketched 100 mm axis line in an earlier case doesn't count) plus 0.01 mm: a
   hole cut down through all from z = 12 makes a cylinder whose coordinate system sits at the far end, z =
@@ -387,7 +391,9 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   corner was cut back 0.0063 mm instead); the engine projects them again from the exact 3D curves (1e-7). The
   hem's end, split where the patch touches it 45° round, is one edge again in Onshape: the engine joins edges left
   on one ellipse after a boolean, as OpenCascade's same-domain unifier doesn't. Onshape's end face is its own
-  cubic fit (two spans, its poles up to 0.05 mm off the true arc): the volume is 2.3e-6 off the exact one.
+  cubic fit (two spans, its poles up to 0.05 mm off the true arc): the volume is 2.3e-6 off the exact one. Its
+  slivers are B-splines (batch 115 c002: 0.057553 mm² each; the engine's planes 0.057552), which its STEP writes as
+  cylinders of other areas (0.0572, 0.0584).
 
 - **Closed corners** (batch 016, c013): each bend runs on to the corner, its end where a plane parallel to the base
   wall's normal cuts the sheet. The plane passes through a point on the bend's tangent line on the base wall, just
@@ -925,7 +931,11 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
 - **`moveCurveBoundary` needs its help point**: one naming no vertex (an elliptical arc from parameter 0 to π/2,
   1.57 turns of its period of 1, ends nowhere near the point asked for) fails with
   `MOVE_CURVE_BOUNDARY_SELECT_HELP_POINT` (batch 079 c006, c007).
-- **A revolved spline sheet extended** (batch 079 c008): one face still, `REVOLVED` to `evSurfaceDefinition`.
+- **A revolved spline sheet extended** (batch 079 c008): one face still, `REVOLVED` to `evSurfaceDefinition`. Its
+  profile is the spline with the 5 mm straight on past its top appended as a cubic span (batch 115 c003: knots to
+  1.219). Round past the side its bottom corner turns 0.5054 rad, not the 0.5 the side alone turns, and its top
+  edge falls from 24.4928 at the old side to 23.9068 at the new, the new side reaching up the extended profile
+  only 4.348 mm.
   Extended past its top edge and round past its side, it covers 216.07 mm² more; carrying each point 5 mm round its
   circle and the curve 5 mm straight on (the engine's) covers 220.04, rising 0.02 mm less and reaching 0.034 mm less
   far round at its widest. Neither uniform turns nor the curve's own polynomial carried on fit.

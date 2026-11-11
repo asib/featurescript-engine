@@ -1,0 +1,218 @@
+// Generates fixture batch 115: three gaps where Onshape's own curves and surfaces decide the result, repeated with
+// those probed: batch 037 c004's aligned section, its leftover sheet's curved edge (whose box sets the sheet's plane
+// origin, 0.025 mm off the engine's); batch 021 c012's hems at a closed corner, its faces' surfaces (the slivers at
+// the corner, cylinders in Onshape's STEP, planes in the engine's); batch 079 c008's revolved spline sheet extended
+// round and past its top, its faces and curved edges.
+//
+// Usage: node tools/fixtures/gen-batch-115.mjs
+//
+// Writes fixtures/batch-115/{cases.fs,generator.fs,cases.json}. The cases are written out by hand.
+
+import { Batch } from './lib.mjs';
+
+const helpers = `
+function round6(v) returns array
+{
+    return [roundToPrecision(v[0] / millimeter, 6), roundToPrecision(v[1] / millimeter, 6), roundToPrecision(v[2] / millimeter, 6)];
+}
+
+// Knot arrays, weights and control point matrices are typed: indexed, as std does, rather than iterated.
+function numbersProbe(numbers) returns array
+{
+    var out = [];
+    for (var i = 0; i < size(numbers); i += 1)
+        out = append(out, roundToPrecision(numbers[i], 9));
+    return out;
+}
+
+function bsplineProbe(s) returns map
+{
+    var b = { "uDegree" : s.uDegree, "vDegree" : s.vDegree, "rational" : s.isRational };
+    try
+    {
+        b.uKnots = numbersProbe(s.uKnots);
+        b.vKnots = numbersProbe(s.vKnots);
+    }
+    catch (error)
+    {
+        b.knots = "failed";
+    }
+    try
+    {
+        const matrix = s.controlPoints;
+        var rows = [];
+        for (var i = 0; i < size(matrix); i += 1)
+        {
+            var points = [];
+            for (var j = 0; j < size(matrix[i]); j += 1)
+                points = append(points, round6(matrix[i][j]));
+            rows = append(rows, points);
+        }
+        b.poles = rows;
+    }
+    catch (error)
+    {
+        b.poles = "failed";
+    }
+    return b;
+}
+
+// Each face of a body: its area, its surface's type, and for a B-spline its degrees, knots and poles.
+function faceProbe(context is Context, body is Query) returns array
+{
+    var out = [];
+    for (var face in evaluateQuery(context, qOwnedByBody(body, EntityType.FACE)))
+    {
+        var entry = { "area" : roundToPrecision(evArea(context, { "entities" : face }) / millimeter ^ 2, 6) };
+        try
+        {
+            const s = evSurfaceDefinition(context, { "face" : face });
+            entry["type"] = s.surfaceType;
+            if (s is BSplineSurface)
+                entry.bspline = bsplineProbe(s);
+        }
+        catch (error)
+        {
+            entry["type"] = "failed";
+        }
+        out = append(out, entry);
+    }
+    return out;
+}
+
+// Each edge of a body that isn't straight: its ends and middle, and for a B-spline its degree, knots, poles and
+// weights.
+function curveProbe(context is Context, body is Query) returns array
+{
+    var out = [];
+    const edges = qOwnedByBody(body, EntityType.EDGE);
+    for (var edge in evaluateQuery(context, qSubtraction(edges, qGeometry(edges, GeometryType.LINE))))
+    {
+        var entry = {};
+        try
+        {
+            const lines = evEdgeTangentLines(context, { "edge" : edge, "parameters" : [0, 0.5, 1], "arcLengthParameterization" : false });
+            var points = [];
+            for (var l in lines)
+                points = append(points, round6(l.origin));
+            entry.points = points;
+        }
+        catch (error)
+        {
+            entry.points = "failed";
+        }
+        try
+        {
+            const c = evCurveDefinition(context, { "edge" : edge });
+            if (c is BSplineCurve)
+            {
+                entry.degree = c.degree;
+                entry.rational = c.isRational;
+                entry.knots = numbersProbe(c.knots);
+                var poles = [];
+                for (var i = 0; i < size(c.controlPoints); i += 1)
+                    poles = append(poles, round6(c.controlPoints[i]));
+                entry.poles = poles;
+                if (c.isRational)
+                    entry.weights = numbersProbe(c.weights);
+            }
+        }
+        catch (error)
+        {
+            entry.curve = "failed";
+        }
+        out = append(out, entry);
+    }
+    return out;
+}
+
+// Each face of a body with its surface's definition: a cylinder's axis and radius, a B-spline's degrees, knots and
+// poles, a plane's origin and normal.
+function surfaceProbe(context is Context, body is Query) returns array
+{
+    var out = [];
+    for (var face in evaluateQuery(context, qOwnedByBody(body, EntityType.FACE)))
+    {
+        var entry = { "area" : roundToPrecision(evArea(context, { "entities" : face }) / millimeter ^ 2, 6) };
+        try
+        {
+            const s = evSurfaceDefinition(context, { "face" : face });
+            entry["type"] = s.surfaceType;
+            if (s is BSplineSurface)
+                entry.bspline = bsplineProbe(s);
+            else if (s is Cylinder)
+            {
+                entry.origin = round6(s.coordSystem.origin);
+                entry.axis = [roundToPrecision(s.coordSystem.zAxis[0], 9), roundToPrecision(s.coordSystem.zAxis[1], 9), roundToPrecision(s.coordSystem.zAxis[2], 9)];
+                entry.radius = roundToPrecision(s.radius / millimeter, 9);
+            }
+            else if (s is Plane)
+            {
+                entry.origin = round6(s.origin);
+                entry.normal = [roundToPrecision(s.normal[0], 9), roundToPrecision(s.normal[1], 9), roundToPrecision(s.normal[2], 9)];
+            }
+        }
+        catch (error)
+        {
+            entry["type"] = "failed";
+        }
+        out = append(out, entry);
+    }
+    return out;
+}
+
+function pointAtFraction(context is Context, part is Query, fx is number, fy is number, fz is number) returns Vector
+{
+    const b = evBox3d(context, { "topology" : part, "tight" : true });
+    return vector(b.minCorner[0] + fx * (b.maxCorner[0] - b.minCorner[0]),
+                  b.minCorner[1] + fy * (b.maxCorner[1] - b.minCorner[1]),
+                  b.minCorner[2] + fz * (b.maxCorner[2] - b.minCorner[2]));
+}
+
+function atFraction(context is Context, part is Query, entityType is EntityType, fx is number, fy is number, fz is number) returns Query
+{
+    return qContainsPoint(qOwnedByBody(part, entityType), pointAtFraction(context, part, fx, fy, fz));
+}
+`;
+
+const batch = new Batch({ number: 115, title: "Onshape's own curves and surfaces in an aligned section, a closed hem corner and a revolved sheet extended", helpers });
+
+batch.add('section-part', "batch 037 c004's aligned section, every sheet left with its curved edges' definitions", [
+  ...[
+    'const baseSketch = newSketchOnPlane(context, id + "baseSketch", { "sketchPlane" : plane(vector(0, 0, 0) * millimeter, vector(0, 0, 1), vector(1, 0, 0)) });',
+    'skRectangle(baseSketch, "rect1", { "firstCorner" : vector(0, 0) * millimeter, "secondCorner" : vector(40, 30) * millimeter });',
+    'skSolve(baseSketch);',
+    'extrude(context, id + "base", { "entities" : qSketchRegion(id + "baseSketch"), "endBound" : BoundingType.BLIND, "depth" : 20 * millimeter });',
+    'const pinSketch = newSketchOnPlane(context, id + "pinSketch", { "sketchPlane" : plane(vector(0, 0, 20) * millimeter, vector(0, 0, 1), vector(1, 0, 0)) });',
+    'skCircle(pinSketch, "circle1", { "center" : vector(8, 22) * millimeter, "radius" : 4 * millimeter });',
+    'skSolve(pinSketch);',
+    'extrude(context, id + "pin", { "entities" : qSketchRegion(id + "pinSketch"), "endBound" : BoundingType.BLIND, "depth" : 10 * millimeter });',
+    'jogSectionPart(context, id + "section1", { "target" : qBodyType(qEverything(EntityType.BODY), BodyType.SOLID), "sketchPlane" : plane(vector(0, 0, 0) * millimeter, vector(0, 0, 1), vector(1, 0, 0)), "jogPoints" : [vector(20, 35, 10) * millimeter, vector(20, 15, 10) * millimeter, vector(35, -5, 10) * millimeter], "isAlignedSection" : true });',
+  ],
+  'return { "curves" : mapArray(evaluateQuery(context, qBodyType(qEverything(EntityType.BODY), BodyType.SHEET)), function(s) { return curveProbe(context, s); }) };',
+]);
+batch.add('sheet-metal', "batch 021 c012's straight hems on two edges meeting at a closed corner, its faces' surfaces", [
+  ...[
+    'const s1 = newSketchOnPlane(context, id + "s1", { "sketchPlane" : plane(vector(0, 0, 0) * millimeter, vector(0, 0, 1), vector(1, 0, 0)) });',
+    'skRectangle(s1, "rect1", { "firstCorner" : vector(0, 0) * millimeter, "secondCorner" : vector(40, 30) * millimeter });',
+    'skSolve(s1);',
+    'sheetMetalStart(context, id + "sm1", { "thickness" : 2 * millimeter, "oppositeDirection" : false, "radius" : 1 * millimeter, "flipDirectionUp" : false, "process" : SMProcessType.THICKEN, "regions" : qSketchRegion(id + "s1"), "tangentPropagation" : false, "bends" : qNothing() });',
+    'sheetMetalHem(context, id + "hem1", { "edges" : qUnion([atFraction(context, qBodyType(qCreatedBy(id + "sm1", EntityType.BODY), BodyType.SOLID), EntityType.EDGE, 1, 0.5, 1), atFraction(context, qBodyType(qCreatedBy(id + "sm1", EntityType.BODY), BodyType.SOLID), EntityType.EDGE, 0.5, 1, 1)]), "oppositeDirection" : false, "hemAlignment" : SMHemAlignment.IN_PLACE, "hemCornerType" : SMHemCornerType.CLOSED, "hemType" : SMHemType.STRAIGHT, "useMinimalGapForStraight" : false, "innerRadius" : 1 * millimeter, "length" : 10 * millimeter });',
+  ],
+  'return { "faces" : surfaceProbe(context, qBodyType(qCreatedBy(id + "sm1", EntityType.BODY), BodyType.SOLID)) };',
+]);
+batch.add('extend-surface', "batch 079 c008's revolved spline sheet extended round and past its top, its faces and curved edges", [
+  ...[
+    'const s1 = newSketchOnPlane(context, id + "s1", { "sketchPlane" : plane(vector(0, 0, 0) * millimeter, vector(0, -1, 0), vector(1, 0, 0)) });',
+    'skFitSpline(s1, "spline1", { "points" : [vector(10, 0) * millimeter, vector(15, 10) * millimeter, vector(12, 20) * millimeter] });',
+    'skSolve(s1);',
+    'const axis = newSketchOnPlane(context, id + "axis", { "sketchPlane" : plane(vector(0, 0, -50) * millimeter, vector(0, 1, 0), vector(0, 0, 1)) });',
+    'skLineSegment(axis, "line1", { "start" : vector(0, 0) * millimeter, "end" : vector(100, 0) * millimeter });',
+    'skSolve(axis);',
+    'revolve(context, id + "base", { "bodyType" : ExtendedToolBodyType.SURFACE, "surfaceEntities" : qOwnedByBody(qBodyType(qCreatedBy(id + "s1", EntityType.BODY), BodyType.WIRE), EntityType.EDGE), "axis" : qCreatedBy(id + "axis", EntityType.EDGE), "fullRevolve" : false, "endBound" : RevolveBoundingType.BLIND, "angle" : 90 * degree, "oppositeDirection" : false });',
+    'extendSurface(context, id + "extend1", { "entities" : qContainsPoint(qOwnedByBody(qBodyType(qCreatedBy(id + "base", EntityType.BODY), BodyType.SHEET), EntityType.EDGE), vector(12, 0, 20) * millimeter), "tangentPropagation" : false, "endCondition" : ExtendBoundingType.BLIND, "extendDistance" : 5 * millimeter, "maintainCurvature" : false });',
+  ],
+  'return { "faces" : surfaceProbe(context, qBodyType(qCreatedBy(id + "base", EntityType.BODY), BodyType.SHEET)), "curves" : curveProbe(context, qBodyType(qCreatedBy(id + "base", EntityType.BODY), BodyType.SHEET)) };',
+]);
+
+batch.write('tools/fixtures/gen-batch-115.mjs');
