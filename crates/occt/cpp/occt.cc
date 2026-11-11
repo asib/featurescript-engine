@@ -41,6 +41,10 @@
 #include <ShapeUpgrade_ShapeDivideArea.hxx>
 #include <ShapeUpgrade_ShapeDivideClosed.hxx>
 #include <ShapeUpgrade_UnifySameDomain.hxx>
+#include <TopTools_DataMapOfShapeShape.hxx>
+#include <TopTools_DataMapOfIntegerShape.hxx>
+#include <TopTools_DataMapOfIntegerListOfShape.hxx>
+#include <BRepLib_FuseEdges.hxx>
 #include <StepShape_ManifoldSolidBrep.hxx>
 #include <TCollection_ExtendedString.hxx>
 #include <TCollection_HAsciiString.hxx>
@@ -253,6 +257,38 @@ std::unique_ptr<Operation> prism(const Shape &profile, Vec3 v) {
   return op;
 }
 
+// Edges left on one ellipse (or another conic) that meet at a vertex nothing else uses, joined into one: the
+// same-domain unifier joins only lines and circles. A closed hem's corner sheet is one with the piece std adds at
+// its base (batch 021 c012), its end one edge as in Onshape.
+static TopoDS_Shape edges_fused(const TopoDS_Shape &shape, const Handle(BRepTools_History) &history) {
+  BRepLib_FuseEdges fuser(shape, Standard_False);
+  fuser.SetConcatBSpl(Standard_False);
+  if (fuser.NbVertices() == 0) return shape;
+  fuser.Perform();
+  TopTools_DataMapOfIntegerListOfShape old_edges;
+  TopTools_DataMapOfIntegerShape new_edges;
+  TopTools_DataMapOfShapeShape faces;
+  fuser.Edges(old_edges);
+  fuser.ResultEdges(new_edges);
+  fuser.Faces(faces);
+  Handle(BRepTools_History) fused = new BRepTools_History;
+  for (TopTools_DataMapIteratorOfDataMapOfIntegerListOfShape it(old_edges); it.More(); it.Next()) {
+    if (!new_edges.IsBound(it.Key())) continue;
+    const TopoDS_Shape &edge = new_edges(it.Key());
+    TopTools_IndexedMapOfShape kept;
+    TopExp::MapShapes(edge, TopAbs_VERTEX, kept);
+    for (TopTools_ListIteratorOfListOfShape e(it.Value()); e.More(); e.Next()) {
+      fused->AddModified(e.Value(), edge);
+      for (TopExp_Explorer v(e.Value(), TopAbs_VERTEX); v.More(); v.Next())
+        if (!kept.Contains(v.Current())) fused->Remove(v.Current());
+    }
+  }
+  for (TopTools_DataMapIteratorOfDataMapOfShapeShape it(faces); it.More(); it.Next())
+    if (!it.Key().IsSame(it.Value())) fused->AddModified(it.Key(), it.Value());
+  history->Merge(fused);
+  return fuser.Shape();
+}
+
 // kind: 0 union, 1 subtraction, 2 intersection. `unify` merges faces and edges left on the same surface or curve.
 // `fuzzy`, if positive, treats geometry closer than that as coincident.
 std::unique_ptr<Operation> boolean_op(int32_t kind, const ShapeList &objects, const ShapeList &tools, bool unify,
@@ -295,6 +331,7 @@ std::unique_ptr<Operation> boolean_op(int32_t kind, const ShapeList &objects, co
     unifier.Build();
     op->history->Merge(unifier.History());
     op->result = unifier.Shape();
+    op->result = edges_fused(op->result, op->history);
   }
   return op;
 }
