@@ -751,24 +751,24 @@ fn off_axis_cylinder(
 }
 
 fn replace_with_surface(model: &mut Model, id: FeatureId, definition: &Value, offset: f64) -> R<Value> {
-    let template = query::evaluate(model, field(definition, "templateFace"))?
+    let template_ref = query::evaluate(model, field(definition, "templateFace"))?
         .into_iter()
         .find(|r| r.kind == EntityType::Face)
-        .map(|r| model.shape(r).clone())
         .ok_or_else(|| regen_error("DIRECT_EDIT_REPLACE_FACE_SELECT_TEMPLATE"))?;
+    let template = model.shape(template_ref).clone();
     let groups = by_body(model, field(definition, "replaceFaces"), EntityType::Face)?;
     if groups.is_empty() {
         return Err(regen_error("DIRECT_EDIT_REPLACE_FACE_SELECT"));
     }
-    // Onshape won't replace a face up to a rational B-spline surface, a sheet lofted between arcs (batch 067 c005;
-    // batch 108: between equal arcs, and extended first, too), though it will up to a loft between lines. The
-    // engine's lofts between arcs aren't rational: a B-spline face bounded by an arc stands for one.
-    let bounded_by_arc = || {
-        template.sub_shapes(occt::ShapeKind::Edge).iter().any(|e| e.curve_type().ok() == Some(occt::CurveType::Circle))
-    };
-    if template.surface_type().ok() == Some(occt::SurfaceType::BSpline)
-        && (template.face_bspline().is_ok_and(|s| s.rational) || bounded_by_arc())
-    {
+    // Onshape won't replace a face up to a sheet lofted between arcs, a rational B-spline in Onshape (batch 067 c005;
+    // batches 108, 111: between equal arcs, either way round or wider, and extended first, too), though it will up
+    // to a loft between lines or the same arc extruded. The engine's lofts between arcs aren't rational (and between
+    // equal arcs are cylinders): a lofted face bounded by an arc stands for one.
+    let bounded_by_arc =
+        template.sub_shapes(occt::ShapeKind::Edge).iter().any(|e| e.curve_type().ok() == Some(occt::CurveType::Circle));
+    let rational = template.surface_type().ok() == Some(occt::SurfaceType::BSpline)
+        && template.face_bspline().is_ok_and(|s| s.rational);
+    if model.info(template_ref).lofted && (rational || bounded_by_arc) {
         return Err(regen_error("DIRECT_EDIT_REPLACE_FACE_FAILED"));
     }
     let mut results = Vec::new();

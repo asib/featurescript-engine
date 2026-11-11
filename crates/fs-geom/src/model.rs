@@ -126,6 +126,10 @@ pub struct Info {
     /// For a B-spline edge, flagged periodic though its knots are clamped, which OCCT's curve can't be: std raises
     /// a closed spline's degree so, and Onshape keeps the flag (batch 027 c005).
     pub flagged_periodic: bool,
+    /// For a face a loft made: Onshape's lofts are B-spline surfaces (its STEP export simplifies them to cylinders
+    /// and planes where it can), so it won't replace a face up to one between arcs, though the engine's between
+    /// equal arcs is a cylinder (batches 108, 111).
+    pub lofted: bool,
 }
 
 impl Info {
