@@ -1,0 +1,47 @@
+{
+  "batch": "119",
+  "title": "sweeps locked to a sphere along great circles, an extruded elliptical sheet extended",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "sweep",
+      "description": "a 2 × 3 rectangle swept round a sphere of radius 10 along its great circle in the xz plane, locked to it",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "sweep",
+      "description": "a 2 × 3 rectangle swept round the sphere along a tilted great circle, locked to it",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "extend-surface",
+      "description": "a quarter of a 20 × 10 ellipse extruded 10 mm, extended 5 mm past the ellipse's end at (0, 10), keeping its curvature",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "extend-surface",
+      "description": "a quarter of a 20 × 10 ellipse extruded 10 mm, extended 5 mm past the ellipse's end at (0, 10), straight on",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    }
+  ]
+}

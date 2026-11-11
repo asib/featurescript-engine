@@ -1312,6 +1312,11 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   surface (±0.007 mm at 1 mm, ±0.013 at 2), as a coarse fit would; at 5 mm it leaves that near the top. Its areas
   (batch 112: 157.1046 mm² at 2 mm, 189.8443 at 5) lie between that rule's (157.0744, 190.5228) and d/r round each
   circle's (156.9789, 188.3948). `evCurveDefinition` gives the edge as neither a B-spline nor a conic.
+- **Sweeps locked to a sphere, and an elliptical sheet extended** (batch 119): a rectangle swept round a sphere along
+  a great circle, straight or tilted, locked to it, is its revolve about the circle's axis (414.690 mm³), whatever
+  the sphere's own axis. A sheet extruded from a quarter of a 20 × 10 ellipse, extended 5 mm past the ellipse's end,
+  goes on round the ellipse 5 mm of arc length, keeping its curvature or not alike (to (−4.986609, 9.684185)); its
+  new straight edge isn't a line to `qGeometry`.
 - **Curved faces replaced** (batch 118): a sphere's face up to a concentric sphere moves to it, larger or smaller;
   a cylinder's side up to a coaxial cylinder of its own radius offset 2 mm becomes radius 12. The template is the
   query's first face whatever follows: a solid cylinder's faces as a template are its side. A cylinder's side up to a
