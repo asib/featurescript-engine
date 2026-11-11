@@ -115,12 +115,15 @@ engine doesn't have. After batch 002, std calls 269 builtins; these are implemen
   solved where the entities don't already meet them (fix, coincident, tangent, perpendicular, parallel,
   horizontal, vertical, distance; batch 029); others are ignored.
 - evaluations added: `evOffsetDetection` (planar walls; batch 031); `evPlanarEdge`, `evPlanarEdges`, `evRaycast`,
-  `evFaceCurvatures`, `evFilletRadius` (batch 086).
+  `evFaceCurvatures`, `evFilletRadius` (batch 086); `evaluateSpline`, `evApproximateMassProperties`,
+  `evPointsDeviation`, `evFaults`, `evFaceCurvatureDerivatives`, `evApproximateBSplineSurface` (whole cylinders
+  exactly, other faces OCCT's conversion), `parseJson`; `evTolerances` and `evMaxTolerance` refused as Onshape does
+  (batches 100, 101).
 - operations: `opPoint`, `opPlane`, `opExtrude`, `opRevolve`, `opSphere`, `opBoolean`, `opTransform`, `opPattern`
   (bodies and faces), `opSplitPart`, `opSplitFace`, `opSplitEdges` (at parameters), `opDeleteBodies`, `opFillet`
   (circular), `opChamfer`, `opShell`, `opDraft` (reference surface and entity), `opBodyDraft`, `opThicken`,
   `opOffsetFace`, `opDeleteFace`, `opMoveFace`, `opReplaceFace`, `opModifyFillet`, `opHole`, `opCreateCompositePart`,
-  `opNameEntity`, `opCreateIsocline`, `opSplitByIsocline`, `opImportForeign` (STEP files), `opSplitBySelfShadow` (planar, cylindrical, conical
+  `opNameEntity`, `opCreateIsocline`, `opSplitByIsocline`, `opImportForeign` (STEP files), `opFlipOrientation`, `opCreateBSplineSurface` (untrimmed, not periodic), `opSplitBySelfShadow` (planar, cylindrical, conical
   and spherical faces; batch 093), `opMergeContexts`, `opEditCurve`, `opPolyline`,
   `opConstrainedSurface`, `updateSheetMetalGeometry` (planar walls, straight bends, edge-to-edge rips, simple
   corners), `opEdgeChange` (moving straight free edges of planar faces) (the cases above), and the curve and surface

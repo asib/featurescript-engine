@@ -1059,6 +1059,16 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
 - **A closed spline raised in degree** (batch 027 c005): std hands back clamped knots flagged periodic, and Onshape
   keeps the flag (`evCurveDefinition` says periodic, its knots and poles clamped); OCCT's curve can't be both, so
   the engine keeps the flag on the edge.
+- **std's API builtins** (batches 100, 101): `opFlipOrientation` reverses a sheet's normals; `parseJson` leaves
+  null out of maps; `evPointsDeviation` gives a point inside a solid 0, its nearest point the point itself;
+  `evApproximateMassProperties` is exact for a block; `evTolerances` and `evMaxTolerance` fail from a Feature Studio
+  ("Execution error"), `evFaults` gives a block none. `evFaceCurvatureDerivative` is the derivative of std's second
+  fundamental form (minus each curvature times its direction's outer product) per length along a direction that
+  must lie in the tangent plane (`NO_TANGENT_PLANE` otherwise, even leaning half out). An extruded cylinder's
+  parameters run as a cone's and a torus's: u from the world's y × z round its z (back along the extrude), so the
+  tangent plane's x points along that u (OCCT's runs the other way). `evApproximateBSplineSurface` of a whole
+  cylinder is exact: two rational cubic half circles from that x (poles twice the radius out, weights 1, ⅓, ⅓, 1),
+  flagged periodic with clamped knots, linear along z from the face's start, bounded by six parameter lines.
 - **A sphere's principal directions** (batch 099, with 087 c008): every direction is principal, and Onshape's least
   is always the normal crossed with a world axis (n × x, n × y or n × z, normalised), its greatest n × that; the same
   at the same normal whatever the sphere's centre and radius. Which axis isn't the smallest of the normal's

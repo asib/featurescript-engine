@@ -1,0 +1,87 @@
+{
+  "batch": "101",
+  "title": "curvature derivatives, internal tolerances, a B-spline approximation",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "curvature",
+      "description": "a cylinder's (radius 10) derivatives at two parameters",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "curvature",
+      "description": "a torus's (radii 20 and 5) derivatives at a parameter",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "curvature",
+      "description": "a sphere's (radius 10) derivatives at a parameter",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "curvature",
+      "description": "a cone frustum's (radius 10 at z = 0 to 5 at z = 20) derivatives at a parameter",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "curvature",
+      "description": "a cylinder's derivative along a direction leaning half out of its tangent plane",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "tolerance",
+      "description": "a block's greatest tolerance (evMaxTolerance alone)",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "tolerance",
+      "description": "a block's faults (evFaults alone)",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c008",
+      "kind": "approximate",
+      "description": "a cylinder's side (radius 10, z 0 to 30) approximated as a B-spline surface, in full",
+      "slotMeters": [
+        2.8000000000000003,
+        0,
+        0
+      ]
+    }
+  ]
+}

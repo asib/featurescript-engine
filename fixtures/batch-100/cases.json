@@ -1,0 +1,107 @@
+{
+  "batch": "100",
+  "title": "std's API builtins no feature calls",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "flip",
+      "description": "a block's top extracted as a sheet, its orientation flipped: its normal before and after",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "bspline",
+      "description": "a sheet from a B-spline surface, degree 2 by 1, its middle row raised 10 mm",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "evaluate",
+      "description": "a quadratic spline evaluated at four parameters, with two derivatives",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "json",
+      "description": "a JSON string parsed",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "mass",
+      "description": "a block's approximate mass properties (1 kg/m³), and its faces' (1 kg/m²)",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "deviation",
+      "description": "points' deviations from a block (one inside, one out past a face, one off a corner)",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "tolerance",
+      "description": "a block's tolerances, its greatest tolerance and its faults",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c008",
+      "kind": "curvature",
+      "description": "a cylinder's (radius 10) curvature derivative along its circle and along its axis",
+      "slotMeters": [
+        2.8000000000000003,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c009",
+      "kind": "approximate",
+      "description": "a cylinder's side approximated as a B-spline surface",
+      "slotMeters": [
+        3.2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c010",
+      "kind": "debug",
+      "description": "debug display calls: auxiliary entities, a reference frame, a timer",
+      "slotMeters": [
+        3.6,
+        0,
+        0
+      ]
+    }
+  ]
+}
