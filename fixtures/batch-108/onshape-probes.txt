@@ -1,0 +1,13 @@
+probe c001 { bodies : [ { area : 963.2704366085213 , bounds : [ -5.000000000000003 , -8.660254 , 0 , 10.000000000000002 , 8.660254000000002 , 20 ] , edges : 9 , faces : 5 , name : c001.1 , type : SOLID , vertices : 6 , volume : 1531.9975700000005 } ] , construction : [] , values : { faces : 5 } }
+probe c002 failed LOFT_FAILED
+probe c003 failed LOFT_FAILED
+probe c004 failed LOFT_FAILED
+probe c005 failed LOFT_FAILED
+probe c006 { bodies : [ { area : 917.1334455132654 , bounds : [ 1995 , -8.660254000000002 , 0 , 2009.9999999999998 , 8.660254000000002 , 20.000000000000004 ] , edges : 9 , faces : 5 , name : c006.1 , type : SOLID , vertices : 6 , volume : 1398.2420881552227 } ] , construction : [] , values : { faces : 5 } }
+probe c007 { bodies : [ { area : 994.7848542565788 , bounds : [ 2395 , -8.660254000000002 , 0 , 2409.9999999999995 , 8.660254000000002 , 20.000000000000004 ] , edges : 9 , faces : 5 , name : c007.1 , type : SOLID , vertices : 6 , volume : 1659.5218236435667 } ] , construction : [] , values : { faces : 5 } }
+probe c008 { bodies : [ { area : 1622.0486072986469 , bounds : [ 2790 , -10.000000000000002 , 0 , 2809.9999999999995 , 10.000000000000002 , 20.000000000000004 ] , edges : 12 , faces : 6 , name : c008.1 , type : SOLID , vertices : 8 , volume : 3853.175576358001 } ] , construction : [] , values : { faces : 6 } }
+probe c009 failed DIRECT_EDIT_REPLACE_FACE_FAILED
+probe c010 { bodies : [ { area : 2556.036994785034 , bounds : [ 3599.999995 , -5e-6 , 0 , 3630.0000050000003 , 20.000005 , 15.705887352941177 ] , edges : 12 , faces : 6 , name : c010.1 , type : SOLID , vertices : 8 , volume : 8100.000000000015 } , { area : 755.6000614228684 , bounds : [ 3598 , -0.9999999999999991 , 12 , 3632 , 21 , 16 ] , edges : 4 , faces : 1 , name : c010.2 , type : SHEET , vertices : 4 } ] , construction : [] , values : { volume : 8100 } }
+probe c011 failed DIRECT_EDIT_REPLACE_FACE_FAILED
+probe c012 failed DIRECT_EDIT_REPLACE_FACE_FAILED
+batch-108 failed cases: [ c002 , c003 , c004 , c005 , c009 , c011 , c012 ]

@@ -3,9 +3,8 @@
 
 use std::path::PathBuf;
 
-/// Cases the engine and Onshape don't agree on (see docs/std-coverage.md): a block's top replaced up to a lofted
-/// sheet, which Onshape fails (`DIRECT_EDIT_REPLACE_FACE_FAILED`) and the engine builds (c005).
-const KNOWN_GAPS: &[&str] = &["c005"];
+/// Cases the engine and Onshape don't agree on (see docs/std-coverage.md): none.
+const KNOWN_GAPS: &[&str] = &[];
 
 /// The torus's offset: the engine's closed curve is the same parallel (radius 7.917666) but starts where its
 /// samples do, not where Onshape's does (at 7.5° round, c002). The ruled band: Onshape's surface is its own fit of
@@ -21,9 +20,9 @@ fn batch_067_matches_onshape() {
         let unexpected: Vec<String> = report
             .problems()
             .into_iter()
-            .filter(|p| !KNOWN_GAPS.iter().any(|case| p.starts_with(case)) && !p.starts_with("failed probe"))
+            .filter(|p| !KNOWN_GAPS.iter().any(|case| p.starts_with(case)))
             .collect();
         assert!(unexpected.is_empty(), "{report}");
-        assert_eq!(report.probes_matched, (6 - KNOWN_GAPS.len() - 1, 6), "{report}");
+        assert_eq!(report.probes_matched, (6 - KNOWN_GAPS.len(), 6), "{report}");
     });
 }

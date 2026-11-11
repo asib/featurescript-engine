@@ -1100,6 +1100,14 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   its guess holds periodic, rational, degree, count, poles, the full knot vector and (open) the parameter range; a
   closed one's knots are unclamped with the degree's multiplicity at 0 and 1, its first pole repeated last, and
   Onshape flags it periodic.
+- **Lofts and replacements Onshape refuses** (batch 108): tangent to a profile, a loft's side leaves each corner
+  along the chord to its partner projected into the plane, and Onshape builds it only where that lies strictly
+  within the corner's angle or the angle opposite it: triangles turned to each other fail tangent at either end at
+  every magnitude (at the start one chord runs along an edge; at the end the chords leave both angles), but build
+  with no condition or normal to the profile, and turned squares and unturned triangles build tangent. Onshape
+  won't replace a face up to a sheet lofted between arcs (a rational B-spline), equal arcs too, though it will up
+  to one lofted between lines or an extruded arc; the engine refuses a B-spline template bounded by an arc, but
+  lofts equal arcs into a cylinder, which it replaces up to.
 - **A UI-drawn sheet metal plate** (batch 107): its region query is compressed (`&<length>$<base64>`: zlib of a
   `%` query); a dotted string puts its literal pieces in the string table before itself, and `-<index>` is that
   table's string (batch 103's reading, a string's prefix, fitted only its own query); `T` and `F` are booleans.

@@ -4,9 +4,8 @@
 
 use std::path::PathBuf;
 
-/// Cases the engine can't build as Onshape does yet (see docs/std-coverage.md): a loft between triangles tangent
-/// to the start, which Onshape fails (`LOFT_FAILED`) by a rule not found and the engine builds (c011).
-const KNOWN_GAPS: &[&str] = &["c011"];
+/// Cases the engine and Onshape don't agree on (see docs/std-coverage.md): none.
+const KNOWN_GAPS: &[&str] = &[];
 
 /// Intersection curves: Onshape's are nearly, not exactly, parametrised by length (c006, c007).
 const LOOSE: &[(&str, f64)] = &[("c006", 0.025), ("c007", 0.025)];
@@ -23,9 +22,9 @@ fn batch_061_matches_onshape() {
         let unexpected: Vec<String> = report
             .problems()
             .into_iter()
-            .filter(|p| !KNOWN_GAPS.iter().any(|case| p.starts_with(case)) && !p.starts_with("failed probe"))
+            .filter(|p| !KNOWN_GAPS.iter().any(|case| p.starts_with(case)))
             .collect();
         assert!(unexpected.is_empty(), "{report}");
-        assert_eq!(report.probes_matched, (12 - KNOWN_GAPS.len() - 1, 12), "{report}");
+        assert_eq!(report.probes_matched, (12 - KNOWN_GAPS.len(), 12), "{report}");
     });
 }
