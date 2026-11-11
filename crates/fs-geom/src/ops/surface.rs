@@ -101,7 +101,7 @@ pub fn extract_surface(model: &mut Model, id: FeatureId, definition: &Value) -> 
     // The copies' entities are tracked back to the faces, edges and vertices they lie on (std tracks a sketch's
     // lines into the surfaces extracted from its regions).
     let mut sources: Vec<crate::model::Entity> = Vec::new();
-    if offset == 0.0 {
+    {
         for body in &model.bodies {
             for entity in body.all_entities() {
                 if faces.iter().any(|f| {
@@ -141,14 +141,18 @@ pub fn extract_surface(model: &mut Model, id: FeatureId, definition: &Value) -> 
     };
     for sheet in occt::extract_faces(&faces, offset).map_err(|_| regen_error("EXTRACT_SURFACE_FAILED"))? {
         let mut origins = Origins::default();
-        for kind in [ShapeKind::Face, ShapeKind::Edge, ShapeKind::Vertex] {
-            for copy in sheet.sub_shapes(kind) {
-                for source in sources.iter().filter(|e| e.shape.kind() == Some(kind)) {
-                    if coincide(&copy, &source.shape) {
-                        origins.derive(&copy, source, true);
+        if offset == 0.0 {
+            for kind in [ShapeKind::Face, ShapeKind::Edge, ShapeKind::Vertex] {
+                for copy in sheet.sub_shapes(kind) {
+                    for source in sources.iter().filter(|e| e.shape.kind() == Some(kind)) {
+                        if coincide(&copy, &source.shape) {
+                            origins.derive(&copy, source, true);
+                        }
                     }
                 }
             }
+        } else {
+            derive_offset_copies(&sheet, &sources, offset.abs(), &mut origins);
         }
         let info = Info::new(id.clone());
         let special = |s: &Shape| {
@@ -160,6 +164,81 @@ pub fn extract_surface(model: &mut Model, id: FeatureId, definition: &Value) -> 
         model.add_body(NewBody::new(sheet, BodyType::Sheet, info.clone()), &origins, &info, &special);
     }
     Ok(Value::UNDEFINED)
+}
+
+/// Tracks an offset copy's entities back to what they were offset from (sheet metal's conversion with a clearance
+/// tracks its bend edges so, batch 105 c007): each face to the source face it lies `offset` from, each edge and
+/// vertex to the source entity bounded by the faces its own faces came from, the nearest if several are.
+fn derive_offset_copies(sheet: &Shape, sources: &[crate::model::Entity], offset: f64, origins: &mut Origins) {
+    // Each source entity once (a face can be listed by more than one body's entities).
+    // A copy comes from every entity that is the source's shape (bodies can share one).
+    let derive_all = |origins: &mut Origins, copy: &Shape, source: &Shape| {
+        for e in sources.iter().filter(|e| e.shape.is_same(source)) {
+            origins.derive(copy, e, true);
+        }
+    };
+    let of_kind = |kind| {
+        let mut out: Vec<&crate::model::Entity> = Vec::new();
+        for e in sources.iter().filter(|e| e.shape.kind() == Some(kind)) {
+            if !out.iter().any(|o| o.shape.is_same(&e.shape)) {
+                out.push(e);
+            }
+        }
+        out
+    };
+    let source_faces = of_kind(ShapeKind::Face);
+    let copy_faces = sheet.sub_shapes(ShapeKind::Face);
+    // Each copy face's source face, by index into `source_faces`.
+    let mut face_source: Vec<Option<usize>> = Vec::new();
+    for copy in &copy_faces {
+        let found = copy.face_inner_point().ok().and_then(|p| {
+            let probe = occt::vertex(p).ok()?;
+            source_faces
+                .iter()
+                .enumerate()
+                .filter_map(|(i, f)| f.shape.distance(&probe).ok().map(|d| (i, (d.distance - offset).abs())))
+                .filter(|(_, miss)| *miss < 1e-6)
+                .min_by(|a, b| a.1.total_cmp(&b.1))
+                .map(|(i, _)| i)
+        });
+        if let Some(i) = found {
+            derive_all(origins, copy, &source_faces[i].shape);
+        }
+        face_source.push(found);
+    }
+    // The source faces an entity bounds, and the copy faces' sources an entity of the copy bounds.
+    let bounded_by = |faces: &[Shape], shape: &Shape, kind: ShapeKind| -> Vec<usize> {
+        (0..faces.len()).filter(|&i| faces[i].sub_shapes(kind).iter().any(|x| x.is_same(shape))).collect()
+    };
+    let source_face_shapes: Vec<Shape> = source_faces.iter().map(|f| f.shape.clone()).collect();
+    let point_of = |s: &Shape| match s.kind() {
+        Some(ShapeKind::Vertex) => s.vertex_point().ok(),
+        _ => s.edge_tangent(0.5, false).ok().map(|a| a.origin),
+    };
+    for kind in [ShapeKind::Edge, ShapeKind::Vertex] {
+        let candidates = of_kind(kind);
+        let source_sets: Vec<Vec<usize>> =
+            candidates.iter().map(|e| bounded_by(&source_face_shapes, &e.shape, kind)).collect();
+        for copy in sheet.sub_shapes(kind) {
+            let mut wanted: Vec<usize> =
+                bounded_by(&copy_faces, &copy, kind).into_iter().filter_map(|i| face_source[i]).collect();
+            wanted.sort_unstable();
+            wanted.dedup();
+            if wanted.is_empty() {
+                continue;
+            }
+            let Some(at) = point_of(&copy).and_then(|p| occt::vertex(p).ok()) else { continue };
+            let best = candidates
+                .iter()
+                .zip(&source_sets)
+                .filter(|(_, set)| **set == wanted)
+                .filter_map(|(e, _)| e.shape.distance(&at).ok().map(|d| (*e, d.distance)))
+                .min_by(|a, b| a.1.total_cmp(&b.1));
+            if let Some((source, _)) = best {
+                derive_all(origins, &copy, &source.shape);
+            }
+        }
+    }
 }
 
 pub fn intersect_faces(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
