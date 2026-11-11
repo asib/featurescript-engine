@@ -166,6 +166,37 @@ std::unique_ptr<Operation> split_op(const ShapeList &objects, const ShapeList &t
   for (const TopoDS_Shape &s : tool_list) all.Append(s);
   op->history = new BRepTools_History(all, splitter);
   op->result = splitter.Shape();
+  // A seam of an object's closed face that the split left between two faces (a cylinder cut through its axis: the
+  // half holding the seam in two faces) is merged away, as Parasolid has no seams (batch 122 c019).
+  TopTools_IndexedMapOfShape seams;
+  for (const TopoDS_Shape &o : arguments)
+    for (TopExp_Explorer f(o, TopAbs_FACE); f.More(); f.Next())
+      for (TopExp_Explorer e(f.Current(), TopAbs_EDGE); e.More(); e.Next())
+        if (BRep_Tool::IsClosed(TopoDS::Edge(e.Current()), TopoDS::Face(f.Current()))) seams.Add(e.Current());
+  if (seams.IsEmpty()) return op;
+  TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
+  TopExp::MapShapesAndUniqueAncestors(op->result, TopAbs_EDGE, TopAbs_FACE, edge_faces);
+  TopTools_MapOfShape removable;
+  for (int i = 1; i <= seams.Extent(); ++i) {
+    TopTools_ListOfShape images = op->history->Modified(seams(i));
+    if (images.IsEmpty() && !op->history->IsRemoved(seams(i))) images.Append(seams(i));
+    for (const TopoDS_Shape &image : images) {
+      if (!edge_faces.Contains(image)) continue;
+      const TopTools_ListOfShape &faces = edge_faces.FindFromKey(image);
+      if (faces.Extent() != 2) continue;
+      const TopoDS_Face &a = TopoDS::Face(faces.First()), &b = TopoDS::Face(faces.Last());
+      if (BRep_Tool::Surface(a) == BRep_Tool::Surface(b)) removable.Add(image);
+    }
+  }
+  if (removable.IsEmpty()) return op;
+  TopTools_MapOfShape keep;
+  for (TopExp_Explorer it(op->result, TopAbs_EDGE); it.More(); it.Next())
+    if (!removable.Contains(it.Current())) keep.Add(it.Current());
+  ShapeUpgrade_UnifySameDomain unifier(op->result, Standard_True, Standard_True, Standard_False);
+  unifier.KeepShapes(keep);
+  unifier.Build();
+  op->history->Merge(unifier.History());
+  op->result = unifier.Shape();
   return op;
 }
 
