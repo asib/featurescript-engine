@@ -62,6 +62,8 @@
 #include <BRepBuilderAPI_Sewing.hxx>
 #include <BRepLib.hxx>
 #include <BRepCheck_Analyzer.hxx>
+#include <BRepBuilderAPI_MakePolygon.hxx>
+#include <Geom_Plane.hxx>
 #include <ShapeFix_Edge.hxx>
 #include <ShapeFix_ShapeTolerance.hxx>
 #include <BRepBuilderAPI_MakeSolid.hxx>
@@ -351,13 +353,117 @@ std::unique_ptr<Operation> chamfer_op(const Shape &solid, const ShapeList &edges
   return finish(one(solid.shape), maker, "chamfer");
 }
 
+namespace {
+
+// The cavity a shell of an all-planar solid leaves inside it, `thickness` (negative) in from each face and out past
+// each removed face: every vertex moved to where its faces' planes, so offset, meet, the faces rebuilt through the
+// moved vertices. Null if a face isn't planar, an edge isn't straight, or a vertex's planes don't meet in a point.
+TopoDS_Shape planar_cavity(const TopoDS_Shape &solid, const TopTools_ListOfShape &removed, double thickness) {
+  TopTools_MapOfShape removing;
+  for (const TopoDS_Shape &f : removed) removing.Add(f);
+  TopTools_IndexedDataMapOfShapeListOfShape vertex_faces;
+  TopExp::MapShapesAndUniqueAncestors(solid, TopAbs_VERTEX, TopAbs_FACE, vertex_faces);
+  // Each face's outward plane, as (normal, offset distance along it).
+  auto plane_of = [&](const TopoDS_Face &face, gp_Dir &normal, double &d) -> bool {
+    Handle(Geom_Surface) surface = BRep_Tool::Surface(face);
+    Handle(Geom_Plane) plane = Handle(Geom_Plane)::DownCast(surface);
+    if (plane.IsNull()) return false;
+    gp_Pln pln = plane->Pln();
+    // The surface's normal is x × y, against the axis where the plane's frame is left-handed (a chamfer's).
+    normal = pln.Axis().Direction();
+    if (!pln.Position().Direct()) normal.Reverse();
+    if (face.Orientation() == TopAbs_REVERSED) normal.Reverse();
+    double shift = removing.Contains(face) ? -thickness : thickness;
+    d = gp_Vec(normal).Dot(gp_Vec(pln.Location().XYZ())) + shift;
+    return true;
+  };
+  for (TopExp_Explorer e(solid, TopAbs_EDGE); e.More(); e.Next()) {
+    BRepAdaptor_Curve curve(TopoDS::Edge(e.Current()));
+    if (curve.GetType() != GeomAbs_Line) return TopoDS_Shape();
+  }
+  std::vector<gp_Pnt> moved(vertex_faces.Extent() + 1);
+  for (int i = 1; i <= vertex_faces.Extent(); ++i) {
+    std::vector<std::pair<gp_Dir, double>> planes;
+    for (const TopoDS_Shape &f : vertex_faces(i)) {
+      gp_Dir n;
+      double d;
+      if (!plane_of(TopoDS::Face(f), n, d)) return TopoDS_Shape();
+      planes.push_back({n, d});
+    }
+    // Three planes that cross well fix the point; the rest must pass through it.
+    bool found = false;
+    gp_Pnt point;
+    for (size_t a = 0; a < planes.size() && !found; ++a)
+      for (size_t b = a + 1; b < planes.size() && !found; ++b)
+        for (size_t c = b + 1; c < planes.size() && !found; ++c) {
+          gp_Vec na(planes[a].first), nb(planes[b].first), nc(planes[c].first);
+          double det = na.Dot(nb.Crossed(nc));
+          if (std::abs(det) < 1e-6) continue;
+          gp_Vec x = (nb.Crossed(nc) * planes[a].second + nc.Crossed(na) * planes[b].second +
+                      na.Crossed(nb) * planes[c].second) / det;
+          point = gp_Pnt(x.XYZ());
+          found = true;
+        }
+    if (!found) return TopoDS_Shape();
+    for (auto &[n, d] : planes)
+      if (std::abs(gp_Vec(n).Dot(gp_Vec(point.XYZ())) - d) > 1e-9) return TopoDS_Shape();
+    moved[i] = point;
+  }
+  BRepBuilderAPI_Sewing sewing(1e-7);
+  for (TopExp_Explorer f(solid, TopAbs_FACE); f.More(); f.Next()) {
+    const TopoDS_Face &face = TopoDS::Face(f.Current());
+    TopoDS_Wire outer = BRepTools::OuterWire(face);
+    std::vector<TopoDS_Wire> wires;
+    for (TopExp_Explorer w(face, TopAbs_WIRE); w.More(); w.Next()) {
+      BRepBuilderAPI_MakePolygon polygon;
+      for (BRepTools_WireExplorer it(TopoDS::Wire(w.Current()), face); it.More(); it.Next())
+        polygon.Add(moved[vertex_faces.FindIndex(it.CurrentVertex())]);
+      polygon.Close();
+      if (!polygon.IsDone()) return TopoDS_Shape();
+      if (w.Current().IsSame(outer)) wires.insert(wires.begin(), polygon.Wire());
+      else wires.push_back(polygon.Wire());
+    }
+    gp_Dir n;
+    double d;
+    plane_of(face, n, d);
+    gp_Pln plane(gp_Pnt((gp_Vec(n) * d).XYZ()), n);
+    BRepBuilderAPI_MakeFace maker(plane, wires[0], Standard_True);
+    for (size_t k = 1; k < wires.size(); ++k) maker.Add(TopoDS::Wire(wires[k].Reversed()));
+    if (!maker.IsDone()) return TopoDS_Shape();
+    sewing.Add(maker.Face());
+  }
+  sewing.Perform();
+  TopoDS_Shape sewn = sewing.SewedShape();
+  TopExp_Explorer shells(sewn, TopAbs_SHELL);
+  if (!shells.More()) return TopoDS_Shape();
+  BRepBuilderAPI_MakeSolid make(TopoDS::Shell(shells.Current()));
+  if (!make.IsDone()) return TopoDS_Shape();
+  TopoDS_Solid cavity = make.Solid();
+  BRepLib::OrientClosedSolid(cavity);
+  if (!BRepCheck_Analyzer(cavity).IsValid()) return TopoDS_Shape();
+  return cavity;
+}
+
+}  // namespace
+
 // Shells a solid, removing `faces`: `thickness` positive outward, negative inward. Corners are sharp, as in Onshape.
+// Where OCCT's thick solid comes out invalid (vertices where four planes meet, as two chamfers do at a block's
+// corner, batch 122 c008), an all-planar solid shelled inwards is cut by its cavity built plane by plane.
 std::unique_ptr<Operation> shell_op(const Shape &solid, const ShapeList &faces, double thickness) {
   BRepOffsetAPI_MakeThickSolid maker;
   maker.MakeThickSolidByJoin(solid.shape, to_list(faces), thickness, 1e-7, BRepOffset_Skin, Standard_False,
                              Standard_False, GeomAbs_Intersection);
   maker.Build();
-  return finish(one(solid.shape), maker, "shell");
+  if (maker.IsDone() && BRepCheck_Analyzer(maker.Shape()).IsValid()) return finish(one(solid.shape), maker, "shell");
+  if (thickness < 0 && !faces.shapes.empty()) {
+    TopoDS_Shape cavity = planar_cavity(solid.shape, to_list(faces), thickness);
+    if (!cavity.IsNull()) {
+      BRepAlgoAPI_Cut cut(solid.shape, cavity);
+      cut.Build();
+      if (cut.IsDone() && BRepCheck_Analyzer(cut.Shape()).IsValid()) return finish(one(solid.shape), cut, "shell");
+    }
+  }
+  throw std::runtime_error("shell failed");
 }
 
 // An offset of a whole shape: `distance` positive outward. Corners are sharp.
