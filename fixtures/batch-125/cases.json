@@ -1,0 +1,87 @@
+{
+  "batch": "125",
+  "title": "helix sweeps square to the path, sphere rims, a cone edge, a hemisphere shelled, a cross hole filleted",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "sweep",
+      "description": "a spring: a circle of radius 1 square to a left-handed helix (Direction.CCW) of radius 10, 3 turns 15 high",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "sweep",
+      "description": "a 2 × 2 square square to a left-handed helix of radius 10, 2 turns 20 high",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "sweep",
+      "description": "a 2 × 2 square square to a right-handed helix (Direction.CW) of radius 10, 2 turns 20 high",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "fillet",
+      "description": "a 30 × 20 × 10 block with a ball (radius 6) centred 2 below its top united on it: the dome's foot filleted 1 mm",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "chamfer",
+      "description": "a 30 × 20 × 10 block with a pocket of a sphere (radius 6) centred 2 above its top: the rim chamfered 1 mm",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "fillet",
+      "description": "a cone frustum (radius 10 to 5, 20 tall): its top edge filleted 1 mm",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "shell",
+      "description": "a hemisphere (radius 10, flat face down) shelled 1 mm inwards, open at its flat face",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c008",
+      "kind": "fillet",
+      "description": "a cylinder (radius 10, 40 long) lying along x with a hole of radius 2 cut down through it: the hole's top mouth filleted 0.5 mm",
+      "slotMeters": [
+        2.8000000000000003,
+        0,
+        0
+      ]
+    }
+  ]
+}

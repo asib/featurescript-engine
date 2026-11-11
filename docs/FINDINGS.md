@@ -1374,6 +1374,13 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   the engine's. Known gaps: a tee of pipes (radius 5 and 4, the fillet reaching the larger pipe's equator) has its
   joint filleted in three B-spline faces where Onshape's is one, its 1 mm chamfer measured otherwise along the curve
   (5.6 mm³ apart), and its shell open at the ends fails in OCCT's thick solid.
+- **Sphere rims, helices square to the path** (batch 125): a dome (a ball united on a block) filleted at its
+  concave foot fills a torus, the arc beyond both faces; the engine revolves it as for a pocket's rim. A pocket's rim
+  chamfered 1 mm equally is a cone through the point 1 mm out along the plane and the point 1 mm away on the sphere
+  in a straight line (16.28845 mm³ removed, as Onshape's; by arc length it would be 16.27195): the engine revolves
+  that line. Sweeps along helices square to the path, both hands, match to Onshape's helix fit. Known gaps: a
+  hemisphere shelled open at its flat face (OCCT's thick solid fails, as for batch 124's tee), and a cross hole's
+  mouth filleted (OCCT's fillet two lopsided faces with edges 0.7 mm out of tolerance).
 
 ## STEP export
 
