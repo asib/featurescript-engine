@@ -1100,6 +1100,12 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   its guess holds periodic, rational, degree, count, poles, the full knot vector and (open) the parameter range; a
   closed one's knots are unclamped with the degree's multiplicity at 0 and 1, its first pole repeated last, and
   Onshape flags it periodic.
+- **The last query types** (batch 106): `qUniqueVertices` keeps the earliest made of the vertices at a point (two
+  blocks side by side keep the first one's shared corners); `qToleranceFilter` finds every edge and vertex past
+  0 and 1e-9 m and none past 1e-5 m (the kernel's precision, 1e-8 m), faces and bodies never; `qIntersectsLine` and
+  `qWithinRadius` find what touches the line or the ball (a line along an edge finds the edges and faces at its
+  vertices too; radius 0 what passes through the point); `qCoEdge` and `qSourceMesh` evaluate to nothing; `qAxis`
+  finds lines on the axis, circles about it and cylinders, cones, tori and revolved faces about it, either way along.
 - **A sphere's principal directions** (batch 099, with 087 c008): every direction is principal, and Onshape's least
   is always the normal crossed with a world axis (n × x, n × y or n × z, normalised), its greatest n × that; the same
   at the same normal whatever the sphere's centre and radius. Which axis isn't the smallest of the normal's

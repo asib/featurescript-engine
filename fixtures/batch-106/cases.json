@@ -1,0 +1,77 @@
+{
+  "batch": "106",
+  "title": "std's query functions no batch had evaluated",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "unique",
+      "description": "two blocks side by side, sharing a face's corners: their vertices, and the unique ones (which block keeps the shared ones)",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "tolerance",
+      "description": "a block's and a filleted block's edges and vertices past tolerances of 0, 1e-9 m and 1e-5 m",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "line",
+      "description": "a block (10 mm) and the entities touching lines: through its middle along x, along an edge's line, through a corner diagonally, and missing it",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "ball",
+      "description": "a block (10 mm) and the entities within radii of points: 1 mm of a corner, 2 mm of a face's middle, 0 mm of an edge's middle, 1 mm of a point 0.5 mm off a face",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "coedge",
+      "description": "a coedge of a block's top and one of its edges, evaluated",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "mesh",
+      "description": "a mesh's source of a block's vertex (no meshes)",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "axis",
+      "description": "a cylinder about z (radius 5) beside a block: the faces and edges about z, about the cylinder's axis reversed, about x, and lines along a block's edge",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    }
+  ]
+}

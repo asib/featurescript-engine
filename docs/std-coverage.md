@@ -159,7 +159,9 @@ Handled: `NOTHING`, `EVERYTHING`, `TRANSIENT`, `CREATED_BY`, `SKETCH_REGION`, `S
 `HOLE_FACES`, `FILLET_FACES`, `LOOP_EDGES`, `PARALLEL_EDGES`, `LOOP_BOUNDED_FACES`, `FACE_OR_EDGE_BOUNDED_FACES`,
 `PATTERN`, `PLANE_NORMAL`, `IN_FRONT_OF_PLANE`, `EDGE_CONVEXITY_FILTER`), and the sheet metal, mesh and modifiable
 filters (as if there were none); `DUMMY` creation queries and `TOPOLOGY` disambiguation of compressed queries
-(batch 103).
+(batch 103); `UNIQUE_VERTICES`, `TOLERANCE_FILTER`, `INTERSECTS_LINE`, `INTERSECTS_BALL`, `COEDGE`, `SOURCE_MESH` and
+`AXIS` (batch 106). Every query type a std function makes is handled; `HISTORICAL`, `LOOP_AROUND_FACE`,
+`SHELL_CONTAINING_FACE`, `TANGENT_EDGES` and `TANGENT_FACES` are in std's enum but no std function makes them.
 
 ## Known gaps
 
