@@ -760,6 +760,17 @@ fn replace_with_surface(model: &mut Model, id: FeatureId, definition: &Value, of
     if groups.is_empty() {
         return Err(regen_error("DIRECT_EDIT_REPLACE_FACE_SELECT"));
     }
+    // Onshape won't replace a face up to a rational B-spline surface, a sheet lofted between arcs (batch 067 c005;
+    // batch 108: between equal arcs, and extended first, too), though it will up to a loft between lines. The
+    // engine's lofts between arcs aren't rational: a B-spline face bounded by an arc stands for one.
+    let bounded_by_arc = || {
+        template.sub_shapes(occt::ShapeKind::Edge).iter().any(|e| e.curve_type().ok() == Some(occt::CurveType::Circle))
+    };
+    if template.surface_type().ok() == Some(occt::SurfaceType::BSpline)
+        && (template.face_bspline().is_ok_and(|s| s.rational) || bounded_by_arc())
+    {
+        return Err(regen_error("DIRECT_EDIT_REPLACE_FACE_FAILED"));
+    }
     let mut results = Vec::new();
     for (b, faces) in groups {
         let mut shape = model.bodies[b].shape.clone();

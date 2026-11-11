@@ -913,7 +913,19 @@ pub fn loft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
     // Through more than two profiles, or with conditions at the ends, the engine builds the sides across the
     // profiles itself (natural cubic splines at chord-length parameters, as Onshape's).
     let op = if ends.iter().any(Option::is_some) || wires.len() > 2 {
-        occt::loft_clamped(&wires, solid, ends[0].clone(), ends[1].clone()).map_err(|_| regen_error("LOFT_FAILED"))?
+        let op = occt::loft_clamped(&wires, solid, ends[0].clone(), ends[1].clone())
+            .map_err(|_| regen_error("LOFT_FAILED"))?;
+        // Tangent to a profile, a side leaves each corner along the chord to its partner projected into the plane.
+        // Onshape builds it where that lies strictly within the corner's angle or the angle opposite it, and fails
+        // otherwise (batch 061 c011, 108: triangles turned to each other, tangent at either end at any magnitude:
+        // a chord along a corner's edge at the start, chords off both angles at the end; turned squares build).
+        for (end, wire) in [(&ends[0], &wires[0]), (&ends[1], &wires[wires.len() - 1])] {
+            let Some(e) = end.as_ref().filter(|e| e.tangent && e.faces.is_empty()) else { continue };
+            if !tangent_corners_fit(&op.shape(), wire, e.vector) {
+                return Err(regen_error("LOFT_FAILED"));
+            }
+        }
+        op
     } else if let Some(matched) = matched_polygons(&wires)? {
         occt::loft_as_given(&matched, solid).map_err(|_| regen_error("LOFT_FAILED"))?
     } else {
@@ -942,4 +954,54 @@ pub fn loft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
     // (a thin loft thickens outward, batch 028).
     add_with_caps_facing(model, &id, &op, solid, !solid)?;
     Ok(Value::UNDEFINED)
+}
+
+/// Whether, at each corner of a polygon profile, the loft's side edge leaving it lies strictly within the corner's
+/// angle or the angle opposite it, in the profile's plane (normal `normal`). Profiles with curved edges pass.
+fn tangent_corners_fit(loft: &Shape, wire: &Shape, normal: Vec3) -> bool {
+    let Some(n) = values::normalize(normal) else { return true };
+    let profile = wire.sub_shapes(ShapeKind::Edge);
+    if profile.iter().any(|e| e.curve_type().ok() != Some(occt::CurveType::Line)) {
+        return true;
+    }
+    let ends_of = |edge: &Shape| -> Option<(Vec3, Vec3)> {
+        Some((edge.edge_tangent(0.0, false).ok()?.origin, edge.edge_tangent(1.0, false).ok()?.origin))
+    };
+    let near = |a: Vec3, b: Vec3| values::norm(values::sub(a, b)) < 1e-7;
+    let loft_edges = loft.sub_shapes(ShapeKind::Edge);
+    for corner in wire.sub_shapes(ShapeKind::Vertex) {
+        let Ok(p) = corner.vertex_point() else { continue };
+        // The profile's edges from the corner.
+        let sides: Vec<Vec3> = profile
+            .iter()
+            .filter_map(ends_of)
+            .filter_map(|(a, b)| if near(a, p) { Some(b) } else if near(b, p) { Some(a) } else { None })
+            .filter_map(|q| values::normalize(values::sub(q, p)))
+            .collect();
+        let [a, b] = sides[..] else { continue };
+        // The side edge leaving the corner out of the profile's plane, its direction there.
+        let Some(d) = loft_edges.iter().find_map(|edge| {
+            let (s, t) = ends_of(edge)?;
+            let (at_start, other) = if near(s, p) { (true, t) } else if near(t, p) { (false, s) } else { return None };
+            if values::dot(values::sub(other, p), n).abs() < 1e-7 {
+                return None;
+            }
+            let tangent = edge.edge_tangent(if at_start { 0.0 } else { 1.0 }, false).ok()?.direction;
+            let away = if at_start { tangent } else { values::scale(tangent, -1.0) };
+            values::normalize(values::sub(away, values::scale(n, values::dot(away, n))))
+        }) else {
+            continue;
+        };
+        let turn = |x: Vec3, y: Vec3| values::dot(values::cross(x, y), n);
+        let within = |x: Vec3, y: Vec3| {
+            let whole = turn(x, y);
+            let (first, second) = (turn(x, d), turn(d, y));
+            const TOLERANCE: f64 = 1e-9;
+            first * whole.signum() > TOLERANCE && second * whole.signum() > TOLERANCE
+        };
+        if !within(a, b) && !within(values::scale(a, -1.0), values::scale(b, -1.0)) {
+            return false;
+        }
+    }
+    true
 }
