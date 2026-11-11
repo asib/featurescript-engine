@@ -1381,6 +1381,12 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   that line. Sweeps along helices square to the path, both hands, match to Onshape's helix fit. Known gaps: a
   hemisphere shelled open at its flat face (OCCT's thick solid fails, as for batch 124's tee), and a cross hole's
   mouth filleted (OCCT's fillet two lopsided faces with edges 0.7 mm out of tolerance).
+- **`qSplitBy` for faces** (batch 126 c008): std drafts a symmetric extrude by splitting it at the sketch plane
+  (`opSplitPart` with the plane) and drafting `qSplitBy(split, FACE, false)` and `(…, true)` each its own way: the
+  pieces of the faces the split cut in two, each on its side (the sides' halves, not the caps or the cut face). The
+  engine records those pieces with their side. Faces moved on curved faces (a hole's wall, a boss's side), heals of
+  a cross hole through a lying cylinder and of a spherical pocket, feature patterns of a boss round a cylinder's top
+  and of a hole along a block, a merged mirror, a 270° revolve and a subtraction keeping its tool match as built.
 
 ## STEP export
 
