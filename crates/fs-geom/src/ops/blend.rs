@@ -538,12 +538,24 @@ fn leading_face(body: &Shape, edge: &Shape) -> Option<Shape> {
         .map(|(f, _)| f)
 }
 
-/// The face next to an edge that the edge runs forward along: walking along the edge with that face's normal up,
-/// the face is on the left. Uneven chamfers measure their first distance on it.
-fn left_face(body: &Shape, edge: &Shape) -> Option<Shape> {
-    body.ancestors(edge, ShapeKind::Face).into_iter().find(|face| {
-        face.sub_shapes(ShapeKind::Edge).iter().any(|e| e.is_same(edge) && e.orientation() == edge.orientation())
-    })
+/// For an edge of a sketch's region sheet, the edge of the sketch curve's own wire body on it: those follow the
+/// order the sketch made its curves in, as the regions' edges don't.
+fn sketch_curve_tid(model: &Model, tid: Tid) -> Option<Tid> {
+    let r = model.find_tid(tid)?;
+    let body = &model.bodies[r.body];
+    if r.kind != EntityType::Edge || body.body_type != crate::model::BodyType::Sheet || body.sketch_plane.is_none() {
+        return None;
+    }
+    let edge = model.shape(r);
+    let middle = occt::vertex(edge.edge_tangent(0.5, false).ok()?.origin).ok()?;
+    let created_by = &body.info.created_by;
+    model
+        .bodies
+        .iter()
+        .filter(|w| w.body_type == crate::model::BodyType::Wire && w.info.created_by == *created_by)
+        .flat_map(|w| w.edges.iter())
+        .find(|e| e.shape.distance(&middle).is_ok_and(|d| d.distance < 1e-9))
+        .map(|e| e.tid)
 }
 
 pub fn chamfer(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
@@ -569,13 +581,38 @@ pub fn chamfer(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
         let body = model.bodies[b].shape.clone();
         let mut faces = Vec::new();
         for edge in &edges {
-            let mut face = left_face(&body, edge).ok_or_else(|| regen_error("CHAMFER_FAILED"))?;
+            // The first distance goes on the older of the edge's faces, by the oldest entity each came from (batch
+            // 123: a hole's mouth on the block's top, a boss's foot on the block's top), a side an extrude swept from
+            // a curve before a cap from the region it bounds (a cylinder's side before its caps; a block's side
+            // swept from its sketch's first line before the caps, the caps before the others).
+            let mut neighbours: Vec<(usize, Shape)> = body
+                .ancestors(edge, ShapeKind::Face)
+                .into_iter()
+                .filter_map(|f| {
+                    let index = model.bodies[b].faces.iter().position(|e| e.shape.is_same(&f))?;
+                    Some((index, f))
+                })
+                .collect();
+            neighbours.dedup_by(|a, b| a.1.is_same(&b.1));
+            let all = &model.bodies[b].faces;
+            let oldest = |e: &crate::model::Entity| {
+                let tid = e.ancestry.all.iter().copied().chain(std::iter::once(e.tid)).min()?;
+                Some(sketch_curve_tid(model, tid).unwrap_or(tid))
+            };
+            let key = |index: usize| {
+                let entity = &all[index];
+                if entity.info.cap.is_none() {
+                    return (oldest(entity), false);
+                }
+                // A cap ranks just after its extrude's oldest side.
+                let sides = all.iter().filter(|e| e.info.cap.is_none() && e.info.created_by == entity.info.created_by);
+                (sides.filter_map(oldest).min().or(oldest(entity)), true)
+            };
+            neighbours.sort_by_key(|(index, _)| key(*index));
+            let [(_, first), (_, second)] = &neighbours[..] else { return Err(regen_error("CHAMFER_FAILED")) };
+            let mut face = first.clone();
             if opposite && matches!(kind, occt::Chamfer::DistanceAngle(..)) {
-                face = body
-                    .ancestors(edge, ShapeKind::Face)
-                    .into_iter()
-                    .find(|f| !f.is_same(&face))
-                    .ok_or_else(|| regen_error("CHAMFER_FAILED"))?;
+                face = second.clone();
             }
             faces.push(face);
         }
