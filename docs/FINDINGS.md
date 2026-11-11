@@ -1373,14 +1373,21 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   plane with no straight stretch the engine sweeps with the Frenet frame. Onshape's helix is its own fit, 7 µm off
   the engine's. Known gaps: a tee of pipes (radius 5 and 4, the fillet reaching the larger pipe's equator) has its
   joint filleted in three B-spline faces where Onshape's is one, its 1 mm chamfer measured otherwise along the curve
-  (5.6 mm³ apart), and its shell open at the ends fails in OCCT's thick solid.
+  (5.6 mm³ apart).
 - **Sphere rims, helices square to the path** (batch 125): a dome (a ball united on a block) filleted at its
   concave foot fills a torus, the arc beyond both faces; the engine revolves it as for a pocket's rim. A pocket's rim
   chamfered 1 mm equally is a cone through the point 1 mm out along the plane and the point 1 mm away on the sphere
   in a straight line (16.28845 mm³ removed, as Onshape's; by arc length it would be 16.27195): the engine revolves
-  that line. Sweeps along helices square to the path, both hands, match to Onshape's helix fit. Known gaps: a
-  hemisphere shelled open at its flat face (OCCT's thick solid fails, as for batch 124's tee), and a cross hole's
-  mouth filleted (OCCT's fillet two lopsided faces with edges 0.7 mm out of tolerance).
+  that line. Sweeps along helices square to the path, both hands, match to Onshape's helix fit. Known gap: a cross
+  hole's mouth filleted (OCCT's fillet two lopsided faces with edges 0.7 mm out of tolerance).
+- **Shells OCCT's thick solid can't make** (batches 124 c009, 125 c007): a tee of pipes open at its ends and a
+  hemisphere open at its flat face come out of `BRepOffsetAPI_MakeThickSolid` invalid, and the failed attempt leaves
+  the solid it was given damaged in place (its edges' tolerances and curves changed: a second attempt hands back
+  the solid unshelled, and booleans with it go wrong). So the thick solid works on a copy; failing that, an
+  all-planar solid is cut by its cavity built plane by plane, and otherwise by the solid offset face by face
+  (`BRepOffset_MakeOffset`, the removed faces outwards, the others inwards, every offset carried on past where the
+  faces were): the inner sphere then runs on to the rim, as Onshape's (567.58107 mm³ exactly), the tee's inner
+  pipes out through the ends (1446.0982 mm³, seven faces).
 - **`qSplitBy` for faces** (batch 126 c008): std drafts a symmetric extrude by splitting it at the sketch plane
   (`opSplitPart` with the plane) and drafting `qSplitBy(split, FACE, false)` and `(…, true)` each its own way: the
   pieces of the faces the split cut in two, each on its side (the sides' halves, not the caps or the cut face). The

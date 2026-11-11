@@ -5,9 +5,8 @@ use std::path::PathBuf;
 
 /// Cases the engine can't build as Onshape does yet (see docs/std-coverage.md): the tee's joint filleted, OCCT's
 /// fillet three B-spline faces where Onshape's is one (c007: areas 0.005 mm² apart); chamfered, Onshape's 1 mm
-/// measured otherwise along the curve between two cylinders (c008: 5.6 mm³ apart); shelled open at its ends,
-/// which OCCT's thick solid can't build (c009).
-const KNOWN_GAPS: &[&str] = &["c007", "c008", "c009"];
+/// measured otherwise along the curve between two cylinders (c008: 5.6 mm³ apart).
+const KNOWN_GAPS: &[&str] = &["c007", "c008"];
 
 /// The bowl's two spheres from two kernels, a hair apart, defeat OCCT's boolean between them (it reports the
 /// whole volume); Onshape's volume, area and box of it match.
@@ -31,12 +30,11 @@ fn batch_124_matches_onshape() {
             .into_iter()
             .filter(|p| {
                 !KNOWN_GAPS.iter().chain(UNCOMPARABLE).any(|case| p.starts_with(case))
-                    && !p.starts_with("failed probe")
                     && !p.starts_with("engine STEP: c008.1")
             })
             .collect();
         assert!(unexpected.is_empty(), "{report}");
-        // Every probe line but the gaps' and the failed-cases line (c009 fails in the engine alone).
-        assert_eq!(report.probes_matched, (11 - KNOWN_GAPS.len() - 1, 11), "{report}");
+        // Every probe line but the gaps'.
+        assert_eq!(report.probes_matched, (11 - KNOWN_GAPS.len(), 11), "{report}");
     });
 }
