@@ -1278,7 +1278,23 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   sheet (11 faces, the volume to 6e-9).
 - **Spheres extended round, more bands** (batch 056 c019–c021): no per-point rule can do: latitude 60° turns
   exactly d/r on a band from 30° to 60° but 1.106 rad on one from 0° to 60°, and a band from −30° to 30° turns 1.1%
-  over d/r at both corners and 0.2% under at the equator: Onshape's new edge depends on the whole band.
+  over d/r at both corners and 0.2% under at the equator: Onshape's new edge depends on the whole band. Batch 055's
+  nine points on it wobble about the plane y = −R sin(d/R), where the sphere is d from the old edge across its
+  surface (±0.007 mm at 1 mm, ±0.013 at 2), as a coarse fit would; at 5 mm it leaves that near the top. Its areas
+  (batch 112: 157.1046 mm² at 2 mm, 189.8443 at 5) lie between that rule's (157.0744, 190.5228) and d/r round each
+  circle's (156.9789, 188.3948). `evCurveDefinition` gives the edge as neither a B-spline nor a conic.
+- **A guide crossing a loft's side** (batches 075 c005, 112 c001–c003): between a square and a smaller one, a guide
+  from the middle of a bottom edge to the middle of the top one bends that side alone (the others stay planar).
+  Across it the side is a cubic with one knot where the guide crosses (0.5), five poles: the side's straight edges,
+  the plain side's poles at the Greville abscissae 1/6 and 5/6, and a middle one moved so the surface passes through
+  the guide, S = L + N₂(u)(G(v) − L(t, v))/N₂(t), the guide taken at its own parameter (its arc's angle). Along it,
+  each row is Onshape's C1 fit of eight spans (fewer for flatter guides). This matches Onshape's surfaces to its fit
+  of the arc (1.0e-4, 4.7e-4, 1.8e-4 mm for bulges out 3 and 1 mm and in 1 mm).
+- **A loft along a straight path** (batches 075 c006, 112 c004–c006): circles of radius 10 and 5 lofted along the
+  line between their centres make Onshape's side a B-spline that is the cone along its height (the radius linear in
+  z at every angle) and whose end circles are exact, but whose sections between pass through the circle only every
+  45° (u = k/8) and dip up to 0.006 mm between: 5493.27, 5492.88 and 5492.56 mm³ through 3, 5 and 9 sections to the
+  cone's 5497.79. What sets the dips, these don't show.
 
 ## STEP export
 

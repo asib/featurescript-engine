@@ -1,0 +1,97 @@
+{
+  "batch": "112",
+  "title": "Onshape's guided and pathed lofts, sphere extensions and rolled-wall holes, probed for their poles",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "loft",
+      "description": "a 20 mm square to a 10 mm one 20 mm above, one guide from (10, 0, 0) to (5, 0, 20) bulging out, through (13, 0, 10) (batch 075 c005)",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "loft",
+      "description": "a 20 mm square to a 10 mm one 20 mm above, one guide from (10, 0, 0) to (5, 0, 20) bulging out less, through (11, 0, 10)",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "loft",
+      "description": "a 20 mm square to a 10 mm one 20 mm above, one guide from (10, 0, 0) to (5, 0, 20) bowing in, through (6.5, 0, 10)",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "loft",
+      "description": "circles of radius 10 at z = 0 and 5 at z = 30, lofted along the straight line between their centres (3 sections)",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "loft",
+      "description": "circles of radius 10 at z = 0 and 5 at z = 30, lofted along the straight line between their centres (5 sections)",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "loft",
+      "description": "circles of radius 10 at z = 0 and 5 at z = 30, lofted along the straight line between their centres (9 sections)",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "extend-surface",
+      "description": "batch 055's band of a sphere (radius 10, latitude 0° to 60°, 90° round) extended 2 mm round it at its edge in the xz plane",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c008",
+      "kind": "extend-surface",
+      "description": "batch 055's band of a sphere (radius 10, latitude 0° to 60°, 90° round) extended 5 mm round it at its edge in the xz plane",
+      "slotMeters": [
+        2.8000000000000003,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c009",
+      "kind": "sheet-metal",
+      "description": "batch 080 c004: batch 069's half tube (radius 20, 2 mm thick, 25 long) cut through its top by an 8 mm circle extruded down from y = 30",
+      "slotMeters": [
+        3.2,
+        0,
+        0
+      ]
+    }
+  ]
+}
