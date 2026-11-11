@@ -326,6 +326,7 @@ mod ffi {
         fn curve_type(edge: &Shape) -> Result<i32>;
         fn edge_is_seam(root: &Shape, edge: &Shape) -> Result<bool>;
         fn shape_valid(s: &Shape) -> Result<bool>;
+        fn shape_max_tolerance(s: &Shape) -> Result<f64>;
         fn visible_sub_shapes(s: &Shape, kind: i32) -> Result<UniquePtr<ShapeList>>;
         fn hidden_edge_pieces(s: &Shape) -> Result<UniquePtr<ShapeList>>;
         fn shape_axis(s: &Shape) -> Result<Axis>;
@@ -786,6 +787,12 @@ impl Shape {
     /// Whether OCCT's checker finds the shape valid.
     pub fn is_valid(&self) -> bool {
         ffi::shape_valid(&self.0).unwrap_or(false)
+    }
+
+    /// The largest tolerance of the shape's edges and vertices: how far OCCT lets them stand off their curves and
+    /// faces (1e-7 m at best).
+    pub fn max_tolerance(&self) -> f64 {
+        ffi::shape_max_tolerance(&self.0).unwrap_or(0.0)
     }
 }
 

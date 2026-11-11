@@ -696,6 +696,16 @@ std::unique_ptr<ShapeList> hidden_edge_pieces(const Shape &s) {
 
 bool shape_valid(const Shape &s) { return BRepCheck_Analyzer(s.shape).IsValid(); }
 
+// The largest tolerance of a shape's edges and vertices (0 for a shape with none).
+double shape_max_tolerance(const Shape &s) {
+  double out = 0;
+  for (TopExp_Explorer e(s.shape, TopAbs_EDGE); e.More(); e.Next())
+    out = std::max(out, BRep_Tool::Tolerance(TopoDS::Edge(e.Current())));
+  for (TopExp_Explorer v(s.shape, TopAbs_VERTEX); v.More(); v.Next())
+    out = std::max(out, BRep_Tool::Tolerance(TopoDS::Vertex(v.Current())));
+  return out;
+}
+
 // Writes AP242 in metres, naming each shape's product and, as Onshape does, its MANIFOLD_SOLID_BREP. The solids
 // are named in the order they were transferred, so each shape must be a single solid for its name to land on it.
 void write_step(const ShapeList &shapes, const rust::Vec<rust::String> &names, rust::Str path) {

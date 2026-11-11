@@ -61,6 +61,9 @@
 #include <BRepExtrema_DistShapeShape.hxx>
 #include <BRepBuilderAPI_Sewing.hxx>
 #include <BRepLib.hxx>
+#include <BRepCheck_Analyzer.hxx>
+#include <ShapeFix_Edge.hxx>
+#include <ShapeFix_ShapeTolerance.hxx>
 #include <BRepBuilderAPI_MakeSolid.hxx>
 #include <BRepBuilderAPI_NurbsConvert.hxx>
 #include <BRepFilletAPI_MakeChamfer.hxx>
@@ -189,6 +192,7 @@ bool is_similarity(const Transform &t) {
 // geometry exact; other affine maps, such as a non-uniform scale, turn it into B-splines.
 namespace {
 TopoDS_Shape planes_recognized(const TopoDS_Shape &shape, const Handle(BRepTools_History) &history);
+TopoDS_Shape pcurves_reprojected(const TopoDS_Shape &shape, const Handle(BRepTools_History) &history);
 }
 
 std::unique_ptr<Operation> transform_op(const Shape &s, const Transform &t) {
@@ -228,7 +232,7 @@ std::unique_ptr<Operation> transform_op(const Shape &s, const Transform &t) {
     check_done(maker, "transform");
     op->history = new BRepTools_History(arguments, maker);
     // A general transform turns every surface into a B-spline; planes stay planes in Parasolid.
-    op->result = planes_recognized(maker.Shape(), op->history);
+    op->result = pcurves_reprojected(planes_recognized(maker.Shape(), op->history), op->history);
   }
   return op;
 }
@@ -1569,6 +1573,45 @@ TopoDS_Shape planes_recognized(const TopoDS_Shape &shape, const Handle(BRepTools
   if (!changed) return shape;
   history->Merge(rebuilt_history);
   return reshape->Apply(shape);
+}
+
+// A general transform's result with its edges' curves on faces projected again from their 3D curves, and its
+// tolerances measured again. The transform is exact on the 3D curves and surfaces (it moves the poles of their
+// NURBS forms), but the curves OCCT fits on a cylinder's NURBS form leave edges up to 1e-4 m tolerant: a closed
+// hem's arc sheet, scaled about its axis, then swallows the 0.014 mm sliver its corner adds (batch 021 c012).
+// Where a curve lands a period away and a face's area changes outright, the shape is kept as it was.
+TopoDS_Shape pcurves_reprojected(const TopoDS_Shape &shape, const Handle(BRepTools_History) &history) {
+  bool tolerant = false;
+  for (TopExp_Explorer e(shape, TopAbs_EDGE); e.More() && !tolerant; e.Next())
+    tolerant = BRep_Tool::Tolerance(TopoDS::Edge(e.Current())) > 1e-6;
+  if (!tolerant) return shape;
+  TopTools_ListOfShape arguments;
+  arguments.Append(shape);
+  BRepBuilderAPI_Copy copier(shape, Standard_True);
+  TopoDS_Shape copy = copier.Shape();
+  ShapeFix_Edge fix;
+  for (TopExp_Explorer f(copy, TopAbs_FACE); f.More(); f.Next()) {
+    const TopoDS_Face &face = TopoDS::Face(f.Current());
+    for (TopExp_Explorer e(face, TopAbs_EDGE); e.More(); e.Next()) {
+      const TopoDS_Edge &edge = TopoDS::Edge(e.Current());
+      if (BRep_Tool::Tolerance(edge) <= 1e-6 || BRep_Tool::IsClosed(edge, face) || BRep_Tool::Degenerated(edge)) continue;
+      BRep_Builder().UpdateEdge(edge, Handle(Geom2d_Curve)(), face, BRep_Tool::Tolerance(edge));
+      fix.FixAddPCurve(edge, face, Standard_False, 1e-9);
+    }
+  }
+  TopExp_Explorer before(shape, TopAbs_FACE), after(copy, TopAbs_FACE);
+  for (; before.More() && after.More(); before.Next(), after.Next()) {
+    GProp_GProps a, b;
+    BRepGProp::SurfaceProperties(before.Current(), a);
+    BRepGProp::SurfaceProperties(after.Current(), b);
+    if (std::abs(b.Mass() - a.Mass()) > 1e-3 * std::abs(a.Mass()) + 1e-15) return shape;
+  }
+  ShapeFix_ShapeTolerance().LimitTolerance(copy, 1e-7, 1e-7);
+  BRepLib::SameParameter(copy, 1e-7, Standard_True);
+  BRepLib::UpdateTolerances(copy, Standard_False);
+  if (!BRepCheck_Analyzer(copy).IsValid()) return shape;
+  history->Merge(new BRepTools_History(arguments, copier));
+  return copy;
 }
 
 }  // namespace
