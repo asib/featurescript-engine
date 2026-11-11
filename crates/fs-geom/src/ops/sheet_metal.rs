@@ -1770,6 +1770,41 @@ fn overlap_setback(wall: &Shape, other: &Shape, edge: &Shape, front: f64, back: 
 /// part of an edge leaves the rest, such as the stubs a converted part's rips leave at its ends, batch 014).
 /// A rolled wall cut back to where a bend beside it leaves it: split along the generator through that point,
 /// the piece away from the bend's edge kept (batch 069).
+/// A solid with what lies within `setback` of a wall's edge cut off, by the plane square to the wall there.
+fn cut_off_at(solid: &Shape, wall: &Shape, edge: &Shape, setback: f64) -> R<Shape> {
+    if setback.abs() < 1e-12 {
+        return Ok(solid.clone());
+    }
+    let failed = || regen_error("SHEET_METAL_REBUILD_ERROR");
+    let tangent = edge.edge_tangent(0.5, true).map_err(occt_error)?;
+    let into = into_face(wall, tangent.origin, tangent.direction)?;
+    let origin = add(tangent.origin, scale(into, setback));
+    let bounds = solid.bounding_box(false).map_err(occt_error)?;
+    let far = norm(sub(bounds.max, bounds.min)) * 2.0 + 1e-3;
+    let cutter = occt::plane_face(occt::Frame { origin, normal: into, x: tangent.direction }, -far, far, -far, far)
+        .map_err(occt_error)?;
+    let split = occt::split(std::slice::from_ref(solid), &[cutter]).map_err(|_| failed())?.shape();
+    let pieces = split.sub_shapes(ShapeKind::Solid);
+    if pieces.len() < 2 {
+        return Ok(solid.clone());
+    }
+    // Keep what lies past the plane, away from the edge.
+    let kept: Vec<Shape> = pieces
+        .into_iter()
+        .filter(|p| {
+            p.bounding_box(false).is_ok_and(|b| {
+                let middle = scale(add(b.min, b.max), 0.5);
+                dot(sub(middle, origin), into) > 0.0
+            })
+        })
+        .collect();
+    match kept.as_slice() {
+        [one] => Ok(one.clone()),
+        [] => Err(failed()),
+        many => Ok(occt::compound(many)),
+    }
+}
+
 fn cut_rolled_back(wall: &Shape, bend: &Bend, toward: Vec3) -> R<Shape> {
     let failed = || regen_error("SHEET_METAL_REBUILD_ERROR");
     let Ok(s) = wall.surface_definition() else { return Ok(wall.clone()) };
@@ -2772,6 +2807,7 @@ fn build_part(
     for (w, wall) in def.faces.iter().enumerate() {
         let mut edges = Vec::new();
         let mut distances = Vec::new();
+        let mut rip_cuts: Vec<(Shape, f64)> = Vec::new();
         for edge in wall.shape.sub_shapes(ShapeKind::Edge) {
             if let Some(bend) = bends.iter().find(|b| b.edge.is_same(&edge)) {
                 edges.push(edge);
@@ -2793,6 +2829,7 @@ fn build_part(
                 } else {
                     rip_setback(&wall.shape, other, &edge, front, back, clearance)?
                 };
+                rip_cuts.push((edge.clone(), setback));
                 edges.push(edge);
                 distances.push(-setback);
             }
@@ -2862,8 +2899,15 @@ fn build_part(
             cut = break_corners(def, &wall.attributes, cut)?;
         }
         for face in cut.sub_shapes(ShapeKind::Face) {
-            let solid =
+            let mut solid =
                 occt::thicken(&face, front, back).map_err(|_| regen_error("SHEET_METAL_CANNOT_THICKEN"))?.shape();
+            // A rolled wall stops short of a rip as a flat one does, by a plane across its whole thickness, square
+            // to the wall at the rip's edge (batch 018 c013's rolled wall ripped from the flat ones beside it).
+            if !planar && !unfolded_rolled {
+                for (edge, setback) in &rip_cuts {
+                    solid = cut_off_at(&solid, &wall.shape, edge, *setback)?;
+                }
+            }
             let mut solid = place(solid, w)?;
             if !tools[w].is_empty() {
                 solid = occt::boolean(occt::BooleanKind::Subtraction, std::slice::from_ref(&solid), &tools[w], true)
