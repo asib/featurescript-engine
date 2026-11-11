@@ -351,13 +351,13 @@ impl Interp {
         match &function.kind {
             FunctionKind::Lambda { function, module, captured } => {
                 if function.params.len() != args.len() {
-                    return Err(error(format!("Function with {} argument(s) not found", args.len())));
+                    return Err(execution_error(format!("Function with {} argument(s) not found", args.len())));
                 }
                 for (param, arg) in function.params.iter().zip(&args) {
                     if let Some(ty) = &param.ty {
                         let test = self.resolve_type_in(*module, ty)?;
                         if !test.matches(arg) {
-                            return Err(error(format!(
+                            return Err(execution_error(format!(
                                 "Argument {} is {}, not {}",
                                 param.name.name,
                                 arg.type_description(),
@@ -389,7 +389,8 @@ impl Interp {
             }
         }
         match matching.len() {
-            0 => Err(error(format!("Function {name} with {} argument(s) not found", args.len()))),
+            // No overload taking the arguments: Onshape's is an execution error (batch 062 c003).
+            0 => Err(execution_error(format!("Function {name} with {} argument(s) not found", args.len()))),
             1 => Ok(matching[0].0.clone()),
             _ => {
                 // The most specific overload is at least as specific as every other one in every argument.
@@ -483,7 +484,7 @@ impl Interp {
                 return self.call_value(&value, args);
             }
         }
-        Err(error(format!("Function {} with {} argument(s) not found", path.name.name, args.len())))
+        Err(execution_error(format!("Function {} with {} argument(s) not found", path.name.name, args.len())))
     }
 
     pub fn call_builtin(&mut self, name: &str, args: Vec<Value>) -> R<Value> {

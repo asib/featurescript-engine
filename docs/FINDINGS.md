@@ -53,7 +53,9 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   in it is running ("Cannot get properties during feature regeneration in current context"), and won't start a
   feature whose id isn't under the running one ("Starting feature propertyRollbackId in scope of …"), which a
   computed property such as `computeMass` does. So the hole table and `computeMass` can't run in a Part Studio
-  feature. Caught, either error's message is just "Execution error". (Batch 011, c009, c014.)
+  feature. Caught, either error's message is just "Execution error". (Batch 011, c009, c014.) So is a call no
+  overload takes, at run time: batch 062 c003's boundary surface without `uReference`, for which std finds no
+  `createProfileConditions` taking its arguments.
 - **New Feature Studios** start with `FeatureScript 3112;` and `import(path : "onshape/std/common.fs", version :
   "3112.0");` (as of 2026-11-07, creating the fixture document).
 

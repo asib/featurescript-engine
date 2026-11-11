@@ -3,10 +3,11 @@
 
 use std::path::PathBuf;
 
-/// Cases the engine can't build as Onshape does yet (see docs/std-coverage.md): a boundary surface tangent to its
-/// profile, which the case leaves without `uReference` so std finds no `createProfileConditions` in either (c003);
-/// A circle across a bend cut in the flat (c006) is wrapped onto the bend as Onshape's.
-const KNOWN_GAPS: &[&str] = &["c003"];
+/// Cases the engine and Onshape don't agree on (see docs/std-coverage.md): none. A boundary surface tangent to its
+/// profile, which the case leaves without `uReference`, fails in both: std finds no `createProfileConditions` taking
+/// its arguments, an execution error (c003). A circle across a bend cut in the flat (c006) is wrapped onto the bend
+/// as Onshape's.
+const KNOWN_GAPS: &[&str] = &[];
 
 /// Boundary surfaces between arcs: Onshape rules between its own eight-span fits of the arcs, 0.003 mm² off the
 /// engine's exact arcs (c001, c002). The three-profile loft's knot across is 5e-5 from Onshape's, by a rule not
@@ -30,7 +31,7 @@ fn batch_062_matches_onshape() {
         let unexpected: Vec<String> = report
             .problems()
             .into_iter()
-            .filter(|p| !KNOWN_GAPS.iter().any(|case| p.starts_with(case)) && !p.starts_with("failed probe"))
+            .filter(|p| !KNOWN_GAPS.iter().any(|case| p.starts_with(case)))
             .collect();
         assert!(unexpected.is_empty(), "{report}");
         // Every probe line but the gaps' (the failed-cases line matches: c003 fails in both).
