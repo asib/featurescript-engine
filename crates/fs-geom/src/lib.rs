@@ -136,6 +136,15 @@ pub(crate) fn regen_error(message: &str) -> Flow {
     Flow::Throw(values::map(vec![("message", Value::string(message).with_tag(enum_tag))]))
 }
 
+/// A library error naming the definition's field at fault, as std's `regenError` with faulty parameters.
+pub(crate) fn faulty(message: &str, parameter: &str) -> Flow {
+    let enum_tag = fs_interp::types::find("ErrorStringEnum");
+    Flow::Throw(values::map(vec![
+        ("message", Value::string(message).with_tag(enum_tag)),
+        ("faultyParameters", Value::array(vec![Value::string(parameter)])),
+    ]))
+}
+
 pub(crate) fn occt_error(e: occt::Error) -> Flow {
     error(format!("geometry kernel: {e}"))
 }

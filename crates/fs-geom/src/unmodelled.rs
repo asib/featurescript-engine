@@ -47,6 +47,13 @@ pub fn register(m: &mut GeomBuiltins) {
     for name in ["getFeatureName", "getParameterToleranceInfo"] {
         m.insert(name, |_, _| Err(fs_interp::eval::execution_error("not available here")));
     }
+    // A tolerance schema's own problems (a Variable Studio's tolerance rules, which the engine has none of): every
+    // context has no rules (batch 105: a Part Studio's context and new ones).
+    m.insert("validateToleranceSchema", |_, _| {
+        let problem = crate::values::map(vec![("template", Value::string("TOLERANCE_SCHEMA_NO_RULES"))])
+            .with_tag(fs_interp::types::find("TemplateString"));
+        Ok(Value::array(vec![problem]))
+    });
     // A developer's report (std's note of a case it doesn't handle), and the ruled surface's bases for manipulators
     // after a failure: no effect on the model.
     m.insert("report", |_, _| Ok(Value::UNDEFINED));

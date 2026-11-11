@@ -20,6 +20,17 @@ pub fn register(m: &mut GeomBuiltins) {
         model_mut(&args, "evPointsDeviation", |model| points_deviation(&tags, model, &definition))
     });
     m.insert("evaluateSpline", |_, args| evaluate_spline(arg(&args, 0, "evaluateSpline")?));
+    // A mesh body's points: the engine makes no meshes (Onshape's are imported ones), so bodies and faces that
+    // aren't meshes find none, as Onshape's do (batch 105).
+    m.insert("evMeshPoints", |_, args| {
+        let meshes = arg(&args, 1, "evMeshPoints")?.get("meshes").cloned().unwrap_or(Value::UNDEFINED);
+        model_mut(&args, "evMeshPoints", |model| {
+            if crate::query::evaluate(model, &meshes)?.is_empty() {
+                return Err(crate::faulty("CANNOT_RESOLVE_ENTITIES", "meshes"));
+            }
+            Err(crate::regen_error("NO_MESH_FOUND"))
+        })
+    });
     m.insert("evApproximateBSplineSurface", |interp, args| {
         let tags = tags(interp)?;
         let definition = arg(&args, 1, "evApproximateBSplineSurface")?.clone();

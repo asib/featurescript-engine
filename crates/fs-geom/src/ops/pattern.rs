@@ -200,15 +200,6 @@ pub fn pattern(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
     Ok(Value::UNDEFINED)
 }
 
-/// A regeneration error naming the definition's field at fault, as std's `regenError` with faulty parameters.
-fn faulty(message: &str, parameter: &str) -> fs_interp::eval::Flow {
-    let tag = fs_interp::types::find("ErrorStringEnum");
-    fs_interp::eval::Flow::Throw(values::map(vec![
-        ("message", Value::string(message).with_tag(tag)),
-        ("faultyParameters", Value::array(vec![Value::string(parameter)])),
-    ]))
-}
-
 /// `@opBooleanedPattern` (internal in std): copies of the tool bodies by each transform, joined to (or cut from, or
 /// intersected with) the target body; the tools themselves stay (batch 102 c005). Its definition wants a target
 /// body, tool bodies and an operation type, asked for in that order.
@@ -220,16 +211,16 @@ pub fn booleaned_pattern(model: &mut Model, id: FeatureId, definition: &Value) -
         }
     };
     let targets = bodies(model, "targetBody")?;
-    let &[target] = targets.as_slice() else { return Err(faulty("CANNOT_RESOLVE_ENTITIES", "targetBody")) };
+    let &[target] = targets.as_slice() else { return Err(crate::faulty("CANNOT_RESOLVE_ENTITIES", "targetBody")) };
     let tools = bodies(model, "toolBodies")?;
     if tools.is_empty() {
-        return Err(faulty("CANNOT_RESOLVE_ENTITIES", "toolBodies"));
+        return Err(crate::faulty("CANNOT_RESOLVE_ENTITIES", "toolBodies"));
     }
     let kind = match field(definition, "operationType").as_str() {
         Some("UNION") => occt::BooleanKind::Union,
         Some("SUBTRACTION") => occt::BooleanKind::Subtraction,
         Some("INTERSECTION") => occt::BooleanKind::Intersection,
-        _ => return Err(faulty("INVALID_INPUT", "operationType")),
+        _ => return Err(crate::faulty("INVALID_INPUT", "operationType")),
     };
     let transforms = field(definition, "transforms").as_array().ok_or_else(|| error("transforms must be an array"))?.clone();
     let mut copies = Vec::new();
