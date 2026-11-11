@@ -286,7 +286,9 @@ pub fn surfaces_coincide(a: &Shape, b: &Shape, close: f64) -> bool {
                 for j in 1..8 {
                     let Ok(frame) = face.face_tangent_plane(i as f64 / 8.0, j as f64 / 8.0) else { continue };
                     let Ok(vertex) = occt::vertex(frame.origin) else { continue };
-                    if !vertex.distance(face).is_ok_and(|d| d.distance < 1e-9) {
+                    // On the face, within OCCT's precision: on a quintic fillet face its own points measure
+                    // farther than 1e-9 m from it (batch 113 c003).
+                    if !vertex.distance(face).is_ok_and(|d| d.distance < 1e-7) {
                         continue;
                     }
                     sampled += 1;
