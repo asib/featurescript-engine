@@ -710,7 +710,9 @@ pub fn register(m: &mut GeomBuiltins) {
                 }
                 let conic = model.shape(*r).curve_definition().map_err(occt_error)?;
                 match conic.kind {
-                    0 => Ok(tags.line(conic.frame.origin, conic.frame.normal)),
+                    // Where Onshape placed the line, if not at the edge's middle (a sketch line its initial guess
+                    // placed: at its start, batch 103).
+                    0 => Ok(tags.line(model.info(*r).line_origin.unwrap_or(conic.frame.origin), conic.frame.normal)),
                     1 => tags.tagged(
                         map(vec![
                             ("coordSystem", tags.coord_system(conic.frame)?),

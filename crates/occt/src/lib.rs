@@ -758,6 +758,11 @@ impl Shape {
         Ok(from_list(&list))
     }
 
+    /// Whether an edge starts and ends at one vertex: a whole circle's, a closed spline's.
+    pub fn is_closed_edge(&self) -> bool {
+        self.edge_end_vertices().is_ok_and(|v| v.len() == 2 && v[0].is_same(&v[1]))
+    }
+
     /// Whether this edge and `other`, meeting at `vertex`, continue smoothly through it.
     pub fn tangent_at(&self, other: &Shape, vertex: &Shape, angle_tolerance: f64) -> bool {
         ffi::edges_tangent_at(&self.0, &other.0, &vertex.0, angle_tolerance).unwrap_or(false)

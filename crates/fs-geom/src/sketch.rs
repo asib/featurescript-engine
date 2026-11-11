@@ -28,6 +28,16 @@ pub struct Sketch {
     plane: Frame,
     entities: RefCell<Vec<SketchEntity>>,
     constraints: RefCell<Vec<Value>>,
+    /// Its constraints' ids, each used once ("Duplicate id in sketch", batch 103 c003's first build).
+    constraint_ids: RefCell<Vec<Rc<str>>>,
+    /// Its entities' positions as Onshape's Part Studios write them (`skSetInitialGuess`): by entity id, an array of
+    /// numbers whose layout depends on the entity (see [`from_guess`]).
+    guess: RefCell<Option<Value>>,
+    /// The lines its guess placed: Onshape's line is placed at their start, not their middle (batch 103).
+    guessed_lines: RefCell<Vec<Rc<str>>>,
+    /// Made by a Part Studio's own code (its tab's module), not a Feature Studio's: a spline's handles are drawn
+    /// as construction lines from its ends rather than as points (batch 103 c006, c003).
+    in_part_studio: bool,
     solved: std::cell::Cell<bool>,
     /// Drawn in this sheet metal part's flat pattern (its plane is a flat face, `qCorrespondingInFlat`).
     flat_of: Option<crate::model::Tid>,
@@ -76,12 +86,34 @@ enum Geometry {
         parameters: Vec<f64>,
     },
     Bezier(Vec<P2>),
+    /// A B-spline as its poles, weights (empty if not rational), full knot vector and degree, over its knots'
+    /// whole domain; `periodic` if Onshape flags it so though its knots aren't (a closed `skSpline`'s, batch 104).
+    BSpline { poles: Vec<P2>, weights: Vec<f64>, knots: Vec<f64>, degree: usize, periodic: bool },
+    /// An entity added without its geometry, as a Part Studio's sketch adds them, to come from the sketch's initial
+    /// guess (batch 103).
+    Pending(Pending),
     Conic {
         start: P2,
         control: P2,
         end: P2,
         rho: f64,
     },
+}
+
+/// What a pending entity is, to read its initial guess as.
+#[derive(Clone, Copy, Debug)]
+enum Pending {
+    Point,
+    Line,
+    Circle,
+    Arc,
+    Bezier,
+    /// A spline through points (`skInterpolatedSpline`, closed; `skInterpolatedSplineSegment`, open), with handles
+    /// at its ends drawn in the sketch if `handles`.
+    Interpolated { closed: bool, handles: bool },
+    /// A spline by its poles and knots (`skSpline`, closed; `skSplineSegment`, open), as "Use" of a spline edge
+    /// makes them (batch 104).
+    Spline { closed: bool },
 }
 
 struct SketchEntity {
@@ -136,7 +168,7 @@ fn ids(base: &str, suffixes: &[(&str, &str)]) -> Value {
 }
 
 pub fn register(m: &mut GeomBuiltins) {
-    m.insert("newSketch", |_, args| {
+    m.insert("newSketch", |interp, args| {
         arg(&args, 0, "newSketch")?;
         let context = args[0].clone();
         let id = values::feature_id(arg(&args, 1, "newSketch")?, "@newSketch id")?;
@@ -155,6 +187,10 @@ pub fn register(m: &mut GeomBuiltins) {
             plane,
             entities: RefCell::new(Vec::new()),
             constraints: RefCell::new(Vec::new()),
+            constraint_ids: RefCell::new(Vec::new()),
+            guess: RefCell::new(None),
+            guessed_lines: RefCell::new(Vec::new()),
+            in_part_studio: interp.calling_module_kind() == Some(fs_interp::module::ModuleKind::PartStudio),
             solved: std::cell::Cell::new(false),
             flat_of,
         })))
@@ -164,11 +200,19 @@ pub fn register(m: &mut GeomBuiltins) {
         Ok(Value::bool(matches!(&v.kind, Kind::Builtin(n) if n.as_any().is::<Sketch>())))
     });
     m.insert("skPoint", |_, args| {
-        let id = add(&args, "skPoint", |v| Ok(Geometry::Point(point(v, "position", "skPoint position")?)))?;
+        let id = add(&args, "skPoint", |v| {
+            if unplaced(v, &["position"]) {
+                return Ok(Geometry::Pending(Pending::Point));
+            }
+            Ok(Geometry::Point(point(v, "position", "skPoint position")?))
+        })?;
         Ok(values::map(vec![("pointId", Value::string(id))]))
     });
     m.insert("skLineSegment", |_, args| {
         let id = add(&args, "skLineSegment", |v| {
+            if unplaced(v, &["start", "end"]) {
+                return Ok(Geometry::Pending(Pending::Line));
+            }
             Ok(Geometry::Line(point(v, "start", "skLineSegment start")?, point(v, "end", "skLineSegment end")?))
         })?;
         Ok(ids(&id, &[("startId", "start"), ("endId", "end")]))
@@ -299,6 +343,9 @@ pub fn register(m: &mut GeomBuiltins) {
     });
     m.insert("skCircle", |_, args| {
         let id = add(&args, "skCircle", |v| {
+            if unplaced(v, &["center", "radius"]) {
+                return Ok(Geometry::Pending(Pending::Circle));
+            }
             let center = point(v, "center", "skCircle center")?;
             let radius = values::length(field(v, "radius"), "skCircle radius")?;
             Ok(Geometry::Circle { center, radius })
@@ -307,6 +354,9 @@ pub fn register(m: &mut GeomBuiltins) {
     });
     m.insert("skArc", |_, args| {
         let id = add(&args, "skArc", |v| {
+            if unplaced(v, &["start", "mid", "end"]) {
+                return Ok(Geometry::Pending(Pending::Arc));
+            }
             Ok(Geometry::Arc {
                 start: point(v, "start", "skArc start")?,
                 mid: point(v, "mid", "skArc mid")?,
@@ -348,8 +398,19 @@ pub fn register(m: &mut GeomBuiltins) {
     // A Bézier comes with its control polygon, construction lines between its points, each a wire body as the
     // curve is (batch 071 c008: a curve made of the sketch's edges is closed by them).
     m.insert("skBezier", |_, args| {
-        let id = add(&args, "skBezier", |v| Ok(Geometry::Bezier(points(v, "points", "skBezier points")?)))?;
+        let id = add(&args, "skBezier", |v| {
+            if unplaced(v, &["points"]) {
+                return Ok(Geometry::Pending(Pending::Bezier));
+            }
+            Ok(Geometry::Bezier(points(v, "points", "skBezier points")?))
+        })?;
         let sketch = sketch_arg(&args, "skBezier")?;
+        // Its ends snap to its first and last control points, constraints of its own (a Part Studio's Bézier, given
+        // its points, then fails to add its own "<id>.startSnap": batch 103 c003's first build).
+        if !matches!(sketch.entities.borrow().last().map(|e| &e.geometry), Some(Geometry::Pending(_))) {
+            let mut ids = sketch.constraint_ids.borrow_mut();
+            ids.extend([format!("{id}.startSnap").into(), format!("{id}.endSnap").into()]);
+        }
         let poles = match sketch.entities.borrow().last().map(|e| &e.geometry) {
             Some(Geometry::Bezier(poles)) => poles.clone(),
             _ => Vec::new(),
@@ -374,8 +435,45 @@ pub fn register(m: &mut GeomBuiltins) {
         })?;
         Ok(ids(&id, &[("startId", "start"), ("endId", "end")]))
     });
+    // Splines through points, as a Part Studio's sketch adds them: their points (and an open one's end derivatives)
+    // come from the initial guess.
+    m.insert("skInterpolatedSpline", |_, args| {
+        add(&args, "skInterpolatedSpline", |_| {
+            Ok(Geometry::Pending(Pending::Interpolated { closed: true, handles: false }))
+        })?;
+        Ok(Value::UNDEFINED)
+    });
+    m.insert("skInterpolatedSplineSegment", |_, args| {
+        add(&args, "skInterpolatedSplineSegment", |v| {
+            let handles = field(v, ".hasHandlesInSketch").as_bool().unwrap_or(false);
+            Ok(Geometry::Pending(Pending::Interpolated { closed: false, handles }))
+        })?;
+        Ok(Value::UNDEFINED)
+    });
+    m.insert("skSpline", |_, args| {
+        add(&args, "skSpline", |_| Ok(Geometry::Pending(Pending::Spline { closed: true })))?;
+        Ok(Value::UNDEFINED)
+    });
+    m.insert("skSplineSegment", |_, args| {
+        add(&args, "skSplineSegment", |_| Ok(Geometry::Pending(Pending::Spline { closed: false })))?;
+        Ok(Value::UNDEFINED)
+    });
+    m.insert("skSetInitialGuess", |_, args| {
+        let sketch = sketch_arg(&args, "skSetInitialGuess")?;
+        let guess = arg(&args, 1, "skSetInitialGuess")?;
+        if guess.as_map().is_none() {
+            return Err(error("@skSetInitialGuess: the initial guess must be a map"));
+        }
+        *sketch.guess.borrow_mut() = Some(guess.clone());
+        Ok(Value::UNDEFINED)
+    });
     m.insert("skConstraint", |_, args| {
         let sketch = sketch_arg(&args, "skConstraint")?;
+        let id: Rc<str> = string(&args, 1, "skConstraint")?.into();
+        if sketch.constraint_ids.borrow().contains(&id) {
+            return Err(error(format!("@skConstraint: Duplicate id in sketch: {id}, sketch = ")));
+        }
+        sketch.constraint_ids.borrow_mut().push(id);
         sketch.constraints.borrow_mut().push(arg(&args, 2, "skConstraint")?.clone());
         Ok(Value::UNDEFINED)
     });
@@ -385,10 +483,155 @@ pub fn register(m: &mut GeomBuiltins) {
             return Err(error("@skSolve: the sketch has already been solved"));
         }
         tags(interp)?;
+        // An entity both placed by its own fields and given a guess fails the solve, which then adds nothing
+        // ("Solve for sketch fails", batch 103: a Bézier given points with Onshape's guess for it, even the same).
+        if !place_from_guess(sketch)? {
+            return Ok(Value::UNDEFINED);
+        }
         constraints::solve(&mut sketch.entities.borrow_mut(), &sketch.constraints.borrow())?;
         model_of(&sketch.context, "skSolve", |model| solve(model, sketch))?;
         Ok(Value::UNDEFINED)
     });
+}
+
+/// Whether a sketch call gives none of its entity's geometric fields (a Part Studio's sketch, whose geometry is in
+/// its initial guess).
+fn unplaced(value: &Value, keys: &[&str]) -> bool {
+    keys.iter().all(|k| field(value, k).is_undefined())
+}
+
+/// Places the sketch's pending entities from its initial guess. False if an entity placed by its own fields has a
+/// guess too: the solve fails.
+fn place_from_guess(sketch: &Sketch) -> R<bool> {
+    let guess = sketch.guess.borrow();
+    let mut entities = sketch.entities.borrow_mut();
+    let mut placed = Vec::with_capacity(entities.len());
+    for mut entity in entities.drain(..) {
+        let numbers = match guess.as_ref().map(|g| field(g, &entity.id)) {
+            Some(v) if !v.is_undefined() => values::numbers(v, "initial guess")?,
+            _ => {
+                placed.push(entity);
+                continue;
+            }
+        };
+        let Geometry::Pending(kind) = entity.geometry else { return Ok(false) };
+        let (geometry, extras) = from_guess(&entity.id, kind, &numbers, sketch.in_part_studio)?;
+        if matches!(geometry, Geometry::Line(..)) {
+            sketch.guessed_lines.borrow_mut().push(entity.id.clone());
+        }
+        entity.geometry = geometry;
+        // Its points and construction lines come before it, as Onshape lists their bodies (c003, c006).
+        placed.extend(extras);
+        placed.push(entity);
+    }
+    *entities = placed;
+    Ok(true)
+}
+
+/// An entity's geometry from its initial guess (batch 103: Onshape's "Show code" of a sketch drawn in its UI, and
+/// the curves its Part Studio built from it), and the points and construction lines that come with it:
+///
+/// - a point: x, y;
+/// - a line: its midpoint, unit direction, and start and end parameters along it (the half length either way);
+/// - a circle: its centre, x direction, radius and -1;
+/// - an arc: a circle's and its start and end angles from that x, counterclockwise;
+/// - a Bézier: 1, rational, periodic, its degree and its points' count, the points, its knot vector (clamped at 0
+///   and 1) and its parameter range; with each control point a construction point, and its control polygon;
+/// - a spline by its poles (batch 104): periodic, rational, its degree and its poles' count, the poles, its weights
+///   if rational, its full knot vector, and for an open one its parameter range (a closed one's knots are unclamped
+///   with its degree's multiplicity at 0 and 1, its first pole repeated last);
+/// - a spline through points: periodic, twice its points' count, the points (closed: nothing more), and for an open
+///   one its end derivatives along a [0, 1] parameter, its handles' points (the second and second-last poles of
+///   the cubic its centripetal parameters make with those derivatives) and its parameter range; with each point a
+///   point, and with handles drawn in the sketch, each handle: in a Part Studio's sketch a construction line from
+///   its end (c006), in a Feature Studio's a point (c003).
+fn from_guess(id: &Rc<str>, kind: Pending, g: &[f64], in_part_studio: bool) -> R<(Geometry, Vec<SketchEntity>)> {
+    let bad = || error(format!("@skSolve: the initial guess for {id:?} ({kind:?}) isn't one the engine reads: {g:?}"));
+    let at = |i: usize| g.get(i).copied().ok_or_else(bad);
+    let pt = |i: usize| -> R<P2> { Ok((at(i)?, at(i + 1)?)) };
+    let sub = |name: String, geometry: Geometry, construction: bool| SketchEntity { id: name.into(), geometry, construction };
+    let mut extras = Vec::new();
+    let geometry = match kind {
+        Pending::Point => Geometry::Point(pt(0)?),
+        Pending::Line => {
+            let (m, d, t0, t1) = (pt(0)?, pt(2)?, at(4)?, at(5)?);
+            Geometry::Line((m.0 + t0 * d.0, m.1 + t0 * d.1), (m.0 + t1 * d.0, m.1 + t1 * d.1))
+        }
+        Pending::Circle => Geometry::Circle { center: pt(0)?, radius: at(4)? },
+        Pending::Arc => {
+            let (c, x, r, a0, a1) = (pt(0)?, pt(2)?, at(4)?, at(6)?, at(7)?);
+            let y = (-x.1, x.0);
+            let on = |a: f64| (c.0 + r * (a.cos() * x.0 + a.sin() * y.0), c.1 + r * (a.cos() * x.1 + a.sin() * y.1));
+            Geometry::Arc { start: on(a0), mid: on((a0 + a1) / 2.0), end: on(a1) }
+        }
+        Pending::Bezier => {
+            let (rational, degree, count) = (at(1)? != 0.0, at(3)?, at(4)? as usize);
+            if rational || degree as usize + 1 != count {
+                return Err(bad());
+            }
+            let poles: Vec<P2> = (0..count).map(|k| pt(5 + 2 * k)).collect::<R<_>>()?;
+            for (k, p) in poles.iter().enumerate() {
+                extras.push(sub(format!("{id}.{k}.internal"), Geometry::Point(*p), true));
+            }
+            for (k, w) in poles.windows(2).enumerate() {
+                extras.push(sub(format!("{id}.polygon{k}"), Geometry::Line(w[0], w[1]), true));
+            }
+            Geometry::Bezier(poles)
+        }
+        Pending::Spline { closed } => {
+            let (rational, degree, count) = (at(1)? != 0.0, at(2)? as usize, at(3)? as usize);
+            if (at(0)? != 0.0) != closed || degree == 0 || count <= degree {
+                return Err(bad());
+            }
+            let poles: Vec<P2> = (0..count).map(|k| pt(4 + 2 * k)).collect::<R<_>>()?;
+            let mut next = 4 + 2 * count;
+            let weights: Vec<f64> = if rational {
+                next += count;
+                (0..count).map(|k| at(4 + 2 * count + k)).collect::<R<_>>()?
+            } else {
+                Vec::new()
+            };
+            let knots: Vec<f64> = (0..count + degree + 1).map(|k| at(next + k)).collect::<R<_>>()?;
+            next += count + degree + 1;
+            // An open one's parameter range is its knots' whole domain (the only one seen).
+            if !closed && (at(next)? - knots[degree]).abs() + (at(next + 1)? - knots[count]).abs() > 1e-12 {
+                return Err(bad());
+            }
+            Geometry::BSpline { poles, weights, knots, degree, periodic: closed }
+        }
+        Pending::Interpolated { closed, handles } => {
+            let count = at(1)? as usize / 2;
+            if count < 2 || (at(0)? != 0.0) != closed {
+                return Err(bad());
+            }
+            let mut points: Vec<P2> = (0..count).map(|k| pt(2 + 2 * k)).collect::<R<_>>()?;
+            for (k, p) in points.iter().enumerate() {
+                extras.push(sub(format!("{id}.{k}.internal"), Geometry::Point(*p), false));
+            }
+            let base = 2 + 2 * count;
+            let derivatives = if closed || g.len() < base + 8 {
+                (None, None)
+            } else {
+                if handles {
+                    let ends = [(0, points[0], pt(base + 4)?), (count - 1, points[count - 1], pt(base + 6)?)];
+                    for (k, end, handle) in ends {
+                        let name = format!("{id}.{k}.handle");
+                        extras.push(if in_part_studio {
+                            sub(name, Geometry::Line(end, handle), true)
+                        } else {
+                            sub(name, Geometry::Point(handle), false)
+                        });
+                    }
+                }
+                (Some(pt(base)?), Some(pt(base + 2)?))
+            };
+            if closed {
+                points.push(points[0]);
+            }
+            Geometry::FitSpline { points, derivatives, parameters: Vec::new() }
+        }
+    };
+    Ok((geometry, extras))
 }
 
 /// An ellipse's definition. `majorAxis` is a unit direction, or a point on the major axis.
@@ -448,6 +691,8 @@ fn solve(model: &mut Model, sketch: &Sketch) -> R<()> {
     // Each open curve's ends, start then end (an arc's counterclockwise about the normal, as Onshape has them).
     let mut ends: Vec<(Rc<str>, occt::Vec3, occt::Vec3)> = Vec::new();
     let mut points: Vec<(Rc<str>, occt::Vec3, bool)> = Vec::new();
+    // Curves Onshape flags periodic though OCCT's can't be (`Info::flagged_periodic`).
+    let mut flagged: Vec<Rc<str>> = Vec::new();
     for entity in sketch.entities.borrow().iter() {
         let edge = match &entity.geometry {
             Geometry::Point(p) => {
@@ -502,6 +747,16 @@ fn solve(model: &mut Model, sketch: &Sketch) -> R<()> {
                 let poles: Vec<occt::Vec3> = poles.iter().map(|p| world(*p)).collect();
                 occt::bezier_edge(&poles).map_err(occt_error)?
             }
+            Geometry::BSpline { poles, weights, knots, degree, periodic } => {
+                if *periodic {
+                    flagged.push(entity.id.clone());
+                }
+                let poles: Vec<occt::Vec3> = poles.iter().map(|p| world(*p)).collect();
+                occt::bspline_edge(&poles, weights, knots, *degree as i32, false).map_err(occt_error)?
+            }
+            Geometry::Pending(kind) => {
+                return Err(error(format!("@skSolve: sketch entity {:?} ({kind:?}) has no geometry and no initial guess", entity.id)));
+            }
             Geometry::Conic { start, control, end, rho } => {
                 let w = rho / (1.0 - rho);
                 occt::conic_edge(world(*start), world(*control), world(*end), w).map_err(occt_error)?
@@ -514,14 +769,23 @@ fn solve(model: &mut Model, sketch: &Sketch) -> R<()> {
     let none = Origins::default();
     // The curves' wire bodies come first, then the regions' sheets, as Onshape lists them (batch 091).
     let shapes: Vec<Shape> = edges.iter().filter(|(_, _, c)| !c).map(|(_, e, _)| e.clone()).collect();
-    // Curves: a wire body each; a construction curve's edge and vertices are construction.
-    for (id, edge, construction) in edges {
+    // Curves: a wire body each, closed curves' after the open ones' (batch 103 c003, c006); a construction curve's
+    // edge and vertices are construction.
+    let (open, closed): (Vec<_>, Vec<_>) = edges.into_iter().partition(|(_, e, _)| !e.is_closed_edge());
+    let guessed_lines = sketch.guessed_lines.borrow();
+    for (id, edge, construction) in open.into_iter().chain(closed) {
+        let line_origin = guessed_lines
+            .contains(&id)
+            .then(|| ends.iter().find(|(curve, _, _)| *curve == id).map(|(_, a, _)| *a))
+            .flatten();
         let info = Rc::new(Info {
             created_by: sketch.id.clone(),
             sketch_entity: Some(id.clone()),
             cap: None,
             dependency: None,
             construction,
+            line_origin,
+            flagged_periodic: flagged.contains(&id),
             ..Default::default()
         });
         let new = NewBody {
