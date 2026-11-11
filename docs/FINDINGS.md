@@ -738,7 +738,12 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   (`BSURF_INCONSISTENT_CONDITIONS_ERROR`, c005). Magnitudes other than 1 aren't the chord's parts scaled: where
   the chord lies along the normal the derivative is the magnitude times it, but elsewhere it falls short (magnitude
   2: 39.2309 where twice the chord's part is 40) and the other end moves to make up for it (c002, c006: 0.5 and
-  1.5 shift both ends by 0.3845, half of magnitude 2's 0.7691); no rule found.
+  1.5 shift both ends by 0.3845, half of magnitude 2's 0.7691); no rule found. Between two straight lines (batch
+  121) it is simple: each curve across is the cubic leaving a conditioned line with the magnitude times its
+  projected chord (10 and 40 at 0.5 and 2, whatever the second line's height), along a direction given the same
+  projection (onto the plane of the direction and the line), and reaching a free line along the chord itself, not
+  the quadratic's derivative; lines in one plane make a plane. So the free end between arcs depends on more than
+  the chord at that point.
 - **A survey of B-spline cases** (batch 065): a sweep twisted or scaled along a fit spline matches, within 1.0e-4
   (twisted) and 2.5e-4 (scaled) of the volume, a loft through copies of the profile carried along the path by the
   rotation-minimising frame, turned and grown in proportion to the path's parameter (by its length, the scaled
