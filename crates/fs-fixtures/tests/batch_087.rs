@@ -7,10 +7,8 @@ use std::path::PathBuf;
 /// Faces and edges come in an order of Onshape's own.
 const UNORDERED: &[&str] = &["c001", "c002", "c003", "c004", "c006"];
 
-/// Known gaps (docs/FINDINGS.md): the tab across the box's corner closes the corner's rip in Onshape (std's derip),
-/// where the engine finds no rip to close and leaves 0.02 mm slivers (c004, within 2e-6 of the volume); a sphere's
-/// principal directions, all alike there, are Onshape's own choice (c008).
-const KNOWN_GAPS: &[&str] = &["c004", "c008"];
+/// Known gap (docs/FINDINGS.md): a sphere's principal directions, all alike there, are Onshape's own choice (c008).
+const KNOWN_GAPS: &[&str] = &["c008"];
 
 #[test]
 fn batch_087_matches_onshape() {

@@ -990,16 +990,23 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   curves; a fillet's and a chamfer's edges as they run in their older faces' loops (anticlockwise about those
   faces' outward normals); an offset sheet's edges as the edges they're offset from. The engine records the way
   (`Info::sense`) and measures edges (`evEdgeTangentLines`, curvatures, `evLine`, `evPlanarEdge`) that way.
-- **A tab across a corner** (batch 087 c004): on a box converted with rips up its corners, a tab on the front wall
-  past the corner, subtracted from the right wall with 0.2 mm clearance, closes the corner's rip (std's derip:
-  its faces run on over the rip's 0.02 mm gap); the engine finds no rip to close (within 2e-6 of the volume).
-  Onshape's front wall keeps the gap up to the tab's own edges (z 5 and 15), the engine's only up to the right
-  wall's notch (z 4.8 and 15.2): there the corner's edge is one-sided in the engine's definition, and std drops a
-  one-sided edge's joint (`isEntityAppropriateForAttribute`), so it isn't a rip any more. In Onshape the derip
-  comes first (std's `subtractTab`: the tab's collisions with the part's rip faces pick the rip, `@opDerip`
-  closes it, then the subtraction and union); the engine ties no part face to a rip (its faces across the gap
-  stand a clearance off the rip's line, and rips are two-sided), so the collision finds nothing, and how
-  `@opDerip` reshapes the definition isn't known.
+- **A tab across a corner** (batch 087 c004, with 105): on a box converted with rips up its corners, a tab on the
+  front wall past the corner, subtracted from the right wall with 0.2 mm clearance, closes the corner's rip: std's
+  `subtractTab` finds the rip by the tab's collisions with the part's faces at it, derips it (`@opDerip`), then
+  subtracts and unites. The part's faces at a rip are the walls' ends across the thickness, and they carry the rip
+  edge's association though they stand back from its line (here 0.02 mm); the engine now associates them, so the
+  collision finds the rip and the tab matches Onshape's exactly.
+- **A derip** (batch 105): `@opDerip`, in a sheet metal feature only ("Deripping can only be performed in a sheet
+  metal scope"), is std's legacy derip (`createDeripOptions` with `@opEdgeChange`): each wall's side of the rip
+  edge is moved within its plane onto the wall's end in the part (its signed distance from the edge), so the rip
+  becomes a free edge on each wall, both still rips, and the bends beside it split, their short pieces one-sided
+  but still bends. Rebuilding the parts then fails (`SHEET_METAL_REBUILD_ERROR`): a derip prepares for the feature
+  that closes the gap. A conversion with a clearance tracks its bends through the offset surface it extracts (the
+  engine lost them, so every edge became a rip): an offset copy's faces come from the faces they lie the offset
+  from, its edges and vertices from those bounded by the same faces.
+- **The last builtins** (batch 105): `validateToleranceSchema` finds no rules in a Part Studio's context or a new
+  one (`TOLERANCE_SCHEMA_NO_RULES`, a `TemplateString`); `evMeshPoints` of bodies or faces that aren't meshes
+  fails `NO_MESH_FOUND`, of nothing `CANNOT_RESOLVE_ENTITIES` naming `meshes`.
 - **Help points and recognition refused** (batches 083 c001, 079 c005, 068 c003): a face blend given a help point
   where it has two solutions (a floor and a Π-shaped sheet's two walls; a floor through a cylinder lying along it,
   meeting it along two lines) fails,
@@ -1097,7 +1104,10 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   is always the normal crossed with a world axis (n × x, n × y or n × z, normalised), its greatest n × that; the same
   at the same normal whatever the sphere's centre and radius. Which axis isn't the smallest of the normal's
   components, nor what LAPACK's or Jacobi's eigen-solver gives for n nᵀ or I − n nᵀ, nor the parameter direction
-  whose curvature rounds smaller (that fitted batch 087's three points, not batch 099's 72): the kernel's own.
+  whose curvature rounds smaller (that fitted batch 087's three points, not batch 099's 72): the kernel's own. Nor
+  Eberly's orthogonal complement (n × y if |nₓ| > |n_y|, else n × x, with n × that): 60 of the 72 fit, but normals
+  ordered alike (|z| > |y| > |x|) take x at some points and y at others, so no rule on the components' order fits;
+  the choice looks like the kernel's rounding.
 - **Sketch text** (batch 091): Onshape draws the font's outlines as FreeType loads them unhinted at 100 pixels to
   the em, in 64ths of a pixel (font units × 6400 / units per em, rounded half away from zero; TrueType's implied
   points midway between those), the box's height 4608 of them (0.72 em), the baseline on the box's bottom, each
