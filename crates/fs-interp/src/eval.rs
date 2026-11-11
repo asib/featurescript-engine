@@ -159,6 +159,11 @@ impl Interp {
         None
     }
 
+    /// The kind of the innermost module on the call stack that isn't std's: whose code called std.
+    pub fn calling_module_kind(&self) -> Option<crate::module::ModuleKind> {
+        self.user_module.map(|m| self.modules.list[m].kind)
+    }
+
     fn lookup_name(&mut self, path: &ast::Path) -> R<Value> {
         if path.namespace.is_none()
             && let Some(value) = self.find_local(&path.name.name)
@@ -180,9 +185,16 @@ impl Interp {
                 Symbol::Type(_) => {}
             }
         }
-        // A named function can only be called: Onshape rejects using one as a value (batch 008's first build).
+        // A named function can only be called: Onshape rejects using one as a value (batch 008's first build; a
+        // namespace's too, batch 103 c007), except a Part Studio tab's (`Ui::build`, c004).
+        if !functions.is_empty()
+            && functions.iter().all(|f| self.modules.list[f.module].kind == crate::module::ModuleKind::PartStudio)
+        {
+            return Ok(Value::function(FunctionKind::Named { name: name.into(), candidates: Rc::new(functions) }));
+        }
+        // Caught, it is just "Execution error" (c007).
         if !functions.is_empty() {
-            return Err(error(format!("Cannot reference function {name} as a variable.")));
+            return Err(execution_error(format!("Cannot reference function {name} as a variable.")));
         }
         Err(error(format!("Variable {name} not found")))
     }
@@ -402,11 +414,12 @@ impl Interp {
         name: &str,
     ) -> R<Value> {
         let function = function.clone();
+        let from_part_studio = self.modules.list[self.module].kind == crate::module::ModuleKind::PartStudio;
         self.in_frame(module, captured, |this| {
             for (param, arg) in function.params.iter().zip(args) {
                 this.declare(&param.name.name, arg, false);
             }
-            if let Some(precondition) = &function.precondition {
+            if let Some(precondition) = function.precondition.as_ref().filter(|_| !from_part_studio) {
                 this.failed_predicate = None;
                 if !this.exec_predicate(precondition)? {
                     // Onshape fails with an "Execution error" (an importForeign given a plain string as its foreign

@@ -68,6 +68,7 @@ pub fn register_uploads(engine: &mut fs_interp::Engine, dir: &Path) -> Result<()
         };
         // A Part Studio's tab: the module standing for it. An uploaded file's: its BLOB_DATA, and the file.
         let source = if file.ends_with(".fs") {
+            engine.interp.modules.part_studios.insert(element.to_string());
             read(&dir.join(file))?
         } else {
             fs_geom::uploads::register(element, &dir.join(file));

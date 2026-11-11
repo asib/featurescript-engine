@@ -74,6 +74,11 @@ pub enum ModuleKind {
     Upload,
     /// The Feature Studio's own code.
     Studio,
+    /// A Part Studio's tab another Feature Studio imports: the FeatureScript Onshape writes for it (its "Show
+    /// code"). Its functions can be used as values (`Ui::build`, batch 103 c004; a Feature Studio's can't, c007),
+    /// and its calls don't check their functions' preconditions (its sketches call `skBezier` without the points
+    /// std's precondition wants, which a Feature Studio's call fails: c003's first builds).
+    PartStudio,
 }
 
 pub struct Module {
@@ -100,6 +105,8 @@ pub struct Modules {
     /// Modules standing for tabs that aren't Feature Studios (uploaded files, fixtures/blobs), by the element id
     /// an import's path gives: their source, where each `@BUILTIN@` is one of Onshape's opaque ids.
     pub uploads: HashMap<String, String>,
+    /// Which of `uploads` are Part Studios' tabs ([`ModuleKind::PartStudio`]).
+    pub part_studios: std::collections::HashSet<String>,
     /// The next opaque id's number: Onshape's print as `BuiltIn: 2` and on, in the order the imports load.
     next_builtin: u32,
 }
@@ -114,6 +121,7 @@ impl Modules {
             std_dir,
             operators: HashMap::new(),
             uploads: HashMap::new(),
+            part_studios: Default::default(),
             next_builtin: 2,
         }
     }
@@ -237,7 +245,11 @@ impl Modules {
             rest = &rest[at + "@BUILTIN@".len()..];
         }
         text.push_str(rest);
-        self.load_source(&name, &text)
+        let id = self.load_source(&name, &text)?;
+        if self.part_studios.contains(element) {
+            self.list[id].kind = ModuleKind::PartStudio;
+        }
+        Ok(id)
     }
 
     /// Everything a module exports: its own exported declarations and its `export import`s' exports.
