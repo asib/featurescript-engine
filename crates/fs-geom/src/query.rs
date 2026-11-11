@@ -85,7 +85,31 @@ pub fn flat_part(model: &Model, query: &Value) -> R<Option<crate::model::Tid>> {
 pub fn evaluate(model: &Model, query: &Value) -> R<Vec<EntityRef>> {
     let found = resolve(model, query)?;
     let mut seen = BTreeSet::new();
-    Ok(found.into_iter().filter(|r| seen.insert(*r)).collect())
+    let found = found.into_iter().filter(|r| seen.insert(*r)).collect();
+    disambiguate(model, query, found)
+}
+
+/// Narrows what a query found by its `disambiguationData` (Onshape's compressed queries, batch 103): a `TOPOLOGY`
+/// entry keeps the faces beside each of its edges on the side given, 1 for the left of the edge's direction seen
+/// from the face's normal and -1 for the right (c008: a rectangle's regions either side of a line across it).
+fn disambiguate(model: &Model, query: &Value, found: Vec<EntityRef>) -> R<Vec<EntityRef>> {
+    let Some(data) = field(query, "disambiguationData").as_array() else { return Ok(found) };
+    let mut found = found;
+    for entry in data.iter() {
+        if field(entry, "disambiguationType").as_str() != Some("TOPOLOGY") {
+            continue;
+        }
+        let Some(entities) = field(entry, "entities").as_array() else { continue };
+        for pair in entities.iter() {
+            let Some(pair) = pair.as_array() else { continue };
+            let (Some(edges), Some(side)) = (pair.first(), pair.get(1).and_then(Value::as_number)) else { continue };
+            let edges = evaluate(model, edges)?;
+            found.retain(|&face| {
+                face.kind == EntityType::Face && edges.iter().any(|&edge| topology::face_side(model, face, edge) == Some(side > 0.0))
+            });
+        }
+    }
+    Ok(found)
 }
 
 /// Leaves out sheet metal definition bodies, which only sheet metal features see, and the tools registered on
@@ -469,7 +493,7 @@ fn resolve(model: &Model, query: &Value) -> R<Vec<EntityRef>> {
         // A sketch entity's edges, vertices or bodies. The operation id is the sketch's id, perhaps with "wireOp"
         // (its edges) appended.
         "SKETCH_ENTITY" => {
-            let mut feature = values::feature_id(field(query, "operationId"), "sketch entity query")?.to_vec();
+            let mut feature = operation_id(query, "sketch entity query")?;
             if feature.last().is_some_and(|last| matches!(&**last, "wireOp" | "imprint")) {
                 feature.pop();
             }
@@ -485,8 +509,21 @@ fn resolve(model: &Model, query: &Value) -> R<Vec<EntityRef>> {
         }
         // A sketch's imprint: the region faces its sketch made. The query's operation id is the sketch's id plus
         // "imprint".
+        // What an operation made, as a compressed query names it (`DUMMY`, batch 103): the operation's id is its
+        // feature's with the kernel operation's name added (`Top.planeOp`), so a feature's own entities answer it.
+        "DUMMY" if field(query, "historyType").as_str() == Some("CREATION") => {
+            let operation = operation_id(query, "creation query")?;
+            let kind = entity_type(field(query, "entityType"))?;
+            let made = |feature: &[std::rc::Rc<str>]| -> Vec<EntityRef> {
+                visible(model, model.everything(kind)).into_iter().filter(|r| model.info(*r).is_created_by(feature)).collect()
+            };
+            match made(&operation) {
+                found if !found.is_empty() || operation.len() < 2 => found,
+                _ => made(&operation[..operation.len() - 1]),
+            }
+        }
         "IMPRINT" => {
-            let mut feature = values::feature_id(field(query, "operationId"), "imprint query")?.to_vec();
+            let mut feature = operation_id(query, "imprint query")?;
             if feature.last().is_some_and(|last| &**last == "imprint") {
                 feature.pop();
             }
@@ -818,4 +855,9 @@ fn sketch_regions(model: &Model, feature: &[std::rc::Rc<str>], filter_inner: boo
         })
         .map(|(_, r)| *r)
         .collect()
+}
+
+/// A query's `operationId`, each part split into the kernel operations a compressed query joins with `.`.
+fn operation_id(query: &Value, what: &str) -> R<Vec<std::rc::Rc<str>>> {
+    Ok(crate::compressed::operation_parts(&values::feature_id(field(query, "operationId"), what)?))
 }

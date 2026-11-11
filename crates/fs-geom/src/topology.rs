@@ -211,3 +211,33 @@ pub fn by_size(model: &Model, found: &[EntityRef], largest: bool) -> Vec<EntityR
         .map(|(r, _)| r)
         .collect()
 }
+
+/// Which side of an edge of its boundary a face lies on, seen from the face's normal (a sketch region's, the
+/// sketch's): `Some(true)` to the left of the edge's curve's own direction, `Some(false)` to the right, `None` if
+/// the edge doesn't bound the face.
+pub fn face_side(model: &Model, face: EntityRef, edge: EntityRef) -> Option<bool> {
+    let (f, e) = (model.shape(face), model.shape(edge));
+    if !f.sub_shapes(ShapeKind::Edge).iter().any(|s| s.is_same(e)) {
+        return None;
+    }
+    let at = e.edge_tangent(0.5, false).ok()?;
+    let tangent = if e.is_reversed() { values::scale(at.direction, -1.0) } else { at.direction };
+    let normal = match model.body(face).sketch_plane {
+        Some(plane) => plane.normal,
+        None => f.face_tangent_plane(0.5, 0.5).ok()?.normal,
+    };
+    let left = values::normalize(values::cross(normal, tangent))?;
+    let on_face = |offset: f64| {
+        occt::vertex(values::add(at.origin, values::scale(left, offset)))
+            .and_then(|v| v.distance(f))
+            .is_ok_and(|d| d.distance < 1e-9)
+    };
+    const STEP: f64 = 1e-6;
+    if on_face(STEP) {
+        Some(true)
+    } else if on_face(-STEP) {
+        Some(false)
+    } else {
+        None
+    }
+}

@@ -9,6 +9,7 @@
 
 pub mod attributes;
 pub mod bspline;
+pub mod compressed;
 pub mod curve_extend;
 pub mod evaluate;
 pub mod evaluate_more;
@@ -47,6 +48,7 @@ pub fn install(interp: &mut Interp) {
     interp.state.new_context_state = Some(|| Box::new(GeomState::default()));
     let mut builtins = GeomBuiltins::new();
     query::register(&mut builtins);
+    compressed::register(&mut builtins);
     sketch::register(&mut builtins);
     ops::register(&mut builtins);
     properties::register(&mut builtins);

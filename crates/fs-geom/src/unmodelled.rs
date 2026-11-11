@@ -44,7 +44,7 @@ pub fn register(m: &mut GeomBuiltins) {
     }
     // A feature's name and a parameter's tolerance only exist in tables, editing logic and manipulator changes, and
     // a compressed query is Onshape's own encoding: from a feature each fails (batch 102).
-    for name in ["getFeatureName", "getParameterToleranceInfo", "unpackQuery"] {
+    for name in ["getFeatureName", "getParameterToleranceInfo"] {
         m.insert(name, |_, _| Err(fs_interp::eval::execution_error("not available here")));
     }
     // A developer's report (std's note of a case it doesn't handle), and the ruled surface's bases for manipulators
