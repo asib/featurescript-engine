@@ -29,7 +29,7 @@ pub(crate) fn circles(profiles: &[Shape]) -> Vec<Circle> {
 
 /// The x axis Onshape gives an extruded cylinder or a revolved torus with z along `z`: y × z, y being the world's y
 /// axis square to z, or the world's x if z is along y.
-fn world_y_cross(z: Vec3) -> Option<Vec3> {
+pub(crate) fn world_y_cross(z: Vec3) -> Option<Vec3> {
     let world_y = Vec3 { x: 0.0, y: 1.0, z: 0.0 };
     let y = normalize(sub(world_y, scale(z, dot(world_y, z))))
         .filter(|_| crate::values::norm(cross(world_y, z)) > 1e-9)
@@ -148,8 +148,8 @@ pub(crate) fn revolved_fractions_at(face: &Shape, frame: Frame, p: Vec3) -> Opti
         return None;
     }
     // u starts at the world's y × z, as a torus's x lies (a cone's coordinate system has another x, but its
-    // parameter starts there too: batch 087 c010); a cylinder keeps OCCT's.
-    if !matches!(s.kind, 2 | 4) {
+    // parameter starts there too: batch 087 c010; a cylinder's too, its z back along an extrude: batch 101).
+    if !matches!(s.kind, 1 | 2 | 4) {
         return None;
     }
     let x = world_y_cross(frame.normal)?;
@@ -174,13 +174,14 @@ pub(crate) fn revolved_fractions_at(face: &Shape, frame: Frame, p: Vec3) -> Opti
     }
 }
 
-/// For a whole cone with Onshape's coordinate system `frame`, the face fractions OCCT's parameters give for fractions
+/// For a whole cone or cylinder with Onshape's coordinate system `frame`, the face fractions OCCT's parameters give for fractions
 /// of Onshape's (batch 087 c010): u round from the world's y × z towards z × that, v along Onshape's z (from the
 /// top of a revolved frustum, its z against the axis).
 pub(crate) fn cone_fractions(face: &Shape, frame: Frame) -> Option<impl Fn(f64, f64) -> (f64, f64)> {
     use std::f64::consts::TAU;
     let s = face.surface_definition().ok()?;
-    if s.kind != 2 {
+    // A whole cylinder's parameters run so too (batch 101: its z back along an extrude, u from -x).
+    if !matches!(s.kind, 1 | 2) {
         return None;
     }
     let ((u0, _), (u1, _)) = face.face_uv_bounds().ok()?;

@@ -877,7 +877,17 @@ pub fn register(m: &mut GeomBuiltins) {
                     let (u, v) = torus.as_ref().map_or((u, v), |map| map(u, v));
                     let (u, v) = cone.as_ref().map_or((u, v), |map| map(u, v));
                     let (u, v) = plane_to_occt(face, u, v).unwrap_or((u, v));
-                    let frame = face.face_tangent_plane(u, v).map_err(|_| regen_error("NO_TANGENT_PLANE"))?;
+                    let mut frame = face.face_tangent_plane(u, v).map_err(|_| regen_error("NO_TANGENT_PLANE"))?;
+                    // Its x along Onshape's u, round its z (a cylinder's runs against OCCT's, batch 101 c001).
+                    if (cone.is_some() || torus.is_some())
+                        && let Some(surface) = model.info(*r).surface_frame
+                    {
+                        let d = values::sub(frame.origin, surface.origin);
+                        let radial = values::sub(d, values::scale(surface.normal, values::dot(d, surface.normal)));
+                        if values::dot(frame.x, values::cross(surface.normal, radial)) < 0.0 {
+                            frame.x = values::scale(frame.x, -1.0);
+                        }
+                    }
                     planes.push(tags.plane(frame));
                 }
                 Ok(Value::array(planes))
