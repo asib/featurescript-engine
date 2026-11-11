@@ -123,6 +123,9 @@ pub struct Info {
     /// edges run from its end back to its start, a fillet's edges as their older faces' loops run). Edges without
     /// one run as the engine's shape does.
     pub sense: Option<(occt::Vec3, occt::Vec3)>,
+    /// For a B-spline edge, flagged periodic though its knots are clamped, which OCCT's curve can't be: std raises
+    /// a closed spline's degree so, and Onshape keeps the flag (batch 027 c005).
+    pub flagged_periodic: bool,
 }
 
 impl Info {

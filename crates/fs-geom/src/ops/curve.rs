@@ -136,7 +136,9 @@ pub fn bspline_curve(model: &mut Model, id: FeatureId, definition: &Value) -> R<
     let knots = values::numbers(field(curve, "knots"), "opCreateBSplineCurve knots")?;
     let periodic = field(curve, "isPeriodic").as_bool() == Some(true);
     let edge = occt::bspline_edge(&poles, &weights, &knots, degree, periodic).map_err(crate::occt_error)?;
-    add_wire(model, id, edge);
+    let flagged = periodic && !edge.edge_bspline(1e-7, false, false).is_ok_and(|d| d.periodic);
+    let info = std::rc::Rc::new(Info { flagged_periodic: flagged, ..(*Info::new(id)).clone() });
+    model.add_body(NewBody::new(edge, BodyType::Wire, info.clone()), &Origins::default(), &info, &|_| None);
     Ok(Value::UNDEFINED)
 }
 
@@ -165,7 +167,12 @@ pub fn edit_curve(model: &mut Model, id: FeatureId, definition: &Value) -> R<Val
     let old = model.bodies[b].clone();
     let mut origins = Origins::default();
     if let (Some(old_edge), Some(image)) = (old.edges.first(), wire.sub_shapes(occt::ShapeKind::Edge).first()) {
-        origins.inherit(image, old_edge);
+        // The new curve's periodic flag comes with it.
+        let mut carried = old_edge.clone();
+        if model.info(edge).flagged_periodic {
+            carried.info = std::rc::Rc::new(Info { flagged_periodic: true, ..(*carried.info).clone() });
+        }
+        origins.inherit(image, &carried);
     }
     // The old ends, in order along the old wire, become the new ones.
     let ends = |shape: &occt::Shape| -> Vec<occt::Shape> {

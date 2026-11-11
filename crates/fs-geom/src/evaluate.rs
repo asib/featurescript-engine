@@ -732,12 +732,20 @@ pub fn register(m: &mut GeomBuiltins) {
                     ) =>
                     {
                         let data = model.shape(*r).edge_bspline(1e-6, false, false).map_err(occt_error)?;
+                        let flagged = model.info(*r).flagged_periodic;
                         // A sketch's conic (one rational quadratic span) isn't a B-spline to std in Onshape: only
                         // the map (batch 070 c003).
                         if data.rational && data.degree == 2 && data.poles.len() == 3 {
                             return Ok(map(vec![("curveType", Value::string("OTHER"))]));
                         }
-                        crate::bspline::bspline_value(tags, &data)
+                        // Flagged periodic, its knots clamped: reported so, its poles as they are.
+                        let value = crate::bspline::bspline_value(tags, &data)?;
+                        if flagged && !data.periodic {
+                            let mut entries = value.as_map().map(|m| (**m).clone()).unwrap_or_default();
+                            entries.insert(Value::string("isPeriodic"), Value::bool(true));
+                            return Ok(Value::map(entries).with_tag(value.tag));
+                        }
+                        Ok(value)
                     }
                     // The rest: std only promises a map.
                     _ => Ok(map(vec![("curveType", Value::string("OTHER"))])),

@@ -3,10 +3,10 @@
 
 use std::path::PathBuf;
 
-/// Cases that differ (see docs/std-coverage.md): a closed spline raised in degree, which std hands back with clamped
-/// knots but flagged periodic and Onshape keeps so; OCCT can't, so the engine's is the same curve, not periodic
-/// (c005).
-const KNOWN_GAPS: &[&str] = &["c005 probe: c005.2 periodic"];
+/// Cases that differ (see docs/std-coverage.md): none. A closed spline raised in degree, which std hands back with
+/// clamped knots but flagged periodic, Onshape keeps so; OCCT's curve can't be, so the engine keeps the flag on the
+/// edge (c005).
+const KNOWN_GAPS: &[&str] = &[];
 
 #[test]
 fn batch_027_matches_onshape() {
@@ -16,6 +16,6 @@ fn batch_027_matches_onshape() {
         let unexpected: Vec<String> =
             report.problems().into_iter().filter(|p| !KNOWN_GAPS.iter().any(|gap| p.starts_with(gap))).collect();
         assert!(unexpected.is_empty(), "{report}");
-        assert_eq!(report.probes_matched, (8, 9), "{report}");
+        assert_eq!(report.probes_matched, (9, 9), "{report}");
     });
 }
