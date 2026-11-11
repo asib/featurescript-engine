@@ -25,4 +25,5 @@ function. The engine stands in for each with a FeatureScript module replaying it
 
 A Part Studio drawn by hand in the UI is a tab too: `Part Studio 2` (batch 103), a sketch of splines, a Bézier, a
 line, a circle, an arc and a point, and an extrude of two of its regions. ui-sketch.studio.fs is its FeatureScript
-exactly as its "Show code" gives it (right-click its tab), which the engine loads for it unchanged.
+exactly as its "Show code" gives it (right-click its tab), which the engine loads for it unchanged; `Part Studio 3`
+(batch 104), trimmed and used splines, is ui-sketch-2.studio.fs.

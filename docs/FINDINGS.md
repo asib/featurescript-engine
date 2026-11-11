@@ -1087,6 +1087,12 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   values (`Ui::build`); a Feature Studio's can't (`St::abs`, "Execution error"). An entity given both its fields
   and a guess fails the solve ("Solve for sketch fails"), which adds nothing; `skBezier` given points makes its own
   `<id>.startSnap` and `<id>.endSnap` constraints, so a second of either is a duplicate.
+- **Trimmed and used splines** (batch 104, fixtures/batch-104/README.md): a trimmed closed spline is written as a
+  spline through its trim points and the points left between, with end derivatives, and is that cubic though it
+  says `geometryIsPeriodic`. "Use" of a spline makes a spline by its poles (`skSplineSegment`, closed `skSpline`):
+  its guess holds periodic, rational, degree, count, poles, the full knot vector and (open) the parameter range; a
+  closed one's knots are unclamped with the degree's multiplicity at 0 and 1, its first pole repeated last, and
+  Onshape flags it periodic.
 - **A sphere's principal directions** (batch 099, with 087 c008): every direction is principal, and Onshape's least
   is always the normal crossed with a world axis (n × x, n × y or n × z, normalised), its greatest n × that; the same
   at the same normal whatever the sphere's centre and radius. Which axis isn't the smallest of the normal's

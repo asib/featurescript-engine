@@ -111,7 +111,7 @@ engine doesn't have. After batch 002, std calls 269 builtins; these are implemen
   `getAllVariablesAndDescriptions`.
 - imports of uploaded files' tabs (fixtures/blobs/uploads.txt): `BLOB_DATA` as Onshape's (batch 094).
 - sketches: `newSketch`, `skPoint`, `skLineSegment`, `skCircle`, `skArc`, `skImage` (its bounding construction
-  lines; batch 094), `skText` (Open Sans and Arimo Regular, as Onshape's font engine draws them; batches 091, 097), `skSolve`; `skSetInitialGuess`, `skInterpolatedSpline`, and `skInterpolatedSplineSegment`, and points, lines, circles, arcs and Béziers placed by an initial guess, as a Part Studio drawn in the UI writes them (batch 103); `skConstraint` constraints are
+  lines; batch 094), `skText` (Open Sans and Arimo Regular, as Onshape's font engine draws them; batches 091, 097), `skSolve`; `skSetInitialGuess`, `skInterpolatedSpline`, `skInterpolatedSplineSegment`, `skSpline` and `skSplineSegment`, and points, lines, circles, arcs and Béziers placed by an initial guess, as a Part Studio drawn in the UI writes them (batches 103, 104); `skConstraint` constraints are
   solved where the entities don't already meet them (fix, coincident, tangent, perpendicular, parallel,
   horizontal, vertical, distance; batch 029); others are ignored.
 - evaluations added: `evOffsetDetection` (planar walls; batch 031); `evPlanarEdge`, `evPlanarEdges`, `evRaycast`,

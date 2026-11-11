@@ -1,0 +1,57 @@
+{
+  "batch": "104",
+  "title": "a second Part Studio drawn in Onshape's UI: trimmed and used splines",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "studio",
+      "description": "the tab built: its sketch of a closed spline trimmed by a line across it, and the line: curves, vertices, regions and bodies",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "studio",
+      "description": "the tab built: its sketch of a point made by Use: curves, vertices, regions and bodies",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "studio",
+      "description": "the tab built: its sketch of a spline segment made by Use of the trimmed spline (skSplineSegment): curves, vertices, regions and bodies",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "studio",
+      "description": "the tab built: its sketch of a closed spline through four points: curves, vertices, regions and bodies",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "studio",
+      "description": "the tab built: its sketch of a closed spline made by Use of that one (skSpline): curves, vertices, regions and bodies",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    }
+  ]
+}
