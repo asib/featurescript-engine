@@ -264,6 +264,9 @@ pub fn extrude(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
                     (false, Ok(plane)) => sheet_faces_beside(&split.shape(), plane, &starts)?,
                     _ => pieces_touching(&split.shape(), &starts, kind),
                 };
+                // Where the sweep meets a curved bound, OCCT leaves the curve in pieces; Onshape's is one edge
+                // (batch 124 c003).
+                let kept: Vec<Shape> = kept.into_iter().map(|p| occt::edges_fused(&p).unwrap_or(p)).collect();
                 for piece in &kept {
                     for f in piece.sub_shapes(ShapeKind::Face) {
                         if f.distance(&cutter).is_ok_and(|d| d.distance < 1e-7) && on_surface(&f, &cutter) {

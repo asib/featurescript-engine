@@ -260,9 +260,11 @@ std::unique_ptr<Operation> prism(const Shape &profile, Vec3 v) {
 // Edges left on one ellipse (or another conic) that meet at a vertex nothing else uses, joined into one: the
 // same-domain unifier joins only lines and circles. A closed hem's corner sheet is one with the piece std adds at
 // its base (batch 021 c012), its end one edge as in Onshape.
-static TopoDS_Shape edges_fused(const TopoDS_Shape &shape, const Handle(BRepTools_History) &history) {
+// Edges between the same two faces meeting at a vertex only they share become one edge, B-splines too (an
+// intersection curve OCCT leaves in pieces is one edge in Parasolid, batch 124).
+TopoDS_Shape edges_fused(const TopoDS_Shape &shape, const Handle(BRepTools_History) &history) {
   BRepLib_FuseEdges fuser(shape, Standard_False);
-  fuser.SetConcatBSpl(Standard_False);
+  fuser.SetConcatBSpl(Standard_True);
   if (fuser.NbVertices() == 0) return shape;
   fuser.Perform();
   TopTools_DataMapOfIntegerListOfShape old_edges;
@@ -287,6 +289,12 @@ static TopoDS_Shape edges_fused(const TopoDS_Shape &shape, const Handle(BRepTool
     if (!it.Key().IsSame(it.Value())) fused->AddModified(it.Key(), it.Value());
   history->Merge(fused);
   return fuser.Shape();
+}
+
+// A shape with edges fused as edges_fused does.
+std::unique_ptr<Shape> shape_edges_fused(const Shape &s) {
+  Handle(BRepTools_History) history = new BRepTools_History;
+  return wrap(edges_fused(s.shape, history));
 }
 
 // kind: 0 union, 1 subtraction, 2 intersection. `unify` merges faces and edges left on the same surface or curve.

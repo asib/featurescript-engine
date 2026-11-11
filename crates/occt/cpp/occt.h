@@ -151,6 +151,7 @@ std::unique_ptr<Shape> offset_edge_on_planar_face(const Shape &edge, const Shape
 std::unique_ptr<ShapeList> sketch_regions(const ShapeList &edges, Frame f);
 std::unique_ptr<Operation> merge_faces(const ShapeList &faces);
 std::unique_ptr<Operation> merge_edges(const Shape &s);
+std::unique_ptr<Shape> shape_edges_fused(const Shape &s);
 std::unique_ptr<Operation> prism(const Shape &profile, Vec3 v);
 std::unique_ptr<Operation> boolean_op(int32_t kind, const ShapeList &objects, const ShapeList &tools, bool unify,
                                       double fuzzy);

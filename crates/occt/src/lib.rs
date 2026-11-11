@@ -247,6 +247,7 @@ mod ffi {
         fn sketch_regions(edges: &ShapeList, f: Frame) -> Result<UniquePtr<ShapeList>>;
         fn merge_faces(faces: &ShapeList) -> Result<UniquePtr<Operation>>;
         fn merge_edges(s: &Shape) -> Result<UniquePtr<Operation>>;
+        fn shape_edges_fused(s: &Shape) -> Result<UniquePtr<Shape>>;
         fn prism(profile: &Shape, v: Vec3) -> Result<UniquePtr<Operation>>;
         fn boolean_op(
             kind: i32,
@@ -1171,6 +1172,12 @@ pub fn merge_faces(faces: &[Shape]) -> Result<Operation> {
 /// left as they are.
 pub fn merge_edges(s: &Shape) -> Result<Operation> {
     Ok(Operation(ffi::merge_edges(&s.0)?))
+}
+
+/// A shape with the edges between the same two faces that meet at a vertex only they share made one, B-splines
+/// concatenated: an intersection curve OCCT leaves in pieces, as Parasolid's one edge.
+pub fn edges_fused(s: &Shape) -> Result<Shape> {
+    Ok(Shape::new(ffi::shape_edges_fused(&s.0)?))
 }
 
 /// Sweeps a profile along `v`.

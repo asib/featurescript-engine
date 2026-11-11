@@ -58,4 +58,5 @@ inline void check_done(const BRepBuilderAPI_MakeShape &maker, const char *what) 
 }
 
 }  // namespace detail
+TopoDS_Shape edges_fused(const TopoDS_Shape &shape, const Handle(BRepTools_History) &history);
 }  // namespace occt
