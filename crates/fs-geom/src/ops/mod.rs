@@ -467,7 +467,14 @@ fn transform_bodies(model: &mut Model, id: FeatureId, definition: &Value) -> R<V
         let body = model.bodies[b].clone();
         let op = occt::transform(&body.shape, &transform).map_err(occt_error)?;
         let origins = Origins::of_operation(&op, &[&body]);
-        replacements.push((op.shape(), body, origins));
+        // A mirrored sheet metal definition keeps its material on the mirrored side, as Onshape's does (a mirrored
+        // plate is the plate's mirror image, batch 107): its faces' normals are the old ones mirrored, which a
+        // reflection's surfaces, left-handed, have the other way round.
+        let m = &transform.m;
+        let det = m[0] * (m[5] * m[10] - m[6] * m[9]) - m[1] * (m[4] * m[10] - m[6] * m[8])
+            + m[2] * (m[4] * m[9] - m[5] * m[8]);
+        let shape = if det < 0.0 && body.is_sheet_metal_definition() { op.shape().reversed() } else { op.shape() };
+        replacements.push((shape, body, origins));
     }
     model.remove_bodies(&bodies);
     let default = Info::new(id);
