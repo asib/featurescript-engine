@@ -115,7 +115,7 @@ pub fn fillet(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> 
         let body = model.bodies[b].shape.clone();
         // Circles between a plane and a sphere about their axis: a torus revolved round it (OCCT's fillet breaks
         // where the sphere's seam meets the circle, batch 124 c004).
-        if let Some(op) = sphere_rim_fillet(&body, &edges, radius)? {
+        if let Some(op) = sphere_rim_blend(&body, &edges, RimBlend::Fillet(radius))? {
             results.push((b, op));
             continue;
         }
@@ -348,11 +348,20 @@ fn section_fillet(model: &mut Model, id: FeatureId, definition: &Value, section:
     Ok(Value::UNDEFINED)
 }
 
-/// A circular fillet of circles each between a plane and a sphere centred on the circle's axis: in the half plane
-/// through the axis, the arc tangent to the plane's line and the sphere's circle on the material's side of both
-/// (beyond them at a concave edge), its corner region closed off past the faces into the void, revolved round the
-/// axis and cut away (filled at a concave edge). None unless every edge is such a circle.
-fn sphere_rim_fillet(body: &Shape, edges: &[Shape], radius: f64) -> R<Option<occt::Operation>> {
+/// How a sphere's rim is blended: a circular fillet of this radius, or an equal chamfer this far from the edge
+/// along the plane and in a straight line on the sphere (batch 125 c005).
+#[derive(Clone, Copy)]
+enum RimBlend {
+    Fillet(f64),
+    Chamfer(f64),
+}
+
+/// A fillet or chamfer of circles each between a plane and a sphere centred on the circle's axis: in the half
+/// plane through the axis, the fillet's arc tangent to the plane's line and the sphere's circle on the material's
+/// side of both (beyond them at a concave edge), or the chamfer's line, its corner region closed off past the faces
+/// (into the void to cut, into the material to fill), revolved round the axis and cut away (filled at a concave
+/// edge). None unless every edge is such a circle with the plane's face outside it.
+fn sphere_rim_blend(body: &Shape, edges: &[Shape], blend: RimBlend) -> R<Option<occt::Operation>> {
     use crate::values::{add, cross, dot, norm, normalize, scale, sub};
     let failed = || regen_error("FILLET_FAILED");
     let mut cut = Vec::new();
@@ -395,20 +404,19 @@ fn sphere_rim_fillet(body: &Shape, edges: &[Shape], radius: f64) -> R<Option<occ
         let sphere_dir = normalize(sub(edge_point, sphere.frame.origin)).ok_or_else(failed)?;
         // Which side of the sphere holds material: from a point on its face a little way round from the circle,
         // just off it either way along its normal.
-        let sphere_point = {
-            let angle = probe / big_r;
-            let (er, eh) = (rho, -h_s);
-            let mut found = None;
-            for sign in [1.0, -1.0] {
-                let (c, sn) = (angle.cos(), sign * angle.sin());
-                let (r, h) = (er * c - eh * sn, er * sn + eh * c);
-                let point = at(r, h + h_s);
-                if occt::vertex(point).and_then(|v| v.distance(sphere_face)).is_ok_and(|d| d.distance < 1e-7) {
-                    found = Some(point);
-                }
-            }
-            found.ok_or_else(failed)?
+        // A point a turn `angle` round the sphere's circle from the edge, toward its face (`toward`).
+        let round = |angle: f64, sign: f64| {
+            let (c, sn) = (angle.cos(), sign * angle.sin());
+            (rho * c + h_s * sn, rho * sn - h_s * c + h_s)
         };
+        let toward = [1.0, -1.0]
+            .into_iter()
+            .find(|&sign| {
+                let (r, h) = round(probe / big_r, sign);
+                occt::vertex(at(r, h)).and_then(|v| v.distance(sphere_face)).is_ok_and(|d| d.distance < 1e-7)
+            })
+            .ok_or_else(failed)?;
+        let sphere_point = { let (r, h) = round(probe / big_r, toward); at(r, h) };
         let normal_there = normalize(sub(sphere_point, sphere.frame.origin)).ok_or_else(failed)?;
         let sphere_side = match (
             body.contains_point(add(sphere_point, scale(normal_there, probe))).unwrap_or(false),
@@ -425,25 +433,34 @@ fn sphere_rim_fillet(body: &Shape, edges: &[Shape], radius: f64) -> R<Option<occ
             !body.contains_point(p).unwrap_or(true)
         };
         let tau = if convex { 1.0 } else { -1.0 };
-        let qh = tau * plane_side * radius;
-        let reach = big_r + tau * sphere_side * radius;
-        let q2 = reach * reach - (qh - h_s) * (qh - h_s);
-        if q2 <= 0.0 || reach <= 0.0 {
-            return Err(failed());
-        }
-        let qr = q2.sqrt();
-        let centre = (qr, qh);
         let (sx, sh) = (0.0, h_s);
-        let d = ((centre.0 - sx).powi(2) + (centre.1 - sh).powi(2)).sqrt();
-        let tangent = (sx + big_r * (centre.0 - sx) / d, sh + big_r * (centre.1 - sh) / d);
-        let on_plane_pt = (qr, 0.0);
-        // The arc's middle, toward the corner from the centre.
-        let mid_dir = {
-            let (a, b) = ((on_plane_pt.0 - centre.0) + (tangent.0 - centre.0), (on_plane_pt.1 - centre.1) + (tangent.1 - centre.1));
-            let l = (a * a + b * b).sqrt();
-            (a / l, b / l)
+        // The section from its foot on the plane to its foot on the sphere, as (foot on plane, foot on sphere,
+        // a point between for an arc).
+        let (on_plane_pt, tangent, mid) = match blend {
+            RimBlend::Fillet(radius) => {
+                let qh = tau * plane_side * radius;
+                let reach = big_r + tau * sphere_side * radius;
+                let q2 = reach * reach - (qh - h_s) * (qh - h_s);
+                if q2 <= 0.0 || reach <= 0.0 {
+                    return Err(failed());
+                }
+                let qr = q2.sqrt();
+                let centre = (qr, qh);
+                let d = ((centre.0 - sx).powi(2) + (centre.1 - sh).powi(2)).sqrt();
+                let tangent = (sx + big_r * (centre.0 - sx) / d, sh + big_r * (centre.1 - sh) / d);
+                let on_plane_pt = (qr, 0.0);
+                let (a, b) = ((on_plane_pt.0 - centre.0) + (tangent.0 - centre.0), (on_plane_pt.1 - centre.1) + (tangent.1 - centre.1));
+                let l = (a * a + b * b).sqrt();
+                (on_plane_pt, tangent, Some((centre.0 + radius * a / l, centre.1 + radius * b / l)))
+            }
+            RimBlend::Chamfer(width) => {
+                if width >= 2.0 * big_r {
+                    return Err(failed());
+                }
+                ((rho + width, 0.0), round(2.0 * (width / (2.0 * big_r)).asin(), toward), None)
+            }
         };
-        let mid = (centre.0 + radius * mid_dir.0, centre.1 + radius * mid_dir.1);
+        let radius = match blend { RimBlend::Fillet(r) | RimBlend::Chamfer(r) => r };
         // Past the faces: into the void to cut (where cutting changes nothing), into the material to fill (where
         // filling changes nothing).
         let delta = 0.5 * radius;
@@ -455,11 +472,15 @@ fn sphere_rim_fillet(body: &Shape, edges: &[Shape], radius: f64) -> R<Option<occ
         };
         let t_out = sphere_void(tangent);
         let corner_out = { let (r, h) = sphere_void((rho, 0.0)); (r, h + void_h) };
-        let plane_out = (qr, void_h);
+        let plane_out = (on_plane_pt.0, void_h);
         let p = |(r, h): (f64, f64)| at(r, h);
         let line = |a, b| occt::line_edge(p(a), p(b)).map_err(crate::occt_error);
+        let section = match mid {
+            Some(mid) => occt::arc_through(p(on_plane_pt), p(mid), p(tangent)).map_err(crate::occt_error)?,
+            None => occt::line_edge(p(on_plane_pt), p(tangent)).map_err(crate::occt_error)?,
+        };
         let region = occt::fill_edges(&[
-            occt::arc_through(p(on_plane_pt), p(mid), p(tangent)).map_err(crate::occt_error)?,
+            section,
             line(tangent, t_out)?,
             line(t_out, corner_out)?,
             line(corner_out, plane_out)?,
@@ -729,6 +750,14 @@ pub fn chamfer(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
     let mut results = Vec::new();
     for (b, edges) in groups {
         let body = model.bodies[b].shape.clone();
+        // An equal chamfer of circles between a plane and a sphere about their axis: a cone revolved round it, as
+        // Onshape's (batch 125 c005; OCCT's is a B-spline).
+        if let occt::Chamfer::Equal(width) = kind
+            && let Some(op) = sphere_rim_blend(&body, &edges, RimBlend::Chamfer(width))?
+        {
+            results.push((b, op));
+            continue;
+        }
         let mut faces = Vec::new();
         for edge in &edges {
             // The first distance goes on the older of the edge's faces, by the oldest entity each came from (batch
