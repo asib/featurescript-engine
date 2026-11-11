@@ -1,5 +1,6 @@
 //! Builds a batch on the engine and lists the faces of a named part: surface type, area and a point inside each;
-//! then its volume (with FS_VERTICES set, each face's vertices too).
+//! then its volume (with FS_VERTICES set, each face's vertices too; with FS_EDGES, each face's edges: curve type,
+//! tolerance (with their vertices') and ends).
 //!
 //! Usage: FS_ONLY=c012 cargo run --release -p fs-fixtures --example part_faces -- <batch dir> <part name>
 
@@ -14,6 +15,18 @@ fn main() {
                 let area = face.area().unwrap_or(f64::NAN) * 1e6;
                 let p = face.face_inner_point().map(|p| [p.x * 1e3, p.y * 1e3, p.z * 1e3]).unwrap_or([f64::NAN; 3]);
                 println!("{kind:10} area {area:12.6} mm² at ({:.3}, {:.3}, {:.3})", p[0], p[1], p[2]);
+                if std::env::var("FS_EDGES").is_ok() {
+                    for e in face.sub_shapes(occt::ShapeKind::Edge) {
+                        let ends = [0.0, 1.0].map(|t| e.edge_tangent(t, false).map(|p| p.origin).ok());
+                        println!(
+                            "    edge {:?} tolerance {:.2e} from {:?} to {:?}",
+                            e.curve_type(),
+                            e.max_tolerance(),
+                            ends[0].map(|q| [q.x * 1e3, q.y * 1e3, q.z * 1e3]),
+                            ends[1].map(|q| [q.x * 1e3, q.y * 1e3, q.z * 1e3])
+                        );
+                    }
+                }
                 if std::env::var("FS_VERTICES").is_ok() {
                     for v in face.sub_shapes(occt::ShapeKind::Vertex) {
                         if let Ok(q) = v.vertex_point() {
