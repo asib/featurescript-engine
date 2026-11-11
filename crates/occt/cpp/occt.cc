@@ -498,6 +498,25 @@ Vec3 shape_centroid(const Shape &s) {
   return vec3(props.CentreOfMass().XYZ());
 }
 
+// A shape's measure of the given dimension (3 volume, 2 area, 1 length), centre of mass and matrix of inertia about
+// it in world axes (row by row): 13 numbers.
+rust::Vec<double> shape_mass_properties(const Shape &s, int32_t dimension) {
+  GProp_GProps props;
+  if (dimension == 3) BRepGProp::VolumeProperties(prepared_for_integration(s.shape), props, GPROP_EPS, Standard_True);
+  else if (dimension == 2) BRepGProp::SurfaceProperties(s.shape, props);
+  else BRepGProp::LinearProperties(s.shape, props);
+  rust::Vec<double> out;
+  out.push_back(props.Mass());
+  gp_Pnt c = props.CentreOfMass();
+  out.push_back(c.X());
+  out.push_back(c.Y());
+  out.push_back(c.Z());
+  gp_Mat m = props.MatrixOfInertia();
+  for (int i = 1; i <= 3; ++i)
+    for (int j = 1; j <= 3; ++j) out.push_back(m.Value(i, j));
+  return out;
+}
+
 // The principal moments of inertia about the centre of mass, smallest first.
 Vec3 shape_principal_moments(const Shape &s) {
   GProp_GProps props;

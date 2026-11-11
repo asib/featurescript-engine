@@ -191,6 +191,7 @@ double shape_area(const Shape &s);
 double shape_length(const Shape &s);
 Vec3 shape_centroid(const Shape &s);
 Vec3 shape_principal_moments(const Shape &s);
+rust::Vec<double> shape_mass_properties(const Shape &s, int32_t dimension);
 Vec3 vertex_point(const Shape &s);
 int32_t surface_type(const Shape &face);
 Frame face_plane(const Shape &face);

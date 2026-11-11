@@ -319,6 +319,7 @@ mod ffi {
         fn shape_length(s: &Shape) -> Result<f64>;
         fn shape_centroid(s: &Shape) -> Result<Vec3>;
         fn shape_principal_moments(s: &Shape) -> Result<Vec3>;
+        fn shape_mass_properties(s: &Shape, dimension: i32) -> Result<Vec<f64>>;
         fn vertex_point(s: &Shape) -> Result<Vec3>;
         fn surface_type(face: &Shape) -> Result<i32>;
         fn face_plane(face: &Shape) -> Result<Frame>;
@@ -604,6 +605,15 @@ impl Shape {
     /// for [`Shape::centroid`]).
     pub fn principal_moments(&self) -> Result<Vec3> {
         Ok(ffi::shape_principal_moments(&self.0)?)
+    }
+
+    /// The measure of the given dimension (3 volume, 2 area, 1 length), the centre of mass, and the matrix of
+    /// inertia about it in world axes, row by row (with unit density).
+    pub fn mass_properties(&self, dimension: i32) -> Result<(f64, Vec3, [f64; 9])> {
+        let v = ffi::shape_mass_properties(&self.0, dimension)?;
+        let mut m = [0.0; 9];
+        m.copy_from_slice(&v[4..13]);
+        Ok((v[0], Vec3::new(v[1], v[2], v[3]), m))
     }
 
     pub fn vertex_point(&self) -> Result<Vec3> {

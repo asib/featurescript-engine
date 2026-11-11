@@ -11,6 +11,7 @@ pub mod attributes;
 pub mod bspline;
 pub mod curve_extend;
 pub mod evaluate;
+pub mod evaluate_more;
 pub mod font;
 pub mod mate;
 pub mod model;
@@ -51,6 +52,7 @@ pub fn install(interp: &mut Interp) {
     properties::register(&mut builtins);
     attributes::register(&mut builtins);
     evaluate::register(&mut builtins);
+    evaluate_more::register(&mut builtins);
     bspline::register(&mut builtins);
     unmodelled::register(&mut builtins);
     pattern_stack::register(&mut builtins);
