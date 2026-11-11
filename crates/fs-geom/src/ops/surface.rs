@@ -1381,6 +1381,11 @@ fn conditioned_surface(profiles: &[Shape], ends: &[Option<EndCondition>; 2], rul
     let flipped = norm(sub(a0, b0)) + norm(sub(a1, b1)) > norm(sub(a0, b1)) + norm(sub(a1, b0));
     let fraction = |index: usize, f: f64| if index == 1 && flipped { 1.0 - f } else { f };
     let edge = |index: usize| if index == 0 { &first } else { &second };
+    // Between two straight profiles every curve across is the cubic leaving a conditioned profile with the magnitude
+    // times its projected chord, along a direction given or not, and reaching a free one along the chord itself
+    // (batch 121); between curved ones the free end is the quadratic's, and other magnitudes and directions follow
+    // rules not found.
+    let straight = [&first, &second].iter().all(|e| e.curve_type().ok() == Some(occt::CurveType::Line));
     // Each condition, checked: magnitude 1, and a direction given only square to it (`tangent`), where the profile
     // must lie square to the direction.
     let mut normals = [None, None];
@@ -1390,7 +1395,7 @@ fn conditioned_surface(profiles: &[Shape], ends: &[Option<EndCondition>; 2], rul
         let samples: Vec<f64> = (0..=16).map(|k| k as f64 / 16.0).collect();
         let points: Vec<occt::Vec3> = samples.iter().map(|&f| at(edge(index), f)).collect::<R<_>>()?;
         let in_plane = points.iter().all(|&p| dot(sub(p, points[0]), n).abs() < 1e-9);
-        if !in_plane {
+        if !in_plane && !straight {
             if !end.tangent {
                 return Err(error("@opBoundarySurface: end conditions along a direction aren't supported yet"));
             }
@@ -1402,14 +1407,23 @@ fn conditioned_surface(profiles: &[Shape], ends: &[Option<EndCondition>; 2], rul
             }
             return Err(error("@opBoundarySurface: end conditions square to a direction aren't supported yet"));
         }
-        if (end.magnitude - 1.0).abs() > 1e-12 {
+        if !straight && (end.magnitude - 1.0).abs() > 1e-12 {
             return Err(error("@opBoundarySurface: end conditions of magnitudes other than 1 aren't supported yet"));
         }
-        normals[index] = Some((n, end.tangent));
+        if end.tangent && !in_plane {
+            // Square to a direction given: the profile must lie square to it.
+            let square = samples.iter().all(|&f| {
+                edge(index).edge_tangent(f, false).is_ok_and(|t| dot(t.direction, n).abs() < 1e-9)
+            });
+            if !square {
+                return Err(regen_error("BSURF_INCONSISTENT_CONDITIONS_ERROR"));
+            }
+        }
+        normals[index] = Some((n, end.tangent, end.magnitude));
     }
     // The derivative leaving profile `index` at fraction `f`, the chord from the first profile to the second.
     let derivative = |index: usize, f: f64, chord: occt::Vec3| -> R<occt::Vec3> {
-        let (n, tangent) = normals[index].expect("a condition at this end");
+        let (n, tangent, magnitude) = normals[index].expect("a condition at this end");
         let along = edge(index).edge_tangent(fraction(index, f), false).map_err(occt_error)?.direction;
         let across = if tangent { Some(n) } else { normalize(cross(n, along)) };
         let across = across.ok_or_else(|| regen_error("CANNOT_MAKE_BSPLINESURFACE"))?;
@@ -1417,12 +1431,17 @@ fn conditioned_surface(profiles: &[Shape], ends: &[Option<EndCondition>; 2], rul
         if norm(d) <= 1e-6 * norm(chord).max(1e-9) {
             return Err(regen_error("CANNOT_MAKE_BSPLINESURFACE"));
         }
-        Ok(d)
+        Ok(scale(d, magnitude))
     };
-    let count = if ends.iter().all(Option::is_some) { 4 } else { 3 };
+    let count = if straight || ends.iter().all(Option::is_some) { 4 } else { 3 };
     let rows = |f: f64| -> R<Vec<occt::Vec3>> {
         let (p, q) = (at(&first, f)?, at(&second, fraction(1, f))?);
         let chord = sub(q, p);
+        if straight {
+            let d0 = if ends[0].is_some() { derivative(0, f, chord)? } else { chord };
+            let d1 = if ends[1].is_some() { derivative(1, f, chord)? } else { chord };
+            return Ok(vec![p, add(p, scale(d0, 1.0 / 3.0)), sub(q, scale(d1, 1.0 / 3.0)), q]);
+        }
         Ok(match (ends[0].is_some(), ends[1].is_some()) {
             (true, true) => {
                 let (d0, d1) = (derivative(0, f, chord)?, derivative(1, f, chord)?);
@@ -1439,6 +1458,8 @@ fn conditioned_surface(profiles: &[Shape], ends: &[Option<EndCondition>; 2], rul
         if count == 4 { (vec![0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0], 3) } else { (vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0], 2) };
     let face = occt::bspline_surface_face(&poles, (nu, count), &curves[0].knots, &knots_v, (curves[0].degree, degree_v))
         .map_err(|_| regen_error("BSURF_FAILED"))?;
+    // A flat one is a plane, as Onshape's is (batch 121 c001, c002: lines in a plane).
+    let face = occt::nurbs_converted(&face).map_err(occt_error)?;
     // Facing as the ruled surface between the profiles does.
     let facing = |s: &Shape| s.sub_shapes(ShapeKind::Face).first().and_then(|f| f.face_tangent_plane(0.5, 0.5).ok()).map(|t| t.normal);
     let face = match (facing(&face), facing(ruled)) {
