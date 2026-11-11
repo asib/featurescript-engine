@@ -411,7 +411,7 @@ const CURVATURE_KNOTS: [f64; 14] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5, 0.5, 1.0,
 /// (batches 055 c019, 063 c001–c003, 064 c001–c006, 113 c001–c009), and interpolated between (to within 1.2e-3 mm of
 /// Onshape's at every 0.0025 from the samples every 0.0025 before, so about a quarter of that now). Each passes
 /// through the shoulder, which interpolation keeps. At 60° and 120° corners the section differs (113 c010, c011:
-/// alike, 3e-3 mm off the right angle's at 0.99): those aren't sampled.
+/// alike, 3e-3 mm off the right angle's at 0.99): [`CURVATURE_SAMPLES_60`].
 const CURVATURE_SAMPLES: [(f64, f64, f64, f64); 19] = [
     (0.975, 0.058_756_3, 0.013_675_0, 0.000_073_0),
     (0.9775, 0.048_479_3, 0.013_766_3, 0.000_074_0),
@@ -434,16 +434,42 @@ const CURVATURE_SAMPLES: [(f64, f64, f64, f64); 19] = [
     (0.99875, 0.001_250_0, 0.001_364_5, -0.000_114_5),
 ];
 
-/// (α₂, α₃, β₃) at magnitude `m` from [`CURVATURE_SAMPLES`]: between samples, along the line between them; past the
-/// last (towards 1, where the section closes up on the corner), the last's shrunk with 1 − m (not sampled).
-fn sampled_curvature(m: f64) -> (f64, f64, f64) {
-    let last = CURVATURE_SAMPLES[CURVATURE_SAMPLES.len() - 1];
+/// The same at 60° and 120° corners (batches 114 c001–c019, 113 c010): past 0.975 the section depends on the corner's
+/// angle, through cos² (45° and 135° alike, batch 114 c020, c022), and from 0.99375 a 60° corner's is a right angle's.
+const CURVATURE_SAMPLES_60: [(f64, f64, f64, f64); 20] = [
+    (0.975, 0.062_625_4, 0.012_353_2, 0.000_105_2),
+    (0.97625, 0.057_534_6, 0.012_404_9, 0.000_083_7),
+    (0.9775, 0.052_443_8, 0.012_456_8, 0.000_062_0),
+    (0.97875, 0.047_352_9, 0.012_508_6, 0.000_040_5),
+    (0.98, 0.042_262_0, 0.012_380_1, 0.000_199_2),
+    (0.98125, 0.037_166_3, 0.012_157_5, 0.000_453_7),
+    (0.9825, 0.031_912_0, 0.011_688_4, 0.001_007_5),
+    (0.98375, 0.026_785_3, 0.010_833_3, 0.001_904_8),
+    (0.985, 0.022_565_1, 0.009_999_9, 0.002_478_3),
+    (0.98625, 0.019_542_1, 0.009_166_6, 0.002_652_7),
+    (0.9875, 0.017_242_5, 0.008_333_3, 0.002_585_8),
+    (0.98875, 0.014_925_4, 0.007_500_3, 0.002_525_0),
+    (0.99, 0.012_281_3, 0.006_647_3, 0.002_592_7),
+    (0.99125, 0.009_665_7, 0.005_839_7, 0.002_605_5),
+    (0.9925, 0.007_637_9, 0.005_081_1, 0.002_373_3),
+    (0.99375, 0.006_250_2, 0.004_321_1, 0.001_929_2),
+    (0.995, 0.005_000_3, 0.003_574_2, 0.001_426_2),
+    (0.99625, 0.003_750_3, 0.002_850_8, 0.000_899_5),
+    (0.9975, 0.002_500_3, 0.002_132_4, 0.000_367_8),
+    (0.99875, 0.001_250_2, 0.001_364_7, -0.000_114_5),
+];
+
+/// (α₂, α₃, β₃) at magnitude `m` from samples such as [`CURVATURE_SAMPLES`]: between samples, along the line between
+/// them; past the last (towards 1, where the section closes up on the corner), the last's shrunk with 1 − m (not
+/// sampled).
+fn sampled_curvature(samples: &[(f64, f64, f64, f64)], m: f64) -> (f64, f64, f64) {
+    let last = samples[samples.len() - 1];
     if m >= last.0 {
         let k = (1.0 - m) / (1.0 - last.0);
         return (last.1 * k, last.2 * k, last.3 * k);
     }
-    let i = CURVATURE_SAMPLES.iter().rposition(|s| s.0 <= m).unwrap_or(0);
-    let (a, b) = (CURVATURE_SAMPLES[i], CURVATURE_SAMPLES[i + 1]);
+    let i = samples.iter().rposition(|s| s.0 <= m).unwrap_or(0);
+    let (a, b) = (samples[i], samples[i + 1]);
     let f = (m - a.0) / (b.0 - a.0);
     let lerp = |x: f64, y: f64| x + (y - x) * f;
     (lerp(a.1, b.1), lerp(a.2, b.2), lerp(a.3, b.3))
@@ -462,12 +488,16 @@ fn curvature_coefficients(m: f64, cos: f64) -> R<Vec<(f64, f64)>> {
         if m >= 1.0 {
             return Err(error("@opFillet: a curvature fillet's magnitude must be under 1"));
         }
-        if cos.abs() > 1e-6 {
+        let samples: &[(f64, f64, f64, f64)] = if cos.abs() < 1e-6 {
+            &CURVATURE_SAMPLES
+        } else if (cos * cos - 0.25).abs() < 1e-6 {
+            &CURVATURE_SAMPLES_60
+        } else {
             return Err(error(
-                "@opFillet: curvature fillets of magnitude 0.975 and over at corners other than right angles aren't supported yet",
+                "@opFillet: curvature fillets of magnitude 0.975 and over at corners other than 60°, 90° and 120° aren't supported yet",
             ));
-        }
-        (alpha2, alpha, beta) = sampled_curvature(m);
+        };
+        (alpha2, alpha, beta) = sampled_curvature(samples, m);
     } else if alpha < beta {
         alpha2 = 4.066_789_2 - 4.110_802_4 * m;
         beta = 0.017_222_28 - 0.017_589_06 * m;
