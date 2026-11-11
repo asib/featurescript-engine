@@ -115,7 +115,7 @@ engine doesn't have. After batch 002, std calls 269 builtins; these are implemen
   solved where the entities don't already meet them (fix, coincident, tangent, perpendicular, parallel,
   horizontal, vertical, distance; batch 029); others are ignored.
 - evaluations added: `evOffsetDetection` (planar walls; batch 031); `evPlanarEdge`, `evPlanarEdges`, `evRaycast`,
-  `evFaceCurvatures`, `evFilletRadius` (batch 086); `evaluateSpline`, `evApproximateMassProperties`,
+  `evFaceCurvatures` (a sphere's directions by Onshape's weighed world axes, batches 099, 109, 110), `evFilletRadius` (batch 086); `evaluateSpline`, `evApproximateMassProperties`,
   `evPointsDeviation`, `evFaults`, `evFaceCurvatureDerivatives`, `evApproximateBSplineSurface` (whole cylinders
   exactly, other faces OCCT's conversion), `parseJson`; `evTolerances` and `evMaxTolerance` refused as Onshape does
   (batches 100, 101); `getFeatureName` and `getParameterToleranceInfo`

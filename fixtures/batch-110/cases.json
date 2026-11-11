@@ -1,0 +1,37 @@
+{
+  "batch": "110",
+  "title": "where a sphere's principal directions switch axis",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "sphere",
+      "description": "normals crossing the y–z boundary (|z| / |y| from 0.90 to 1.10, |x| 0.2): each one's axis",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "sphere",
+      "description": "normals crossing the x–y boundary (|y| / |x| from 0.90 to 1.10, |z| 0.2): each one's axis",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "sphere",
+      "description": "normals crossing the x–z boundary (|z| / |x| from 0.90 to 1.10, |y| 0.2): each one's axis",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    }
+  ]
+}

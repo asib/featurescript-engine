@@ -1119,14 +1119,15 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   `qWithinRadius` find what touches the line or the ball (a line along an edge finds the edges and faces at its
   vertices too; radius 0 what passes through the point); `qCoEdge` and `qSourceMesh` evaluate to nothing; `qAxis`
   finds lines on the axis, circles about it and cylinders, cones, tori and revolved faces about it, either way along.
-- **A sphere's principal directions** (batch 099, with 087 c008): every direction is principal, and Onshape's least
-  is always the normal crossed with a world axis (n × x, n × y or n × z, normalised), its greatest n × that; the same
-  at the same normal whatever the sphere's centre and radius. Which axis isn't the smallest of the normal's
-  components, nor what LAPACK's or Jacobi's eigen-solver gives for n nᵀ or I − n nᵀ, nor the parameter direction
-  whose curvature rounds smaller (that fitted batch 087's three points, not batch 099's 72): the kernel's own. Nor
-  Eberly's orthogonal complement (n × y if |nₓ| > |n_y|, else n × x, with n × that): 60 of the 72 fit, but normals
-  ordered alike (|z| > |y| > |x|) take x at some points and y at others, so no rule on the components' order fits;
-  the choice looks like the kernel's rounding.
+- **A sphere's principal directions** (batches 099, 109, 110, with 087 c008): every direction is principal, and
+  Onshape's least is the normal crossed with the world axis cyclically before the normal's largest component (x's
+  largest: z; y's: x; z's: y), the components weighed 1, about 1.035 and about 0.952 (batch 110: y wins against x
+  from 0.96–0.97 of x, z against x past 1.05–1.06 of x and against y past 1.08–1.09 of y, for every sign and the
+  third component 0.2); its greatest is the normal × that. It depends on the normal alone: the same at the same
+  normal whatever the sphere's centre, radius or turn (batch 109: 48 normals on a sphere as made and turned two
+  ways), so not on the sphere's parameters. Eberly's orthogonal complement and LAPACK's, Numerical Recipes' and
+  Jacobi's eigen-solvers of n nᵀ or I − n nᵀ fit at most 64 of 120 points; this fits all. A revolved sphere's
+  parameters run as a torus's: round its z, which is against the revolve's axis (099 c003).
 - **Sketch text** (batch 091): Onshape draws the font's outlines as FreeType loads them unhinted at 100 pixels to
   the em, in 64ths of a pixel (font units × 6400 / units per em, rounded half away from zero; TrueType's implied
   points midway between those), the box's height 4608 of them (0.72 em), the baseline on the box's bottom, each

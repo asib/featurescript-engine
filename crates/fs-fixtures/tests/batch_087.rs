@@ -7,8 +7,8 @@ use std::path::PathBuf;
 /// Faces and edges come in an order of Onshape's own.
 const UNORDERED: &[&str] = &["c001", "c002", "c003", "c004", "c006"];
 
-/// Known gap (docs/FINDINGS.md): a sphere's principal directions, all alike there, are Onshape's own choice (c008).
-const KNOWN_GAPS: &[&str] = &["c008"];
+/// Cases that differ (see docs/std-coverage.md): none.
+const KNOWN_GAPS: &[&str] = &[];
 
 #[test]
 fn batch_087_matches_onshape() {
