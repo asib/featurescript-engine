@@ -381,6 +381,46 @@ fn resolve(model: &Model, query: &Value) -> R<Vec<EntityRef>> {
         "LOOP_BOUNDED_FACES" => crate::selection::loop_bounded_faces(model, &sub(model, query, "subquery")?),
         "FACE_OR_EDGE_BOUNDED_FACES" => crate::selection::bounded_faces(model, &sub(model, query, "subquery")?),
         "PATTERN" => crate::selection::matching(model, &sub(model, query, "subquery")?),
+        // Edges and vertices whose tolerance exceeds a threshold: Onshape's are its kernel's precision, 1e-8 m, past
+        // 1e-9 m but within 1e-5 m (batch 106: a block's and a filleted block's).
+        "TOLERANCE_FILTER" => {
+            const PRECISION: f64 = 1e-8;
+            let threshold = field(query, "threshold").as_number().unwrap_or(0.0);
+            sub(model, query, "subquery")?
+                .into_iter()
+                .filter(|r| matches!(r.kind, EntityType::Edge | EntityType::Vertex) && PRECISION > threshold)
+                .collect()
+        }
+        // A coedge is for generated code's constraints, not to evaluate, and Onshape's evaluates to nothing; there are no
+        // meshes to be the source of anything (batch 106).
+        "COEDGE" | "SOURCE_MESH" => Vec::new(),
+        // Vertices at one point once: the earliest made (batch 106).
+        "UNIQUE_VERTICES" => unique_vertices(model, sub(model, query, "subquery")?),
+        // What touches an infinite line, or lies within a radius of a point (batch 106).
+        "INTERSECTS_LINE" => {
+            let line = field(query, "line");
+            let origin = values::vec3(field(line, "origin"), "qIntersectsLine origin")?;
+            let direction = values::normalize(values::vec3(field(line, "direction"), "qIntersectsLine direction")?)
+                .ok_or_else(|| error("qIntersectsLine: zero direction"))?;
+            touching_line(model, sub(model, query, "subquery")?, origin, direction)
+        }
+        "INTERSECTS_BALL" => {
+            let point = values::vec3(field(query, "point"), "qWithinRadius point")?;
+            let radius = field(query, "radius").as_number().ok_or_else(|| error("qWithinRadius: radius must be a length"))?;
+            let probe = occt::vertex(point).map_err(crate::occt_error)?;
+            sub(model, query, "subquery")?
+                .into_iter()
+                .filter(|r| model.shape(*r).distance(&probe).is_ok_and(|d| d.distance <= radius + CONTAINS_TOLERANCE))
+                .collect()
+        }
+        // Edges and faces symmetric about an axis, either way along it (batch 106).
+        "AXIS" => {
+            let axis = field(query, "axis");
+            let origin = values::vec3(field(axis, "origin"), "qAxis origin")?;
+            let direction = values::normalize(values::vec3(field(axis, "direction"), "qAxis direction")?)
+                .ok_or_else(|| error("qAxis: zero direction"))?;
+            about_axis(model, sub(model, query, "subquery")?, origin, direction)
+        }
         "PLANE_NORMAL" => {
             let normal = values::vec3(field(query, "normal"), "qParallelPlanes normal")?;
             let antiparallel = field(query, "allowAntiparallel").as_bool() != Some(false);
@@ -860,4 +900,68 @@ fn sketch_regions(model: &Model, feature: &[std::rc::Rc<str>], filter_inner: boo
 /// A query's `operationId`, each part split into the kernel operations a compressed query joins with `.`.
 fn operation_id(query: &Value, what: &str) -> R<Vec<std::rc::Rc<str>>> {
     Ok(crate::compressed::operation_parts(&values::feature_id(field(query, "operationId"), what)?))
+}
+
+/// Vertices at one point once, the earliest made of them kept (Onshape's "lowest deterministic id"), in the order
+/// they were found.
+fn unique_vertices(model: &Model, found: Vec<EntityRef>) -> Vec<EntityRef> {
+    let point = |r: &EntityRef| model.shape(*r).vertex_point().ok();
+    let mut out: Vec<EntityRef> = Vec::new();
+    for r in found.into_iter().filter(|r| r.kind == EntityType::Vertex) {
+        let Some(p) = point(&r) else { continue };
+        match out.iter().position(|o| point(o).is_some_and(|q| values::norm(values::sub(p, q)) < CONTAINS_TOLERANCE)) {
+            Some(i) if model.tid(r) < model.tid(out[i]) => out[i] = r,
+            Some(_) => {}
+            None => out.push(r),
+        }
+    }
+    out
+}
+
+/// What touches the infinite line through `origin` along unit `direction`.
+fn touching_line(model: &Model, found: Vec<EntityRef>, origin: occt::Vec3, direction: occt::Vec3) -> Vec<EntityRef> {
+    // A segment longer than anything in the model stands in for the line.
+    const REACH: f64 = 1e4;
+    let Ok(line) = occt::line_edge(
+        values::sub(origin, values::scale(direction, REACH)),
+        values::add(origin, values::scale(direction, REACH)),
+    ) else {
+        return Vec::new();
+    };
+    found
+        .into_iter()
+        .filter(|r| model.shape(*r).distance(&line).is_ok_and(|d| d.distance <= CONTAINS_TOLERANCE))
+        .collect()
+}
+
+/// Edges and faces whose axis is the line through `origin` along unit `direction`: lines on it, circles and arcs
+/// about it, and cylinders, cones, tori and revolved faces about it.
+fn about_axis(model: &Model, found: Vec<EntityRef>, origin: occt::Vec3, direction: occt::Vec3) -> Vec<EntityRef> {
+    let on_line = |p: occt::Vec3| {
+        let d = values::sub(p, origin);
+        values::norm(values::sub(d, values::scale(direction, values::dot(d, direction)))) < CONTAINS_TOLERANCE
+    };
+    found
+        .into_iter()
+        .filter(|r| {
+            let shape = model.shape(*r);
+            let symmetric = match r.kind {
+                EntityType::Edge => {
+                    matches!(shape.curve_type(), Ok(occt::CurveType::Line | occt::CurveType::Circle))
+                }
+                EntityType::Face => matches!(
+                    shape.surface_type(),
+                    Ok(occt::SurfaceType::Cylinder
+                        | occt::SurfaceType::Cone
+                        | occt::SurfaceType::Torus
+                        | occt::SurfaceType::Revolution)
+                ),
+                _ => false,
+            };
+            symmetric
+                && shape.axis().is_ok_and(|a| {
+                    values::norm(values::cross(a.direction, direction)) < 1e-9 && on_line(a.origin)
+                })
+        })
+        .collect()
 }
