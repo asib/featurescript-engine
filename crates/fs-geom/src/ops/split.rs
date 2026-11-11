@@ -77,6 +77,15 @@ pub fn split_part(model: &mut Model, id: FeatureId, definition: &Value) -> R<Val
         let body = model.bodies[t].clone();
         let op = occt::split(std::slice::from_ref(&body.shape), &tools).map_err(occt_error)?;
         let origins = std::rc::Rc::new(Origins::of_operation(&op, &[&body]));
+        // The pieces of faces the tool cut in two: `qSplitBy` finds them by side (std drafts each half of a
+        // symmetric extrude's sides so, batch 126 c008).
+        let cut_faces: Vec<Shape> = body
+            .faces
+            .iter()
+            .map(|f| op.modified(&f.shape))
+            .filter(|images| images.len() >= 2)
+            .flatten()
+            .collect();
         let kind = match body.body_type {
             crate::model::BodyType::Solid => ShapeKind::Solid,
             crate::model::BodyType::Sheet => ShapeKind::Face,
@@ -97,17 +106,22 @@ pub fn split_part(model: &mut Model, id: FeatureId, definition: &Value) -> R<Val
             }
             let tid = first.then_some(body.tid);
             first = false;
-            results.push((NewBody { tid, ..NewBody::replacing(&body, piece) }, origins.clone(), back));
+            results.push((NewBody { tid, ..NewBody::replacing(&body, piece) }, origins.clone(), back, cut_faces.clone()));
         }
     }
     let mut remove = targets.clone();
     remove.extend(delete_tools);
     model.remove_bodies(&remove);
     let mut sides = Vec::new();
-    for (new, origins, back) in results {
+    for (new, origins, back, cut_faces) in results {
         let b = model.add_body(new, &origins, &default, &|_| None);
         if let Some(back) = back {
             sides.push((default.created_by.clone(), model.bodies[b].tid, back));
+            for face in &model.bodies[b].faces {
+                if cut_faces.iter().any(|c| c.is_same(&face.shape)) {
+                    sides.push((default.created_by.clone(), face.tid, back));
+                }
+            }
         }
     }
     std::rc::Rc::make_mut(&mut model.splits).extend(sides);
