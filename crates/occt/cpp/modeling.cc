@@ -62,6 +62,7 @@
 #include <BRepBuilderAPI_Sewing.hxx>
 #include <BRepLib.hxx>
 #include <BRepCheck_Analyzer.hxx>
+#include <Standard_Failure.hxx>
 #include <BRepLProp_CLProps.hxx>
 #include <BRepBuilderAPI_FindPlane.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
@@ -452,17 +453,54 @@ TopoDS_Shape planar_cavity(const TopoDS_Shape &solid, const TopTools_ListOfShape
 // Where OCCT's thick solid comes out invalid (vertices where four planes meet, as two chamfers do at a block's
 // corner, batch 122 c008), an all-planar solid shelled inwards is cut by its cavity built plane by plane.
 std::unique_ptr<Operation> shell_op(const Shape &solid, const ShapeList &faces, double thickness) {
+  // On a copy: a thick solid that fails can leave the solid it was given damaged (its edges' tolerances and curves
+  // changed in place), and the fallbacks below need it whole (batch 125 c007).
+  BRepBuilderAPI_Copy copier(solid.shape, Standard_True);
+  const TopoDS_Shape copy = copier.Shape();
+  TopTools_ListOfShape copied_faces;
+  for (const TopoDS_Shape &f : faces.shapes) {
+    const TopTools_ListOfShape &images = copier.Modified(f);
+    copied_faces.Append(images.IsEmpty() ? f : images.First());
+  }
   BRepOffsetAPI_MakeThickSolid maker;
-  maker.MakeThickSolidByJoin(solid.shape, to_list(faces), thickness, 1e-7, BRepOffset_Skin, Standard_False,
-                             Standard_False, GeomAbs_Intersection);
+  maker.MakeThickSolidByJoin(copy, copied_faces, thickness, 1e-7, BRepOffset_Skin, Standard_False, Standard_False,
+                             GeomAbs_Intersection);
   maker.Build();
-  if (maker.IsDone() && BRepCheck_Analyzer(maker.Shape()).IsValid()) return finish(one(solid.shape), maker, "shell");
+  if (maker.IsDone() && BRepCheck_Analyzer(maker.Shape()).IsValid()) {
+    auto op = std::make_unique<Operation>();
+    op->history = new BRepTools_History(one(solid.shape), copier);
+    op->history->Merge(new BRepTools_History(one(copy), maker));
+    op->result = maker.Shape();
+    return op;
+  }
   if (thickness < 0 && !faces.shapes.empty()) {
     TopoDS_Shape cavity = planar_cavity(solid.shape, to_list(faces), thickness);
     if (!cavity.IsNull()) {
       BRepAlgoAPI_Cut cut(solid.shape, cavity);
       cut.Build();
       if (cut.IsDone() && BRepCheck_Analyzer(cut.Shape()).IsValid()) return finish(one(solid.shape), cut, "shell");
+    }
+    // Otherwise: the solid offset inwards with its removed faces offset outwards instead (every other face's
+    // offset carried on past where they were), on a copy, and that cavity cut away (a hemisphere open at its flat
+    // face, batch 125 c007; a tee of pipes open at its ends, batch 124 c009).
+    {
+      BRepBuilderAPI_Copy again(solid.shape, Standard_True);
+      BRepOffset_MakeOffset offset;
+      offset.Initialize(again.Shape(), thickness, 1e-7, BRepOffset_Skin, Standard_False, Standard_False,
+                        GeomAbs_Intersection, Standard_False);
+      for (const TopoDS_Shape &f : faces.shapes) {
+        const TopTools_ListOfShape &images = again.Modified(f);
+        offset.SetOffsetOnFace(TopoDS::Face(images.IsEmpty() ? f : images.First()), -thickness);
+      }
+      try {
+        offset.MakeOffsetShape();
+        if (offset.IsDone() && BRepCheck_Analyzer(offset.Shape()).IsValid()) {
+          BRepAlgoAPI_Cut cut(solid.shape, offset.Shape());
+          cut.Build();
+          if (cut.IsDone() && BRepCheck_Analyzer(cut.Shape()).IsValid()) return finish(one(solid.shape), cut, "shell");
+        }
+      } catch (const Standard_Failure &) {
+      }
     }
   }
   throw std::runtime_error("shell failed");
