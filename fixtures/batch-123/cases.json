@@ -1,0 +1,237 @@
+{
+  "batch": "123",
+  "title": "uneven chamfers: which face takes the first distance",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "chamfer",
+      "description": "a 30 × 20 × 10 block's top front (y = 0) edge chamfered with offsets 2 and 1",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "chamfer",
+      "description": "a 30 × 20 × 10 block's top right (x = 30) edge chamfered with offsets 2 and 1",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "chamfer",
+      "description": "a 30 × 20 × 10 block's top back (y = 20) edge chamfered with offsets 2 and 1",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "chamfer",
+      "description": "a 30 × 20 × 10 block's top left (x = 0) edge chamfered with offsets 2 and 1",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "chamfer",
+      "description": "a 30 × 20 × 10 block's bottom front edge chamfered with offsets 2 and 1",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "chamfer",
+      "description": "a 30 × 20 × 10 block's bottom right edge chamfered with offsets 2 and 1",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "chamfer",
+      "description": "a 30 × 20 × 10 block's bottom back edge chamfered with offsets 2 and 1",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c008",
+      "kind": "chamfer",
+      "description": "a 30 × 20 × 10 block's bottom left edge chamfered with offsets 2 and 1",
+      "slotMeters": [
+        2.8000000000000003,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c009",
+      "kind": "chamfer",
+      "description": "a 30 × 20 × 10 block's upright at (0, 0) edge chamfered with offsets 2 and 1",
+      "slotMeters": [
+        3.2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c010",
+      "kind": "chamfer",
+      "description": "a 30 × 20 × 10 block's upright at (30, 0) edge chamfered with offsets 2 and 1",
+      "slotMeters": [
+        3.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c011",
+      "kind": "chamfer",
+      "description": "a 30 × 20 × 10 block's upright at (30, 20) edge chamfered with offsets 2 and 1",
+      "slotMeters": [
+        0,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c012",
+      "kind": "chamfer",
+      "description": "a 30 × 20 × 10 block's upright at (0, 20) edge chamfered with offsets 2 and 1",
+      "slotMeters": [
+        0.4,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c013",
+      "kind": "chamfer",
+      "description": "a 30 × 20 × 10 block from a rectangle drawn from (30, 20) to (0, 0): its top front edge, offsets 2 and 1",
+      "slotMeters": [
+        0.8,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c014",
+      "kind": "chamfer",
+      "description": "a 30 × 20 × 10 block extruded down from z = 10: its top front edge, offsets 2 and 1",
+      "slotMeters": [
+        1.2000000000000002,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c015",
+      "kind": "chamfer",
+      "description": "a 30 × 5 × 20 block (front larger than top): its top front edge, offsets 2 and 1",
+      "slotMeters": [
+        1.6,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c016",
+      "kind": "chamfer",
+      "description": "a cylinder (radius 10, 20 tall)'s top edge, offsets 2 and 1",
+      "slotMeters": [
+        2,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c017",
+      "kind": "chamfer",
+      "description": "a cylinder (radius 10, 20 tall)'s bottom edge, offsets 2 and 1",
+      "slotMeters": [
+        2.4000000000000004,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c018",
+      "kind": "chamfer",
+      "description": "a flat cylinder (radius 10, 4 tall)'s top edge, offsets 2 and 1",
+      "slotMeters": [
+        2.8000000000000003,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c019",
+      "kind": "chamfer",
+      "description": "a cylinder (radius 10, 20 tall) extruded down from z = 20: its top edge, offsets 2 and 1",
+      "slotMeters": [
+        3.2,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c020",
+      "kind": "chamfer",
+      "description": "a 30 × 20 × 10 block with a hole (radius 4) through it: the hole's mouth, offsets 2 and 1",
+      "slotMeters": [
+        3.6,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c021",
+      "kind": "chamfer",
+      "description": "a 30 × 20 × 10 block with a boss (radius 5, 8 tall): the boss's foot, offsets 2 and 1",
+      "slotMeters": [
+        0,
+        0.8,
+        0
+      ]
+    },
+    {
+      "name": "c022",
+      "kind": "chamfer",
+      "description": "a 30 × 20 × 10 block's top front edge chamfered 2 mm at 30°",
+      "slotMeters": [
+        0.4,
+        0.8,
+        0
+      ]
+    },
+    {
+      "name": "c023",
+      "kind": "chamfer",
+      "description": "a 30 × 20 × 10 block's upright edge at (30, 20) chamfered 2 mm at 30°",
+      "slotMeters": [
+        0.8,
+        0.8,
+        0
+      ]
+    }
+  ]
+}
