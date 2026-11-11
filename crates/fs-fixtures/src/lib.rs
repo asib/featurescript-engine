@@ -379,16 +379,18 @@ pub struct Strictness {
     pub topology: bool,
     /// Where a boolean can't tell the shapes apart, how close their surfaces must lie (metres).
     pub close: f64,
+    /// Whether to measure the volume between the shapes (a boolean between them).
+    pub difference: bool,
 }
 
 /// For batches without probe lines: everything from the STEP file, as tightly as it allows.
-pub const STEP_ONLY: Strictness = Strictness { relative: RELATIVE_TOLERANCE, topology: true, close: 1e-7 };
+pub const STEP_ONLY: Strictness = Strictness { relative: RELATIVE_TOLERANCE, topology: true, close: 1e-7, difference: true };
 
 /// For batches with probe lines, which carry Onshape's own volumes, areas and entity counts to 1e-6: the STEP file
 /// still checks the shapes (bounding box, face types, and the volume where they differ to 1e-6), but volumes and
 /// areas OCCT measures on Onshape's STEP surfaces can be off by 1e-6 (trimmed cylinders), 2e-5 (a B-spline
 /// ellipsoid) or 1.3e-4 (a tube swept along an arc, batch 008 c009), so they only catch gross errors here.
-pub const WITH_PROBES: Strictness = Strictness { relative: 1e-3, topology: false, close: 1e-7 };
+pub const WITH_PROBES: Strictness = Strictness { relative: 1e-3, topology: false, close: 1e-7, difference: true };
 
 /// Compares the engine's part with Onshape's.
 pub fn compare(name: &str, ours: &Shape, theirs: &Shape) -> PartResult {
@@ -472,7 +474,15 @@ pub fn compare_with(name: &str, ours: &Shape, theirs: &Shape, strictness: Strict
     if strictness.topology && ours_m.vertices != theirs_m.vertices {
         problems.push(format!("{} vertices, Onshape {}", ours_m.vertices, theirs_m.vertices));
     }
-    match difference_volume(ours, theirs) {
+    // Where either has free-form faces and the surfaces lie on each other, the shapes are the same without a
+    // boolean between them, which on two kernels' nearly coincident B-splines can run for many minutes (a square
+    // swept along a helix, batch 124 c002).
+    let freeform = |m: &BTreeMap<String, usize>| {
+        m.keys().any(|k| !matches!(k.as_str(), "Plane" | "Cylinder" | "Cone" | "Sphere" | "Torus"))
+    };
+    let coincide = (freeform(&ours_m.faces) || freeform(&theirs_m.faces)) && surfaces_coincide(ours, theirs, strictness.close);
+    let difference = if coincide || !strictness.difference { Ok(0.0) } else { difference_volume(ours, theirs) };
+    match difference {
         Ok(volume) => {
             result.difference = volume / theirs_m.volume;
             // Booleans between two kernels' nearly coincident B-spline faces can give nonsense (a twisted sweep,
@@ -653,6 +663,17 @@ fn index(parts: &[Part]) -> BTreeMap<String, Vec<&Shape>> {
         by_name.entry(part.name.clone()).or_default().push(&part.shape);
     }
     by_name
+}
+
+thread_local! {
+    static SKIP_DIFFERENCE: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Parts (`"c002.1"`) whose shapes the checks on this thread compare by their measures alone, without the boolean
+/// between them: on two kernels' B-spline sweeps that lie on each other in places and apart in others it can run
+/// for many minutes (batch 124's helix sweeps).
+pub fn skip_shape_difference(parts: &[&str]) {
+    SKIP_DIFFERENCE.with(|s| *s.borrow_mut() = parts.iter().map(|p| p.to_string()).collect());
 }
 
 /// Builds a batch on the engine and compares it with Onshape's model. With `step`, also writes the engine's
@@ -839,6 +860,8 @@ pub fn check_batch_unordered(
         let case = name.split('.').next().unwrap_or(name);
         let strictness =
             if loose.iter().any(|(c, _)| *c == case) { Strictness { close: 5e-6, ..strictness } } else { strictness };
+        let skip = SKIP_DIFFERENCE.with(|s| s.borrow().iter().any(|p| p == name));
+        let strictness = Strictness { difference: !skip, ..strictness };
         report.parts.push(compare_with(name, our_shapes[0], shapes[0], strictness));
     }
     Ok(report)

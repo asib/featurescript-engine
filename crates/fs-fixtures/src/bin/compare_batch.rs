@@ -11,6 +11,11 @@ use std::time::Instant;
 fn main() {
     let batch = std::env::args().nth(1).unwrap_or_else(|| "fixtures/batch-001".into());
     let code = fs_interp::run_with_large_stack(move || {
+        // FS_SKIP_DIFFERENCE=c001.1,c002.1: parts compared by their measures alone (see `skip_shape_difference`).
+        if let Ok(parts) = std::env::var("FS_SKIP_DIFFERENCE") {
+            let parts: Vec<&str> = parts.split(',').filter(|p| !p.is_empty()).collect();
+            fs_fixtures::skip_shape_difference(&parts);
+        }
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
         let dir = root.join(&batch);
         let name = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
