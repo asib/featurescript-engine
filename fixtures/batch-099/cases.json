@@ -1,0 +1,37 @@
+{
+  "batch": "099",
+  "title": "a sphere's principal directions",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "evaluate",
+      "description": "a sphere of radius 10 at the origin: its directions at 24 parameters",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "evaluate",
+      "description": "a sphere of radius 7 at (5, -3, 2): its directions at 24 parameters",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "evaluate",
+      "description": "a dome of radius 10 (a quarter disc revolved about z): its spherical face's directions",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    }
+  ]
+}

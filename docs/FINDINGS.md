@@ -1052,6 +1052,18 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   "Execution error"). The composite part Onshape's import makes is closed: deriving its solids finds none
   (`IMPORT_DERIVED_NO_PARTS`). Each source derives once per Part Studio; reading part names from the context of a
   running feature is refused (batch 011), so the batch counts them.
+- **A rolled wall at a rip** (batch 018 c013's leftover parts): a rolled wall ripped from the flat walls it runs
+  on into stops half the clearance short of each rip (0.01 mm), by a plane across its whole thickness square to the
+  wall at the rip's edge, not along a radius (its end face 2.0000067 mm across a 2 mm wall, as that plane cuts the
+  annulus); the engine now cuts the thickened rolled wall so.
+- **A closed spline raised in degree** (batch 027 c005): std hands back clamped knots flagged periodic, and Onshape
+  keeps the flag (`evCurveDefinition` says periodic, its knots and poles clamped); OCCT's curve can't be both, so
+  the engine keeps the flag on the edge.
+- **A sphere's principal directions** (batch 099, with 087 c008): every direction is principal, and Onshape's least
+  is always the normal crossed with a world axis (n × x, n × y or n × z, normalised), its greatest n × that; the same
+  at the same normal whatever the sphere's centre and radius. Which axis isn't the smallest of the normal's
+  components, nor what LAPACK's or Jacobi's eigen-solver gives for n nᵀ or I − n nᵀ, nor the parameter direction
+  whose curvature rounds smaller (that fitted batch 087's three points, not batch 099's 72): the kernel's own.
 - **Sketch text** (batch 091): Onshape draws the font's outlines as FreeType loads them unhinted at 100 pixels to
   the em, in 64ths of a pixel (font units × 6400 / units per em, rounded half away from zero; TrueType's implied
   points midway between those), the box's height 4608 of them (0.72 em), the baseline on the box's bottom, each
@@ -1101,7 +1113,11 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   refuses for a build function defined in the studio (it won't derive one source twice in a Part Studio, batch
   023). It is meant for assembly mirrors. A Part Studio tab's build function it allows (batch 096 c004). Building
   the source twice isn't the reason: importDerived of sheet metal builds it twice, and Onshape allows that (batch
-  045).
+  045), and so does building one directly and then instantiating it, or instantiating it twice (batch 098). What
+  only derivedMirror does is read its source's part names (`derive`'s name suffix, `getProperty` on the built
+  context), and Onshape won't read the properties of a context the Feature Studio's own code built while a feature
+  runs, as it won't a context whose feature is running (batch 011); a tab's built context it reads (batch 096
+  c001). The engine refuses that too.
 - **`evPlane` of nothing** raises `CANNOT_RESOLVE_ENTITIES` (batch 060 c009, c010), not `CANNOT_RESOLVE_PLANE`.
 - **Extruding in a sheet metal flat pattern** (batch 059 c008, c009) works from a feature: a sketch on
   `qCorrespondingInFlat` of a plate's top face, extruded with `domain` `FLAT`, runs `SMFlatOp`. The sketch plane
