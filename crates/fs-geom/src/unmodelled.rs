@@ -42,6 +42,15 @@ pub fn register(m: &mut GeomBuiltins) {
     for name in ["evTolerances", "evMaxTolerance"] {
         m.insert(name, |_, _| Err(fs_interp::eval::execution_error("an internal evaluation")));
     }
+    // A feature's name and a parameter's tolerance only exist in tables, editing logic and manipulator changes, and
+    // a compressed query is Onshape's own encoding: from a feature each fails (batch 102).
+    for name in ["getFeatureName", "getParameterToleranceInfo", "unpackQuery"] {
+        m.insert(name, |_, _| Err(fs_interp::eval::execution_error("not available here")));
+    }
+    // A developer's report (std's note of a case it doesn't handle), and the ruled surface's bases for manipulators
+    // after a failure: no effect on the model.
+    m.insert("report", |_, _| Ok(Value::UNDEFINED));
+    m.insert("evRuledSurfaceBases", |_, _| Ok(Value::UNDEFINED));
     // Faults: the engine's bodies have none (a block's, batch 101 c007).
     m.insert("evFaults", |_, _| Ok(Value::array(Vec::new())));
 }

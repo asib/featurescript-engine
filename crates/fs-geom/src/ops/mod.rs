@@ -319,6 +319,7 @@ pub fn register(m: &mut GeomBuiltins) {
     m.insert("opSplitPart", |_, args| run_op(&args, "opSplitPart", split::split_part));
     m.insert("opSplitEdges", |_, args| run_op(&args, "opSplitEdges", split::split_edges));
     m.insert("opImportForeign", |_, args| run_op(&args, "opImportForeign", import::import_foreign));
+    m.insert("opBooleanedPattern", |_, args| run_op(&args, "opBooleanedPattern", pattern::booleaned_pattern));
     // Sheets turned inside out: their faces' normals reversed, their entities kept (batch 100 c001).
     m.insert("opFlipOrientation", |_, args| {
         run_op(&args, "opFlipOrientation", |model, _id, definition| {

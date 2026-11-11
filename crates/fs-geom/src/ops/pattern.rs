@@ -199,3 +199,48 @@ pub fn pattern(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
     replace_bodies(model, &id, results);
     Ok(Value::UNDEFINED)
 }
+
+/// A regeneration error naming the definition's field at fault, as std's `regenError` with faulty parameters.
+fn faulty(message: &str, parameter: &str) -> fs_interp::eval::Flow {
+    let tag = fs_interp::types::find("ErrorStringEnum");
+    fs_interp::eval::Flow::Throw(values::map(vec![
+        ("message", Value::string(message).with_tag(tag)),
+        ("faultyParameters", Value::array(vec![Value::string(parameter)])),
+    ]))
+}
+
+/// `@opBooleanedPattern` (internal in std): copies of the tool bodies by each transform, joined to (or cut from, or
+/// intersected with) the target body; the tools themselves stay (batch 102 c005). Its definition wants a target
+/// body, tool bodies and an operation type, asked for in that order.
+pub fn booleaned_pattern(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
+    let bodies = |model: &Model, key: &str| -> R<Vec<usize>> {
+        match field(definition, key) {
+            v if v.is_undefined() => Ok(Vec::new()),
+            v => super::owner_bodies(model, v),
+        }
+    };
+    let targets = bodies(model, "targetBody")?;
+    let &[target] = targets.as_slice() else { return Err(faulty("CANNOT_RESOLVE_ENTITIES", "targetBody")) };
+    let tools = bodies(model, "toolBodies")?;
+    if tools.is_empty() {
+        return Err(faulty("CANNOT_RESOLVE_ENTITIES", "toolBodies"));
+    }
+    let kind = match field(definition, "operationType").as_str() {
+        Some("UNION") => occt::BooleanKind::Union,
+        Some("SUBTRACTION") => occt::BooleanKind::Subtraction,
+        Some("INTERSECTION") => occt::BooleanKind::Intersection,
+        _ => return Err(faulty("INVALID_INPUT", "operationType")),
+    };
+    let transforms = field(definition, "transforms").as_array().ok_or_else(|| error("transforms must be an array"))?.clone();
+    let mut copies = Vec::new();
+    for t in transforms.iter() {
+        let t = transform(t)?;
+        for &b in &tools {
+            copies.push(occt::transform(&model.bodies[b].shape, &t).map_err(occt_error)?.shape());
+        }
+    }
+    let op = occt::boolean(kind, std::slice::from_ref(&model.bodies[target].shape), &copies, true)
+        .map_err(|_| regen_error("BOOLEAN_INVALID"))?;
+    replace_bodies(model, &id, vec![(target, op)]);
+    Ok(Value::UNDEFINED)
+}
