@@ -1074,21 +1074,26 @@ pub fn boundary_surface(model: &mut Model, id: FeatureId, definition: &Value) ->
     let conditions = |key: &str| field(definition, key).as_array().map(|a| a.to_vec()).unwrap_or_default();
     let (u_conditions, v_conditions) = (conditions("uDerivativeInfo"), conditions("vDerivativeInfo"));
     if !u_conditions.is_empty() || !v_conditions.is_empty() {
-        let [info] = &u_conditions[..] else {
-            return Err(error("@opBoundarySurface: end conditions on more than one u profile, or on v profiles, aren't supported yet"));
-        };
+        if !v_conditions.is_empty() || u_conditions.len() > 2 {
+            return Err(error("@opBoundarySurface: end conditions on v profiles aren't supported yet"));
+        }
         if both || u.len() != 2 {
             return Err(error("@opBoundarySurface: end conditions with more than two profiles aren't supported yet"));
         }
-        if !field(info, "adjacentFaces").is_undefined() {
-            return Err(error("@opBoundarySurface: matching adjacent faces isn't supported yet"));
+        let mut ends: [Option<EndCondition>; 2] = [None, None];
+        for info in &u_conditions {
+            if !field(info, "adjacentFaces").is_undefined() {
+                return Err(error("@opBoundarySurface: matching adjacent faces isn't supported yet"));
+            }
+            let index = (field(info, "profileIndex").as_number().unwrap_or(0.0) as usize).min(1);
+            ends[index] = Some(EndCondition {
+                magnitude: field(info, "magnitude").as_number().unwrap_or(1.0),
+                tangent: values::opt_bool(info, "tangentToPlane")?.unwrap_or(false),
+                vector: values::vec3(field(info, "vector"), "@opBoundarySurface derivative vector")?,
+            });
         }
-        let index = field(info, "profileIndex").as_number().unwrap_or(0.0) as usize;
-        let magnitude = field(info, "magnitude").as_number().unwrap_or(1.0);
-        let tangent = values::opt_bool(info, "tangentToPlane")?.unwrap_or(false);
-        let vector = values::vec3(field(info, "vector"), "@opBoundarySurface derivative vector")?;
         let ruled = occt::loft(&u, false).map_err(|_| regen_error("BSURF_FAILED"))?.shape();
-        let face = conditioned_surface(&u, index.min(1), magnitude, tangent, vector, &ruled)?;
+        let face = conditioned_surface(&u, &ends, &ruled)?;
         add(model, &id, face, BodyType::Sheet);
         return Ok(Value::UNDEFINED);
     }
@@ -1249,23 +1254,28 @@ fn coons_surface(u: &[Shape], v: &[Shape], ruled: &Shape) -> R<Shape> {
     })
 }
 
-/// A boundary surface between two profiles with an end condition at one of them (batch 063 c010, c011). Across,
-/// each curve is a quadratic from one profile's point to its partner's (by parameter fraction, as the ruled surface
-/// pairs them), leaving the conditioned profile with a derivative `magnitude` times the chord between them with its
-/// part along one direction taken out: normal to a plane (`vector` its normal), the chord's part across the profile
-/// within the plane, keeping the parts along the normal and along the profile; tangent to the plane, the part along
-/// the normal. So it is in Onshape, within its fits (c011: the derivative's part along the normal is the chord's,
-/// 20 mm, and along the arc within 0.01; the far end's derivative is twice the chord less it). Where that leaves
-/// nothing, as at the ends of two arcs over each other tangent to their planes, Onshape fails
-/// (`CANNOT_MAKE_BSPLINESURFACE`, c010). The surface is cubic along the profiles through 33 points on each row.
-fn conditioned_surface(
-    profiles: &[Shape],
-    index: usize,
+/// A boundary surface's end condition at a profile: a derivative along `vector` (normal to the profile's plane, or a
+/// direction given) or, `tangent`, in the plane square to it.
+#[derive(Clone, Copy, Debug)]
+struct EndCondition {
     magnitude: f64,
     tangent: bool,
     vector: occt::Vec3,
-    ruled: &Shape,
-) -> R<Shape> {
+}
+
+/// A boundary surface between two profiles with end conditions at one or both (batches 063 c010, c011, 117). Across,
+/// each curve runs from a profile's point to its partner's (by parameter fraction, as the ruled surface pairs them),
+/// leaving a conditioned profile with the chord between them less its part along one direction: normal to the
+/// profile's plane, the chord's part across the profile within the plane, keeping the parts along the normal and
+/// along the profile; tangent to it, the part along the normal. With one condition the curve is a quadratic, its
+/// other end's derivative twice the chord less that (063 c011; 117 c003 at the second profile); with both, the cubic
+/// with both (117 c001). So it is in Onshape, within its fits (the derivative's part along the normal is the
+/// chord's; along the profile, within 0.01 of it). Where the derivative comes to nothing, as at the ends of two arcs
+/// over each other tangent to their planes, Onshape fails (`CANNOT_MAKE_BSPLINESURFACE`, 063 c010); square to a
+/// direction the profile doesn't lie square to, it fails as inconsistent (117 c005). Magnitudes other than 1, and
+/// a derivative along a direction given, change the curves by rules not found (117 c002, c004, c006): refused. The
+/// surface is cubic along the profiles through 33 points on each row.
+fn conditioned_surface(profiles: &[Shape], ends: &[Option<EndCondition>; 2], ruled: &Shape) -> R<Shape> {
     use crate::values::{add, cross, dot, norm, normalize, scale, sub};
     let single = |w: &Shape| -> R<Shape> {
         match &w.sub_shapes(ShapeKind::Edge)[..] {
@@ -1278,28 +1288,65 @@ fn conditioned_surface(
     // The partner runs the same way as the first profile.
     let (a0, a1, b0, b1) = (at(&first, 0.0)?, at(&first, 1.0)?, at(&second, 0.0)?, at(&second, 1.0)?);
     let flipped = norm(sub(a0, b0)) + norm(sub(a1, b1)) > norm(sub(a0, b1)) + norm(sub(a1, b0));
-    let partner = |f: f64| at(&second, if flipped { 1.0 - f } else { f });
-    let n = normalize(vector).ok_or_else(|| error("@opBoundarySurface: the derivative vector is zero"))?;
-    // Rows across: the first profile, the quadratic's middle pole, the second profile.
-    let rows = |f: f64| -> R<[occt::Vec3; 3]> {
-        let (p, q) = (at(&first, f)?, partner(f)?);
-        let (on, off) = if index == 0 { (p, q) } else { (q, p) };
-        let on_edge = if index == 0 { &first } else { &second };
-        let along = on_edge.edge_tangent(if index == 1 && flipped { 1.0 - f } else { f }, false).map_err(occt_error)?.direction;
-        let chord = sub(off, on);
+    let fraction = |index: usize, f: f64| if index == 1 && flipped { 1.0 - f } else { f };
+    let edge = |index: usize| if index == 0 { &first } else { &second };
+    // Each condition, checked: magnitude 1, and a direction given only square to it (`tangent`), where the profile
+    // must lie square to the direction.
+    let mut normals = [None, None];
+    for (index, end) in ends.iter().enumerate() {
+        let Some(end) = end else { continue };
+        let n = normalize(end.vector).ok_or_else(|| error("@opBoundarySurface: the derivative vector is zero"))?;
+        let samples: Vec<f64> = (0..=16).map(|k| k as f64 / 16.0).collect();
+        let points: Vec<occt::Vec3> = samples.iter().map(|&f| at(edge(index), f)).collect::<R<_>>()?;
+        let in_plane = points.iter().all(|&p| dot(sub(p, points[0]), n).abs() < 1e-9);
+        if !in_plane {
+            if !end.tangent {
+                return Err(error("@opBoundarySurface: end conditions along a direction aren't supported yet"));
+            }
+            let square = samples.iter().all(|&f| {
+                edge(index).edge_tangent(f, false).is_ok_and(|t| dot(t.direction, n).abs() < 1e-9)
+            });
+            if !square {
+                return Err(regen_error("BSURF_INCONSISTENT_CONDITIONS_ERROR"));
+            }
+            return Err(error("@opBoundarySurface: end conditions square to a direction aren't supported yet"));
+        }
+        if (end.magnitude - 1.0).abs() > 1e-12 {
+            return Err(error("@opBoundarySurface: end conditions of magnitudes other than 1 aren't supported yet"));
+        }
+        normals[index] = Some((n, end.tangent));
+    }
+    // The derivative leaving profile `index` at fraction `f`, the chord from the first profile to the second.
+    let derivative = |index: usize, f: f64, chord: occt::Vec3| -> R<occt::Vec3> {
+        let (n, tangent) = normals[index].expect("a condition at this end");
+        let along = edge(index).edge_tangent(fraction(index, f), false).map_err(occt_error)?.direction;
         let across = if tangent { Some(n) } else { normalize(cross(n, along)) };
         let across = across.ok_or_else(|| regen_error("CANNOT_MAKE_BSPLINESURFACE"))?;
-        let derivative = scale(sub(chord, scale(across, dot(chord, across))), magnitude);
-        if norm(derivative) <= 1e-6 * norm(chord).max(1e-9) {
+        let d = sub(chord, scale(across, dot(chord, across)));
+        if norm(d) <= 1e-6 * norm(chord).max(1e-9) {
             return Err(regen_error("CANNOT_MAKE_BSPLINESURFACE"));
         }
-        let middle = add(on, scale(derivative, 0.5));
-        Ok([on, middle, off]).map(|r| if index == 0 { r } else { [r[2], r[1], r[0]] })
+        Ok(d)
     };
-    let curves = sampled_rows(3, |f| Ok(rows(f)?.to_vec()))?;
+    let count = if ends.iter().all(Option::is_some) { 4 } else { 3 };
+    let rows = |f: f64| -> R<Vec<occt::Vec3>> {
+        let (p, q) = (at(&first, f)?, at(&second, fraction(1, f))?);
+        let chord = sub(q, p);
+        Ok(match (ends[0].is_some(), ends[1].is_some()) {
+            (true, true) => {
+                let (d0, d1) = (derivative(0, f, chord)?, derivative(1, f, chord)?);
+                vec![p, add(p, scale(d0, 1.0 / 3.0)), sub(q, scale(d1, 1.0 / 3.0)), q]
+            }
+            (true, false) => vec![p, add(p, scale(derivative(0, f, chord)?, 0.5)), q],
+            _ => vec![p, sub(q, scale(derivative(1, f, chord)?, 0.5)), q],
+        })
+    };
+    let curves = sampled_rows(count, rows)?;
     let nu = curves[0].poles.len();
     let poles: Vec<occt::Vec3> = (0..nu).flat_map(|i| curves.iter().map(move |c| c.poles[i])).collect();
-    let face = occt::bspline_surface_face(&poles, (nu, 3), &curves[0].knots, &[0.0, 0.0, 0.0, 1.0, 1.0, 1.0], (curves[0].degree, 2))
+    let (knots_v, degree_v): (Vec<f64>, i32) =
+        if count == 4 { (vec![0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0], 3) } else { (vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0], 2) };
+    let face = occt::bspline_surface_face(&poles, (nu, count), &curves[0].knots, &knots_v, (curves[0].degree, degree_v))
         .map_err(|_| regen_error("BSURF_FAILED"))?;
     // Facing as the ruled surface between the profiles does.
     let facing = |s: &Shape| s.sub_shapes(ShapeKind::Face).first().and_then(|f| f.face_tangent_plane(0.5, 0.5).ok()).map(|t| t.normal);
