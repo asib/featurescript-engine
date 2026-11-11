@@ -62,6 +62,8 @@
 #include <BRepBuilderAPI_Sewing.hxx>
 #include <BRepLib.hxx>
 #include <BRepCheck_Analyzer.hxx>
+#include <BRepLProp_CLProps.hxx>
+#include <BRepBuilderAPI_FindPlane.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
 #include <Geom_Plane.hxx>
 #include <ShapeFix_Edge.hxx>
@@ -1634,13 +1636,29 @@ std::unique_ptr<Operation> sweep_op(const Shape &profile, const Shape &path) {
     GeomAbs_CurveType type = BRepAdaptor_Curve(TopoDS::Edge(e.Current())).GetType();
     if (type != GeomAbs_Line && type != GeomAbs_Circle) spline_path = true;
   }
+  // Along a path that leaves its plane with no straight stretch (a helix), the profile turns with the path's
+  // Frenet frame, as Onshape's does (a square swept along a helix stays square to its axis, batch 124 c002);
+  // OCCT's corrected Frenet frame would turn it against the torsion.
+  GeomFill_Trihedron trihedron = GeomFill_IsCorrectedFrenet;
+  if (spline_path && !BRepBuilderAPI_FindPlane(spine, 1e-7).Found()) {
+    bool curved = true;
+    for (TopExp_Explorer e(spine, TopAbs_EDGE); e.More() && curved; e.Next()) {
+      BRepAdaptor_Curve curve(TopoDS::Edge(e.Current()));
+      for (int i = 0; i <= 32 && curved; ++i) {
+        double t = curve.FirstParameter() + (curve.LastParameter() - curve.FirstParameter()) * i / 32.0;
+        BRepLProp_CLProps props(curve, t, 2, 1e-9);
+        if (!props.IsTangentDefined() || props.Curvature() < 1e-3) curved = false;
+      }
+    }
+    if (curved) trihedron = GeomFill_IsFrenet;
+  }
   std::unique_ptr<Operation> op;
   if (spline_path) {
     gp_Trsf up;
     up.SetScale(gp_Pnt(0, 0, 0), 1000.0);
     BRepBuilderAPI_Transform big_profile(profile.shape, up, Standard_True);
     BRepBuilderAPI_Transform big_spine(spine, up, Standard_True);
-    BRepOffsetAPI_MakePipe maker(TopoDS::Wire(big_spine.Shape()), big_profile.Shape());
+    BRepOffsetAPI_MakePipe maker(TopoDS::Wire(big_spine.Shape()), big_profile.Shape(), trihedron);
     maker.Build();
     if (!maker.IsDone()) throw std::runtime_error("sweep failed");
     BRepBuilderAPI_Transform back(maker.Shape(), up.Inverted(), Standard_True);
