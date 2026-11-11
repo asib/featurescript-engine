@@ -1,0 +1,57 @@
+{
+  "batch": "102",
+  "title": "std's internal API functions called from a feature",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "internal",
+      "description": "the running feature's name (getFeatureName)",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "internal",
+      "description": "a parameter's tolerance info (getParameterToleranceInfo)",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "internal",
+      "description": "a compressed query (qCompressed) evaluated",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "internal",
+      "description": "a block patterned 40 mm along x by opBooleanedPattern",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "internal",
+      "description": "a 4 mm cube patterned 10 mm along y by opBooleanedPattern into a block it sits on (target, tool bodies and a union given)",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    }
+  ]
+}

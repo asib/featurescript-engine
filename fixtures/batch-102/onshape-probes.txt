@@ -1,0 +1,6 @@
+probe c001 { bodies : [] , construction : [] , values : { error : Execution error } }
+probe c002 { bodies : [] , construction : [] , values : { error : Execution error } }
+probe c003 { bodies : [ { area : 2200.000000000001 , bounds : [ 800 , 0 , 0 , 810 , 20 , 30 ] , edges : 12 , faces : 6 , name : c003.1 , type : SOLID , vertices : 8 , volume : 6000.000000000005 } ] , construction : [] , values : { error : Execution error } }
+probe c004 { bodies : [ { area : 2200.000000000001 , bounds : [ 1200 , 0 , 0 , 1210 , 20 , 30 ] , edges : 12 , faces : 6 , name : c004.1 , type : SOLID , vertices : 8 , volume : 6000.000000000005 } ] , construction : [] , values : { error : { faultyParameters : [ targetBody ] , message : CANNOT_RESOLVE_ENTITIES } } }
+probe c005 { bodies : [ { area : 2264.000000000001 , bounds : [ 1600 , 0 , 0 , 1610 , 20 , 34 ] , edges : 24 , faces : 11 , name : c005.1 , type : SOLID , vertices : 16 , volume : 6064.000000000005 } , { area : 96.00000000000014 , bounds : [ 1602 , 2 , 30 , 1606 , 6 , 34 ] , edges : 12 , faces : 6 , name : c005.2 , type : SOLID , vertices : 8 , volume : 64.00000000000011 } ] , construction : [] , values : { solids : 4 } }
+batch-102 failed cases: []

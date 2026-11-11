@@ -1069,6 +1069,11 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   tangent plane's x points along that u (OCCT's runs the other way). `evApproximateBSplineSurface` of a whole
   cylinder is exact: two rational cubic half circles from that x (poles twice the radius out, weights 1, ⅓, ⅓, 1),
   flagged periodic with clamped knots, linear along z from the face's start, bounded by six parameter lines.
+- **std's internal API functions** (batch 102): `getFeatureName`, `getParameterToleranceInfo` and a `qCompressed`
+  query each fail from a feature ("Execution error"). `opBooleanedPattern` asks for a target body, then tool bodies,
+  then an operation type (`CANNOT_RESOLVE_ENTITIES` with the field as faulty parameter for the first two,
+  `INVALID_INPUT` for the third), and joins copies of the tool bodies by each transform to the target, leaving the
+  tools where they were.
 - **A sphere's principal directions** (batch 099, with 087 c008): every direction is principal, and Onshape's least
   is always the normal crossed with a world axis (n × x, n × y or n × z, normalised), its greatest n × that; the same
   at the same normal whatever the sphere's centre and radius. Which axis isn't the smallest of the normal's

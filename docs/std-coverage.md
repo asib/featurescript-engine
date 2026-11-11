@@ -118,12 +118,14 @@ engine doesn't have. After batch 002, std calls 269 builtins; these are implemen
   `evFaceCurvatures`, `evFilletRadius` (batch 086); `evaluateSpline`, `evApproximateMassProperties`,
   `evPointsDeviation`, `evFaults`, `evFaceCurvatureDerivatives`, `evApproximateBSplineSurface` (whole cylinders
   exactly, other faces OCCT's conversion), `parseJson`; `evTolerances` and `evMaxTolerance` refused as Onshape does
-  (batches 100, 101).
+  (batches 100, 101); `getFeatureName`, `getParameterToleranceInfo` and `unpackQuery` (a `qCompressed` query)
+  refused from a feature as Onshape does (batch 102); `report` and `evRuledSurfaceBases` (a failed ruled surface's
+  manipulators) have no effect on the model.
 - operations: `opPoint`, `opPlane`, `opExtrude`, `opRevolve`, `opSphere`, `opBoolean`, `opTransform`, `opPattern`
   (bodies and faces), `opSplitPart`, `opSplitFace`, `opSplitEdges` (at parameters), `opDeleteBodies`, `opFillet`
   (circular), `opChamfer`, `opShell`, `opDraft` (reference surface and entity), `opBodyDraft`, `opThicken`,
   `opOffsetFace`, `opDeleteFace`, `opMoveFace`, `opReplaceFace`, `opModifyFillet`, `opHole`, `opCreateCompositePart`,
-  `opNameEntity`, `opCreateIsocline`, `opSplitByIsocline`, `opImportForeign` (STEP files), `opFlipOrientation`, `opCreateBSplineSurface` (untrimmed, not periodic), `opSplitBySelfShadow` (planar, cylindrical, conical
+  `opNameEntity`, `opCreateIsocline`, `opSplitByIsocline`, `opImportForeign` (STEP files), `opFlipOrientation`, `opBooleanedPattern` (batch 102), `opCreateBSplineSurface` (untrimmed, not periodic), `opSplitBySelfShadow` (planar, cylindrical, conical
   and spherical faces; batch 093), `opMergeContexts`, `opEditCurve`, `opPolyline`,
   `opConstrainedSurface`, `updateSheetMetalGeometry` (planar walls, straight bends, edge-to-edge rips, simple
   corners), `opEdgeChange` (moving straight free edges of planar faces) (the cases above), and the curve and surface
