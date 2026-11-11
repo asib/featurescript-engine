@@ -296,11 +296,14 @@ fn section_fillet(model: &mut Model, id: FeatureId, definition: &Value, section:
         }
         // With the converted tools, OCCT's boolean can come back unchanged, reporting no error (batch 056 c017, a
         // curvature fillet of magnitude 0.82), or fail: then with the extrusions themselves. A fillet that changes
-        // nothing either way fails: a curvature section within micrometres of its corner (batch 113 c009, magnitude
-        // 0.99875) leaves a tool the booleans can't cut with.
+        // nothing either way, or leaves an invalid part, fails: a curvature section within micrometres of its corner
+        // (batches 113 c009, 114 c019, magnitude 0.99875) leaves a tool the booleans can't cut with.
         let apply = |kind: occt::BooleanKind, shape: &Shape, tools: &[(Shape, Shape)]| -> R<occt::Operation> {
             let before = shape.volume().unwrap_or(0.0);
-            let changed = |o: &occt::Operation| (o.shape().volume().unwrap_or(0.0) - before).abs() > 1e-15;
+            let changed = |o: &occt::Operation| {
+                let result = o.shape();
+                (result.volume().unwrap_or(0.0) - before).abs() > 1e-15 && result.is_valid()
+            };
             let converted: Vec<Shape> = tools.iter().map(|(c, _)| c.clone()).collect();
             if let Ok(o) = occt::boolean(kind, std::slice::from_ref(shape), &converted, true)
                 && changed(&o)
