@@ -3,16 +3,15 @@
 
 use std::path::PathBuf;
 
-/// Cases that differ (see docs/std-coverage.md): hems meeting at a closed corner (c012), whose volume matches to
-/// 2e-6 but where the engine trims 0.57 mm² off the plate's underside at the corner (its corner vertex 0.0063 mm in,
-/// where the outer bends touch the underside tangentially), which Onshape keeps whole, and
-/// makes the corner patches B-splines where Onshape's are tiny cylinders; the engine's STEP of it reads back 7 mm³
-/// off, as batch 029's hems do.
-const KNOWN_GAPS: &[&str] = &["c012", "engine STEP: c012"];
+/// Cases that differ (see docs/std-coverage.md): hems meeting at a closed corner (c012) match face for face, but
+/// the two slivers std adds between the plate's corner and the hems (0.058 mm² each) are cylinders in Onshape's STEP
+/// and planes in the engine; neither is the exact surface, ruled radially along a plane's cut of the bend.
+const KNOWN_GAPS: &[&str] = &["c012.1: faces"];
 
 /// A rectangle swept along an arc keeping its orientation: the engine's surfaces are exact (742.8419 mm², as by
-/// hand), Onshape's B-spline sides 1.6e-5 short of that; compared to 0.05 (c006).
-const LOOSE: &[(&str, f64)] = &[("c006", 0.05)];
+/// hand), Onshape's B-spline sides 1.6e-5 short of that; compared to 0.05 (c006). The closed hem corner's ends are
+/// Onshape's own cubic fits, the volume 0.0097 mm³ (2.3e-6) off the exact one (c012).
+const LOOSE: &[(&str, f64)] = &[("c006", 0.05), ("c012", 0.02)];
 
 #[test]
 fn batch_021_matches_onshape() {
@@ -22,6 +21,6 @@ fn batch_021_matches_onshape() {
         let unexpected: Vec<String> =
             report.problems().into_iter().filter(|p| !KNOWN_GAPS.iter().any(|case| p.starts_with(case))).collect();
         assert!(unexpected.is_empty(), "{report}");
-        assert_eq!(report.probes_matched, (12, 13), "{report}");
+        assert_eq!(report.probes_matched, (13, 13), "{report}");
     });
 }

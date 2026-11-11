@@ -376,7 +376,18 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
 - **Hems at a closed corner** (batch 021) extrude their pieces from mitre planes (up-to start bounds) and leave the
   plate whole, with two small cylindrical pieces where the hem arcs meet. Re-projecting the curves of tolerant
   edges onto faces before integrating (batch 026) put some of this part's bend faces a period away and lost 600
-  mm³; it is skipped when it changes a face's area by more than 0.1%.
+  mm³; it is skipped when it changes a face's area by more than 0.1%. Each hem's end is where its inner arc meets
+  the mitre plane, carried out radially: y = 30 + cos θ − 0.0141 round the bend, so the hems meet corner to corner
+  and leave the square between them empty. Std then adds a patch at the hem's root (`adjustToAvoidStepFaces`), up
+  to a plane through the plate's corner and the end's point 45° round, which only lies past the end for the first
+  0.83°: a sliver 0.014 mm across, between the plate's corner edge and the hem (0.058 mm², a cylinder in Onshape's
+  STEP). It is built from an arc sheet extruded at radius 3 and scaled back to radius 1 about its axis
+  (`scaleNonuniformly(1, s, s)`): OpenCascade's general transform converts the cylinder to a rational B-spline and
+  fits the edges' curves on it loosely, leaving them 1e-4 m tolerant, which swallowed the sliver (the plate's
+  corner was cut back 0.0063 mm instead); the engine projects them again from the exact 3D curves (1e-7). The
+  hem's end, split where the patch touches it 45° round, is one edge again in Onshape: the engine joins edges left
+  on one ellipse after a boolean, as OpenCascade's same-domain unifier doesn't. Onshape's end face is its own
+  cubic fit (two spans, its poles up to 0.05 mm off the true arc): the volume is 2.3e-6 off the exact one.
 
 - **Closed corners** (batch 016, c013): each bend runs on to the corner, its end where a plane parallel to the base
   wall's normal cuts the sheet. The plane passes through a point on the bend's tangent line on the base wall, just
