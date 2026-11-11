@@ -118,7 +118,6 @@ fn plane_origin_box(face: &occt::Shape, axes: occt::Frame, b: occt::Box3) -> occ
         let d = values::sub(p, axes.origin);
         (values::dot(d, axes.x), values::dot(d, y))
     };
-    let size = (b.max.x - b.min.x, b.max.y - b.min.y);
     // The box can stand off the face by its tolerance (1e-7 m).
     let tolerance = 1e-6;
     // Whether an edge runs along the side where coordinate `axis` is `at` (a straight one, whatever its curve:
@@ -134,6 +133,35 @@ fn plane_origin_box(face: &occt::Shape, axes: occt::Frame, b: occt::Box3) -> occ
                 && (points[0].1 - points[8].1).abs() > tolerance
         })
     };
+    // A curve that is a B-spline reaches the box with its control points, as Parasolid boxes it: Onshape's curve is
+    // the cubic through the edge's ends with its end derivatives (batch 116 c004: a section's edge, the engine's a
+    // quartic of one span with the same ends and derivatives; its plane's origin then matches Onshape's).
+    let mut b = b;
+    for e in face.sub_shapes(occt::ShapeKind::Edge) {
+        if e.curve_type().ok() != Some(occt::CurveType::BSpline) {
+            continue;
+        }
+        let Ok(data) = e.edge_bspline(1e-9, false, false) else { continue };
+        let k = data.degree as usize;
+        let n = data.poles.len();
+        // One span: no knots inside.
+        if data.rational || n != k + 1 || k < 2 {
+            continue;
+        }
+        let scale = k as f64 / 3.0;
+        let inner = [
+            values::add(data.poles[0], values::scale(values::sub(data.poles[1], data.poles[0]), scale)),
+            values::add(data.poles[n - 1], values::scale(values::sub(data.poles[n - 2], data.poles[n - 1]), scale)),
+        ];
+        for p in inner {
+            let (u, v) = local(p);
+            b.min.x = b.min.x.min(u);
+            b.max.x = b.max.x.max(u);
+            b.min.y = b.min.y.min(v);
+            b.max.y = b.max.y.max(v);
+        }
+    }
+    let size = (b.max.x - b.min.x, b.max.y - b.min.y);
     let grow = 0.006;
     let mut out = b;
     if !along(0, b.min.x) {
