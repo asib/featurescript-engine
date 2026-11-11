@@ -113,6 +113,12 @@ pub fn fillet(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> 
     let mut framed: Vec<(Shape, occt::Frame)> = Vec::new();
     for (b, edges) in groups {
         let body = model.bodies[b].shape.clone();
+        // Circles between a plane and a sphere about their axis: a torus revolved round it (OCCT's fillet breaks
+        // where the sphere's seam meets the circle, batch 124 c004).
+        if let Some(op) = sphere_rim_fillet(&body, &edges, radius)? {
+            results.push((b, op));
+            continue;
+        }
         let Ok(op) = occt::fillet(&body, &edges, radius) else {
             return section_fillet(model, id, definition, Section::Circular).map_err(|_| regen_error("FILLET_FAILED"));
         };
@@ -340,6 +346,142 @@ fn section_fillet(model: &mut Model, id: FeatureId, definition: &Value, section:
     }
     replace_bodies(model, &id, results);
     Ok(Value::UNDEFINED)
+}
+
+/// A circular fillet of circles each between a plane and a sphere centred on the circle's axis: in the half plane
+/// through the axis, the arc tangent to the plane's line and the sphere's circle on the material's side of both
+/// (beyond them at a concave edge), its corner region closed off past the faces into the void, revolved round the
+/// axis and cut away (filled at a concave edge). None unless every edge is such a circle.
+fn sphere_rim_fillet(body: &Shape, edges: &[Shape], radius: f64) -> R<Option<occt::Operation>> {
+    use crate::values::{add, cross, dot, norm, normalize, scale, sub};
+    let failed = || regen_error("FILLET_FAILED");
+    let mut cut = Vec::new();
+    let mut fill = Vec::new();
+    for edge in edges {
+        if edge.curve_type().ok() != Some(occt::CurveType::Circle) {
+            return Ok(None);
+        }
+        let faces = body.ancestors(edge, ShapeKind::Face);
+        let (Some(plane_face), Some(sphere_face)) = (
+            faces.iter().find(|f| f.surface_type().ok() == Some(occt::SurfaceType::Plane)),
+            faces.iter().find(|f| f.surface_definition().is_ok_and(|d| d.kind == 3)),
+        ) else {
+            return Ok(None);
+        };
+        let circle = edge.curve_definition().map_err(|_| failed())?;
+        let sphere = sphere_face.surface_definition().map_err(|_| failed())?;
+        let (c, rho) = (circle.frame.origin, circle.radius1);
+        let n = normalize(circle.frame.normal).ok_or_else(failed)?;
+        let off = sub(sphere.frame.origin, c);
+        if norm(cross(off, n)) > 1e-9 {
+            return Ok(None);
+        }
+        let big_r = sphere.radius1;
+        let h_s = dot(off, n);
+        // 2D (r along e, h along n) to 3D.
+        let e = normalize(circle.frame.x).ok_or_else(failed)?;
+        let at = |r: f64, h: f64| add(c, add(scale(e, r), scale(n, h)));
+        let edge_point = at(rho, 0.0);
+        // Which sides hold material: below or above the plane, outside or inside the sphere, from a point just
+        // into the corner along each face.
+        let probe = 1e-4 * rho.min(big_r);
+        let on_plane = |h: f64| body.contains_point(at(rho + probe, h)).unwrap_or(false);
+        let plane_side = if plane_face.distance(&occt::vertex(at(rho + probe, 0.0)).map_err(|_| failed())?).is_ok_and(|d| d.distance < 1e-7) {
+            // The plane's face runs outward from the circle: material is below or above it there.
+            if on_plane(-probe) { -1.0 } else if on_plane(probe) { 1.0 } else { return Ok(None) }
+        } else {
+            return Ok(None);
+        };
+        let sphere_dir = normalize(sub(edge_point, sphere.frame.origin)).ok_or_else(failed)?;
+        // Which side of the sphere holds material: from a point on its face a little way round from the circle,
+        // just off it either way along its normal.
+        let sphere_point = {
+            let angle = probe / big_r;
+            let (er, eh) = (rho, -h_s);
+            let mut found = None;
+            for sign in [1.0, -1.0] {
+                let (c, sn) = (angle.cos(), sign * angle.sin());
+                let (r, h) = (er * c - eh * sn, er * sn + eh * c);
+                let point = at(r, h + h_s);
+                if occt::vertex(point).and_then(|v| v.distance(sphere_face)).is_ok_and(|d| d.distance < 1e-7) {
+                    found = Some(point);
+                }
+            }
+            found.ok_or_else(failed)?
+        };
+        let normal_there = normalize(sub(sphere_point, sphere.frame.origin)).ok_or_else(failed)?;
+        let sphere_side = match (
+            body.contains_point(add(sphere_point, scale(normal_there, probe))).unwrap_or(false),
+            body.contains_point(add(sphere_point, scale(normal_there, -probe))).unwrap_or(false),
+        ) {
+            (true, false) => 1.0,
+            (false, true) => -1.0,
+            _ => return Ok(None),
+        };
+        // Convex where the material is where both faces' material sides meet: on the plane's material side but
+        // off the sphere's, it's void; at a concave edge, where material is on either side, it isn't.
+        let convex = {
+            let p = add(add(edge_point, scale(n, plane_side * probe)), scale(sphere_dir, -sphere_side * 2.0 * probe));
+            !body.contains_point(p).unwrap_or(true)
+        };
+        let tau = if convex { 1.0 } else { -1.0 };
+        let qh = tau * plane_side * radius;
+        let reach = big_r + tau * sphere_side * radius;
+        let q2 = reach * reach - (qh - h_s) * (qh - h_s);
+        if q2 <= 0.0 || reach <= 0.0 {
+            return Err(failed());
+        }
+        let qr = q2.sqrt();
+        let centre = (qr, qh);
+        let (sx, sh) = (0.0, h_s);
+        let d = ((centre.0 - sx).powi(2) + (centre.1 - sh).powi(2)).sqrt();
+        let tangent = (sx + big_r * (centre.0 - sx) / d, sh + big_r * (centre.1 - sh) / d);
+        let on_plane_pt = (qr, 0.0);
+        // The arc's middle, toward the corner from the centre.
+        let mid_dir = {
+            let (a, b) = ((on_plane_pt.0 - centre.0) + (tangent.0 - centre.0), (on_plane_pt.1 - centre.1) + (tangent.1 - centre.1));
+            let l = (a * a + b * b).sqrt();
+            (a / l, b / l)
+        };
+        let mid = (centre.0 + radius * mid_dir.0, centre.1 + radius * mid_dir.1);
+        // Past the faces: into the void to cut (where cutting changes nothing), into the material to fill (where
+        // filling changes nothing).
+        let delta = 0.5 * radius;
+        let void_h = -tau * plane_side * delta;
+        let sphere_void = |(r, h): (f64, f64)| {
+            let (a, b) = (r - sx, h - sh);
+            let l = (a * a + b * b).sqrt();
+            (r - tau * sphere_side * delta * a / l, h - tau * sphere_side * delta * b / l)
+        };
+        let t_out = sphere_void(tangent);
+        let corner_out = { let (r, h) = sphere_void((rho, 0.0)); (r, h + void_h) };
+        let plane_out = (qr, void_h);
+        let p = |(r, h): (f64, f64)| at(r, h);
+        let line = |a, b| occt::line_edge(p(a), p(b)).map_err(crate::occt_error);
+        let region = occt::fill_edges(&[
+            occt::arc_through(p(on_plane_pt), p(mid), p(tangent)).map_err(crate::occt_error)?,
+            line(tangent, t_out)?,
+            line(t_out, corner_out)?,
+            line(corner_out, plane_out)?,
+            line(plane_out, on_plane_pt)?,
+        ])
+        .map_err(|_| failed())?;
+        let tool = occt::revolve(&region, occt::Axis { origin: c, direction: n }, std::f64::consts::TAU)
+            .map_err(|_| failed())?
+            .shape();
+        if convex { cut.push(tool) } else { fill.push(tool) }
+    }
+    let mut shape = body.clone();
+    let mut op = None;
+    if !cut.is_empty() {
+        let o = occt::boolean(occt::BooleanKind::Subtraction, std::slice::from_ref(&shape), &cut, true).map_err(|_| failed())?;
+        shape = o.shape();
+        op = Some(o);
+    }
+    if !fill.is_empty() {
+        op = Some(occt::boolean(occt::BooleanKind::Union, std::slice::from_ref(&shape), &fill, true).map_err(|_| failed())?);
+    }
+    Ok(op)
 }
 
 /// The coordinate system Onshape gives the cylinder a fillet of a straight edge makes (batch 047): z along the edge
