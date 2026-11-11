@@ -705,10 +705,15 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   and nothing at the ends and middle (0.0017, 0.0022, 0.0014 at 1/8, 1/4, 1/3 for the off-axis squares; 0.0003 at
   1/3 for the rectangles), so it looks like Onshape's fit of the sides; the engine blends by smoothstep.
   Onshape's sides are fits of eight C1 cubic spans along the edge, a cubic across, natural at the free end.
-- **Fills of arcs and boundary surfaces of arcs** (batch 063 c008, c009, c011) are Onshape's own fits: the fill
-  of four arcs is bicubic with four C1 spans each way, its edges' rows 0.05 mm off the arcs at the knots and not a
-  Coons patch of them (0.1 off); a boundary surface normal to its first profile has the distance between the
-  profiles as its derivative there, but not a natural free end.
+- **Fills of arcs and boundary surfaces of arcs** (batch 063 c008, c009, c011): the fill of four arcs is
+  Onshape's own fit, bicubic with four C1 spans each way, its edges' rows 0.05 mm off the arcs at the knots and not
+  a Coons patch of them (0.1 off). A boundary surface through two arcs each way is the bilinearly blended Coons
+  patch of its four boundaries (Onshape's eight- and four-span fits of the arcs), to 7e-7 mm (c009). One normal to
+  its first profile's plane is quadratic across: it leaves the profile along the chord to each point's partner
+  with the chord's part across the profile within the plane taken out (the part along the normal is the chord's,
+  20 mm; along the arc, within 0.01 of the chord's in Onshape's fit), and the far end's derivative is twice the
+  chord less that (c011). Tangent to the plane, the same with the part along the normal taken out: two arcs over
+  each other leave nothing at their ends, and Onshape fails (`CANNOT_MAKE_BSPLINESURFACE`, c010).
 - **A survey of B-spline cases** (batch 065): a sweep twisted or scaled along a fit spline matches, within 1.0e-4
   (twisted) and 2.5e-4 (scaled) of the volume, a loft through copies of the profile carried along the path by the
   rotation-minimising frame, turned and grown in proportion to the path's parameter (by its length, the scaled

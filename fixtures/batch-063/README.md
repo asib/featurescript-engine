@@ -18,4 +18,6 @@ Findings (docs/FINDINGS.md): past magnitude 0.979 the curvature section keeps pa
 0.0107388, 0.005 and β₃ = 0.0006525, 0.0031158, 0.003103, 0.0014263 at 0.98, 0.985, 0.99, 0.995); a polygon loft
 normal to its profile has at each corner the derivative the magnitude times 0.9 of the chord along the normal
 plus 0.1 of its length, blended along the edge by a rule not found, its sides fits of eight C1 spans; a fill of
-arcs and boundary surfaces of arcs both ways or normal to a profile are Onshape's own fits.
+arcs is Onshape's own fit. A boundary surface of arcs both ways is the Coons patch of its boundaries; normal to a
+profile, it is quadratic across, leaving the profile along the chord without its part across the profile (tangent
+to it, without its part along the normal, which leaves nothing at the arcs' ends: c010 fails).

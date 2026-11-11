@@ -5,17 +5,19 @@ use std::path::PathBuf;
 
 /// Cases the engine can't build as Onshape does yet (see docs/std-coverage.md): curvature fillets past magnitude
 /// 0.979, where Onshape's sections follow a law not found (c001–c003); a fill of four arcs round a non-planar loop,
-/// Onshape's own fit (c008); boundary surfaces with arcs both ways (c009), tangent to a profile, which Onshape
-/// fails (`CANNOT_MAKE_BSPLINESURFACE`, c010), and normal to one (c011).
-const KNOWN_GAPS: &[&str] = &["c001", "c002", "c003", "c008", "c009", "c010", "c011"];
+/// Onshape's own fit (c008). A boundary surface tangent to a profile fails in both (`CANNOT_MAKE_BSPLINESURFACE`,
+/// c010).
+const KNOWN_GAPS: &[&str] = &["c001", "c002", "c003", "c008"];
 
 /// Polygon lofts normal to a profile: the derivative at the corners is the magnitude times 0.9 of the chord along
 /// the normal plus 0.1 of its length, as the engine has it, but along the edges Onshape blends it by a rule not
 /// found (its sides are fits of eight spans): the volumes are within 2e-5 (c005–c007).
-const LOOSE: &[(&str, f64)] = &[("c005", 0.1), ("c006", 0.1), ("c007", 0.1)];
+/// Boundary surfaces of arcs, a Coons patch (c009) and normal to a profile (c011): Onshape's are built on its own
+/// eight-span fits of the arcs, 0.004 and 0.001 mm² off the engine's exact ones.
+const LOOSE: &[(&str, f64)] = &[("c005", 0.1), ("c006", 0.1), ("c007", 0.1), ("c009", 0.01), ("c011", 0.005)];
 
-/// The lofts' sides are Onshape's fits: only their bodies are compared.
-const BODIES_ONLY: &[&str] = &["c005", "c006", "c007"];
+/// The lofts' sides and the boundary surfaces are Onshape's fits: only their bodies are compared.
+const BODIES_ONLY: &[&str] = &["c005", "c006", "c007", "c009", "c011"];
 
 #[test]
 fn batch_063_matches_onshape() {
