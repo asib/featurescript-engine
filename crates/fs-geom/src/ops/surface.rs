@@ -2287,13 +2287,14 @@ fn extended_cubic(
 fn geodesic_offset(face: &Shape, edge: &Shape, distance: f64) -> R<Option<Shape>> {
     use crate::values::{add, cross, dot, norm, normalize, scale, sub};
     const SAMPLES: usize = 48;
-    const STEPS: usize = 64;
+    const STEPS: usize = 512;
     let on_face = |x: occt::Vec3| -> Option<occt::Frame> {
         let (fu, fv) = face.face_fraction(x).ok()?;
         face.face_tangent_plane(fu.clamp(0.0, 1.0), fv.clamp(0.0, 1.0)).ok()
     };
     let inside = |x: occt::Vec3| occt::vertex(x).and_then(|v| v.distance(face)).is_ok_and(|d| d.distance < 1e-6);
-    // The walk from the point at fraction t of the edge: its end, or None if it leaves the face.
+    // The walk from the point at fraction t of the edge: its end, or None if it leaves the face. A walk along the
+    // face's own boundary (a sphere band's meridian offset round its equator, batch 120 c001) stays on it.
     let walk = |t: f64| -> Option<Option<occt::Vec3>> {
         let a = edge.edge_tangent(t, false).ok()?;
         let start = on_face(a.origin)?;
@@ -2309,7 +2310,8 @@ fn geodesic_offset(face: &Shape, edge: &Shape, distance: f64) -> R<Option<Shape>
             let f = on_face(y)?;
             let (fu, fv) = face.face_fraction(y).ok()?;
             let at_edge = [fu, fv].iter().any(|t| *t <= 1e-9 || *t >= 1.0 - 1e-9);
-            if norm(sub(f.origin, y)) > 0.25 * h || at_edge {
+            let along_edge = at_edge && norm(sub(f.origin, y)) < 1e-3 * h;
+            if norm(sub(f.origin, y)) > 0.25 * h || (at_edge && !along_edge) {
                 return Some(None);
             }
             let step = sub(f.origin, x);
