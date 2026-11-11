@@ -1,0 +1,107 @@
+{
+  "batch": "124",
+  "title": "everyday modelling: springs, bosses up to curved faces, pockets, drafts round fillets, a tee",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "sweep",
+      "description": "a spring: a circle of radius 1 swept along a helix of radius 10, 3 turns 15 high",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "sweep",
+      "description": "a 2 × 2 square swept along a helix of radius 10, 2 turns 20 high",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "extrude",
+      "description": "a circle of radius 3 extruded up to the side of a cylinder (radius 10) lying along x 20 above it",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "fillet",
+      "description": "a 30 × 20 × 10 block with a pocket of a sphere (radius 6) centred 2 above its top: the rim filleted 1 mm",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "extrude",
+      "description": "a cylinder (radius 10, 40 long) lying along x with a circle of radius 2 cut down through it at x = 5",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "draft",
+      "description": "a 30 × 20 × 10 block with its upright edges filleted 3 mm: its sides and fillets drafted 5° from the bottom",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "fillet",
+      "description": "a tee of pipes (radius 5 along x, radius 4 up z): the joint filleted 1 mm",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c008",
+      "kind": "chamfer",
+      "description": "a tee of pipes (radius 5 along x, radius 4 up z): the joint chamfered 1 mm",
+      "slotMeters": [
+        2.8000000000000003,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c009",
+      "kind": "shell",
+      "description": "a tee of pipes (radius 5 along x, radius 4 up z): shelled 1 mm inwards, open at its three ends",
+      "slotMeters": [
+        3.2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c010",
+      "kind": "revolve",
+      "description": "a bowl: arcs of radius 20 and 18 about (0, 20) closed at the rim and the axis, revolved about z",
+      "slotMeters": [
+        3.6,
+        0,
+        0
+      ]
+    }
+  ]
+}

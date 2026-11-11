@@ -1361,6 +1361,19 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   before the other sides, x = 30 before y = 0 and y = 20; a cylinder's side before its caps). An offset and angle
   chamfer measures its distance on the same face. The engine ranks the faces by the oldest entity each came from,
   taking a region's edges as the sketch curves on them and a cap just after its extrude's oldest side.
+- **Everyday modelling** (batch 124): where a boolean or an extrude up to a curved face leaves an intersection curve,
+  OCCT cuts it into pieces (B-splines meeting at vertices only they share) and Parasolid keeps one edge: a boss up to
+  a lying cylinder's side has two edges, a cross hole through a lying cylinder four. The engine concatenates such
+  B-splines (`BRepLib_FuseEdges` with B-spline concatenation, after booleans and on an extrude's piece up to a face).
+  A fillet of the circle where a block's top meets a spherical pocket is a torus; OCCT's fillet breaks where the
+  sphere's seam meets the circle (six B-spline scraps), so the engine revolves the section (the arc tangent to the
+  plane's line and the sphere's circle) round the circle's axis and cuts it away, exactly Onshape's (2244.82030 mm²).
+  A profile swept along a helix keeps its place in the path's Frenet frame (a square's box stays ±11.0011 about
+  the axis); OCCT's default corrected Frenet frame turns it against the torsion, so along a path that leaves its
+  plane with no straight stretch the engine sweeps with the Frenet frame. Onshape's helix is its own fit, 7 µm off
+  the engine's. Known gaps: a tee of pipes (radius 5 and 4, the fillet reaching the larger pipe's equator) has its
+  joint filleted in three B-spline faces where Onshape's is one, its 1 mm chamfer measured otherwise along the curve
+  (5.6 mm³ apart), and its shell open at the ends fails in OCCT's thick solid.
 
 ## STEP export
 
