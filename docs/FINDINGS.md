@@ -1100,6 +1100,11 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   its guess holds periodic, rational, degree, count, poles, the full knot vector and (open) the parameter range; a
   closed one's knots are unclamped with the degree's multiplicity at 0 and 1, its first pole repeated last, and
   Onshape flags it periodic.
+- **A UI-drawn sheet metal plate** (batch 107): its region query is compressed (`&<length>$<base64>`: zlib of a
+  `%` query); a dotted string puts its literal pieces in the string table before itself, and `-<index>` is that
+  table's string (batch 103's reading, a string's prefix, fitted only its own query); `T` and `F` are booleans.
+  `derivedMirror` of a sheet metal model mirrors its definition and rebuilds it as the mirror image: the material
+  stays on the mirrored side (the engine's mirrored sheets had their normals the other way round).
 - **The last query types** (batch 106): `qUniqueVertices` keeps the earliest made of the vertices at a point (two
   blocks side by side keep the first one's shared corners); `qToleranceFilter` finds every edge and vertex past
   0 and 1e-9 m and none past 1e-5 m (the kernel's precision, 1e-8 m), faces and bodies never; `qIntersectsLine` and

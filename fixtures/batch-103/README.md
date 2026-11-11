@@ -27,8 +27,9 @@ out. A first c001 passed a named function to `mapArray`, which Onshape refuses.
 ## Compressed queries
 
 `qCompressed(version, text, root)` decodes, after a leading `%`, one value (counts and indices hexadecimal):
-`S<length>$<text>` a string, its length pieces joined by `.` (a count of characters, or `-<index>`: that string in
-the string table without its last `.` piece), joined by `.`; `B<length>$<type>` then a value: the value with that
+`S<length>$<text>` a string, its length pieces joined by `.` (a count of characters, or `-<index>`: the string
+table's string at that index), joined by `.`, a string of several pieces putting its literal pieces in the table
+before itself (batch 107); `B<length>$<type>` then a value: the value with that
 type tag, `C<index>` then a value: tagged with the string table's type name at that index; `M<count>` a map,
 `A<count>` an array, `D<number>` a number, `R<index>` the value table's value again. The string table holds every
 string and type name as read; the value table every string, number, map and array as completed, a tagged value in

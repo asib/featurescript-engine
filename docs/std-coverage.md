@@ -96,7 +96,7 @@ Onshape.
 | `sheetMetalGeometryPattern` (sheetMetalPattern.fs) | matches, through linear patterns: a part pattern, a face pattern of a hole | 017 |
 | `pcbStart`, `pcbEnd` (pcbStart.fs, pcbEnd.fs) | matches: a flex PCB plate with a flange, finished without unfolding; finished with every bend unfolded holding its top, and the bend lines it keeps (070 c010: from the flat pattern's bend centrelines, `evSheetMetalFlatTransformation`, `evSheetMetalBendUp`). One of two flanges' bends unfolded, the bend lines stopping at each other's setback at the corner (071 c011) | 017, 070, 071 |
 | `sheetMetalFormed` (sheetMetalFormed.fs) | matches: a boss and a cup (a part to add and one to remove) formed on a plate from form Part Studios given as build functions, at one and two places, flipped | 022 |
-| `sheetMetalTransform` | matches: moving derived sheet metal models (a quarter turn, a tilt, to a base mate connector) through `importDerived`. Not yet: through `derivedMirror` | 023 |
+| `sheetMetalTransform` | matches: moving derived sheet metal models (a quarter turn, a tilt, to a base mate connector) through `importDerived`. Mirrored through `derivedMirror`, the model the mirror image (107) | 023, 107 |
 | tables (`cutlistTable`, `routingCurveTable`) | match, called from a feature | 011 |
 | `holeTable`, computed properties (`computeMass`) | Onshape won't run them inside a feature (they read properties, or start their own feature), and neither does the engine: both refuse with "Execution error" as Onshape does (c009, c014). Their output outside a feature isn't checked | 011 |
 

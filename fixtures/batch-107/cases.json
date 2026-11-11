@@ -1,0 +1,37 @@
+{
+  "batch": "107",
+  "title": "a sheet metal plate drawn in Onshape's UI: built, mirrored, its compressed query decoded",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "studio",
+      "description": "the UI-drawn sheet metal plate's tab built: its solids and the sheet metal models' count",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "mirror",
+      "description": "the plate's solids mirrored with derivedMirror",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "compressed",
+      "description": "the plate's zlib-compressed region query decoded",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    }
+  ]
+}
