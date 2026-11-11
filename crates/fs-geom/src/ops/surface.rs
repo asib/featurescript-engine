@@ -991,6 +991,22 @@ fn torus_curves(face: &Shape, frame: occt::Frame, group: &Value, creation: &str)
     let lo_u = crate::values::dot(flat, y).atan2(crate::values::dot(flat, x)).rem_euclid(TAU);
     let rho = crate::values::norm(flat);
     let lo_v = (-height).atan2(big - rho).rem_euclid(TAU);
+    // Onshape's tube angle at a point on the torus.
+    let tube_angle = |p: occt::Vec3| {
+        let rel = crate::values::sub(p, c);
+        let height = crate::values::dot(rel, z);
+        let rho = crate::values::norm(crate::values::sub(rel, scale(z, height)));
+        (-height).atan2(big - rho).rem_euclid(TAU)
+    };
+    // A whole torus's seam: the revolved profile circle, which in Onshape starts a quarter turn back from its x
+    // (a sketch circle's -90°), where the engine's starts at its x (batch 085 c002, c004).
+    let seam_v = face.sub_shapes(ShapeKind::Edge).iter().find_map(|e| {
+        let conic = e.curve_definition().ok()?;
+        let f = conic.frame;
+        let in_axis_plane = crate::values::dot(f.normal, z).abs() < 1e-9;
+        (conic.kind == 1 && (conic.radius1 - small).abs() < 1e-9 && in_axis_plane)
+            .then(|| tube_angle(crate::values::sub(f.origin, scale(cross(f.normal, f.x), small))))
+    });
     let dir1 = creation.starts_with("DIR1");
     let span = if dir1 { su } else { sv };
     let whole = |s: f64| s >= TAU - 1e-9;
@@ -1013,7 +1029,15 @@ fn torus_curves(face: &Shape, frame: occt::Frame, group: &Value, creation: &str)
             let radial = add(scale(x, u.cos()), scale(y, u.sin()));
             let centre = add(c, scale(radial, big));
             let circle = occt::Frame { origin: centre, normal: cross(radial, z), x: scale(radial, -1.0) };
-            if whole(sv) { occt::circle_edge(circle, small) } else { occt::arc_edge(circle, small, lo_v, lo_v + sv) }
+            if let Some(seam_v) = seam_v.filter(|_| whole(sv) && whole(su) && f == 0.0) {
+                // The curve on the seam starts where the profile does (batch 085 c002).
+                let x = add(scale(radial, -seam_v.cos()), scale(z, -seam_v.sin()));
+                occt::circle_edge(occt::Frame { x, ..circle }, small)
+            } else if whole(sv) {
+                occt::circle_edge(circle, small)
+            } else {
+                occt::arc_edge(circle, small, lo_v, lo_v + sv)
+            }
         } else {
             let v = lo_v + f * sv;
             let circle = occt::Frame { origin: add(c, scale(z, -small * v.sin())), normal: z, x };

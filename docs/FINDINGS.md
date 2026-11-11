@@ -961,7 +961,7 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   in these parameters: equally spaced round a whole period at k / n from zero (across a part of one at k / (n − 1),
   the ends left out as the face's edges), tube circles from the inner equator round the tube, the others from x round
   the axis. The curve lying on a full torus's seam starts where the revolved profile circle starts (a sketch circle's
-  -90°) instead.
+  -90°, a quarter turn back from its x, where the engine's circles start) instead.
 - **A cone's side replaced by a cylinder, and two variable fillets meeting at a corner** (batch 085 c001, c005): the
   side goes over to the coaxial cylinder between the caps, which grow or shrink to it; variable conic fillets of a
   block's top front and top right edges, 4 mm where they meet, mitre there as constant ones do (to 5.4e-6 of the

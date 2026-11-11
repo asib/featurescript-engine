@@ -9,10 +9,8 @@ const LOOSE: &[(&str, f64)] = &[("c005", 0.1)];
 /// Faces come in an order of Onshape's own.
 const UNORDERED: &[&str] = &["c001", "c005"];
 
-/// Known gap (docs/FINDINGS.md): the isoparametric curve on a full torus's seam (c002's first) starts where the
-/// revolved profile circle starts (its sketch's -90°), which the engine doesn't keep; the torus's parameters and its
-/// other curves match.
-const KNOWN_GAPS: &[&str] = &["c002"];
+/// Cases the engine and Onshape don't agree on (see docs/std-coverage.md): none.
+const KNOWN_GAPS: &[&str] = &[];
 
 #[test]
 fn batch_085_matches_onshape() {
