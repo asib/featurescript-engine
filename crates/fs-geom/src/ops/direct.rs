@@ -613,9 +613,11 @@ fn boundary_is_flat(face: &Shape) -> bool {
 }
 
 /// The plane of the first planar face a query finds.
+/// The plane of a query's first face, if that face is planar: the template is the first face, whatever follows (a
+/// solid cylinder's faces as a template are its side, batch 118 c003).
 fn plane_of(model: &Model, query: &Value) -> R<Option<occt::Frame>> {
     let found = query::evaluate(model, query)?;
-    Ok(found.iter().filter(|r| r.kind == EntityType::Face).find_map(|r| model.shape(*r).face_plane().ok()))
+    Ok(found.iter().find(|r| r.kind == EntityType::Face).and_then(|r| model.shape(*r).face_plane().ok()))
 }
 
 pub fn replace_face(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
@@ -750,7 +752,63 @@ fn off_axis_cylinder(
     Ok(Some(occt::prism(&disc, scale(axis, hi - lo)).map_err(occt_error)?))
 }
 
+/// A solid of a cylindrical or conical side and two planar caps square to its axis, its side replaced by a sphere
+/// crossing both caps' planes: the ball between the caps (batch 118 c004: a barrel). Only with the face's material on
+/// the sphere's inside (`oppositeSense` false, the template a sphere's outward face).
+fn capped_side_to_sphere(
+    solid: &occt::Shape,
+    face: &occt::Shape,
+    template: &occt::Shape,
+    offset: f64,
+    opposite: bool,
+) -> R<Option<occt::Operation>> {
+    use values::{add, cross, dot, norm, scale, sub};
+    let (Ok(a), Ok(b)) = (face.surface_definition(), template.surface_definition()) else { return Ok(None) };
+    if !matches!(a.kind, 1 | 2) || b.kind != 3 || opposite {
+        return Ok(None);
+    }
+    // The template's face looks outward from its centre.
+    let outward = template.face_inner_point().ok().and_then(|p| {
+        let (u, v) = template.face_fraction(p).ok()?;
+        Some(dot(template.face_tangent_plane(u, v).ok()?.normal, sub(p, b.frame.origin)) > 0.0)
+    });
+    if outward != Some(true) {
+        return Ok(None);
+    }
+    let axis = a.frame.normal;
+    let faces = solid.sub_shapes(occt::ShapeKind::Face);
+    if faces.len() != 3 {
+        return Ok(None);
+    }
+    let mut heights = Vec::new();
+    for f in faces.iter().filter(|f| !f.is_same(face)) {
+        let Ok(plane) = f.face_plane() else { return Ok(None) };
+        if norm(cross(plane.normal, axis)) > 1e-9 {
+            return Ok(None);
+        }
+        heights.push(dot(sub(plane.origin, a.frame.origin), axis));
+    }
+    let [h0, h1] = heights[..] else { return Ok(None) };
+    let (lo, hi) = (h0.min(h1), h0.max(h1));
+    let radius = b.radius1 + offset;
+    let centre = b.frame.origin;
+    let along = dot(sub(centre, a.frame.origin), axis);
+    // The ball must reach past both caps' planes.
+    if radius <= 0.0 || (along - lo).abs() >= radius || (hi - along).abs() >= radius {
+        return Ok(None);
+    }
+    // The slab between the caps: a disc wider than the ball, extruded from one cap's plane to the other's.
+    let size = 2.0 * (radius + norm(sub(centre, a.frame.origin)));
+    let frame = occt::Frame { origin: add(a.frame.origin, scale(axis, lo)), normal: axis, x: a.frame.x };
+    let disc = occt::fill_edges(&[occt::circle_edge(frame, size).map_err(occt_error)?]).map_err(occt_error)?;
+    let slab = occt::prism(&disc, scale(axis, hi - lo)).map_err(occt_error)?.shape();
+    let ball = occt::sphere(centre, radius).map_err(occt_error)?;
+    let op = occt::boolean(occt::BooleanKind::Intersection, &[slab], &[ball], true).map_err(occt_error)?;
+    Ok(Some(op))
+}
+
 fn replace_with_surface(model: &mut Model, id: FeatureId, definition: &Value, offset: f64) -> R<Value> {
+    let opposite = values::opt_bool(definition, "oppositeSense")?.unwrap_or(false);
     let template_ref = query::evaluate(model, field(definition, "templateFace"))?
         .into_iter()
         .find(|r| r.kind == EntityType::Face)
@@ -775,6 +833,11 @@ fn replace_with_surface(model: &mut Model, id: FeatureId, definition: &Value, of
             // A plain cylinder's side replaced by a parallel cylinder off its axis: that cylinder between the
             // caps (batch 058 c002).
             if let Some(op) = off_axis_cylinder(&shape, face, &template, offset)? {
+                shape = op.shape();
+                last = Some(op);
+                continue;
+            }
+            if let Some(op) = capped_side_to_sphere(&shape, face, &template, offset, opposite)? {
                 shape = op.shape();
                 last = Some(op);
                 continue;
