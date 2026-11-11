@@ -295,16 +295,23 @@ fn section_fillet(model: &mut Model, id: FeatureId, definition: &Value, section:
             if inside { cut.push((converted, tool)) } else { fill.push((converted, tool)) }
         }
         // With the converted tools, OCCT's boolean can come back unchanged, reporting no error (batch 056 c017, a
-        // curvature fillet of magnitude 0.82): then with the extrusions themselves.
+        // curvature fillet of magnitude 0.82), or fail: then with the extrusions themselves. A fillet that changes
+        // nothing either way fails: a curvature section within micrometres of its corner (batch 113 c009, magnitude
+        // 0.99875) leaves a tool the booleans can't cut with.
         let apply = |kind: occt::BooleanKind, shape: &Shape, tools: &[(Shape, Shape)]| -> R<occt::Operation> {
             let before = shape.volume().unwrap_or(0.0);
+            let changed = |o: &occt::Operation| (o.shape().volume().unwrap_or(0.0) - before).abs() > 1e-15;
             let converted: Vec<Shape> = tools.iter().map(|(c, _)| c.clone()).collect();
-            let o = occt::boolean(kind, std::slice::from_ref(shape), &converted, true).map_err(|_| failed())?;
-            if (o.shape().volume().unwrap_or(0.0) - before).abs() > 1e-15 {
+            if let Ok(o) = occt::boolean(kind, std::slice::from_ref(shape), &converted, true)
+                && changed(&o)
+            {
                 return Ok(o);
             }
             let raw: Vec<Shape> = tools.iter().map(|(_, r)| r.clone()).collect();
-            occt::boolean(kind, std::slice::from_ref(shape), &raw, true).map_err(|_| failed())
+            match occt::boolean(kind, std::slice::from_ref(shape), &raw, true) {
+                Ok(o) if changed(&o) => Ok(o),
+                _ => Err(failed()),
+            }
         };
         let mut shape = body.clone();
         let mut op = None;
