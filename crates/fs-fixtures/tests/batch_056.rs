@@ -3,9 +3,9 @@
 
 use std::path::PathBuf;
 
-/// Cases the engine can't build as Onshape does yet (see docs/std-coverage.md): a loft normal to a direction, which
-/// Onshape refuses (`LOFT_INVALID`, c006); spheres' bands extended round (c019–c021).
-const KNOWN_GAPS: &[&str] = &["c006", "c019", "c020", "c021"];
+/// Cases the engine can't build as Onshape does yet (see docs/std-coverage.md): spheres' bands extended round
+/// (c019–c021).
+const KNOWN_GAPS: &[&str] = &["c019", "c020", "c021"];
 
 /// A loft from a square to one off its axis: Onshape's sides are fits that rise and fall along each edge about the
 /// exact construction's (its volume 0.05 mm³ over). Curvature fillets: Onshape's own areas of its quintic sections
@@ -28,9 +28,9 @@ fn batch_056_matches_onshape() {
         let unexpected: Vec<String> = report
             .problems()
             .into_iter()
-            .filter(|p| !KNOWN_GAPS.iter().any(|case| p.starts_with(case)) && !p.starts_with("failed probe"))
+            .filter(|p| !KNOWN_GAPS.iter().any(|case| p.starts_with(case)))
             .collect();
         assert!(unexpected.is_empty(), "{report}");
-        assert_eq!(report.probes_matched, (22 - KNOWN_GAPS.len() - 1, 22), "{report}");
+        assert_eq!(report.probes_matched, (22 - KNOWN_GAPS.len(), 22), "{report}");
     });
 }

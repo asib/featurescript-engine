@@ -1199,7 +1199,9 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   coaxial circles' radial 6 mm dips to 33√2/8 at 45°, which puts Onshape's volume 0.27% over the exact field's;
   055 c026, 056 c004 to 1e-6). Tangent to a square's plane (056 c003) the derivative has the projected chord's
   length at the thirds of each edge but turns from it (25.7° from the edge's normal at a third where the chord is
-  18.4°): no rule found. Normal to a direction (`NORMAL_DIRECTION`) fails in Onshape (`LOFT_INVALID`, c006).
+  18.4°): no rule found. Normal to a direction (`NORMAL_DIRECTION`) makes the loft tangent to the plane square to the direction along
+  the profile, so a profile not in such a plane is refused (`LOFT_INVALID`, c006: a circle in xy, the direction at
+  45°); the engine refuses it too, and builds it where the profile lies square to the direction (060, 061).
   Onshape's profiles are cubic Hermite fits (64 spans for a circle), and a square's rows rise and fall along each
   edge by up to 0.0008 mm about the exact construction's (0.05 mm³ of volume). Matching the tangency of the faces
   next to the profile (batches 057, 058) takes the chord rule along where those faces meet at each corner (a

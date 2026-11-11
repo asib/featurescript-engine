@@ -802,6 +802,23 @@ pub fn loft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
     if wires.len() < 2 {
         return Err(regen_error("LOFT_SELECT_PROFILES"));
     }
+    // Normal to a direction, the loft is tangent to the plane square to it along the profile: the profile must lie
+    // in such a plane (batch 056 c006: a circle in xy, normal to a direction at 45°, is LOFT_INVALID).
+    for (end, wire) in [(&ends[0], &wires[0]), (&ends[1], &wires[wires.len() - 1])] {
+        let Some(e) = end.as_ref().filter(|e| e.tangent && e.faces.is_empty()) else { continue };
+        let Some(n) = values::normalize(e.vector) else { continue };
+        let points: Vec<Vec3> = wire
+            .sub_shapes(ShapeKind::Edge)
+            .iter()
+            .flat_map(|edge| [0.0, 0.25, 0.5, 0.75, 1.0].map(|t| edge.edge_tangent(t, false).ok().map(|a| a.origin)))
+            .flatten()
+            .collect();
+        if let Some(&first) = points.first()
+            && points.iter().any(|&p| values::dot(values::sub(p, first), n).abs() > 1e-7)
+        {
+            return Err(regen_error("LOFT_INVALID"));
+        }
+    }
     let touches = |a: &Shape, b: &Shape| a.distance(b).is_ok_and(|d| d.distance < 1e-7);
     // Each connection takes one vertex or edge on each profile (batch 074 c002–c004: a corner's every vertex,
     // the sketch lines' ends too, is `LOFT_CONNECTION_MATCHING`).
