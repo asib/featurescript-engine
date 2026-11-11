@@ -22,3 +22,7 @@ read from the page's own websocket frames (the composite is named after the file
 The Part Studios are tabs too: imported into the Feature Studio (batch 096), each is a module with a build
 function. The engine stands in for each with a FeatureScript module replaying its one Import feature
 (fixture-parts.studio.fs, fixture-parts-y-up.studio.fs, fixture-parts-composite.studio.fs), listed in uploads.txt.
+
+A Part Studio drawn by hand in the UI is a tab too: `Part Studio 2` (batch 103), a sketch of splines, a Bézier, a
+line, a circle, an arc and a point, and an extrude of two of its regions. ui-sketch.studio.fs is its FeatureScript
+exactly as its "Show code" gives it (right-click its tab), which the engine loads for it unchanged.

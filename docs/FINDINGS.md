@@ -1069,11 +1069,24 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   tangent plane's x points along that u (OCCT's runs the other way). `evApproximateBSplineSurface` of a whole
   cylinder is exact: two rational cubic half circles from that x (poles twice the radius out, weights 1, ⅓, ⅓, 1),
   flagged periodic with clamped knots, linear along z from the face's start, bounded by six parameter lines.
-- **std's internal API functions** (batch 102): `getFeatureName`, `getParameterToleranceInfo` and a `qCompressed`
-  query each fail from a feature ("Execution error"). `opBooleanedPattern` asks for a target body, then tool bodies,
+- **std's internal API functions** (batch 102): `getFeatureName` and `getParameterToleranceInfo` fail from a
+  feature ("Execution error": no feature name during regeneration, and no tolerant parameter in a Feature
+  Studio's feature), as does a `qCompressed` query of an empty string. `opBooleanedPattern` asks for a target body, then tool bodies,
   then an operation type (`CANNOT_RESOLVE_ENTITIES` with the field as faulty parameter for the first two,
   `INVALID_INPUT` for the third), and joins copies of the tool bodies by each transform to the target, leaving the
   tools where they were.
+- **A Part Studio drawn in the UI** (batch 103, fixtures/batch-103/README.md): its tab's FeatureScript ("Show code")
+  places each sketch entity by one `skSetInitialGuess` map, its calls giving no geometry, and finds planes and
+  regions by compressed queries (`qCompressed`), whose encoding and evaluation the README gives. An open spline
+  through points is the cubic at centripetal parameters with the guess's end derivatives (its handles are its second
+  and second-last poles), a closed one periodic. A line its guess placed has Onshape's line at its start, where one
+  given its ends has it at its middle. Every spline point and Bézier control point is a point body, a Bézier's
+  control polygon construction lines, and an open spline's handles construction lines from its ends in a Part
+  Studio's sketch but points in a Feature Studio's; closed curves' wire bodies come after the open ones'. A Part
+  Studio's own code runs without its calls' preconditions (`skBezier` without points), and its functions can be
+  values (`Ui::build`); a Feature Studio's can't (`St::abs`, "Execution error"). An entity given both its fields
+  and a guess fails the solve ("Solve for sketch fails"), which adds nothing; `skBezier` given points makes its own
+  `<id>.startSnap` and `<id>.endSnap` constraints, so a second of either is a duplicate.
 - **A sphere's principal directions** (batch 099, with 087 c008): every direction is principal, and Onshape's least
   is always the normal crossed with a world axis (n × x, n × y or n × z, normalised), its greatest n × that; the same
   at the same normal whatever the sphere's centre and radius. Which axis isn't the smallest of the normal's

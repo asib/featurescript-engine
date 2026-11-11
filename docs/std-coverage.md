@@ -111,15 +111,15 @@ engine doesn't have. After batch 002, std calls 269 builtins; these are implemen
   `getAllVariablesAndDescriptions`.
 - imports of uploaded files' tabs (fixtures/blobs/uploads.txt): `BLOB_DATA` as Onshape's (batch 094).
 - sketches: `newSketch`, `skPoint`, `skLineSegment`, `skCircle`, `skArc`, `skImage` (its bounding construction
-  lines; batch 094), `skText` (Open Sans and Arimo Regular, as Onshape's font engine draws them; batches 091, 097), `skSolve`; `skConstraint` constraints are
+  lines; batch 094), `skText` (Open Sans and Arimo Regular, as Onshape's font engine draws them; batches 091, 097), `skSolve`; `skSetInitialGuess`, `skInterpolatedSpline`, and `skInterpolatedSplineSegment`, and points, lines, circles, arcs and Béziers placed by an initial guess, as a Part Studio drawn in the UI writes them (batch 103); `skConstraint` constraints are
   solved where the entities don't already meet them (fix, coincident, tangent, perpendicular, parallel,
   horizontal, vertical, distance; batch 029); others are ignored.
 - evaluations added: `evOffsetDetection` (planar walls; batch 031); `evPlanarEdge`, `evPlanarEdges`, `evRaycast`,
   `evFaceCurvatures`, `evFilletRadius` (batch 086); `evaluateSpline`, `evApproximateMassProperties`,
   `evPointsDeviation`, `evFaults`, `evFaceCurvatureDerivatives`, `evApproximateBSplineSurface` (whole cylinders
   exactly, other faces OCCT's conversion), `parseJson`; `evTolerances` and `evMaxTolerance` refused as Onshape does
-  (batches 100, 101); `getFeatureName`, `getParameterToleranceInfo` and `unpackQuery` (a `qCompressed` query)
-  refused from a feature as Onshape does (batch 102); `report` and `evRuledSurfaceBases` (a failed ruled surface's
+  (batches 100, 101); `getFeatureName` and `getParameterToleranceInfo`
+  refused from a feature as Onshape does (batch 102); `unpackQuery` (`qCompressed`: Onshape's encoding decoded, and its creation, sketch entity and imprint queries with topological disambiguation; batch 103); `report` and `evRuledSurfaceBases` (a failed ruled surface's
   manipulators) have no effect on the model.
 - operations: `opPoint`, `opPlane`, `opExtrude`, `opRevolve`, `opSphere`, `opBoolean`, `opTransform`, `opPattern`
   (bodies and faces), `opSplitPart`, `opSplitFace`, `opSplitEdges` (at parameters), `opDeleteBodies`, `opFillet`

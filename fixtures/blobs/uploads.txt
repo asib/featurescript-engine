@@ -7,3 +7,4 @@ aa7eee42ff6b54ecfee8ac2b 07911cc73b87f0bd2f9a105b fixture-parts.step { "blobType
 d412144ebfad7e9416deb58c aca0f983c01cbe9e71bb3028 fixture-parts.studio.fs -
 c5d915e83393edbf3b913bd1 a7b52c6cacfcf0691db00a47 fixture-parts-y-up.studio.fs -
 4ca74ca9ad149da674d96e89 1ada28f43a47ad703611d99d fixture-parts-composite.studio.fs -
+9dbc307fe0e625b19989e89b 70340e1bbf0e854dedb2e4a2 ui-sketch.studio.fs -
