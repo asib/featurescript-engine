@@ -2419,3 +2419,58 @@ fn vertex_overrides(model: &Model, definition: &Value) -> R<Vec<VertexOverride>>
     }
     Ok(out)
 }
+
+/// `@opCreateBSplineSurface`: a sheet of a B-spline surface over its whole domain (batch 100 c002). Trimming
+/// boundaries, periodic surfaces and solids aren't supported yet.
+pub fn create_bspline_surface(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
+    let surface = field(definition, "bSplineSurface");
+    for key in ["boundaryBSplineCurves"] {
+        if field(definition, key).as_array().is_some_and(|a| !a.is_empty()) {
+            return Err(error(format!("@opCreateBSplineSurface: {key} isn't supported yet")));
+        }
+    }
+    if values::opt_bool(definition, "makeSolid")?.unwrap_or(false) {
+        return Err(error("@opCreateBSplineSurface: makeSolid isn't supported yet"));
+    }
+    if values::opt_bool(surface, "isUPeriodic")?.unwrap_or(false)
+        || values::opt_bool(surface, "isVPeriodic")?.unwrap_or(false)
+    {
+        return Err(error("@opCreateBSplineSurface: periodic surfaces aren't supported yet"));
+    }
+    let degree = |key: &str| -> R<i32> {
+        field(surface, key)
+            .as_number()
+            .map(|d| d as i32)
+            .ok_or_else(|| error(format!("@opCreateBSplineSurface: {key}")))
+    };
+    let (u_degree, v_degree) = (degree("uDegree")?, degree("vDegree")?);
+    let rows = field(surface, "controlPoints")
+        .as_array()
+        .ok_or_else(|| error("@opCreateBSplineSurface: controlPoints must be a matrix"))?;
+    let mut poles = Vec::new();
+    let mut nv = 0;
+    for row in rows.iter() {
+        let row = row.as_array().ok_or_else(|| error("@opCreateBSplineSurface: controlPoints must be a matrix"))?;
+        nv = row.len();
+        for p in row.iter() {
+            poles.push(values::vec3(p, "opCreateBSplineSurface control point")?);
+        }
+    }
+    let nu = rows.len();
+    let knots_u = values::numbers(field(surface, "uKnots"), "opCreateBSplineSurface uKnots")?;
+    let knots_v = values::numbers(field(surface, "vKnots"), "opCreateBSplineSurface vKnots")?;
+    let face = if values::opt_bool(surface, "isRational")?.unwrap_or(false) {
+        let mut weights = Vec::new();
+        for row in field(surface, "weights").as_array().ok_or_else(|| error("@opCreateBSplineSurface: weights"))?.iter()
+        {
+            weights.extend(values::numbers(row, "opCreateBSplineSurface weights")?);
+        }
+        occt::rational_bspline_surface_face(&poles, &weights, (nu, nv), &knots_u, &knots_v, (u_degree, v_degree))
+    } else {
+        occt::bspline_surface_face(&poles, (nu, nv), &knots_u, &knots_v, (u_degree, v_degree))
+    }
+    .map_err(|_| crate::regen_error("CANNOT_MAKE_BSPLINESURFACE"))?;
+    let info = Info::new(id);
+    model.add_body(NewBody::new(face, BodyType::Sheet, info.clone()), &Origins::default(), &info, &|_| None);
+    Ok(Value::UNDEFINED)
+}

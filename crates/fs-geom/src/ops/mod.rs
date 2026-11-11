@@ -319,6 +319,26 @@ pub fn register(m: &mut GeomBuiltins) {
     m.insert("opSplitPart", |_, args| run_op(&args, "opSplitPart", split::split_part));
     m.insert("opSplitEdges", |_, args| run_op(&args, "opSplitEdges", split::split_edges));
     m.insert("opImportForeign", |_, args| run_op(&args, "opImportForeign", import::import_foreign));
+    // Sheets turned inside out: their faces' normals reversed, their entities kept (batch 100 c001).
+    m.insert("opFlipOrientation", |_, args| {
+        run_op(&args, "opFlipOrientation", |model, _id, definition| {
+            for b in owner_bodies(model, field(definition, "bodies"))? {
+                if model.bodies[b].body_type != BodyType::Sheet {
+                    continue;
+                }
+                model.update_body(b, |body| {
+                    body.shape = body.shape.reversed();
+                    for face in &mut body.faces {
+                        face.shape = face.shape.reversed();
+                    }
+                });
+            }
+            Ok(Value::UNDEFINED)
+        })
+    });
+    m.insert("opCreateBSplineSurface", |_, args| {
+        run_op(&args, "opCreateBSplineSurface", surface::create_bspline_surface)
+    });
     m.insert("opSplitBySelfShadow", |_, args| run_op(&args, "opSplitBySelfShadow", shadow::split_by_self_shadow));
     m.insert("opSplitFace", |interp, args| {
         let tags = crate::tags(interp)?;
