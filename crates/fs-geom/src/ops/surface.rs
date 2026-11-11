@@ -1607,9 +1607,16 @@ pub fn enclose(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
             _ => {}
         }
     }
-    let solids = occt::enclose(&inputs).map_err(|_| regen_error("ENCLOSE_FAILED"))?;
+    let mut solids = occt::enclose(&inputs).map_err(|_| regen_error("ENCLOSE_FAILED"))?;
     if solids.is_empty() {
         return Err(regen_error("ENCLOSE_NO_REGION"));
+    }
+    // Regions next to each other come out as one solid, the faces between them gone (batch 122 c016: a tube cut
+    // through its axis is one part).
+    if solids.len() > 1 {
+        let fused = occt::boolean(occt::BooleanKind::Union, &solids[..1], &solids[1..], true)
+            .map_err(|_| regen_error("ENCLOSE_FAILED"))?;
+        solids = fused.shape().sub_shapes(ShapeKind::Solid);
     }
     for solid in solids {
         add(model, &id, solid, BodyType::Solid);
