@@ -30,7 +30,18 @@ pub fn register(m: &mut GeomBuiltins) {
         "transferSubfeatureErrorDisplay",
         // Hidden parameters only steer the feature dialog.
         "setFeatureHiddenParameters",
+        // Display and timing for debugging: no effect on the model (batch 100 c010).
+        "addAuxiliaryEntities",
+        "addReferenceCSysFrame",
+        "startTimer",
+        "printTimer",
     ] {
         m.insert(name, |_, _| Ok(Value::UNDEFINED));
     }
+    // Internal evaluations of tolerances: a Feature Studio's code can't use them (batches 100 c007, 101 c006).
+    for name in ["evTolerances", "evMaxTolerance"] {
+        m.insert(name, |_, _| Err(fs_interp::eval::execution_error("an internal evaluation")));
+    }
+    // Faults: the engine's bodies have none (a block's, batch 101 c007).
+    m.insert("evFaults", |_, _| Ok(Value::array(Vec::new())));
 }
