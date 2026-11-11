@@ -763,12 +763,8 @@ fn replace_with_surface(model: &mut Model, id: FeatureId, definition: &Value, of
     // Onshape won't replace a face up to a sheet lofted between arcs, a rational B-spline in Onshape (batch 067 c005;
     // batches 108, 111: between equal arcs, either way round or wider, and extended first, too), though it will up
     // to a loft between lines or the same arc extruded. The engine's lofts between arcs aren't rational (and between
-    // equal arcs are cylinders): a lofted face bounded by an arc stands for one.
-    let bounded_by_arc =
-        template.sub_shapes(occt::ShapeKind::Edge).iter().any(|e| e.curve_type().ok() == Some(occt::CurveType::Circle));
-    let rational = template.surface_type().ok() == Some(occt::SurfaceType::BSpline)
-        && template.face_bspline().is_ok_and(|s| s.rational);
-    if model.info(template_ref).lofted && (rational || bounded_by_arc) {
+    // equal arcs are cylinders): the loft marks them (`Info::lofted`).
+    if model.info(template_ref).lofted {
         return Err(regen_error("DIRECT_EDIT_REPLACE_FACE_FAILED"));
     }
     let mut results = Vec::new();

@@ -886,7 +886,7 @@ pub fn loft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
                 return Err(error("@opLoft: connections with end conditions aren't supported yet"));
             }
             let op = occt::loft_as_given(&started, solid).map_err(|_| regen_error("LOFT_FAILED"))?;
-            add_lofted(model, &id, &op, solid)?;
+            add_lofted(model, &id, &op, solid, &wires)?;
             return Ok(Value::UNDEFINED);
         }
         let Some(matched) = forced.map(|f| matched_polygons_with(&wires, Some(f))).transpose()?.flatten() else {
@@ -896,7 +896,7 @@ pub fn loft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
             return Err(error("@opLoft: connections with end conditions aren't supported yet"));
         }
         let op = occt::loft_as_given(&matched, solid).map_err(|_| regen_error("LOFT_FAILED"))?;
-        add_lofted(model, &id, &op, solid)?;
+        add_lofted(model, &id, &op, solid, &wires)?;
         return Ok(Value::UNDEFINED);
     }
     // Each guide meets every profile (074 c005: guides missing them are `LOFT_GUIDE_PROFILE_INTERSECTION`).
@@ -952,7 +952,7 @@ pub fn loft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
     }
     // A sheet lofted from wires faces the other way from OCCT's, as an extruded one does: outward from a loop
     // (a thin loft thickens outward, batch 028).
-    add_lofted(model, &id, &op, solid)?;
+    add_lofted(model, &id, &op, solid, &wires)?;
     Ok(Value::UNDEFINED)
 }
 
@@ -1006,14 +1006,23 @@ fn tangent_corners_fit(loft: &Shape, wire: &Shape, normal: Vec3) -> bool {
     true
 }
 
-/// Adds a loft's bodies, their faces marked as a loft's (`Info::lofted`).
-fn add_lofted(model: &mut Model, id: &FeatureId, op: &occt::Operation, solid: bool) -> R<()> {
+/// Adds a loft's bodies; through profiles with arcs (rational curves), its curved faces are marked
+/// (`Info::lofted`).
+fn add_lofted(model: &mut Model, id: &FeatureId, op: &occt::Operation, solid: bool, wires: &[Shape]) -> R<()> {
     let before = model.bodies.len();
     add_with_caps_facing(model, id, op, solid, !solid)?;
+    let rational = wires.iter().flat_map(|w| w.sub_shapes(ShapeKind::Edge)).any(|e| {
+        matches!(e.curve_type(), Ok(occt::CurveType::Circle | occt::CurveType::Ellipse))
+    });
+    if !rational {
+        return Ok(());
+    }
     for b in before..model.bodies.len() {
         model.update_body(b, |body| {
             for face in &mut body.faces {
-                face.info = Rc::new(Info { lofted: true, ..(*face.info).clone() });
+                if face.shape.surface_type().ok() != Some(occt::SurfaceType::Plane) {
+                    face.info = Rc::new(Info { lofted: true, ..(*face.info).clone() });
+                }
             }
         });
     }

@@ -25,5 +25,5 @@ projected into the plane; Onshape builds it only where that lies strictly within
 opposite it (the turned triangles have a chord along an edge at the start and chords off both angles at the end,
 whatever the magnitude; turned squares are fine). Onshape won't replace a face up to a sheet lofted between arcs (a
 rational B-spline), though it will up to one lofted between lines or an extruded arc. Batch 111 shows the loft is what
-counts (the same cylinder extruded is replaced up to); the engine refuses lofted templates bounded by arcs. Known
-gap: the engine can't extend the arcs' sheet at every edge (c011).
+counts (the same cylinder extruded is replaced up to); the engine marks the curved faces of lofts through arcs and
+refuses them as templates, extended first too (c011: the curves extended along the rulings, then the straight sides).

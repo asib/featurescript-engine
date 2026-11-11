@@ -1108,8 +1108,10 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   won't replace a face up to a sheet lofted between arcs, equal arcs too, however drawn or however wide (batch 111),
   though it will up to one lofted between lines, or up to the very same cylinder extruded from the arc (111 c001).
   Onshape's STEP shows a loft between equal arcs as that cylinder (batch 006), so its loft is a rational B-spline
-  inside, simplified on export: what made the sheet counts. The engine marks a loft's faces (`Info::lofted`) and
-  refuses a lofted template bounded by an arc (its own lofts between equal arcs are cylinders).
+  inside, simplified on export: what made the sheet counts, and extending it 5 mm at every edge first doesn't change
+  that (108 c011). The engine marks the curved faces of lofts through arcs (`Info::lofted`; its own lofts between
+  equal arcs are cylinders), keeps the mark when the sheet is extended, and refuses those faces as templates. A ruled
+  sheet extended at several edges goes curves first, along the rulings, then the straight sides.
 - **A UI-drawn sheet metal plate** (batch 107): its region query is compressed (`&<length>$<base64>`: zlib of a
   `%` query); a dotted string puts its literal pieces in the string table before itself, and `-<index>` is that
   table's string (batch 103's reading, a string's prefix, fitted only its own query); `T` and `F` are booleans.

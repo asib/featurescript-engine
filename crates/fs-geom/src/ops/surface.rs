@@ -378,7 +378,11 @@ pub fn extend_sheet(model: &mut Model, id: FeatureId, definition: &Value) -> R<V
         for entity in old.all_entities() {
             origins.keep(entity);
         }
-        model.add_body(NewBody::replacing(&old, shape), &origins, &info, &|_| None);
+        // A sheet lofted through arcs, extended, is still that loft to a face replaced up to it (batch 108 c011).
+        let lofted = old.faces.iter().any(|f| f.info.lofted);
+        let marked = std::rc::Rc::new(Info { lofted: true, ..(*info).clone() });
+        let special = |s: &Shape| (lofted && s.kind() == Some(ShapeKind::Face)).then(|| marked.clone());
+        model.add_body(NewBody::replacing(&old, shape), &origins, &info, &special);
     }
     Ok(Value::UNDEFINED)
 }
@@ -566,6 +570,88 @@ fn extend_revolution(body: &crate::model::Body, edges: &[Shape], distance: f64, 
 /// 065 c004: Onshape extends the surface along its rulings and bounds it there, within 0.001 mm of the distance).
 /// Its straight sides keep vertices where the old edge's ends were.
 fn extend_ruled(body: &crate::model::Body, edges: &[Shape], distance: f64) -> R<Option<Shape>> {
+    if edges.len() > 1 {
+        return extend_ruled_all(body, edges, distance);
+    }
+    Ok(extend_ruled_unsplit(body, edges, distance)?.map(|(sheet, corners)| split_at(sheet, &corners)))
+}
+
+/// A ruled sheet's face split where the old corners lie on its boundary (they stay as vertices there).
+fn split_at(sheet: Shape, corners: &[occt::Vec3]) -> Shape {
+    let edges = sheet.sub_shapes(ShapeKind::Edge);
+    let on_boundary: Vec<Shape> = corners
+        .iter()
+        .filter_map(|&p| occt::vertex(p).ok())
+        .filter(|v| edges.iter().any(|e| v.distance(e).is_ok_and(|d| d.distance < 1e-7)))
+        .collect();
+    if on_boundary.is_empty() {
+        return sheet;
+    }
+    occt::split(&[sheet.clone()], &on_boundary).map(|op| op.shape()).unwrap_or(sheet)
+}
+
+/// A ruled sheet extended at several of its edges (batch 108 c011: every edge of a loft between arcs): the curves
+/// first, along the rulings, then the straight sides, each from the sheet the last left.
+fn extend_ruled_all(body: &crate::model::Body, edges: &[Shape], distance: f64) -> R<Option<Shape>> {
+    let [face] = &body.faces[..] else { return Ok(None) };
+    let Some(edge_template) = body.edges.first().cloned() else { return Ok(None) };
+    let mut order: Vec<&Shape> = edges.iter().filter(|e| !straight_edge(e)).collect();
+    order.extend(edges.iter().filter(|e| straight_edge(e)));
+    let mut current = body.clone();
+    let mut corners: Vec<occt::Vec3> = Vec::new();
+    for original in order {
+        let middle = original.edge_tangent(0.5, false).map_err(occt_error)?.origin;
+        let Ok(probe) = occt::vertex(middle) else { return Ok(None) };
+        let Some(edge) = current
+            .edges
+            .iter()
+            .find(|e| e.shape.distance(&probe).is_ok_and(|d| d.distance < 1e-7))
+            .map(|e| e.shape.clone())
+        else {
+            return Ok(None);
+        };
+        let Some((sheet, old)) = extend_ruled_unsplit(&current, &[edge], distance)? else { return Ok(None) };
+        corners.extend(old);
+        let entities = |kind: ShapeKind, template: &crate::model::Entity| -> Vec<crate::model::Entity> {
+            sheet
+                .visible_sub_shapes(kind)
+                .into_iter()
+                .map(|shape| crate::model::Entity { shape, ..template.clone() })
+                .collect()
+        };
+        current = crate::model::Body {
+            faces: entities(ShapeKind::Face, face),
+            edges: entities(ShapeKind::Edge, &edge_template),
+            vertices: entities(ShapeKind::Vertex, &edge_template),
+            shape: sheet.clone(),
+            ..current
+        };
+    }
+    Ok(Some(split_at(current.shape, &corners)))
+}
+
+/// Whether an edge is straight: a line, or a straight B-spline from a loft.
+fn straight_edge(edge: &Shape) -> bool {
+    edge.curve_type().ok() == Some(occt::CurveType::Line)
+        || [0.25, 0.5, 0.75].iter().all(|&t| {
+            let (Ok(a), Ok(b), Ok(m)) =
+                (edge.edge_tangent(0.0, false), edge.edge_tangent(1.0, false), edge.edge_tangent(t, false))
+            else {
+                return false;
+            };
+            let chord = crate::values::sub(b.origin, a.origin);
+            let off = crate::values::sub(m.origin, a.origin);
+            let along = crate::values::dot(off, chord) / crate::values::dot(chord, chord);
+            crate::values::norm(crate::values::sub(off, crate::values::scale(chord, along))) < 1e-9
+        })
+}
+
+/// [`extend_ruled`] at one edge, the sheet unsplit, with the old corners.
+fn extend_ruled_unsplit(
+    body: &crate::model::Body,
+    edges: &[Shape],
+    distance: f64,
+) -> R<Option<(Shape, Vec<occt::Vec3>)>> {
     use crate::values::{add, norm, normalize, scale, sub};
     let failed = || regen_error("EXTEND_SHEET_BODY_FAILED");
     let [face] = &body.faces[..] else { return Ok(None) };
@@ -578,19 +664,7 @@ fn extend_ruled(body: &crate::model::Body, edges: &[Shape], distance: f64) -> R<
         return Ok(None);
     }
     // A straight side (a line, or a straight B-spline from the loft).
-    let straight = edge.curve_type().ok() == Some(occt::CurveType::Line)
-        || [0.25, 0.5, 0.75].iter().all(|&t| {
-            let (Ok(a), Ok(b), Ok(m)) =
-                (edge.edge_tangent(0.0, false), edge.edge_tangent(1.0, false), edge.edge_tangent(t, false))
-            else {
-                return false;
-            };
-            let chord = crate::values::sub(b.origin, a.origin);
-            let off = crate::values::sub(m.origin, a.origin);
-            let along = crate::values::dot(off, chord) / crate::values::dot(chord, chord);
-            crate::values::norm(crate::values::sub(off, crate::values::scale(chord, along))) < 1e-9
-        });
-    if straight {
+    if straight_edge(edge) {
         return extend_ruled_along(&face.shape, &own, edge, distance);
     }
     let ends = |e: &Shape| -> R<(occt::Vec3, occt::Vec3)> {
@@ -641,15 +715,13 @@ fn extend_ruled(body: &crate::model::Body, edges: &[Shape], distance: f64) -> R<
     let (Some(from), Some(to)) = (from.first(), to.first()) else { return Err(failed()) };
     let sheet = occt::loft(&[from.clone(), to.clone()], false).map_err(|_| failed())?.shape();
     // The old corners stay as vertices on the straight sides.
-    let corners = [occt::vertex(e0).map_err(occt_error)?, occt::vertex(e1).map_err(occt_error)?];
-    let split = occt::split(&[sheet.clone()], &corners).map(|op| op.shape()).unwrap_or(sheet);
-    Ok(Some(split))
+    Ok(Some((sheet, vec![e0, e1])))
 }
 
 /// A ruled sheet of one face extended past one of its straight sides (a ruling): each curve across it carried on
 /// straight, along the surface, by the distance (batch 066 c002: Onshape's new edge is 3 mm from the old corners
 /// along both arcs). One face, lofted through those curves; its curved edges keep vertices at the old corners.
-fn extend_ruled_along(face: &Shape, own: &[Shape], side: &Shape, distance: f64) -> R<Option<Shape>> {
+fn extend_ruled_along(face: &Shape, own: &[Shape], side: &Shape, distance: f64) -> R<Option<(Shape, Vec<occt::Vec3>)>> {
     use crate::values::{add, norm, scale, sub};
     let failed = || regen_error("EXTEND_SHEET_BODY_FAILED");
     let ends = |e: &Shape| -> R<(occt::Vec3, occt::Vec3)> {
@@ -710,9 +782,8 @@ fn extend_ruled_along(face: &Shape, own: &[Shape], side: &Shape, distance: f64) 
     }
     let sheet = occt::loft(&wires, false).map_err(|_| failed())?.shape();
     // The old corners stay as vertices on the curved edges.
-    let corners = [occt::vertex(s0).map_err(occt_error)?, occt::vertex(s1).map_err(occt_error)?];
     let _ = (own, close);
-    Ok(Some(occt::split(&[sheet.clone()], &corners).map(|op| op.shape()).unwrap_or(sheet)))
+    Ok(Some((sheet, vec![s0, s1])))
 }
 
 fn extend_extruded(body: &crate::model::Body, edges: &[Shape], distance: f64, curving: bool) -> R<Option<Shape>> {
