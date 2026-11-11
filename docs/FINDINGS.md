@@ -1312,6 +1312,11 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   surface (±0.007 mm at 1 mm, ±0.013 at 2), as a coarse fit would; at 5 mm it leaves that near the top. Its areas
   (batch 112: 157.1046 mm² at 2 mm, 189.8443 at 5) lie between that rule's (157.0744, 190.5228) and d/r round each
   circle's (156.9789, 188.3948). `evCurveDefinition` gives the edge as neither a B-spline nor a conic.
+- **Geodesic offsets across a sphere and a cone** (batch 120): a sphere band's meridian offset 2 mm round the sphere
+  is the small circle at y = R sin(d/R) = 1.98669, from the equator to latitude 60° (10.26322 mm; exact 10.26327).
+  A half cone's ruling offset 3 mm round it is, developed into the plane, the line 3 mm from the ruling, stopping at
+  the bottom edge: exactly 20.5063 mm, ending at (4.1822, 2.8351, 19.7893) at the top; Onshape's curve is its own fit
+  of it, 0.006 mm off (20.5122, ending at z = 19.7951).
 - **Sweeps locked to a sphere, and an elliptical sheet extended** (batch 119): a rectangle swept round a sphere along
   a great circle, straight or tilted, locked to it, is its revolve about the circle's axis (414.690 mm³), whatever
   the sphere's own axis. A sheet extruded from a quarter of a 20 × 10 ellipse, extended 5 mm past the ellipse's end,

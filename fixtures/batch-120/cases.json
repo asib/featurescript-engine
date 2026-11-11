@@ -1,0 +1,27 @@
+{
+  "batch": "120",
+  "title": "geodesic offset curves across a sphere from a meridian and across a cone from a ruling",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "offset-curve-on-face",
+      "description": "a sphere band's meridian edge in the xz plane offset 2 mm round the sphere",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "offset-curve-on-face",
+      "description": "a half cone's straight edge in the xz plane offset 3 mm round the cone",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    }
+  ]
+}
