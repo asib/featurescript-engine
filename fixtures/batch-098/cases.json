@@ -1,0 +1,67 @@
+{
+  "batch": "098",
+  "title": "build functions from the Feature Studio built, instantiated, derived and mirrored",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "instantiate",
+      "description": "a box's build function instantiated, not built before",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "instantiate",
+      "description": "a box's build function built directly, then instantiated",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "derived",
+      "description": "a box's build function derived with importDerived",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "mirror",
+      "description": "a box's build function (fCuboid, a feature) mirrored with derivedMirror",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "mirror",
+      "description": "a ball's build function (opSphere, an operation) mirrored with derivedMirror",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "instantiate",
+      "description": "a box's build function instantiated twice in one instantiator",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+probe c001 { bodies : [ { area : 1000 , bounds : [ 0 , 0 , 5 , 20 , 10 , 15 ] , edges : 12 , faces : 6 , name : c001.1 , type : SOLID , vertices : 8 , volume : 1999.9999999999998 } ] , construction : [] , values : { solids : 1 } }
+probe c002 { bodies : [ { area : 1040.0000000000005 , bounds : [ 400 , 0 , 5 , 421.00000000000006 , 10 , 15 ] , edges : 12 , faces : 6 , name : c002.1 , type : SOLID , vertices : 8 , volume : 2100.0000000000014 } ] , construction : [] , values : { solids : 1 } }
+probe c003 { bodies : [ { area : 1080.0000000000007 , bounds : [ 800 , 0 , 5 , 822.0000000000001 , 10 , 15 ] , edges : 12 , faces : 6 , name : c003.1 , type : SOLID , vertices : 8 , volume : 2200.0000000000014 } ] , construction : [] , values : { solids : 1 } }
+probe c004 failed Execution error
+probe c005 failed Execution error
+probe c006 { bodies : [ { area : 1160.000000000001 , bounds : [ 2000 , 0 , 5 , 2024 , 10 , 15 ] , edges : 12 , faces : 6 , name : c006.1 , type : SOLID , vertices : 8 , volume : 2400.000000000002 } , { area : 1160.000000000001 , bounds : [ 2000 , 0 , 5 , 2024 , 10 , 15 ] , edges : 12 , faces : 6 , name : c006.2 , type : SOLID , vertices : 8 , volume : 2400.000000000002 } ] , construction : [] , values : { solids : 2 } }
+batch-098 failed cases: [ c004 , c005 ]

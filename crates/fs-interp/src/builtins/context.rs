@@ -1,6 +1,7 @@
 //! Contexts and FeatureScript versions.
 
 use super::{BuiltinFn, arg};
+use crate::Interp;
 use crate::eval::{R, error};
 use crate::types;
 use crate::value::{Kind, Native, Value, ValueMap, next_serial};
@@ -18,6 +19,10 @@ pub struct Context {
     pub features: RefCell<Features>,
     /// State another crate keeps in the context, such as its geometry. Aborting a feature restores it.
     pub state: RefCell<Option<Box<dyn ContextState>>>,
+    /// Built by the Feature Studio's own code while a feature ran (a build function called in a feature, not a Part
+    /// Studio tab's): Onshape won't read its properties (derivedMirror reading its source's part names, "Execution
+    /// error", batches 060 c001, 098 c004, c005; a tab's, batch 096 c001, it reads).
+    pub built_in_regeneration: bool,
 }
 
 /// State kept in a [`Context`] that features roll back: `@startFeature` takes a snapshot, and `@abortFeature`
@@ -108,7 +113,7 @@ pub fn in_sheet_metal(context: &Context) -> bool {
 
 /// Whether a feature is running in the context: Onshape won't read properties then (`@getProperty`).
 pub fn regenerating(context: &Context) -> bool {
-    !context.features.borrow().open.is_empty()
+    !context.features.borrow().open.is_empty() || context.built_in_regeneration
 }
 
 pub fn register(m: &mut HashMap<&'static str, BuiltinFn>) {
@@ -120,6 +125,8 @@ pub fn register(m: &mut HashMap<&'static str, BuiltinFn>) {
             version: RefCell::new(name),
             features: RefCell::new(Features::default()),
             state: RefCell::new(interp.state.new_context_state.map(|new| new())),
+            built_in_regeneration: interp.open_features > 0
+                && interp.user_module.is_some_and(|m| interp.modules.list[m].kind == crate::module::ModuleKind::Studio),
         })))
     });
     m.insert("isContext", |_, args| {
@@ -139,7 +146,7 @@ pub fn register(m: &mut HashMap<&'static str, BuiltinFn>) {
         Ok(Value::bool(version_index(introduced)? <= current))
     });
     // ----- Feature bookkeeping -----
-    m.insert("startFeature", |_, args| {
+    m.insert("startFeature", |interp, args| {
         let context = context_arg(&args, 0, "startFeature")?;
         let id = arg(&args, 1, "startFeature")?.clone();
         // A feature started inside another must have an id in its scope (Onshape refuses a computed property's
@@ -159,12 +166,13 @@ pub fn register(m: &mut HashMap<&'static str, BuiltinFn>) {
         let sheet_metal = features.open.last().is_some_and(|f| f.sheet_metal)
             || args.get(2).and_then(|d| d.get("isSheetMetal")).and_then(Value::as_bool) == Some(true);
         features.open.push(OpenFeature { id, token, sheet_metal, snapshot });
+        interp.open_features += 1;
         // std keeps the token in `var token is map`.
         Ok(super::map_value(vec![("token", Value::number(token as f64))]))
     });
     // The token is the map @startFeature returned, or `{}` meaning the open feature with this id. Ending or
     // aborting a feature also closes the features opened inside it.
-    fn finish(args: &[Value], name: &str, abort: bool) -> R<Value> {
+    fn finish(interp: &mut Interp, args: &[Value], name: &str, abort: bool) -> R<Value> {
         let context = context_arg(args, 0, name)?;
         let id = arg(args, 1, name)?;
         let token = arg(args, 2, name)?.get("token").and_then(Value::as_number).map(|t| t as u64);
@@ -176,6 +184,7 @@ pub fn register(m: &mut HashMap<&'static str, BuiltinFn>) {
         let Some(i) = position else {
             return Err(error(format!("@{name}: no open feature for {id:?}")));
         };
+        interp.open_features = interp.open_features.saturating_sub(features.open.len() - i);
         let snapshot = features.open.drain(i..).next().and_then(|f| f.snapshot);
         drop(features);
         if abort && let (Some(state), Some(snapshot)) = (context.state.borrow_mut().as_mut(), snapshot) {
@@ -189,11 +198,11 @@ pub fn register(m: &mut HashMap<&'static str, BuiltinFn>) {
         let features = context.features.borrow();
         Ok(features.open.last().map(|f| f.id.clone()).unwrap_or_else(|| Value::array(Vec::new())))
     });
-    m.insert("endFeature", |_, args| finish(&args, "endFeature", false));
+    m.insert("endFeature", |interp, args| finish(interp, &args, "endFeature", false));
     m.insert("isInSheetMetalFeature", |_, args| {
         Ok(Value::bool(in_sheet_metal(context_arg(&args, 0, "isInSheetMetalFeature")?)))
     });
-    m.insert("abortFeature", |_, args| finish(&args, "abortFeature", true));
+    m.insert("abortFeature", |interp, args| finish(interp, &args, "abortFeature", true));
     m.insert("functionGetFeatureStatus", |_, args| {
         let context = context_arg(&args, 0, "functionGetFeatureStatus")?;
         let id = arg(&args, 1, "functionGetFeatureStatus")?.clone().with_tag(None);

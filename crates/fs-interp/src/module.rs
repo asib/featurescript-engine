@@ -65,8 +65,20 @@ enum ExportState {
     Built(Rc<SymbolTable>),
 }
 
+/// Where a module's code comes from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ModuleKind {
+    /// Onshape's std.
+    Std,
+    /// A tab another Feature Studio imports (an uploaded file, a Part Studio).
+    Upload,
+    /// The Feature Studio's own code.
+    Studio,
+}
+
 pub struct Module {
     pub path: String,
+    pub kind: ModuleKind,
     pub ast: Rc<ast::Module>,
     pub imports: Vec<Import>,
     /// Own top-level declarations, with whether each is exported.
@@ -94,6 +106,8 @@ pub struct Modules {
 
 impl Modules {
     pub fn new(std_dir: PathBuf) -> Modules {
+        // Modules' paths are canonical: so is std's, to tell its modules by.
+        let std_dir = std_dir.canonicalize().unwrap_or(std_dir);
         Modules {
             list: Vec::new(),
             by_path: HashMap::new(),
@@ -169,8 +183,16 @@ impl Modules {
                 ItemKind::Import { .. } => {}
             }
         }
+        let kind = if path.to_string_lossy().starts_with("<upload ") {
+            ModuleKind::Upload
+        } else if path.starts_with(&self.std_dir) {
+            ModuleKind::Std
+        } else {
+            ModuleKind::Studio
+        };
         self.list.push(Module {
             path: path.display().to_string(),
+            kind,
             ast: ast.clone(),
             imports: Vec::new(),
             own,

@@ -93,6 +93,10 @@ pub struct Interp {
     pub lenient_builtins: bool,
     /// Diagnostic only: print every exception a `try` statement catches to stderr.
     pub trace_catches: bool,
+    /// The innermost module on the call stack that isn't std's: whose code is running.
+    pub user_module: Option<ModuleId>,
+    /// How many features are running, in any context.
+    pub open_features: usize,
     locals: Vec<Local>,
     frame_base: usize,
     module: ModuleId,
@@ -119,6 +123,8 @@ impl Interp {
             output: String::new(),
             lenient_builtins: false,
             trace_catches: false,
+            user_module: None,
+            open_features: 0,
             failed_predicate: None,
             locals: Vec::new(),
             frame_base: 0,
@@ -234,6 +240,10 @@ impl Interp {
         }
         let saved_base = self.frame_base;
         let saved_module = self.module;
+        let saved_user = self.user_module;
+        if self.modules.list[module].kind != crate::module::ModuleKind::Std {
+            self.user_module = Some(module);
+        }
         let saved_captured = std::mem::replace(&mut self.captured, captured);
         let base = self.locals.len();
         self.frame_base = base;
@@ -244,6 +254,7 @@ impl Interp {
         self.locals.truncate(base);
         self.frame_base = saved_base;
         self.module = saved_module;
+        self.user_module = saved_user;
         self.captured = saved_captured;
         result
     }
