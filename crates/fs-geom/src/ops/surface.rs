@@ -1128,26 +1128,52 @@ pub fn boundary_surface(model: &mut Model, id: FeatureId, definition: &Value) ->
     Ok(Value::UNDEFINED)
 }
 
-/// A curve's non-rational cubic B-spline through `STATIONS` points at even fractions of its parameter, from `from`
-/// if `reversed` is false, else from its end: (poles, knots, degree).
-fn sampled_curve(edge: &Shape, reversed: bool) -> R<occt::BSplineData> {
-    use crate::values::{scale, sub};
+/// Curves through `STATIONS` points each at even fractions of 0 to 1 (`rows(f)` gives each curve's point at `f`), as
+/// non-rational cubic B-splines on one knot vector: each span the cubic Hermite segment its ends' points and
+/// derivatives (by central differences) fix, the interior knots doubled (C1).
+pub(crate) fn sampled_rows(count: usize, rows: impl Fn(f64) -> R<Vec<occt::Vec3>>) -> R<Vec<occt::BSplineData>> {
+    use crate::values::{add, scale, sub};
     const STATIONS: usize = 33;
-    let at = |f: f64| -> R<occt::Vec3> {
-        Ok(edge.edge_tangent(if reversed { 1.0 - f } else { f }, false).map_err(occt_error)?.origin)
-    };
     let params: Vec<f64> = (0..STATIONS).map(|i| i as f64 / (STATIONS - 1) as f64).collect();
-    let points: Vec<occt::Vec3> = params.iter().map(|&f| at(f)).collect::<R<_>>()?;
+    let samples: Vec<Vec<occt::Vec3>> = params.iter().map(|&f| rows(f)).collect::<R<_>>()?;
+    if samples.iter().any(|s| s.len() != count) {
+        return Err(error("sampled rows came out uneven"));
+    }
     let h = 1e-5;
-    let derivatives: Vec<occt::Vec3> = params
+    let slopes: Vec<Vec<occt::Vec3>> = params
         .iter()
-        .map(|&f| -> R<occt::Vec3> {
+        .map(|&f| -> R<Vec<occt::Vec3>> {
             let (lo, hi) = ((f - h).max(0.0), (f + h).min(1.0));
-            Ok(scale(sub(at(hi)?, at(lo)?), 1.0 / (hi - lo)))
+            let (a, b) = (rows(lo)?, rows(hi)?);
+            Ok(a.iter().zip(&b).map(|(&p, &q)| scale(sub(q, p), 1.0 / (hi - lo))).collect())
         })
         .collect::<R<_>>()?;
-    let curve = occt::interpolated_edge(&points, &derivatives, &params, false).map_err(occt_error)?;
-    curve.edge_bspline(1e-9, false, true).map_err(occt_error)
+    let mut knots = vec![0.0; 4];
+    for &f in &params[1..STATIONS - 1] {
+        knots.extend([f, f]);
+    }
+    knots.extend([1.0; 4]);
+    Ok((0..count)
+        .map(|row| {
+            let mut poles = vec![samples[0][row]];
+            for k in 0..STATIONS - 1 {
+                let span = params[k + 1] - params[k];
+                poles.push(add(samples[k][row], scale(slopes[k][row], span / 3.0)));
+                poles.push(sub(samples[k + 1][row], scale(slopes[k + 1][row], span / 3.0)));
+            }
+            poles.push(samples[STATIONS - 1][row]);
+            occt::BSplineData { degree: 3, periodic: false, rational: false, poles, weights: Vec::new(), knots: knots.clone() }
+        })
+        .collect())
+}
+
+/// A curve's non-rational cubic B-spline through points at even fractions of its parameter, from its start if
+/// `reversed` is false, else from its end.
+fn sampled_curve(edge: &Shape, reversed: bool) -> R<occt::BSplineData> {
+    let mut curves = sampled_rows(1, |f| {
+        Ok(vec![edge.edge_tangent(if reversed { 1.0 - f } else { f }, false).map_err(occt_error)?.origin])
+    })?;
+    Ok(curves.remove(0))
 }
 
 /// The Greville abscissae of a B-spline's poles: where the linear function's poles lie.
@@ -1270,26 +1296,7 @@ fn conditioned_surface(
         let middle = add(on, scale(derivative, 0.5));
         Ok([on, middle, off]).map(|r| if index == 0 { r } else { [r[2], r[1], r[0]] })
     };
-    const STATIONS: usize = 33;
-    let params: Vec<f64> = (0..STATIONS).map(|i| i as f64 / (STATIONS - 1) as f64).collect();
-    let samples: Vec<[occt::Vec3; 3]> = params.iter().map(|&f| rows(f)).collect::<R<_>>()?;
-    let h = 1e-5;
-    let mut curves = Vec::new();
-    for row in 0..3 {
-        let points: Vec<occt::Vec3> = samples.iter().map(|s| s[row]).collect();
-        let derivatives: Vec<occt::Vec3> = params
-            .iter()
-            .map(|&f| -> R<occt::Vec3> {
-                let (lo, hi) = ((f - h).max(0.0), (f + h).min(1.0));
-                Ok(scale(sub(rows(hi)?[row], rows(lo)?[row]), 1.0 / (hi - lo)))
-            })
-            .collect::<R<_>>()?;
-        let edge = occt::interpolated_edge(&points, &derivatives, &params, false).map_err(occt_error)?;
-        curves.push(edge.edge_bspline(1e-9, false, true).map_err(occt_error)?);
-    }
-    if curves.iter().any(|c| c.knots != curves[0].knots || c.poles.len() != curves[0].poles.len() || c.degree != curves[0].degree) {
-        return Err(regen_error("BSURF_FAILED"));
-    }
+    let curves = sampled_rows(3, |f| Ok(rows(f)?.to_vec()))?;
     let nu = curves[0].poles.len();
     let poles: Vec<occt::Vec3> = (0..nu).flat_map(|i| curves.iter().map(move |c| c.poles[i])).collect();
     let face = occt::bspline_surface_face(&poles, (nu, 3), &curves[0].knots, &[0.0, 0.0, 0.0, 1.0, 1.0, 1.0], (curves[0].degree, 2))
