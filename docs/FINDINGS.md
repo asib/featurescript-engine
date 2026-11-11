@@ -730,7 +730,15 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   with the chord's part across the profile within the plane taken out (the part along the normal is the chord's,
   20 mm; along the arc, within 0.01 of the chord's in Onshape's fit), and the far end's derivative is twice the
   chord less that (c011). Tangent to the plane, the same with the part along the normal taken out: two arcs over
-  each other leave nothing at their ends, and Onshape fails (`CANNOT_MAKE_BSPLINESURFACE`, c010).
+  each other leave nothing at their ends, and Onshape fails (`CANNOT_MAKE_BSPLINESURFACE`, c010). Batch 117: normal
+  at the second profile alone, the mirror image (c003); at both, the cubic leaving each profile with its own
+  (c001). Along a direction given, the derivative leaving the profile is the chord less its part across the profile
+  within the plane of the direction and the profile's tangent, as normal to the profile, but the free end isn't the
+  quadratic's (c004); square to a direction the profile doesn't lie square to, Onshape fails
+  (`BSURF_INCONSISTENT_CONDITIONS_ERROR`, c005). Magnitudes other than 1 aren't the chord's parts scaled: where
+  the chord lies along the normal the derivative is the magnitude times it, but elsewhere it falls short (magnitude
+  2: 39.2309 where twice the chord's part is 40) and the other end moves to make up for it (c002, c006: 0.5 and
+  1.5 shift both ends by 0.3845, half of magnitude 2's 0.7691); no rule found.
 - **A survey of B-spline cases** (batch 065): a sweep twisted or scaled along a fit spline matches, within 1.0e-4
   (twisted) and 2.5e-4 (scaled) of the volume, a loft through copies of the profile carried along the path by the
   rotation-minimising frame, turned and grown in proportion to the path's parameter (by its length, the scaled

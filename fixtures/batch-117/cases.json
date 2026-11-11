@@ -1,0 +1,67 @@
+{
+  "batch": "117",
+  "title": "boundary surfaces between arcs with end conditions at both profiles, the second, and along directions",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "boundary-surface",
+      "description": "batch 062's arcs, both normal to their profiles' planes, magnitude 1",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "boundary-surface",
+      "description": "batch 062's arcs, the first normal to its profile's plane, magnitude 2",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "boundary-surface",
+      "description": "batch 062's arcs, the second normal to its profile's plane, magnitude 1",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "boundary-surface",
+      "description": "batch 062's arcs, the first along the direction (0, 10, 5), magnitude 1",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "boundary-surface",
+      "description": "batch 062's arcs, the first square to the direction (0, 10, 5), magnitude 1",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "boundary-surface",
+      "description": "batch 062's arcs, the first normal to its profile's plane at magnitude 0.5, the second at 1.5",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    }
+  ]
+}
