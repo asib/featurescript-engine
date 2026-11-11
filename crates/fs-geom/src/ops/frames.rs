@@ -84,8 +84,35 @@ pub(crate) fn revolved(face: &Shape, axis: occt::Axis, profile_point: Vec3) -> O
         // A torus: z against the axis and x as an extruded cylinder's (batch 085: about z, x along -x; about x, along
         // +z), its centre the origin.
         4 => Some(Frame { origin: s.frame.origin, normal: z, x: world_y_cross(z)? }),
+        // A sphere: as a torus (batch 099 c003: a quarter disc revolved about -z, its parameters running round +z).
+        3 => Some(Frame { origin: s.frame.origin, normal: z, x: world_y_cross(z)? }),
         _ => None,
     }
+}
+
+/// For a sphere face all the way round with Onshape's coordinate system `frame`, the face fractions OCCT's
+/// parameters give for fractions of Onshape's (batch 099 c003): u round from x towards z × x, v up the latitudes the
+/// face spans, measured towards z.
+pub(crate) fn sphere_fractions(face: &Shape, frame: Frame) -> Option<impl Fn(f64, f64) -> (f64, f64)> {
+    use std::f64::consts::TAU;
+    let s = face.surface_definition().ok()?;
+    if s.kind != 3 {
+        return None;
+    }
+    let ((u0, v0), (u1, v1)) = face.face_uv_bounds().ok()?;
+    if u1 - u0 < TAU - 1e-9 {
+        return None;
+    }
+    let (lo, hi) = if dot(frame.normal, s.frame.normal) > 0.0 { (v0, v1) } else { (-v1, -v0) };
+    let y = cross(frame.normal, frame.x);
+    let (centre, radius) = (s.frame.origin, s.radius1);
+    let face = face.clone();
+    Some(move |fu: f64, fv: f64| {
+        let (theta, phi) = (TAU * fu, lo + fv * (hi - lo));
+        let round = add(scale(frame.x, theta.cos()), scale(y, theta.sin()));
+        let p = add(centre, scale(add(scale(round, phi.cos()), scale(frame.normal, phi.sin())), radius));
+        face.face_fraction(p).unwrap_or((fu, fv))
+    })
 }
 
 /// For a torus face with Onshape's coordinate system `frame`, the face fractions OCCT's own parameters give for

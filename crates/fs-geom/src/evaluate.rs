@@ -874,10 +874,12 @@ pub fn register(m: &mut GeomBuiltins) {
                     model.info(*r).surface_frame.and_then(|frame| crate::ops::frames::torus_fractions(face, frame));
                 let cone =
                     model.info(*r).surface_frame.and_then(|frame| crate::ops::frames::cone_fractions(face, frame));
+                let sphere = model.info(*r).surface_frame.and_then(|frame| crate::ops::frames::sphere_fractions(face, frame));
                 let mut planes = Vec::new();
                 for (u, v) in parameters {
                     let (u, v) = torus.as_ref().map_or((u, v), |map| map(u, v));
                     let (u, v) = cone.as_ref().map_or((u, v), |map| map(u, v));
+                    let (u, v) = sphere.as_ref().map_or((u, v), |map| map(u, v));
                     let (u, v) = plane_to_occt(face, u, v).unwrap_or((u, v));
                     let mut frame = face.face_tangent_plane(u, v).map_err(|_| regen_error("NO_TANGENT_PLANE"))?;
                     // Its x along Onshape's u, round its z (a cylinder's runs against OCCT's, batch 101 c001).
@@ -1020,12 +1022,17 @@ pub fn register(m: &mut GeomBuiltins) {
                     model.info(*r).surface_frame.and_then(|frame| crate::ops::frames::torus_fractions(face, frame));
                 let cone =
                     model.info(*r).surface_frame.and_then(|frame| crate::ops::frames::cone_fractions(face, frame));
+                let sphere = model.info(*r).surface_frame.and_then(|frame| crate::ops::frames::sphere_fractions(face, frame));
                 let mut out = Vec::new();
                 // Where the curvatures differ, Onshape's least curvature's direction has its largest component
                 // negative and the greatest's is the normal × it (a fillet's cylinder, a torus, a cone: batches
                 // 086 c023, 087 c009, c010).
+                let spherical = face.surface_type().ok() == Some(occt::SurfaceType::Sphere);
                 let sense = |c: &mut occt::Conic, normal: Vec3| {
                     if (c.radius2 - c.radius1).abs() <= 1e-9 * c.radius2.abs().max(1.0) {
+                        if spherical {
+                            umbilic_directions(c, normal);
+                        }
                         return;
                     }
                     let m = c.frame.normal;
@@ -1039,6 +1046,7 @@ pub fn register(m: &mut GeomBuiltins) {
                 for (u, v) in parameters {
                     let (u, v) = torus.as_ref().map_or((u, v), |map| map(u, v));
                     let (u, v) = cone.as_ref().map_or((u, v), |map| map(u, v));
+                    let (u, v) = sphere.as_ref().map_or((u, v), |map| map(u, v));
                     let (u, v) = plane_to_occt(face, u, v).unwrap_or((u, v));
                     let mut c = face.face_curvatures(u, v).map_err(occt_error)?;
                     let normal = face.face_tangent_plane(u, v).map_err(occt_error)?.normal;
@@ -1512,4 +1520,23 @@ fn offset_group(model: &Model, b: usize) -> R<Option<Value>> {
         ("offsetLow", Value::number(thickness)),
         ("offsetHigh", Value::number(thickness)),
     ])))
+}
+
+/// A sphere's principal directions, every direction being one (batches 099, 109, 110): Onshape's least is the
+/// normal crossed with the world axis cyclically before the normal's largest component (x's: z, y's: x, z's: y),
+/// the components weighed 1, 1.035 and 0.952 (y wins against x from 0.96–0.97 of x, z against x from 1.05–1.06 of
+/// x and against y from 1.08–1.09 of y, whatever the signs and the third component); its greatest the normal × that.
+/// The same at the same normal whatever the sphere's centre, radius or turn: the world's axes, not the sphere's.
+fn umbilic_directions(c: &mut occt::Conic, normal: Vec3) {
+    let weighed = [normal.x.abs(), 1.035 * normal.y.abs(), 0.952 * normal.z.abs()];
+    let dominant = (0..3).fold(0, |best, i| if weighed[i] > weighed[best] { i } else { best });
+    let axis = match (dominant + 2) % 3 {
+        0 => Vec3::new(1.0, 0.0, 0.0),
+        1 => Vec3::new(0.0, 1.0, 0.0),
+        _ => Vec3::new(0.0, 0.0, 1.0),
+    };
+    if let Some(least) = values::normalize(values::cross(normal, axis)) {
+        c.frame.normal = least;
+        c.frame.x = values::cross(normal, least);
+    }
 }

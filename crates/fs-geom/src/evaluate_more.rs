@@ -69,6 +69,7 @@ fn curvature_derivatives(model: &Model, definition: &Value) -> R<Value> {
     // Onshape's parameters to OCCT's fractions, as evFaceCurvatures takes them.
     let torus = model.info(*r).surface_frame.and_then(|frame| crate::ops::frames::torus_fractions(face, frame));
     let cone = model.info(*r).surface_frame.and_then(|frame| crate::ops::frames::cone_fractions(face, frame));
+    let sphere = model.info(*r).surface_frame.and_then(|frame| crate::ops::frames::sphere_fractions(face, frame));
     let parameters =
         field(definition, "parameters").as_array().ok_or_else(|| error("parameters must be an array"))?.clone();
     let directions =
@@ -78,6 +79,7 @@ fn curvature_derivatives(model: &Model, definition: &Value) -> R<Value> {
         let (fu, fv) = values::vec2(uv, "evFaceCurvatureDerivatives parameter")?;
         let (fu, fv) = torus.as_ref().map_or((fu, fv), |map| map(fu, fv));
         let (fu, fv) = cone.as_ref().map_or((fu, fv), |map| map(fu, fv));
+        let (fu, fv) = sphere.as_ref().map_or((fu, fv), |map| map(fu, fv));
         let d = values::vec3(direction, "evFaceCurvatureDerivatives direction")?;
         let plane = face.face_tangent_plane(fu, fv).map_err(occt_error)?;
         // The direction must lie in the tangent plane: one leaning out of it is refused, not projected (batch 101
