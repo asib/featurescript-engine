@@ -19,7 +19,15 @@ fn blend_edges(model: &Model, definition: &Value) -> R<Vec<(usize, Vec<Shape>)>>
             None => groups.push((b, edges)),
         }
     }
-    for (_, edges) in &mut groups {
+    for (b, edges) in &mut groups {
+        // A closed edge OCCT split at a seam vertex is shown as its first piece: the others go with it (batch 124
+        // c004: a spherical pocket's rim).
+        let pieces = model.bodies[*b].shape.hidden_edge_pieces();
+        let hidden: Vec<Shape> = edges
+            .iter()
+            .flat_map(|e| pieces.iter().filter(|(shown, _)| shown.is_same(e)).map(|(_, h)| h.clone()))
+            .collect();
+        edges.extend(hidden);
         let mut unique: Vec<Shape> = Vec::new();
         for e in edges.drain(..) {
             if !unique.iter().any(|u| u.is_same(&e)) {
