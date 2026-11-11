@@ -16,12 +16,25 @@ fn add_with_caps(model: &mut Model, id: &FeatureId, op: &occt::Operation, solid:
 
 /// As `add_with_caps`, the pieces reversed if `reverse`.
 fn add_with_caps_facing(model: &mut Model, id: &FeatureId, op: &occt::Operation, solid: bool, reverse: bool) -> R<()> {
+    add_shape_with_caps(model, id, &op.shape(), &op.first(), &op.last(), solid, reverse)
+}
+
+/// As [`add_with_caps_facing`], for a shape with its start and end caps given.
+fn add_shape_with_caps(
+    model: &mut Model,
+    id: &FeatureId,
+    shape: &Shape,
+    first: &[Shape],
+    last: &[Shape],
+    solid: bool,
+    reverse: bool,
+) -> R<()> {
     let (mut start_cap, mut end_cap) = (ShapeSet::default(), ShapeSet::default());
-    for face in op.first() {
-        start_cap.insert_all(&face);
+    for face in first {
+        start_cap.insert_all(face);
     }
-    for face in op.last() {
-        end_cap.insert_all(&face);
+    for face in last {
+        end_cap.insert_all(face);
     }
     let created = Info::new(id.clone());
     let cap = |c| {
@@ -45,9 +58,9 @@ fn add_with_caps_facing(model: &mut Model, id: &FeatureId, op: &occt::Operation,
     };
     let (kind, body_type) =
         if solid { (ShapeKind::Solid, BodyType::Solid) } else { (ShapeKind::Shell, BodyType::Sheet) };
-    let mut pieces = op.shape().sub_shapes(kind);
+    let mut pieces = shape.sub_shapes(kind);
     if pieces.is_empty() && !solid {
-        pieces = op.shape().sub_shapes(ShapeKind::Face);
+        pieces = shape.sub_shapes(ShapeKind::Face);
     }
     if pieces.is_empty() {
         return Err(regen_error("SWEEP_FAILED"));
@@ -932,12 +945,13 @@ pub fn loft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
         occt::loft(&wires, solid).map_err(|_| regen_error("LOFT_FAILED"))?
     };
     // Guides lying on the loft as it is change nothing (straight ones along a square loft's corners, batch 075
-    // c004); others aren't supported yet.
+    // c004); one crossing a side between two polygons bends that side through it (075 c005, 112 c001–c003).
     if has_guides {
         let result = op.shape();
+        let mut off = Vec::new();
         for q in field(definition, "guideSubqueries").as_array().map(|a| a.to_vec()).unwrap_or_default() {
             for r in query::evaluate(model, &q)?.into_iter().filter(|r| r.kind == EntityType::Edge) {
-                let edge = model.shape(r);
+                let edge = model.shape(r).clone();
                 let on = (0..=8).all(|k| {
                     edge.edge_tangent(k as f64 / 8.0, false)
                         .ok()
@@ -945,15 +959,180 @@ pub fn loft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
                         .is_some_and(|v| v.distance(&result).is_ok_and(|d| d.distance < 1e-6))
                 });
                 if !on {
-                    return Err(error("@opLoft: guides that change the loft aren't supported yet"));
+                    off.push(edge);
                 }
             }
+        }
+        if !off.is_empty() {
+            if ends.iter().any(Option::is_some) {
+                return Err(error("@opLoft: guides that change a loft with end conditions aren't supported yet"));
+            }
+            let Some((shape, first, last)) = guided_loft(&op, &wires, &off, solid)? else {
+                return Err(error("@opLoft: guides that change the loft this way aren't supported yet"));
+            };
+            add_lofted_shape(model, &id, &shape, &first, &last, solid, &wires)?;
+            return Ok(Value::UNDEFINED);
         }
     }
     // A sheet lofted from wires faces the other way from OCCT's, as an extruded one does: outward from a loop
     // (a thin loft thickens outward, batch 028).
     add_lofted(model, &id, &op, solid, &wires)?;
     Ok(Value::UNDEFINED)
+}
+
+/// The cubic B-spline basis functions on a knot vector at `u`.
+fn cubic_basis(knots: &[f64], u: f64) -> Vec<f64> {
+    let n = knots.len() - 4;
+    let last = knots[n];
+    let u = if u >= last { last - 1e-12 } else { u };
+    let mut b: Vec<f64> = (0..knots.len() - 1).map(|i| if knots[i] <= u && u < knots[i + 1] { 1.0 } else { 0.0 }).collect();
+    for d in 1..=3 {
+        b = (0..b.len() - 1)
+            .map(|i| {
+                let left = if knots[i + d] > knots[i] { (u - knots[i]) / (knots[i + d] - knots[i]) * b[i] } else { 0.0 };
+                let right = if knots[i + d + 1] > knots[i + 1] {
+                    (knots[i + d + 1] - u) / (knots[i + d + 1] - knots[i + 1]) * b[i + 1]
+                } else {
+                    0.0
+                };
+                left + right
+            })
+            .collect();
+    }
+    b.truncate(n);
+    b
+}
+
+/// A loft between two polygons with guides each crossing one side, from a point on its bottom edge to the point as
+/// far along its top edge (batch 075 c005, 112 c001–c003). Onshape bends that side through the guide and leaves the
+/// rest of the loft as it was: across the side, a cubic with a knot where the guide crosses, its poles the plain
+/// side's but the middle one, moved so the surface passes through the guide (Onshape's surfaces match this to its
+/// own fits of the guide, 1e-4 mm), the guide taken at its own parameter. The new side is sewn in place of the old.
+/// The loft's shape and its caps, or `None` where the guides don't cross sides so.
+fn guided_loft(
+    op: &occt::Operation,
+    wires: &[Shape],
+    guides: &[Shape],
+    solid: bool,
+) -> R<Option<(Shape, Vec<Shape>, Vec<Shape>)>> {
+    use values::{add, dot, norm, scale, sub};
+    if wires.len() != 2 {
+        return Ok(None);
+    }
+    let shape = op.shape();
+    let (first, last) = (op.first(), op.last());
+    let caps: Vec<Shape> = first.iter().chain(&last).cloned().collect();
+    let near = |a: Vec3, b: Vec3| norm(sub(a, b)) < 1e-7;
+    let at = |e: &Shape, f: f64| -> R<Vec3> { Ok(e.edge_tangent(f, false).map_err(occt_error)?.origin) };
+    let on = |s: &Shape, p: Vec3| occt::vertex(p).ok().and_then(|v| v.distance(s).ok()).is_some_and(|d| d.distance < 1e-7);
+    let lerp = |a: Vec3, b: Vec3, t: f64| add(a, scale(sub(b, a), t));
+    let mut replaced: Vec<(Shape, Shape)> = Vec::new();
+    for guide in guides {
+        let (g0, g1) = (at(guide, 0.0)?, at(guide, 1.0)?);
+        let reversed = if on(&wires[0], g0) && on(&wires[1], g1) {
+            false
+        } else if on(&wires[1], g0) && on(&wires[0], g1) {
+            true
+        } else {
+            return Ok(None);
+        };
+        let (bottom_point, top_point) = if reversed { (g1, g0) } else { (g0, g1) };
+        // The side the guide crosses: its straight edges, the bottom one on the first profile.
+        let Some(face) = shape
+            .sub_shapes(ShapeKind::Face)
+            .into_iter()
+            .find(|f| !caps.iter().any(|c| c.is_same(f)) && on(f, bottom_point) && on(f, top_point))
+        else {
+            return Ok(None);
+        };
+        let edges = face.sub_shapes(ShapeKind::Edge);
+        // Straight edges (a loft's sides are straight B-splines).
+        let straight = |e: &Shape| -> bool {
+            let (Ok(p), Ok(q)) = (at(e, 0.0), at(e, 1.0)) else { return false };
+            [0.25, 0.5, 0.75].iter().all(|&f| at(e, f).is_ok_and(|m| norm(sub(m, lerp(p, q, f))) < 1e-9))
+        };
+        if edges.len() != 4 || !edges.iter().all(straight) {
+            return Ok(None);
+        }
+        let mid = |e: &Shape| at(e, 0.5);
+        let mut bottom = None;
+        let mut top = None;
+        let mut sides = Vec::new();
+        for e in &edges {
+            let m = mid(e)?;
+            if on(&wires[0], m) {
+                bottom = Some(e.clone());
+            } else if on(&wires[1], m) {
+                top = Some(e.clone());
+            } else {
+                sides.push(e.clone());
+            }
+        }
+        let (Some(bottom), Some(top), [s0, s1]) = (bottom, top, &sides[..]) else { return Ok(None) };
+        let (a, b) = (at(&bottom, 0.0)?, at(&bottom, 1.0)?);
+        let partner = |p: Vec3| -> R<Option<Vec3>> {
+            for s in [s0, s1] {
+                let (x, y) = (at(s, 0.0)?, at(s, 1.0)?);
+                if near(x, p) {
+                    return Ok(Some(y));
+                }
+                if near(y, p) {
+                    return Ok(Some(x));
+                }
+            }
+            Ok(None)
+        };
+        let (Some(a2), Some(b2)) = (partner(a)?, partner(b)?) else { return Ok(None) };
+        if !(on(&top, a2) && on(&top, b2)) {
+            return Ok(None);
+        }
+        let fraction = |p: Vec3, from: Vec3, to: Vec3| dot(sub(p, from), sub(to, from)) / dot(sub(to, from), sub(to, from));
+        let (t, t2) = (fraction(bottom_point, a, b), fraction(top_point, a2, b2));
+        if (t - t2).abs() > 1e-9 || t <= 1e-6 || t >= 1.0 - 1e-6 {
+            return Ok(None);
+        }
+        let knots_u = [0.0, 0.0, 0.0, 0.0, t, 1.0, 1.0, 1.0, 1.0];
+        let greville = [0.0, t / 3.0, (1.0 + t) / 3.0, (2.0 + t) / 3.0, 1.0];
+        let middle = cubic_basis(&knots_u, t)[2];
+        let plain = |u: f64, v: f64| lerp(lerp(a, b, u), lerp(a2, b2, u), v);
+        let rows = |v: f64| -> R<Vec<Vec3>> {
+            let g = at(guide, if reversed { 1.0 - v } else { v })?;
+            let bend = scale(sub(g, plain(t, v)), 1.0 / middle);
+            Ok(greville.iter().enumerate().map(|(i, &u)| if i == 2 { add(plain(u, v), bend) } else { plain(u, v) }).collect())
+        };
+        let curves = super::surface::sampled_rows(5, rows)?;
+        let nv = curves[0].poles.len();
+        let poles: Vec<Vec3> = curves.iter().flat_map(|c| c.poles.iter().copied()).collect();
+        let bent = occt::bspline_surface_face(&poles, (5, nv), &knots_u, &curves[0].knots, (3, curves[0].degree))
+            .map_err(|_| regen_error("LOFT_FAILED"))?;
+        // Facing as the side it replaces, compared near its first edge where the two nearly agree.
+        let normal = |f: &Shape, u: f64, v: f64| f.face_tangent_plane(u, v).ok().map(|p| p.normal);
+        let old = face.face_inner_point().ok().and_then(|p| face.face_fraction(p).ok()).and_then(|(u, v)| normal(&face, u, v));
+        let new = normal(&bent, 0.02, 0.5);
+        let bent = match (old, new) {
+            (Some(x), Some(y)) if dot(x, y) < 0.0 => bent.reversed(),
+            _ => bent,
+        };
+        replaced.push((face, bent));
+    }
+    let faces: Vec<Shape> = shape
+        .sub_shapes(ShapeKind::Face)
+        .into_iter()
+        .filter(|f| !replaced.iter().any(|(old, _)| old.is_same(f)))
+        .chain(replaced.iter().map(|(_, new)| new.clone()))
+        .collect();
+    let sewn = occt::sew_faces(&faces, 1e-6).map_err(|_| regen_error("LOFT_FAILED"))?;
+    let result = if solid { occt::solid_from(&sewn).map_err(|_| regen_error("LOFT_FAILED"))? } else { sewn };
+    // The caps, found again: sewing makes new faces of them.
+    let same_place = |cap: &Shape, f: &Shape| {
+        cap.face_inner_point().is_ok_and(|p| on(f, p))
+            && f.surface_type().ok() == Some(occt::SurfaceType::Plane)
+            && (cap.area().unwrap_or(0.0) - f.area().unwrap_or(-1.0)).abs() < 1e-12
+    };
+    let find = |caps: &[Shape]| -> Vec<Shape> {
+        result.sub_shapes(ShapeKind::Face).into_iter().filter(|f| caps.iter().any(|c| same_place(c, f))).collect()
+    };
+    Ok(Some((result.clone(), find(&first), find(&last))))
 }
 
 /// Whether, at each corner of a polygon profile, the loft's side edge leaving it lies strictly within the corner's
@@ -1009,8 +1188,21 @@ fn tangent_corners_fit(loft: &Shape, wire: &Shape, normal: Vec3) -> bool {
 /// Adds a loft's bodies; through profiles with arcs (rational curves), its curved faces are marked
 /// (`Info::lofted`).
 fn add_lofted(model: &mut Model, id: &FeatureId, op: &occt::Operation, solid: bool, wires: &[Shape]) -> R<()> {
+    add_lofted_shape(model, id, &op.shape(), &op.first(), &op.last(), solid, wires)
+}
+
+/// As [`add_lofted`], for a loft's shape with its caps given.
+fn add_lofted_shape(
+    model: &mut Model,
+    id: &FeatureId,
+    shape: &Shape,
+    first: &[Shape],
+    last: &[Shape],
+    solid: bool,
+    wires: &[Shape],
+) -> R<()> {
     let before = model.bodies.len();
-    add_with_caps_facing(model, id, op, solid, !solid)?;
+    add_shape_with_caps(model, id, shape, first, last, solid, !solid)?;
     let rational = wires.iter().flat_map(|w| w.sub_shapes(ShapeKind::Edge)).any(|e| {
         matches!(e.curve_type(), Ok(occt::CurveType::Circle | occt::CurveType::Ellipse))
     });
