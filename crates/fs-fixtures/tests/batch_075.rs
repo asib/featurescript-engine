@@ -11,8 +11,8 @@ const KNOWN_GAPS: &[&str] = &["c006"];
 /// A guide bulging out from the middle of a side (c005): Onshape bends that side through the guide, as the engine
 /// does, to its own fit of the guide's arc (1.8e-6 of the volume; batch 112 c001 has its poles).
 const LOOSE: &[(&str, f64)] = &[("c005", 0.02)];
-/// The lofts' faces come in an order of Onshape's own.
-const UNORDERED: &[&str] = &["c001", "c002", "c003", "c004"];
+/// The lofts' faces come in an order of Onshape's own (c005: the bent side sewn in last).
+const UNORDERED: &[&str] = &["c001", "c002", "c003", "c004", "c005"];
 
 #[test]
 fn batch_075_matches_onshape() {
