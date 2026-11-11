@@ -1061,7 +1061,7 @@ pub fn boundary_surface(model: &mut Model, id: FeatureId, definition: &Value) ->
             let edges = shapes(model, &q, EntityType::Edge)?;
             let mut connected = occt::connect_edges(&edges).map_err(occt_error)?;
             if connected.len() != 1 {
-                return Err(regen_error("BOUNDARY_SURFACE_FAILED"));
+                return Err(regen_error("BSURF_FAILED"));
             }
             wires.push(connected.remove(0));
         }
@@ -1087,13 +1087,13 @@ pub fn boundary_surface(model: &mut Model, id: FeatureId, definition: &Value) ->
         let magnitude = field(info, "magnitude").as_number().unwrap_or(1.0);
         let tangent = values::opt_bool(info, "tangentToPlane")?.unwrap_or(false);
         let vector = values::vec3(field(info, "vector"), "@opBoundarySurface derivative vector")?;
-        let ruled = occt::loft(&u, false).map_err(|_| regen_error("BOUNDARY_SURFACE_FAILED"))?.shape();
+        let ruled = occt::loft(&u, false).map_err(|_| regen_error("BSURF_FAILED"))?.shape();
         let face = conditioned_surface(&u, index.min(1), magnitude, tangent, vector, &ruled)?;
         add(model, &id, face, BodyType::Sheet);
         return Ok(Value::UNDEFINED);
     }
     let wires = if u.is_empty() { &v } else { &u };
-    let op = occt::loft(wires, false).map_err(|_| regen_error("BOUNDARY_SURFACE_FAILED"))?;
+    let op = occt::loft(wires, false).map_err(|_| regen_error("BSURF_FAILED"))?;
     if both {
         let sides = op.shape();
         for wire in &v {
@@ -1182,21 +1182,21 @@ fn coons_surface(u: &[Shape], v: &[Shape], ruled: &Shape) -> R<Shape> {
         (Some(cr), Some(dr)) => (c, d, cr, dr),
         _ => match (orient(&d, a0)?, orient(&c, a1)?) {
             (Some(cr), Some(dr)) => (d, c, cr, dr),
-            _ => return Err(regen_error("BOUNDARY_SURFACE_FAILED")),
+            _ => return Err(regen_error("BSURF_FAILED")),
         },
     };
     let c1 = end(&c, if c_rev { 0.0 } else { 1.0 })?;
     let d1 = end(&d, if d_rev { 0.0 } else { 1.0 })?;
     let b_rev = match orient(&b, c1)? {
         Some(r) => r,
-        None => return Err(regen_error("BOUNDARY_SURFACE_FAILED")),
+        None => return Err(regen_error("BSURF_FAILED")),
     };
     if !near(end(&b, if b_rev { 0.0 } else { 1.0 })?, d1) {
-        return Err(regen_error("BOUNDARY_SURFACE_FAILED"));
+        return Err(regen_error("BSURF_FAILED"));
     }
     let (ca, cb, cc, cd) = (sampled_curve(&a, false)?, sampled_curve(&b, b_rev)?, sampled_curve(&c, c_rev)?, sampled_curve(&d, d_rev)?);
     if ca.knots != cb.knots || cc.knots != cd.knots || ca.poles.len() != cb.poles.len() || cc.poles.len() != cd.poles.len() {
-        return Err(regen_error("BOUNDARY_SURFACE_FAILED"));
+        return Err(regen_error("BSURF_FAILED"));
     }
     let (tau, sigma) = (greville(&ca), greville(&cc));
     let corners = [ca.poles[0], ca.poles[ca.poles.len() - 1], cb.poles[0], cb.poles[cb.poles.len() - 1]];
@@ -1215,7 +1215,7 @@ fn coons_surface(u: &[Shape], v: &[Shape], ruled: &Shape) -> R<Shape> {
         }
     }
     let face = occt::bspline_surface_face(&poles, (nu, nv), &ca.knots, &cc.knots, (ca.degree, cc.degree))
-        .map_err(|_| regen_error("BOUNDARY_SURFACE_FAILED"))?;
+        .map_err(|_| regen_error("BSURF_FAILED"))?;
     let facing = |s: &Shape| s.sub_shapes(ShapeKind::Face).first().and_then(|f| f.face_tangent_plane(0.5, 0.5).ok()).map(|t| t.normal);
     Ok(match (facing(&face), facing(ruled)) {
         (Some(x), Some(y)) if dot(x, y) < 0.0 => face.reversed(),
@@ -1288,12 +1288,12 @@ fn conditioned_surface(
         curves.push(edge.edge_bspline(1e-9, false, true).map_err(occt_error)?);
     }
     if curves.iter().any(|c| c.knots != curves[0].knots || c.poles.len() != curves[0].poles.len() || c.degree != curves[0].degree) {
-        return Err(regen_error("BOUNDARY_SURFACE_FAILED"));
+        return Err(regen_error("BSURF_FAILED"));
     }
     let nu = curves[0].poles.len();
     let poles: Vec<occt::Vec3> = (0..nu).flat_map(|i| curves.iter().map(move |c| c.poles[i])).collect();
     let face = occt::bspline_surface_face(&poles, (nu, 3), &curves[0].knots, &[0.0, 0.0, 0.0, 1.0, 1.0, 1.0], (curves[0].degree, 2))
-        .map_err(|_| regen_error("BOUNDARY_SURFACE_FAILED"))?;
+        .map_err(|_| regen_error("BSURF_FAILED"))?;
     // Facing as the ruled surface between the profiles does.
     let facing = |s: &Shape| s.sub_shapes(ShapeKind::Face).first().and_then(|f| f.face_tangent_plane(0.5, 0.5).ok()).map(|t| t.normal);
     let face = match (facing(&face), facing(ruled)) {
