@@ -1343,6 +1343,24 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   z at every angle) and whose end circles are exact, but whose sections between pass through the circle only every
   45° (u = k/8) and dip up to 0.006 mm between: 5493.27, 5492.88 and 5492.56 mm³ through 3, 5 and 9 sections to the
   cone's 5497.79. What sets the dips, these don't show.
+- **Everyday variants** (batch 122): an enclosure is one part for all the regions it closes that touch (a tube cut
+  by two planes and a plane through its axis is one solid, the plane between the halves gone). A cylinder split
+  through its axis has one cylindrical face per half; OCCT's seam would leave the half holding it in two faces, so
+  the split merges a closed face's seam where it ends up between two faces of one surface. A block with its top
+  edges chamfered, shelled with its top removed, is the plain 1 mm offset (its cavity 4286.66 mm³ by hand, as
+  Onshape's); OCCT's thick solid fails where two chamfers meet a block's corner (four planes at a vertex), so an
+  all-planar solid shelled inwards falls back to cutting it by its cavity built plane by plane (each vertex where
+  its faces' planes, so offset, meet). Chamfers of a boss's foot, a hole's mouth and round a block's filleted top,
+  drafts of a boss's side and a hole's wall, faces deleted and healed (a boss, a pocket, a cylinder's chamfer, a
+  block's top fillets), a curved sheet and a sphere thickened, and a sphere split keeping one side match as built.
+- **Which face takes an uneven chamfer's first distance** (batch 123, with 003 and 122): not the face left or right
+  of the edge as it runs (a block's top front and top back edges run the same way and both put it on the top), nor
+  any order of the faces' normals, but the older face: a block's top before a hole's wall or a boss's side; within
+  an extrude, the side swept from the sketch's first curve, then the caps, then the other sides in the order the
+  sketch made their curves (a rectangle's left, right, top, bottom: so a block's x = 0 side before the top, the top
+  before the other sides, x = 30 before y = 0 and y = 20; a cylinder's side before its caps). An offset and angle
+  chamfer measures its distance on the same face. The engine ranks the faces by the oldest entity each came from,
+  taking a region's edges as the sketch curves on them and a cap just after its extrude's oldest side.
 
 ## STEP export
 
