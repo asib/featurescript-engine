@@ -814,6 +814,9 @@ fn extend_extruded(body: &crate::model::Body, edges: &[Shape], distance: f64, cu
     };
     let along = normalize(vector).ok_or_else(|| regen_error("EXTEND_SHEET_BODY_FAILED"))?;
     let mut profile = edge_as_cubic(bottom)?;
+    // An elliptical arc is carried on round its ellipse by the distance as arc length, curving on or not (batch 119
+    // c003, c004), as a circular one is round its cylinder.
+    let mut ellipse = ellipse_range(bottom)?;
     let mut shift = 0.0;
     for e in edges {
         let (e0, e1) = ends(e)?;
@@ -827,12 +830,19 @@ fn extend_extruded(body: &crate::model::Body, edges: &[Shape], distance: f64, cu
             let start = *profile.poles.first().expect("poles");
             let at_start =
                 [e0, e1].iter().any(|p| norm(sub(sub(*p, start), scale(along, dot(sub(*p, start), along)))) < 1e-7);
-            profile = extended_cubic(profile, !at_start, curving, distance, true)?;
+            if let Some(range) = ellipse.as_mut() {
+                range.extend(!at_start, distance);
+            } else {
+                profile = extended_cubic(profile, !at_start, curving, distance, true)?;
+            }
         } else {
             return Ok(None);
         }
     }
-    let curve = profile.edge()?;
+    let curve = match &ellipse {
+        Some(range) => range.edge()?,
+        None => profile.edge()?,
+    };
     let curve = if shift > 0.0 {
         occt::transform(&curve, &super::translation(scale(along, -shift))).map_err(occt_error)?.shape()
     } else {
@@ -842,6 +852,87 @@ fn extend_extruded(body: &crate::model::Body, edges: &[Shape], distance: f64, cu
     // As a shell, as sheets are.
     let shells = occt::connected_shells(&face).map_err(occt_error)?;
     Ok(shells.into_iter().next())
+}
+
+/// An elliptical arc as its ellipse and parameter range (radians from the major axis), its start where the edge
+/// starts.
+struct EllipseRange {
+    frame: occt::Frame,
+    major: f64,
+    minor: f64,
+    start: f64,
+    end: f64,
+}
+
+impl EllipseRange {
+    /// The arc length along the ellipse between two of its parameters.
+    fn length(&self, t0: f64, t1: f64) -> f64 {
+        let n = 256;
+        let h = (t1 - t0) / n as f64;
+        let speed = |t: f64| (self.major * self.major * t.sin().powi(2) + self.minor * self.minor * t.cos().powi(2)).sqrt();
+        // Simpson's rule.
+        let mut sum = speed(t0) + speed(t1);
+        for i in 1..n {
+            sum += speed(t0 + i as f64 * h) * if i % 2 == 1 { 4.0 } else { 2.0 };
+        }
+        sum * h / 3.0
+    }
+
+    /// The arc carried on by `distance` along the ellipse past its end (`at_end`) or its start.
+    fn extend(&mut self, at_end: bool, distance: f64) {
+        let way = if (self.end > self.start) == at_end { 1.0 } else { -1.0 };
+        let from = if at_end { self.end } else { self.start };
+        // Newton's method on the arc length, from the circle of the larger radius.
+        let mut t = from + way * distance / self.major;
+        for _ in 0..30 {
+            let speed = (self.major * self.major * t.sin().powi(2) + self.minor * self.minor * t.cos().powi(2)).sqrt();
+            let error = self.length(from.min(t), from.max(t)) - distance;
+            t -= way * error / speed;
+        }
+        if at_end {
+            self.end = t;
+        } else {
+            self.start = t;
+        }
+    }
+
+    fn edge(&self) -> R<Shape> {
+        let (a, b) = if self.start < self.end { (self.start, self.end) } else { (self.end, self.start) };
+        occt::ellipse_edge(self.frame, self.major, self.minor, Some((a, b))).map_err(occt_error)
+    }
+}
+
+/// An edge on an ellipse as an [`EllipseRange`], or `None` for any other edge.
+fn ellipse_range(edge: &Shape) -> R<Option<EllipseRange>> {
+    use crate::values::{cross, dot, sub};
+    if edge.curve_type().ok() != Some(occt::CurveType::Ellipse) {
+        return Ok(None);
+    }
+    let conic = edge.curve_definition().map_err(occt_error)?;
+    let frame = conic.frame;
+    let y = cross(frame.normal, frame.x);
+    let angle = |p: occt::Vec3| {
+        let d = sub(p, frame.origin);
+        (dot(d, y) / conic.radius2).atan2(dot(d, frame.x) / conic.radius1)
+    };
+    let p0 = edge.edge_tangent(0.0, false).map_err(occt_error)?;
+    let p1 = edge.edge_tangent(1.0, false).map_err(occt_error)?;
+    let (start, mut end) = (angle(p0.origin), angle(p1.origin));
+    // The way round: the edge's tangent at its start, against the ellipse's own direction there.
+    let forward = {
+        let t = angle(p0.origin);
+        let own = crate::values::add(
+            crate::values::scale(frame.x, -conic.radius1 * t.sin()),
+            crate::values::scale(y, conic.radius2 * t.cos()),
+        );
+        dot(own, p0.direction) > 0.0
+    };
+    if forward && end <= start {
+        end += std::f64::consts::TAU;
+    } else if !forward && end >= start {
+        end -= std::f64::consts::TAU;
+    }
+    Ok(Some(EllipseRange { frame, major: conic.radius1, minor: conic.radius2, start, end }))
 }
 
 /// A sheet of one cylindrical face bounded by its parameter lines, grown at the chosen edges: round the cylinder
