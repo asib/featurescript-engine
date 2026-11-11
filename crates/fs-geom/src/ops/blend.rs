@@ -386,33 +386,89 @@ enum Section {
 /// difference through the shoulder (batches 053, 055, 056, 059: m 0.72 to 0.87, exactly). Past where that α₃ would
 /// fall below β₃ (m 0.879), the third pole α₂ moves in too, and α₂ and β₃ both fall linearly with m, α₃ still through
 /// the shoulder (`0.125 α₂ + 0.375 (α₃ + β₃) = (1 − m)/2`): fitted to Onshape's poles at m 0.88, 0.9, 0.92, 0.95
-/// and 0.97 to 4e-7. That holds until β₃ reaches nothing (m 0.979); past it (m 0.99) Onshape does something else.
+/// and 0.97 to 4e-7. That holds to 0.975; from there the sections are Onshape's own, sampled
+/// ([`CURVATURE_SAMPLES`]).
 fn curvature_section(a: occt::Vec3, c: occt::Vec3, b: occt::Vec3, m: f64) -> R<Shape> {
     use crate::values::{add, scale, sub};
     let at = |(s, t): (f64, f64)| add(c, add(scale(sub(a, c), s), scale(sub(b, c), t)));
-    let poles: Vec<occt::Vec3> = curvature_coefficients(m)?.into_iter().map(at).collect();
+    let cos = match (crate::values::normalize(sub(a, c)), crate::values::normalize(sub(b, c))) {
+        (Some(x), Some(y)) => crate::values::dot(x, y),
+        _ => 0.0,
+    };
+    let poles: Vec<occt::Vec3> = curvature_coefficients(m, cos)?.into_iter().map(at).collect();
     occt::bspline_edge(&poles, &[], &CURVATURE_KNOTS, 5, false).map_err(crate::occt_error)
 }
 
 /// A curvature section's knots: quintic, two spans.
 const CURVATURE_KNOTS: [f64; 14] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5, 0.5, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0];
 
+/// Onshape's curvature sections from magnitude 0.975 on, as (m, α₂, α₃, β₃): past 0.979 they follow no law found (a
+/// constrained optimisation, its constraints switching on and off: α₃ = 2(1 − m)/3 from 0.9825 to 0.9875, α₂ = 1 − m
+/// from 0.9925, β₃ below nothing at 0.99875), so they are taken from Onshape's own at a right angle, every 0.00125
+/// (batches 055 c019, 063 c001–c003, 064 c001–c006, 113 c001–c009), and interpolated between (to within 1.2e-3 mm of
+/// Onshape's at every 0.0025 from the samples every 0.0025 before, so about a quarter of that now). Each passes
+/// through the shoulder, which interpolation keeps. At 60° and 120° corners the section differs (113 c010, c011:
+/// alike, 3e-3 mm off the right angle's at 0.99): those aren't sampled.
+const CURVATURE_SAMPLES: [(f64, f64, f64, f64); 19] = [
+    (0.975, 0.058_756_3, 0.013_675_0, 0.000_073_0),
+    (0.9775, 0.048_479_3, 0.013_766_3, 0.000_074_0),
+    (0.97875, 0.043_340_7, 0.013_527_5, 0.000_359_0),
+    (0.98, 0.038_195_0, 0.013_282_5, 0.000_652_5),
+    (0.98125, 0.032_881_5, 0.012_500_0, 0.001_539_5),
+    (0.9825, 0.027_748_0, 0.011_666_8, 0.002_417_2),
+    (0.98375, 0.023_594_5, 0.010_833_3, 0.002_968_5),
+    (0.985, 0.020_652_5, 0.010_000_0, 0.003_115_8),
+    (0.98625, 0.018_371_7, 0.009_166_7, 0.003_042_8),
+    (0.9875, 0.016_001_5, 0.008_333_3, 0.002_999_5),
+    (0.98875, 0.013_310_2, 0.007_489_5, 0.003_073_8),
+    (0.99, 0.010_738_8, 0.006_650_8, 0.003_103_0),
+    (0.99125, 0.008_828_0, 0.005_865_8, 0.002_858_3),
+    (0.9925, 0.007_500_0, 0.005_087_2, 0.002_412_7),
+    (0.99375, 0.006_250_0, 0.004_320_7, 0.001_929_3),
+    (0.995, 0.005_000_0, 0.003_573_8, 0.001_426_3),
+    (0.99625, 0.003_750_0, 0.002_850_5, 0.000_899_5),
+    (0.9975, 0.002_500_0, 0.002_132_3, 0.000_367_8),
+    (0.99875, 0.001_250_0, 0.001_364_5, -0.000_114_5),
+];
+
+/// (α₂, α₃, β₃) at magnitude `m` from [`CURVATURE_SAMPLES`]: between samples, along the line between them; past the
+/// last (towards 1, where the section closes up on the corner), the last's shrunk with 1 − m (not sampled).
+fn sampled_curvature(m: f64) -> (f64, f64, f64) {
+    let last = CURVATURE_SAMPLES[CURVATURE_SAMPLES.len() - 1];
+    if m >= last.0 {
+        let k = (1.0 - m) / (1.0 - last.0);
+        return (last.1 * k, last.2 * k, last.3 * k);
+    }
+    let i = CURVATURE_SAMPLES.iter().rposition(|s| s.0 <= m).unwrap_or(0);
+    let (a, b) = (CURVATURE_SAMPLES[i], CURVATURE_SAMPLES[i + 1]);
+    let f = (m - a.0) / (b.0 - a.0);
+    let lerp = |x: f64, y: f64| x + (y - x) * f;
+    (lerp(a.1, b.1), lerp(a.2, b.2), lerp(a.3, b.3))
+}
+
 /// A curvature section's poles, each as (s, t): the corner plus s times the way to its first end and t times the way
-/// to its second ([`curvature_section`]).
-fn curvature_coefficients(m: f64) -> R<Vec<(f64, f64)>> {
+/// to its second ([`curvature_section`]), the corner's angle having cosine `cos`.
+fn curvature_coefficients(m: f64, cos: f64) -> R<Vec<(f64, f64)>> {
     let (mut alpha, mut beta) = (2.0 * (1.0 - m) / 3.0, 1.0 / 3.0 - 7.0 * m / 15.0);
     let mut alpha2 = 1.0 - 0.6 * m;
     if beta < 0.0 {
         beta = -beta / 40.0;
         alpha = 1.0 - 17.0 * m / 15.0 - beta;
     }
-    if alpha < beta {
+    if m >= CURVATURE_SAMPLES[0].0 {
+        if m >= 1.0 {
+            return Err(error("@opFillet: a curvature fillet's magnitude must be under 1"));
+        }
+        if cos.abs() > 1e-6 {
+            return Err(error(
+                "@opFillet: curvature fillets of magnitude 0.975 and over at corners other than right angles aren't supported yet",
+            ));
+        }
+        (alpha2, alpha, beta) = sampled_curvature(m);
+    } else if alpha < beta {
         alpha2 = 4.066_789_2 - 4.110_802_4 * m;
         beta = 0.017_222_28 - 0.017_589_06 * m;
         alpha = ((1.0 - m) / 2.0 - 0.125 * alpha2) / 0.375 - beta;
-        if beta <= 0.0 || alpha <= beta {
-            return Err(error("@opFillet: curvature fillets of so great a magnitude aren't supported yet"));
-        }
     }
     Ok(vec![
         (1.0, 0.0),
@@ -1583,7 +1639,7 @@ fn variable_section_fillet(model: &mut Model, id: FeatureId, definition: &Value,
             // The section's poles as (along u1, along u2) multiples of the setbacks, and weights.
             let (coefficients, weights, knots_v, degree_v): (Vec<(f64, f64)>, Vec<f64>, Vec<f64>, i32) = match section {
                 Section::Curvature(m) => (
-                    curvature_coefficients(m)?.into_iter().map(|(s2c, s1c)| (s1c, s2c)).collect(),
+                    curvature_coefficients(m, cos)?.into_iter().map(|(s2c, s1c)| (s1c, s2c)).collect(),
                     Vec::new(),
                     CURVATURE_KNOTS.to_vec(),
                     5,
@@ -1714,7 +1770,7 @@ fn arc_variable_wedge(
     let angle = dot(u1, u2).clamp(-1.0, 1.0).acos();
     let (coefficients, weights, knots_v, degree_v): (Vec<(f64, f64)>, Vec<f64>, Vec<f64>, i32) = match section {
         Section::Curvature(m) => (
-            curvature_coefficients(m)?.into_iter().map(|(s2c, s1c)| (s1c, s2c)).collect(),
+            curvature_coefficients(m, angle.cos())?.into_iter().map(|(s2c, s1c)| (s1c, s2c)).collect(),
             Vec::new(),
             CURVATURE_KNOTS.to_vec(),
             5,
