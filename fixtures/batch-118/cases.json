@@ -1,0 +1,47 @@
+{
+  "batch": "118",
+  "title": "curved faces replaced: spheres by spheres, a cylinder by itself offset and by a sphere",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "replace-face",
+      "description": "a sphere of radius 10's face replaced up to a concentric sphere of radius 12",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "replace-face",
+      "description": "a sphere of radius 10's face replaced up to a concentric sphere of radius 8",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "replace-face",
+      "description": "a cylinder (radius 10, 20 tall)'s side replaced up to a coaxial cylinder of radius 10, offset 2 mm",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "replace-face",
+      "description": "a cylinder (radius 10, 20 tall)'s side replaced up to a sphere of radius 15 about its middle",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    }
+  ]
+}

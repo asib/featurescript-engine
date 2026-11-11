@@ -1312,6 +1312,10 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   surface (±0.007 mm at 1 mm, ±0.013 at 2), as a coarse fit would; at 5 mm it leaves that near the top. Its areas
   (batch 112: 157.1046 mm² at 2 mm, 189.8443 at 5) lie between that rule's (157.0744, 190.5228) and d/r round each
   circle's (156.9789, 188.3948). `evCurveDefinition` gives the edge as neither a B-spline nor a conic.
+- **Curved faces replaced** (batch 118): a sphere's face up to a concentric sphere moves to it, larger or smaller;
+  a cylinder's side up to a coaxial cylinder of its own radius offset 2 mm becomes radius 12. The template is the
+  query's first face whatever follows: a solid cylinder's faces as a template are its side. A cylinder's side up to a
+  sphere about its middle becomes the ball between the caps' planes, a barrel (the caps grown to radius 11.18).
 - **A guide crossing a loft's side** (batches 075 c005, 112 c001–c003): between a square and a smaller one, a guide
   from the middle of a bottom edge to the middle of the top one bends that side alone (the others stay planar).
   Across it the side is a cubic with one knot where the guide crosses (0.5), five poles: the side's straight edges,
