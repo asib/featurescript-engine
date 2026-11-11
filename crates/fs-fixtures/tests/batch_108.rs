@@ -3,10 +3,9 @@
 
 use std::path::PathBuf;
 
-/// Cases the engine and Onshape don't agree on (see docs/std-coverage.md): a face replaced up to a sheet lofted
-/// between equal arcs, which the engine's loft makes a cylinder and Onshape's a B-spline it won't replace up to
-/// (c009); the arcs' sheet extended first, which the engine can't extend (c011, failing in both, for other reasons).
-const KNOWN_GAPS: &[&str] = &["c009", "c011", "failed probe"];
+/// Cases the engine and Onshape don't agree on (see docs/std-coverage.md): a loft between arcs extended 5 mm at
+/// every edge, which the engine can't extend (c011: failing in both, the engine before the replacement).
+const KNOWN_GAPS: &[&str] = &["c011"];
 
 /// A loft normal to a profile: Onshape blends the derivative along each edge by a rule not found (as batch 063's).
 const LOOSE: &[(&str, f64)] = &[("c007", 0.02)];

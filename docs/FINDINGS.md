@@ -1105,9 +1105,11 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   within the corner's angle or the angle opposite it: triangles turned to each other fail tangent at either end at
   every magnitude (at the start one chord runs along an edge; at the end the chords leave both angles), but build
   with no condition or normal to the profile, and turned squares and unturned triangles build tangent. Onshape
-  won't replace a face up to a sheet lofted between arcs (a rational B-spline), equal arcs too, though it will up
-  to one lofted between lines or an extruded arc; the engine refuses a B-spline template bounded by an arc, but
-  lofts equal arcs into a cylinder, which it replaces up to.
+  won't replace a face up to a sheet lofted between arcs, equal arcs too, however drawn or however wide (batch 111),
+  though it will up to one lofted between lines, or up to the very same cylinder extruded from the arc (111 c001).
+  Onshape's STEP shows a loft between equal arcs as that cylinder (batch 006), so its loft is a rational B-spline
+  inside, simplified on export: what made the sheet counts. The engine marks a loft's faces (`Info::lofted`) and
+  refuses a lofted template bounded by an arc (its own lofts between equal arcs are cylinders).
 - **A UI-drawn sheet metal plate** (batch 107): its region query is compressed (`&<length>$<base64>`: zlib of a
   `%` query); a dotted string puts its literal pieces in the string table before itself, and `-<index>` is that
   table's string (batch 103's reading, a string's prefix, fitted only its own query); `T` and `F` are booleans.
