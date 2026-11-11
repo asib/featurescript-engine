@@ -696,7 +696,16 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   0.995, 0.9975); from 0.9825 to 0.9875, α₃ = 2(1 − m)/3 exactly with α₂ + 3β₃ = 2(1 − m), the first regime's
   family split otherwise (α₂ = 0.027748, 0.0206525, 0.0160015); at 0.975 and 0.9775, α₂ still the third regime's
   but β₃ about 7.3e-5 (0.000073, 0.000074) where its line gives 1.7e-4 and 2.9e-5; 0.98 and 0.99 lie between.
-  The construction looks like a constrained optimisation whose objective isn't known.
+  The construction looks like a constrained optimisation whose objective isn't known. Batch 113 fills in every
+  0.00125: interpolating the samples every 0.0025 put the section within 1.2e-3 mm of Onshape's at each midpoint
+  (worst at 0.98375, where α₂ turns), 1e-5 mm in the smooth stretches. At 0.99875 β₃ is below nothing (−0.0001145,
+  α₂ = 1 − m), the section dipping 3.7e-9 m past the faces. The section isn't the same in the corner's frame at
+  every angle there: at 0.99 a 60° corner's and a 120° corner's are alike (α₂ 0.0122813, β₃ 0.0025927, to 1e-6),
+  a right angle's different (0.0107388, 0.0031030), as if it depended on the angle through cos². None of the
+  energies tried (∫κ², ∫κ'², max κ, ∫|C''|², ∫|C'''|²) under the constraints seen reproduces it. From 0.9975 the
+  section lies within micrometres of the corner: OpenCascade's distances and booleans fail on such a fillet face
+  (a point on it measures 4 mm from it), so the engine can't cut it, and can't compare 0.98375 and 0.985 with
+  Onshape's model shape for shape (their volumes, areas and boxes match Onshape's probes to 3e-6).
 - **Polygon lofts normal to a profile** (batch 063 c005–c007): the derivative is along the normal, at each corner
   the magnitude times 0.9 of the chord along the normal plus 0.1 of its length (as the engine had fitted); along
   the edge it is blended between the corners by a rule not found: halfway it is the corners' mean, but at a third
