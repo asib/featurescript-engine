@@ -701,7 +701,9 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   (worst at 0.98375, where α₂ turns), 1e-5 mm in the smooth stretches. At 0.99875 β₃ is below nothing (−0.0001145,
   α₂ = 1 − m), the section dipping 3.7e-9 m past the faces. The section isn't the same in the corner's frame at
   every angle there: at 0.99 a 60° corner's and a 120° corner's are alike (α₂ 0.0122813, β₃ 0.0025927, to 1e-6),
-  a right angle's different (0.0107388, 0.0031030), as if it depended on the angle through cos². None of the
+  a right angle's different (0.0107388, 0.0031030), as if it depended on the angle through cos² (batch 114: 45°
+  and 135° alike too, α₂ 0.0385481, β₃ −0.000822; 75° 0.0106566, 0.0031293, nearer the right angle than 60° is;
+  a 60° corner's from 0.975 to 0.99875 differs from a right angle's up to 0.9925 and is the same from 0.99375). None of the
   energies tried (∫κ², ∫κ'², max κ, ∫|C''|², ∫|C'''|²) under the constraints seen reproduces it. From 0.9975 the
   section lies within micrometres of the corner: OpenCascade's distances and booleans fail on such a fillet face
   (a point on it measures 4 mm from it), so the engine can't cut it, and can't compare 0.98375 and 0.985 with

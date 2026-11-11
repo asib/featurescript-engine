@@ -4,18 +4,16 @@
 use std::path::PathBuf;
 
 /// Cases the engine can't build as Onshape does yet (see docs/std-coverage.md): a curvature fillet of magnitude
-/// 0.99875, its section within micrometres of the corner, too thin a tool for the engine's booleans (c009); at 60°
-/// and 120° corners, where past 0.975 Onshape's section differs from a right angle's and isn't sampled (c010,
-/// c011).
-const KNOWN_GAPS: &[&str] = &["c009", "c010", "c011"];
+/// 0.99875, its section within micrometres of the corner, too thin a tool for the engine's booleans (c009).
+const KNOWN_GAPS: &[&str] = &["c009"];
 
 /// Where OpenCascade can't compare the parts: their fillet's section turns through the corner within micrometres,
 /// and OCCT's distances and booleans fail on such a surface (a point on the face measures 4 mm from it), so the
 /// difference check reports nonsense. Onshape's own volume, area and box of them match (to 3e-6).
-const UNCOMPARABLE: &[&str] = &["c003.1: the shapes differ"];
+const UNCOMPARABLE: &[&str] = &["c003.1: the shapes differ", "c011.1: the shapes differ"];
 
-/// Curvature fillets of magnitude 0.97875 to 0.99625, their sections Onshape's own, sampled: its areas and volumes
-/// of its quintics stray, as in batch 053 (within 0.02).
+/// Curvature fillets of magnitude 0.97875 to 0.99625, and 0.99 at 60° and 120°, their sections Onshape's own,
+/// sampled: its areas and volumes of its quintics stray, as in batch 053 (within 0.02).
 const LOOSE: &[(&str, f64)] = &[
     ("c001", 0.05),
     ("c002", 0.05),
@@ -25,6 +23,8 @@ const LOOSE: &[(&str, f64)] = &[
     ("c006", 0.05),
     ("c007", 0.05),
     ("c008", 0.05),
+    ("c010", 0.05),
+    ("c011", 0.05),
 ];
 
 /// The probes return Onshape's poles: only the bodies are compared.
