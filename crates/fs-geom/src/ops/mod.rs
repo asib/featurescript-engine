@@ -79,6 +79,7 @@ pub fn register(m: &mut GeomBuiltins) {
     m.insert("opTransform", |_, args| run_op(&args, "opTransform", transform_bodies));
     m.insert("updateSheetMetalGeometry", |_, args| run_op(&args, "updateSheetMetalGeometry", sheet_metal::update));
     m.insert("opEdgeChange", |_, args| run_op(&args, "opEdgeChange", sheet_metal::edge_change));
+    m.insert("opDerip", |_, args| run_op(&args, "opDerip", sheet_metal::derip));
     m.insert("sheetMetalApplyInFlat", |_, args| run_op(&args, "sheetMetalApplyInFlat", sheet_metal::apply_in_flat));
     m.insert("opSMFlatOperation", |_, args| run_op(&args, "opSMFlatOperation", sheet_metal::flat_operation));
     m.insert("opCreateOutline", |_, args| run_op(&args, "opCreateOutline", sheet_metal::create_outline));

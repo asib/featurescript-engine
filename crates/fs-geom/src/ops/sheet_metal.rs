@@ -470,8 +470,19 @@ fn segment(edge: &Shape) -> Option<(Vec3, Vec3)> {
 /// What the part's entities came from in the definition: the definition entity whose association attribute each
 /// takes. Walls give the faces offset from them; bends the cylinders round them and the lines where those meet
 /// the walls; edges on the sheet's boundary the faces across the thickness there, and the part's edges along
-/// them; vertices the part's edges across the thickness at them.
-fn associate(def: &Body, bends: &[Bend], front: f64, back: f64, kind: EntityType, shape: &Shape) -> Option<EntityRef> {
+/// them; rips the walls' faces across the thickness that end at them (std's derip finds them, batch 105); vertices
+/// the part's edges across the thickness at them.
+#[allow(clippy::too_many_arguments)]
+fn associate(
+    def: &Body,
+    bends: &[Bend],
+    rips: &[usize],
+    clearance: f64,
+    front: f64,
+    back: f64,
+    kind: EntityType,
+    shape: &Shape,
+) -> Option<EntityRef> {
     let thickness = front + back;
     let reach = thickness + TOLERANCE;
     let def_ref = |kind, index| Some(EntityRef { body: usize::MAX, kind, index });
@@ -507,7 +518,22 @@ fn associate(def: &Body, bends: &[Bend], front: f64, back: f64, kind: EntityType
                         best = Some((d, i));
                     }
                 }
-                return best.and_then(|(_, i)| def_ref(EntityType::Edge, def_edge_index(def, &def.edges[i].shape)?));
+                if let Some((_, i)) = best {
+                    return def_ref(EntityType::Edge, def_edge_index(def, &def.edges[i].shape)?);
+                }
+                // A wall's end at a rip: the face stands across the thickness, parallel to the rip, back from it by
+                // at most the thickness and the clearance.
+                let near = reach + clearance;
+                let mut best: Option<(f64, usize)> = None;
+                for &i in rips {
+                    let Some((a, b)) = segment(&def.edges[i].shape) else { continue };
+                    let Some(ed) = normalize(sub(b, a)) else { continue };
+                    let d = distance_to_segment(p, a, b);
+                    if dot(ed, n).abs() < 1e-9 && dot(sub(a, p), n).abs() <= near && d <= near && best.is_none_or(|(bd, _)| d < bd) {
+                        best = Some((d, i));
+                    }
+                }
+                return best.and_then(|(_, i)| def_ref(EntityType::Edge, i));
             }
             let s = shape.surface_definition().ok()?;
             if s.kind == 1 {
@@ -809,7 +835,7 @@ fn regenerate(model: &mut Model, id: &FeatureId, def_index: usize) -> R<()> {
                     model.update_body(index, |body| body.faces[i].info = info);
                     continue;
                 }
-                let Some(from) = associate(&def, &bends, front, back, kind, &shape) else { continue };
+                let Some(from) = associate(&def, &bends, &rips, clearance, front, back, kind, &shape) else { continue };
                 let source = &def.entities(from.kind)[from.index];
                 // The part's entities are made by what made the definition's (a hole's wall by the cut that made
                 // the hole's edge, batch 017).
@@ -3546,6 +3572,64 @@ pub fn edge_change(model: &mut Model, id: FeatureId, definition: &Value) -> R<Va
         };
         changes.push((edge.body, model.shape(face).clone(), model.shape(edge).clone(), offset));
     }
+    apply_edge_changes(model, id, changes)
+}
+
+/// `@opDerip` (std's `sheetMetalDeripCall`, in a sheet metal feature only): opens rips of the definition sheet, each
+/// wall's side of a rip edge moved within its plane onto the wall's end in the part, as std's legacy derip did with
+/// `@opEdgeChange` (`createDeripOptions`: for each part face of the rip, its wall's edge moved by the face's signed
+/// distance from the edge; batch 105).
+pub fn derip(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
+    if !model.sheet_metal_scope {
+        return Err(fs_interp::eval::execution_error("Deripping can only be performed in a sheet metal scope."));
+    }
+    let mut changes: Vec<(usize, Shape, Shape, f64)> = Vec::new();
+    for r in query::evaluate(model, field(definition, "edges"))?.into_iter().filter(|r| r.kind == EntityType::Edge) {
+        let def = &model.bodies[r.body];
+        let edge = model.shape(r).clone();
+        let walls: Vec<&crate::model::Entity> =
+            def.faces.iter().filter(|f| f.shape.sub_shapes(ShapeKind::Edge).iter().any(|x| x.is_same(&edge))).collect();
+        let Some(rip) = association(model.attributes(r)).cloned() else { continue };
+        for (pb, part) in model.bodies.iter().enumerate() {
+            if part.is_sheet_metal_definition() {
+                continue;
+            }
+            for (fi, face) in part.faces.iter().enumerate() {
+                if association(&face.attributes) != Some(&rip) {
+                    continue;
+                }
+                // Its wall: the one of the rip's walls a face beside it in the part comes from.
+                let beside: Vec<&Value> = part
+                    .faces
+                    .iter()
+                    .enumerate()
+                    .filter(|(j, other)| {
+                        *j != fi
+                            && other.shape.sub_shapes(ShapeKind::Edge).iter().any(|x| {
+                                face.shape.sub_shapes(ShapeKind::Edge).iter().any(|y| y.is_same(x))
+                            })
+                    })
+                    .filter_map(|(_, other)| association(&other.attributes))
+                    .collect();
+                let mine: Vec<&&crate::model::Entity> =
+                    walls.iter().filter(|w| association(&w.attributes).is_some_and(|a| beside.contains(&a))).collect();
+                let [wall] = mine.as_slice() else { continue };
+                let gap = face.shape.distance(&edge).map_err(occt_error)?;
+                let n = normal_at(&face.shape, gap.a)?;
+                changes.push((r.body, wall.shape.clone(), edge.clone(), dot(n, sub(gap.a, gap.b))));
+                let _ = pb;
+            }
+        }
+    }
+    if changes.is_empty() {
+        return Ok(Value::UNDEFINED);
+    }
+    apply_edge_changes(model, id, changes)
+}
+
+/// Moves each `(body, face, edge, offset)`'s edge within its planar face by its offset, outward for a positive one,
+/// the faces' other edges running on to meet it; faces moved apart at an edge they shared no longer share it.
+fn apply_edge_changes(model: &mut Model, id: FeatureId, changes: Vec<(usize, Shape, Shape, f64)>) -> R<Value> {
     let mut bodies: Vec<usize> = changes.iter().map(|c| c.0).collect();
     bodies.sort_unstable();
     bodies.dedup();
