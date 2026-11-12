@@ -356,14 +356,22 @@ enum RimBlend {
     Chamfer(f64),
 }
 
-/// A fillet or chamfer of circles each between a plane and a sphere centred on the circle's axis: in the half
-/// plane through the axis, the fillet's arc tangent to the plane's line and the sphere's circle on the material's
-/// side of both (beyond them at a concave edge), or the chamfer's line, its corner region closed off past the faces
-/// (into the void to cut, into the material to fill), revolved round the axis and cut away (filled at a concave
-/// edge). None unless every edge is such a circle with the plane's face outside it.
+/// A fillet or chamfer of circles each between two faces that are planes square to the circle's axis or spheres
+/// centred on it: in the half plane through the axis, each face is a line or a circle, and the fillet's arc is
+/// tangent to both on the material's side (beyond them at a concave edge), or the chamfer's line runs between the
+/// points its width from the edge on each (along a plane, in a straight line on a sphere); its corner region,
+/// closed off past the faces (into the void to cut, into the material to fill), is revolved round the axis and cut
+/// away or filled. A plane's rim round a spherical pocket or dome (batches 124 c004, 125 c004, c005), two balls
+/// united (batch 127 c007). None unless every edge is such a circle.
 fn sphere_rim_blend(body: &Shape, edges: &[Shape], blend: RimBlend) -> R<Option<occt::Operation>> {
     use crate::values::{add, cross, dot, norm, normalize, scale, sub};
     let failed = || regen_error("FILLET_FAILED");
+    // A face in the half plane: a line h = 0 (a plane through the circle) or a circle about (0, h) of radius r.
+    #[derive(Clone, Copy)]
+    enum Profile {
+        Line,
+        Circle(f64, f64),
+    }
     let mut cut = Vec::new();
     let mut fill = Vec::new();
     for edge in edges {
@@ -371,122 +379,171 @@ fn sphere_rim_blend(body: &Shape, edges: &[Shape], blend: RimBlend) -> R<Option<
             return Ok(None);
         }
         let faces = body.ancestors(edge, ShapeKind::Face);
-        let (Some(plane_face), Some(sphere_face)) = (
-            faces.iter().find(|f| f.surface_type().ok() == Some(occt::SurfaceType::Plane)),
-            faces.iter().find(|f| f.surface_definition().is_ok_and(|d| d.kind == 3)),
-        ) else {
-            return Ok(None);
-        };
-        let circle = edge.curve_definition().map_err(|_| failed())?;
-        let sphere = sphere_face.surface_definition().map_err(|_| failed())?;
-        let (c, rho) = (circle.frame.origin, circle.radius1);
-        let n = normalize(circle.frame.normal).ok_or_else(failed)?;
-        let off = sub(sphere.frame.origin, c);
-        if norm(cross(off, n)) > 1e-9 {
+        if faces.len() != 2 {
             return Ok(None);
         }
-        let big_r = sphere.radius1;
-        let h_s = dot(off, n);
-        // 2D (r along e, h along n) to 3D.
+        let circle = edge.curve_definition().map_err(|_| failed())?;
+        let (c, rho) = (circle.frame.origin, circle.radius1);
+        let n = normalize(circle.frame.normal).ok_or_else(failed)?;
         let e = normalize(circle.frame.x).ok_or_else(failed)?;
+        // 2D (r along e, h along n) to 3D.
         let at = |r: f64, h: f64| add(c, add(scale(e, r), scale(n, h)));
-        let edge_point = at(rho, 0.0);
-        // Which sides hold material: below or above the plane, outside or inside the sphere, from a point just
-        // into the corner along each face.
-        let probe = 1e-4 * rho.min(big_r);
-        let on_plane = |h: f64| body.contains_point(at(rho + probe, h)).unwrap_or(false);
-        let plane_side = if plane_face.distance(&occt::vertex(at(rho + probe, 0.0)).map_err(|_| failed())?).is_ok_and(|d| d.distance < 1e-7) {
-            // The plane's face runs outward from the circle: material is below or above it there.
-            if on_plane(-probe) { -1.0 } else if on_plane(probe) { 1.0 } else { return Ok(None) }
-        } else {
+        let mut profiles = Vec::new();
+        let mut spheres = 0;
+        for face in &faces {
+            let Ok(d) = face.surface_definition() else { return Ok(None) };
+            match d.kind {
+                0 if norm(cross(d.frame.normal, n)) < 1e-9 && dot(sub(d.frame.origin, c), n).abs() < 1e-9 => {
+                    profiles.push(Profile::Line)
+                }
+                3 => {
+                    let off = sub(d.frame.origin, c);
+                    if norm(cross(off, n)) > 1e-9 {
+                        return Ok(None);
+                    }
+                    spheres += 1;
+                    profiles.push(Profile::Circle(dot(off, n), d.radius1));
+                }
+                _ => return Ok(None),
+            }
+        }
+        if spheres == 0 {
             return Ok(None);
+        }
+        let probe = 1e-4 * rho;
+        let on_face = |face: &Shape, (r, h): (f64, f64)| {
+            occt::vertex(at(r, h)).and_then(|v| v.distance(face)).is_ok_and(|d| d.distance < 1e-7)
         };
-        let sphere_dir = normalize(sub(edge_point, sphere.frame.origin)).ok_or_else(failed)?;
-        // Which side of the sphere holds material: from a point on its face a little way round from the circle,
-        // just off it either way along its normal.
-        // A point a turn `angle` round the sphere's circle from the edge, toward its face (`toward`).
-        let round = |angle: f64, sign: f64| {
-            let (c, sn) = (angle.cos(), sign * angle.sin());
-            (rho * c + h_s * sn, rho * sn - h_s * c + h_s)
+        let inside = |(r, h): (f64, f64)| body.contains_point(at(r, h)).unwrap_or(false);
+        // For each face: a step `s` from the edge along it toward the face (a point there), its unit normal at a
+        // point (r, h) as seen from its centre or upward, and which side of it holds material.
+        struct Side {
+            profile: Profile,
+            toward: f64,
+            material: f64,
+        }
+        let point_along = |profile: Profile, s: f64, toward: f64| -> (f64, f64) {
+            match profile {
+                Profile::Line => (rho + toward * s, 0.0),
+                Profile::Circle(h0, radius) => {
+                    // Turned about the centre by the angle whose chord is `s`.
+                    let angle = toward * 2.0 * (s / (2.0 * radius)).min(1.0).asin();
+                    let (x, y) = (rho, -h0);
+                    (x * angle.cos() - y * angle.sin(), x * angle.sin() + y * angle.cos() + h0)
+                }
+            }
         };
-        let toward = [1.0, -1.0]
-            .into_iter()
-            .find(|&sign| {
-                let (r, h) = round(probe / big_r, sign);
-                occt::vertex(at(r, h)).and_then(|v| v.distance(sphere_face)).is_ok_and(|d| d.distance < 1e-7)
-            })
-            .ok_or_else(failed)?;
-        let sphere_point = { let (r, h) = round(probe / big_r, toward); at(r, h) };
-        let normal_there = normalize(sub(sphere_point, sphere.frame.origin)).ok_or_else(failed)?;
-        let sphere_side = match (
-            body.contains_point(add(sphere_point, scale(normal_there, probe))).unwrap_or(false),
-            body.contains_point(add(sphere_point, scale(normal_there, -probe))).unwrap_or(false),
-        ) {
-            (true, false) => 1.0,
-            (false, true) => -1.0,
-            _ => return Ok(None),
+        let normal_at = |profile: Profile, (r, h): (f64, f64)| -> (f64, f64) {
+            match profile {
+                Profile::Line => (0.0, 1.0),
+                Profile::Circle(h0, _) => {
+                    let l = (r * r + (h - h0) * (h - h0)).sqrt();
+                    (r / l, (h - h0) / l)
+                }
+            }
         };
-        // Convex where the material is where both faces' material sides meet: on the plane's material side but
-        // off the sphere's, it's void; at a concave edge, where material is on either side, it isn't.
+        let mut sides = Vec::new();
+        for (face, profile) in faces.iter().zip(&profiles) {
+            let toward = [1.0, -1.0]
+                .into_iter()
+                .find(|&t| on_face(face, point_along(*profile, probe, t)))
+                .ok_or_else(failed)?;
+            let q = point_along(*profile, probe, toward);
+            let nn = normal_at(*profile, q);
+            let material = match (
+                inside((q.0 + probe * nn.0, q.1 + probe * nn.1)),
+                inside((q.0 - probe * nn.0, q.1 - probe * nn.1)),
+            ) {
+                (true, false) => 1.0,
+                (false, true) => -1.0,
+                _ => return Ok(None),
+            };
+            sides.push(Side { profile: *profile, toward, material });
+        }
+        let edge_2d = (rho, 0.0);
+        // Convex where the material is where both faces' material sides meet: on one's material side but off the
+        // other's, it's void; at a concave edge, where material is on either side, it isn't.
         let convex = {
-            let p = add(add(edge_point, scale(n, plane_side * probe)), scale(sphere_dir, -sphere_side * 2.0 * probe));
-            !body.contains_point(p).unwrap_or(true)
+            let (n0, n1) = (normal_at(sides[0].profile, edge_2d), normal_at(sides[1].profile, edge_2d));
+            let p = (
+                rho + sides[0].material * probe * n0.0 - sides[1].material * 2.0 * probe * n1.0,
+                sides[0].material * probe * n0.1 - sides[1].material * 2.0 * probe * n1.1,
+            );
+            !inside(p)
         };
         let tau = if convex { 1.0 } else { -1.0 };
-        let (sx, sh) = (0.0, h_s);
-        // The section from its foot on the plane to its foot on the sphere, as (foot on plane, foot on sphere,
-        // a point between for an arc).
-        let (on_plane_pt, tangent, mid) = match blend {
+        // The section's feet on the two faces, and a point between for an arc.
+        let (foot0, foot1, mid) = match blend {
             RimBlend::Fillet(radius) => {
-                let qh = tau * plane_side * radius;
-                let reach = big_r + tau * sphere_side * radius;
-                let q2 = reach * reach - (qh - h_s) * (qh - h_s);
-                if q2 <= 0.0 || reach <= 0.0 {
-                    return Err(failed());
-                }
-                let qr = q2.sqrt();
-                let centre = (qr, qh);
-                let d = ((centre.0 - sx).powi(2) + (centre.1 - sh).powi(2)).sqrt();
-                let tangent = (sx + big_r * (centre.0 - sx) / d, sh + big_r * (centre.1 - sh) / d);
-                let on_plane_pt = (qr, 0.0);
-                let (a, b) = ((on_plane_pt.0 - centre.0) + (tangent.0 - centre.0), (on_plane_pt.1 - centre.1) + (tangent.1 - centre.1));
+                // The centre: `radius` off each face on the material's side (beyond at a concave edge).
+                let off = |side: &Side| tau * side.material * radius;
+                let centre = match (sides[0].profile, sides[1].profile) {
+                    (Profile::Line, Profile::Circle(h0, r0)) | (Profile::Circle(h0, r0), Profile::Line) => {
+                        let (line, sphere) = if matches!(sides[0].profile, Profile::Line) { (&sides[0], &sides[1]) } else { (&sides[1], &sides[0]) };
+                        let qh = off(line);
+                        let reach = r0 + off(sphere);
+                        let q2 = reach * reach - (qh - h0) * (qh - h0);
+                        if q2 <= 0.0 || reach <= 0.0 {
+                            return Err(failed());
+                        }
+                        (q2.sqrt(), qh)
+                    }
+                    (Profile::Circle(h0, r0), Profile::Circle(h1, r1)) => {
+                        let (a, b) = (r0 + off(&sides[0]), r1 + off(&sides[1]));
+                        if a <= 0.0 || b <= 0.0 || (h1 - h0).abs() < 1e-12 {
+                            return Err(failed());
+                        }
+                        let h = (a * a - b * b) / (2.0 * (h1 - h0)) + (h0 + h1) / 2.0;
+                        let q2 = a * a - (h - h0) * (h - h0);
+                        if q2 <= 0.0 {
+                            return Err(failed());
+                        }
+                        (q2.sqrt(), h)
+                    }
+                    _ => return Ok(None),
+                };
+                let foot = |side: &Side| match side.profile {
+                    Profile::Line => (centre.0, 0.0),
+                    Profile::Circle(h0, r0) => {
+                        let l = (centre.0 * centre.0 + (centre.1 - h0) * (centre.1 - h0)).sqrt();
+                        (r0 * centre.0 / l, h0 + r0 * (centre.1 - h0) / l)
+                    }
+                };
+                let (f0, f1) = (foot(&sides[0]), foot(&sides[1]));
+                let (a, b) = ((f0.0 - centre.0) + (f1.0 - centre.0), (f0.1 - centre.1) + (f1.1 - centre.1));
                 let l = (a * a + b * b).sqrt();
-                (on_plane_pt, tangent, Some((centre.0 + radius * a / l, centre.1 + radius * b / l)))
+                (f0, f1, Some((centre.0 + radius * a / l, centre.1 + radius * b / l)))
             }
             RimBlend::Chamfer(width) => {
-                if width >= 2.0 * big_r {
-                    return Err(failed());
+                for side in &sides {
+                    if let Profile::Circle(_, r0) = side.profile
+                        && width >= 2.0 * r0
+                    {
+                        return Err(failed());
+                    }
                 }
-                ((rho + width, 0.0), round(2.0 * (width / (2.0 * big_r)).asin(), toward), None)
+                (point_along(sides[0].profile, width, sides[0].toward), point_along(sides[1].profile, width, sides[1].toward), None)
             }
         };
         let radius = match blend { RimBlend::Fillet(r) | RimBlend::Chamfer(r) => r };
         // Past the faces: into the void to cut (where cutting changes nothing), into the material to fill (where
         // filling changes nothing).
         let delta = 0.5 * radius;
-        let void_h = -tau * plane_side * delta;
-        let sphere_void = |(r, h): (f64, f64)| {
-            let (a, b) = (r - sx, h - sh);
-            let l = (a * a + b * b).sqrt();
-            (r - tau * sphere_side * delta * a / l, h - tau * sphere_side * delta * b / l)
+        let away = |side: &Side, (r, h): (f64, f64)| {
+            let nn = normal_at(side.profile, (r, h));
+            (r - tau * side.material * delta * nn.0, h - tau * side.material * delta * nn.1)
         };
-        let t_out = sphere_void(tangent);
-        let corner_out = { let (r, h) = sphere_void((rho, 0.0)); (r, h + void_h) };
-        let plane_out = (on_plane_pt.0, void_h);
+        let out0 = away(&sides[0], foot0);
+        let out1 = away(&sides[1], foot1);
+        let corner_out = away(&sides[1], away(&sides[0], edge_2d));
         let p = |(r, h): (f64, f64)| at(r, h);
         let line = |a, b| occt::line_edge(p(a), p(b)).map_err(crate::occt_error);
         let section = match mid {
-            Some(mid) => occt::arc_through(p(on_plane_pt), p(mid), p(tangent)).map_err(crate::occt_error)?,
-            None => occt::line_edge(p(on_plane_pt), p(tangent)).map_err(crate::occt_error)?,
+            Some(mid) => occt::arc_through(p(foot0), p(mid), p(foot1)).map_err(crate::occt_error)?,
+            None => occt::line_edge(p(foot0), p(foot1)).map_err(crate::occt_error)?,
         };
-        let region = occt::fill_edges(&[
-            section,
-            line(tangent, t_out)?,
-            line(t_out, corner_out)?,
-            line(corner_out, plane_out)?,
-            line(plane_out, on_plane_pt)?,
-        ])
-        .map_err(|_| failed())?;
+        let region = occt::fill_edges(&[section, line(foot1, out1)?, line(out1, corner_out)?, line(corner_out, out0)?, line(out0, foot0)?])
+            .map_err(|_| failed())?;
         let tool = occt::revolve(&region, occt::Axis { origin: c, direction: n }, std::f64::consts::TAU)
             .map_err(|_| failed())?
             .shape();
