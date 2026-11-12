@@ -1505,6 +1505,17 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   them as `evRaycast` does. The normal projection's ruled sheet (batch 133) took its two curves at their default
   chord-length parameters, longer outside a cylinder than inside, so its rulings tilted and a circle's projection
   round the cylinder came out 6 µm inside the exact curve; both now go through the edge's own parameters (0.05 µm).
+- **Frames locked to curved faces** (batch 138): round a closed edge (the curve a circle splits a cylinder's side
+  along, a sphere's small circle) a frame fails in Onshape with `FRAME_CANDIDATE_FACES`: std trims each segment at
+  its sweep's start and end caps, and a ring has none. Round the four edges a rectangle splits a cylinder's side along
+  it mitres the corners: Onshape's split gives lines up the side and arcs round it (its STEP's curves), and the arcs
+  run whole across the cylinder's seam. The engine now gives projected edges lying on lines and circles those curves
+  (within 0.1 µm, the curves on the faces refitted), joins a split's B-spline pieces only where they run on smoothly
+  (it had joined the rectangle's four sides into one edge), replaces a planar end of a body revolved about an axis
+  in its plane (a segment round a cylinder) by turning the body on round the axis before cutting it, and evaluates an
+  edge OCCT split at seam vertices (`evEdgeTangentLine`, `evLine`, a locked sweep's path) as the one edge Onshape has,
+  its pieces joined. Still, std orients each segment's profile from its edge's ends and directions: Onshape's arcs'
+  profiles come out turned 14° (the rectangle's sides' angle round the cylinder), the engine's otherwise (a gap).
 - **Faces split normal to curved targets** (batch 133): a sketch projected normal to the target goes along the
   target's normal through each of its points onto the target's surface: a circle and a rectangle beside a cylinder, a
   circle above a sphere, a circle beside a cone frustum. The rectangle taller than the cylinder splits its side across
