@@ -1524,4 +1524,7 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   `SHELL_BASED_SURFACE_MODEL`. (Batches 002 and 003.)
 - **The engine's own STEP** is AP242 in metres, with each part's name on its product and, like Onshape's, on its
   `MANIFOLD_SOLID_BREP`. OpenCascade writes shapes as millimetres unless the document's length unit is set to
-  metres.
+  metres. Known gap: two balls united and the circle where they meet filleted (batch 132 c010), the larger sphere's
+  seam ending on the fillet's edge, which OCCT splits in two there: read back, every face keeps its area and
+  orientation but the part's volume comes out 3099 mm³ for 5895 (the sphere's trimmed region taken on the other side
+  of its seam, it seems). Onshape's STEP of the same part reads back right.
