@@ -427,10 +427,17 @@ pub(crate) fn replace_bodies(model: &mut Model, id: &FeatureId, results: Vec<(us
 /// it was given before throwing: std sometimes calls operations inside `try` and then reads that status.
 fn run_op(args: &[Value], name: &str, f: impl FnOnce(&mut Model, FeatureId, &Value) -> R<Value>) -> R<Value> {
     let (id, definition) = id_and_definition(args, name)?;
+    // FS_TRACE_OPS: each operation, its id, and the bodies there are after it.
+    let trace = std::env::var_os("FS_TRACE_OPS").is_some();
+    let traced_id = trace.then(|| id.join("/"));
     let result = model_mut(args, name, |model| {
         model.last_operation = Some(id.clone());
         let result = f(model, id, &definition);
         refresh_composites(model);
+        if let Some(op_id) = &traced_id {
+            let kinds: Vec<String> = model.bodies.iter().map(|b| format!("{:?}", b.body_type)).collect();
+            eprintln!("OP {name} {op_id} -> {} {}", if result.is_ok() { "ok" } else { "failed" }, kinds.join(","));
+        }
         result
     });
     if let Err(Flow::Throw(error)) = &result {
