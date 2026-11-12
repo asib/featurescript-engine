@@ -759,6 +759,24 @@ std::unique_ptr<Operation> thicken_op(const Shape &input, double t1, double t2) 
       if (on) op->history->AddGenerated(edge, wall);
     }
   }
+  // Walls on one plane, run from neighbouring input edges, are one face, as Onshape's (a top and its fillet
+  // thickened together: each end one wall, batch 127 c006); the caps stay as they are.
+  {
+    TopTools_MapOfShape keep;
+    for (const std::vector<TopoDS_Shape> *list : {&op->first, &op->last})
+      for (const TopoDS_Shape &f : *list)
+        for (TopExp_Explorer e(f, TopAbs_EDGE); e.More(); e.Next()) keep.Add(e.Current());
+    ShapeUpgrade_UnifySameDomain unify(op->result, Standard_True, Standard_True, Standard_False);
+    unify.KeepShapes(keep);
+    unify.Build();
+    op->history->Merge(unify.History());
+    op->result = unify.Shape();
+    for (std::vector<TopoDS_Shape> *list : {&op->first, &op->last})
+      for (TopoDS_Shape &f : *list) {
+        const TopTools_ListOfShape &images = unify.History()->Modified(f);
+        if (!images.IsEmpty()) f = images.First();
+      }
+  }
   // Thickening a face of a solid along its outward normal can come out inside out.
   GProp_GProps props;
   BRepGProp::VolumeProperties(op->result, props);
