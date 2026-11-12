@@ -1461,7 +1461,7 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   filled; an uneven one's rational sections, their weights changing round the edge, are fitted with cubics through
   17 points with their end derivatives as they are (`GeomAPI_Interpolate::Load` rescales them unless told not to,
   and the cubic strayed 6 µm from the section: 1.5e-3 of the area).
-- **Uneven fillets of circles** (batch 135): an uneven fillet's `radius` is measured from the face
+- **Uneven fillets of circles; sketch constraints** (batch 135): an uneven fillet's `radius` is measured from the face
   in whose loop the edge runs against Onshape's direction for it, convex or concave: an extruded cylinder's top edge
   from the cylinder and its bottom edge from the bottom (the circles run anticlockwise about the sketch's normal); a
   revolved part's from the other face (its circles run back against the revolve, batch 088): fCone's top from the
@@ -1473,6 +1473,25 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   offsets swapped where Onshape measures from the other face. Onshape's own volumes of these fillets are up to
   0.13 mm³ over the exact (an extruded cylinder's top, 1 and 2 mm: 6256.8203 mm³ by Pappus, Onshape's 6256.9501,
   the engine's 6256.8154).
+  Sketches drawn off and pulled into place: Onshape solves fully determined ones exactly (lengths, distances, equal
+  sides, radius, diameter, concentric, a slot of tangent arcs, a 30-40-50 triangle). `ANGLE` given `localFirst`,
+  `localSecond` and `angle`, and `MIDPOINT` given `localFirst` (a point) and `localSecond` (a line), change nothing
+  (a sketch drawn in Onshape writes a midpoint as `localMidpoint`, `localEntity1`, `localEntity2`, batch 104).
+  `MIRROR` of two lines puts the second on the first's reflection, wherever along it, its length and the projection
+  of its middle kept.
+- **How Onshape's sketch solver moves an underdetermined sketch** (batch 136, and 135 c016, c018, c019): it holds
+  each entity's direction, length or radius before any entity's place, and older entities before newer ones,
+  moving as little as it can in that order: a point put on a free line moves, not the line; of two free lines
+  joined, the second moves, whole; a free line lengthened keeps its start and moves its end (a free point coincident
+  with the end goes with it; one coincident with the start stays); a free line made horizontal or parallel turns
+  about its middle; a free circle given a radius keeps its centre. The engine solves so: a line's unknowns are where
+  its middle started, its direction and its length, its start that middle less half its starting length along the
+  direction; the unknowns are grouped (directions, lengths and radii oldest entity first, then places oldest first)
+  and each step projects the start onto the constraints, linearised where the solution has got to, one group at a
+  time: each group moving as little as the groups after it let it (std's tear drop hem, batch 029, solves so too).
+  Gauss–Newton steps finish it off. Sketch curves constrained to each other come out in the order the sketch made
+  them (136 c015: a circle, then a line normal to it); in a sketch drawn in Onshape, closed curves after open ones
+  (batch 103).
 - **Faces split normal to curved targets** (batch 133): a sketch projected normal to the target goes along the
   target's normal through each of its points onto the target's surface: a circle and a rectangle beside a cylinder, a
   circle above a sphere, a circle beside a cone frustum. The rectangle taller than the cylinder splits its side across

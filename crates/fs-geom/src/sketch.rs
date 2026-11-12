@@ -863,23 +863,40 @@ mod constraints {
     #[derive(Clone, Copy)]
     enum Slot {
         Point(usize),
+        /// Where its middle started, its direction (an angle), its length and the length it started with: its start
+        /// is the first less half the second along the direction, so a change of length moves its end.
         Line(usize),
         /// Centre, radius, and start and end angles (the end past the start the way the arc runs).
         Arc(usize),
+        /// Centre and radius.
+        Circle(usize),
     }
 
-    fn slots(entities: &[SketchEntity]) -> (Vec<Option<Slot>>, Vec<f64>) {
+    /// Each entity's slot, the unknowns as the sketch starts, each unknown's scale (so that moving it by one is
+    /// moving a point by one), and the order in which Onshape's solver lets them move (batch 136): the groups it
+    /// holds hardest first, each entity's direction, length or radius, oldest entity first, then each entity's place,
+    /// oldest first. A line's end moves when its length changes, its middle stays when it turns.
+    fn slots(entities: &[SketchEntity]) -> (Vec<Option<Slot>>, Vec<f64>, Vec<f64>, Vec<Vec<usize>>) {
         let mut x = Vec::new();
+        let mut scale = Vec::new();
         let mut out = Vec::new();
+        let (mut stiff, mut place): (Vec<Vec<usize>>, Vec<Vec<usize>>) = (Vec::new(), Vec::new());
         for e in entities {
+            let i = x.len();
             let slot = match &e.geometry {
                 Geometry::Point(p) => {
                     x.extend([p.0, p.1]);
-                    Some(Slot::Point(x.len() - 2))
+                    scale.extend([1.0, 1.0]);
+                    place.push(vec![i, i + 1]);
+                    Some(Slot::Point(i))
                 }
                 Geometry::Line(a, b) => {
-                    x.extend([a.0, a.1, b.0, b.1]);
-                    Some(Slot::Line(x.len() - 4))
+                    let length = (b.0 - a.0).hypot(b.1 - a.1);
+                    x.extend([(a.0 + b.0) / 2.0, (a.1 + b.1) / 2.0, (b.1 - a.1).atan2(b.0 - a.0), length, length]);
+                    scale.extend([1.0, 1.0, (length / 2.0).max(1e-9), 1.0, 1.0]);
+                    stiff.push(vec![i + 2, i + 3]);
+                    place.push(vec![i, i + 1]);
+                    Some(Slot::Line(i))
                 }
                 // An arc's start and end run counterclockwise, whichever way it was given, as in Onshape (std's
                 // hem relies on it).
@@ -893,15 +910,26 @@ mod constraints {
                             a1 += TAU;
                         }
                         x.extend([c.0, c.1, r, a0, a1]);
-                        Some(Slot::Arc(x.len() - 5))
+                        scale.extend([1.0, 1.0, 1.0, r, r]);
+                        stiff.push(vec![i + 2]);
+                        place.push(vec![i, i + 1, i + 3, i + 4]);
+                        Some(Slot::Arc(i))
                     }
                     None => None,
                 },
+                Geometry::Circle { center, radius } => {
+                    x.extend([center.0, center.1, *radius]);
+                    scale.extend([1.0, 1.0, 1.0]);
+                    stiff.push(vec![i + 2]);
+                    place.push(vec![i, i + 1]);
+                    Some(Slot::Circle(i))
+                }
                 _ => None,
             };
             out.push(slot);
         }
-        (out, x)
+        stiff.extend(place);
+        (out, x, scale, stiff)
     }
 
     /// A reference to part of the sketch: a whole entity, or one of its points.
@@ -934,9 +962,9 @@ mod constraints {
     fn point(x: &[f64], slot: Slot, which: &str) -> Option<P2> {
         match (slot, which) {
             (Slot::Point(i), _) => Some((x[i], x[i + 1])),
-            (Slot::Line(i), "start") => Some((x[i], x[i + 1])),
-            (Slot::Line(i), "end") => Some((x[i + 2], x[i + 3])),
-            (Slot::Arc(i), "center") => Some((x[i], x[i + 1])),
+            (Slot::Line(_), "start") => line(x, slot).map(|(a, _)| a),
+            (Slot::Line(_), "end") => line(x, slot).map(|(_, b)| b),
+            (Slot::Arc(i) | Slot::Circle(i), "center") => Some((x[i], x[i + 1])),
             (Slot::Arc(i), "start") => Some((x[i] + x[i + 2] * x[i + 3].cos(), x[i + 1] + x[i + 2] * x[i + 3].sin())),
             (Slot::Arc(i), "end") => Some((x[i] + x[i + 2] * x[i + 4].cos(), x[i + 1] + x[i + 2] * x[i + 4].sin())),
             _ => None,
@@ -945,7 +973,11 @@ mod constraints {
 
     fn line(x: &[f64], slot: Slot) -> Option<(P2, P2)> {
         match slot {
-            Slot::Line(i) => Some(((x[i], x[i + 1]), (x[i + 2], x[i + 3]))),
+            Slot::Line(i) => {
+                let ((s, c), h, l) = (x[i + 2].sin_cos(), x[i + 4] / 2.0, x[i + 3]);
+                let start = (x[i] - h * c, x[i + 1] - h * s);
+                Some((start, (start.0 + l * c, start.1 + l * s)))
+            }
             _ => None,
         }
     }
@@ -963,6 +995,57 @@ mod constraints {
         let first = field(c, "localFirst").as_str().and_then(|n| part(entities, slots, n));
         let second = field(c, "localSecond").as_str().and_then(|n| part(entities, slots, n));
         let length = |key: &str| crate::values::length(field(c, key), "constraint length").ok();
+        let named = |key: &str| field(c, key).as_str().and_then(|n| part(entities, slots, n));
+        // A midpoint given as three points, as a sketch drawn in Onshape writes it.
+        if kind == "MIDPOINT" {
+            if let (Some(Part::Point(s, w)), Some(Part::Point(s1, w1)), Some(Part::Point(s2, w2))) =
+                (named("localMidpoint"), named("localEntity1"), named("localEntity2"))
+            {
+                return match (point(x, s, w), point(x, s1, w1), point(x, s2, w2)) {
+                    (Some(p), Some(a), Some(b)) => vec![p.0 - (a.0 + b.0) / 2.0, p.1 - (a.1 + b.1) / 2.0],
+                    _ => vec![],
+                };
+            }
+        }
+        // The second the first's mirror image across a line: a point the other's reflection; a line on the other's
+        // reflection, wherever along it (Onshape's lines are mirrored as lines: batch 135 c019).
+        if kind == "MIRROR" {
+            let Some(Part::Entity(axis @ Slot::Line(_))) = named("localMirror") else { return vec![] };
+            let Some((a, b)) = line(x, axis) else { return vec![] };
+            let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+            let n2 = (dx * dx + dy * dy).max(1e-300);
+            let reflect = |p: P2| {
+                let t = ((p.0 - a.0) * dx + (p.1 - a.1) * dy) / n2;
+                let foot = (a.0 + t * dx, a.1 + t * dy);
+                (2.0 * foot.0 - p.0, 2.0 * foot.1 - p.1)
+            };
+            let pairs: Vec<(P2, P2)> = match (first, second) {
+                (Some(Part::Point(s1, w1)), Some(Part::Point(s2, w2))) => {
+                    point(x, s1, w1).zip(point(x, s2, w2)).into_iter().collect()
+                }
+                (Some(Part::Entity(l1 @ Slot::Line(_))), Some(Part::Entity(l2 @ Slot::Line(_)))) => {
+                    return match (line(x, l1), line(x, l2)) {
+                        (Some((p, q)), Some((r, t))) => {
+                            let (p, q) = (reflect(p), reflect(q));
+                            vec![to_line(r, p, q), to_line(t, p, q)]
+                        }
+                        _ => vec![],
+                    };
+                }
+                (Some(Part::Entity(Slot::Arc(i) | Slot::Circle(i))), Some(Part::Entity(Slot::Arc(j) | Slot::Circle(j)))) => {
+                    let m = reflect((x[i], x[i + 1]));
+                    return vec![x[j] - m.0, x[j + 1] - m.1, x[j + 2] - x[i + 2]];
+                }
+                _ => vec![],
+            };
+            return pairs
+                .into_iter()
+                .flat_map(|(p, q)| {
+                    let m = reflect(p);
+                    [q.0 - m.0, q.1 - m.1]
+                })
+                .collect();
+        }
         match (kind, first, second) {
             ("FIX", Some(Part::Point(s, w)), None) => match (point(x, s, w), point(x0, s, w)) {
                 (Some(p), Some(q)) => vec![p.0 - q.0, p.1 - q.1],
@@ -973,6 +1056,7 @@ mod constraints {
                 vec![x[i] - x0[i], x[i + 1] - x0[i + 1], x[i + 2] - x0[i + 2]]
             }
             ("FIX", Some(Part::Entity(Slot::Line(i))), None) => (i..i + 4).map(|k| x[k] - x0[k]).collect(),
+            ("FIX", Some(Part::Entity(Slot::Circle(i))), None) => (i..i + 3).map(|k| x[k] - x0[k]).collect(),
             ("COINCIDENT", Some(Part::Point(s1, w1)), Some(Part::Point(s2, w2))) => {
                 match (point(x, s1, w1), point(x, s2, w2)) {
                     (Some(p), Some(q)) => vec![p.0 - q.0, p.1 - q.1],
@@ -984,13 +1068,75 @@ mod constraints {
                 let Some(p) = point(x, s, w) else { return vec![] };
                 match e {
                     Slot::Line(_) => line(x, e).map(|(a, b)| vec![to_line(p, a, b)]).unwrap_or_default(),
-                    Slot::Arc(i) => vec![(p.0 - x[i]).hypot(p.1 - x[i + 1]) - x[i + 2]],
+                    Slot::Arc(i) | Slot::Circle(i) => vec![(p.0 - x[i]).hypot(p.1 - x[i + 1]) - x[i + 2]],
                     Slot::Point(_) => vec![],
                 }
             }
-            ("TANGENT", Some(Part::Entity(Slot::Arc(i))), Some(Part::Entity(l)))
-            | ("TANGENT", Some(Part::Entity(l)), Some(Part::Entity(Slot::Arc(i)))) => {
+            ("TANGENT", Some(Part::Entity(Slot::Arc(i) | Slot::Circle(i))), Some(Part::Entity(l @ Slot::Line(_))))
+            | ("TANGENT", Some(Part::Entity(l @ Slot::Line(_))), Some(Part::Entity(Slot::Arc(i) | Slot::Circle(i)))) => {
                 line(x, l).map(|(a, b)| vec![to_line((x[i], x[i + 1]), a, b).abs() - x[i + 2]]).unwrap_or_default()
+            }
+            // Round curves touching: outside each other or one inside the other, as they start.
+            ("TANGENT", Some(Part::Entity(Slot::Arc(i) | Slot::Circle(i))), Some(Part::Entity(Slot::Arc(j) | Slot::Circle(j)))) => {
+                let gap = |x: &[f64]| (x[i] - x[j]).hypot(x[i + 1] - x[j + 1]);
+                let (outside, inside) = (x0[i + 2] + x0[j + 2], (x0[i + 2] - x0[j + 2]).abs());
+                if (gap(x0) - outside).abs() <= (gap(x0) - inside).abs() {
+                    vec![gap(x) - x[i + 2] - x[j + 2]]
+                } else {
+                    vec![gap(x) - (x[i + 2] - x[j + 2]).abs()]
+                }
+            }
+            ("LENGTH", Some(Part::Entity(l)), None) => match (line(x, l), length("length")) {
+                (Some((a, b)), Some(d)) => vec![match field(c, "direction").as_str() {
+                    Some("HORIZONTAL") => (b.0 - a.0).abs() - d,
+                    Some("VERTICAL") => (b.1 - a.1).abs() - d,
+                    _ => (b.0 - a.0).hypot(b.1 - a.1) - d,
+                }],
+                _ => vec![],
+            },
+            ("RADIUS" | "DIAMETER", Some(Part::Entity(Slot::Arc(i) | Slot::Circle(i))), None) => match length("length") {
+                Some(d) => vec![if kind == "RADIUS" { x[i + 2] - d } else { 2.0 * x[i + 2] - d }],
+                None => vec![],
+            },
+            ("EQUAL", Some(Part::Entity(e1)), Some(Part::Entity(e2))) => match (e1, e2) {
+                (Slot::Line(_), Slot::Line(_)) => match (line(x, e1), line(x, e2)) {
+                    (Some((a, b)), Some((p, q))) => vec![(b.0 - a.0).hypot(b.1 - a.1) - (q.0 - p.0).hypot(q.1 - p.1)],
+                    _ => vec![],
+                },
+                (Slot::Arc(i) | Slot::Circle(i), Slot::Arc(j) | Slot::Circle(j)) => vec![x[i + 2] - x[j + 2]],
+                _ => vec![],
+            },
+            ("CONCENTRIC", Some(a), Some(b)) => {
+                let centre = |p: &Part| match *p {
+                    Part::Entity(Slot::Arc(i) | Slot::Circle(i)) => Some((x[i], x[i + 1])),
+                    Part::Point(s, w) => point(x, s, w),
+                    _ => None,
+                };
+                match (centre(&a), centre(&b)) {
+                    (Some(p), Some(q)) => vec![p.0 - q.0, p.1 - q.1],
+                    _ => vec![],
+                }
+            }
+            // A line normal to a round curve: on a line through its centre.
+            ("NORMAL", Some(Part::Entity(l @ Slot::Line(_))), Some(Part::Entity(Slot::Arc(i) | Slot::Circle(i))))
+            | ("NORMAL", Some(Part::Entity(Slot::Arc(i) | Slot::Circle(i))), Some(Part::Entity(l @ Slot::Line(_)))) => {
+                line(x, l).map(|(a, b)| vec![to_line((x[i], x[i + 1]), a, b)]).unwrap_or_default()
+            }
+            // Between lines (parallel ones): the second's middle that far from the first's line.
+            ("DISTANCE", Some(Part::Entity(l1 @ Slot::Line(_))), Some(Part::Entity(l2 @ Slot::Line(_)))) => {
+                match (line(x, l1), line(x, l2), length("length")) {
+                    (Some((a, b)), Some((p, q)), Some(d)) => {
+                        vec![to_line(((p.0 + q.0) / 2.0, (p.1 + q.1) / 2.0), a, b).abs() - d]
+                    }
+                    _ => vec![],
+                }
+            }
+            ("DISTANCE", Some(Part::Point(s, w)), Some(Part::Entity(l @ Slot::Line(_))))
+            | ("DISTANCE", Some(Part::Entity(l @ Slot::Line(_))), Some(Part::Point(s, w))) => {
+                match (point(x, s, w), line(x, l), length("length")) {
+                    (Some(p), Some((a, b)), Some(d)) => vec![to_line(p, a, b).abs() - d],
+                    _ => vec![],
+                }
             }
             ("PERPENDICULAR" | "PARALLEL", Some(Part::Entity(l1)), Some(Part::Entity(l2))) => {
                 match (line(x, l1), line(x, l2)) {
@@ -1046,11 +1192,124 @@ mod constraints {
     }
 
     /// Moves the entities to meet the constraints, if they don't already.
+    /// A small symmetric matrix's eigenvalues and eigenvectors (as columns), by Jacobi rotations.
+    fn eigen(mut a: Vec<Vec<f64>>) -> (Vec<f64>, Vec<Vec<f64>>) {
+        let n = a.len();
+        let mut v: Vec<Vec<f64>> = (0..n).map(|i| (0..n).map(|j| if i == j { 1.0 } else { 0.0 }).collect()).collect();
+        for _ in 0..100 {
+            let off: f64 = (0..n).flat_map(|i| (0..n).filter(move |&j| j != i).map(move |j| (i, j))).map(|(i, j)| a[i][j] * a[i][j]).sum();
+            let diag: f64 = (0..n).map(|i| a[i][i] * a[i][i]).sum();
+            if off <= 1e-30 * diag.max(1e-300) {
+                break;
+            }
+            for p in 0..n {
+                for q in p + 1..n {
+                    if a[p][q].abs() < 1e-300 {
+                        continue;
+                    }
+                    let theta = (a[q][q] - a[p][p]) / (2.0 * a[p][q]);
+                    let t = if theta >= 0.0 { 1.0 } else { -1.0 } / (theta.abs() + (theta * theta + 1.0).sqrt());
+                    let c = 1.0 / (t * t + 1.0).sqrt();
+                    let s = t * c;
+                    for k in 0..n {
+                        let (kp, kq) = (a[k][p], a[k][q]);
+                        a[k][p] = c * kp - s * kq;
+                        a[k][q] = s * kp + c * kq;
+                    }
+                    for k in 0..n {
+                        let (pk, qk) = (a[p][k], a[q][k]);
+                        a[p][k] = c * pk - s * qk;
+                        a[q][k] = s * pk + c * qk;
+                    }
+                    for row in v.iter_mut() {
+                        let (kp, kq) = (row[p], row[q]);
+                        row[p] = c * kp - s * kq;
+                        row[q] = s * kp + c * kq;
+                    }
+                }
+            }
+        }
+        ((0..n).map(|i| a[i][i]).collect(), v)
+    }
+
+    /// The least-norm solution of the columns `cols` (each of length m) times x = b, in the least-squares sense,
+    /// directions in which the columns' Gram matrix is under `floor` left out.
+    fn least_norm(cols: &[Vec<f64>], b: &[f64], floor: f64) -> Vec<f64> {
+        let k = cols.len();
+        let gram: Vec<Vec<f64>> =
+            (0..k).map(|i| (0..k).map(|j| cols[i].iter().zip(&cols[j]).map(|(a, b)| a * b).sum()).collect()).collect();
+        let atb: Vec<f64> = cols.iter().map(|c| c.iter().zip(b).map(|(a, b)| a * b).sum()).collect();
+        let (values, vectors) = eigen(gram);
+        let mut x = vec![0.0; k];
+        for (j, &l) in values.iter().enumerate() {
+            if l <= floor || l <= 1e-300 {
+                continue;
+            }
+            let coefficient = (0..k).map(|i| vectors[i][j] * atb[i]).sum::<f64>() / l;
+            for i in 0..k {
+                x[i] += coefficient * vectors[i][j];
+            }
+        }
+        x
+    }
+
+    /// The step `d` with `jac d = b` moving each group in turn (the first first) as little as the later ones let it,
+    /// each unknown measured in units of its `scale`.
+    fn lexicographic(jac: &[Vec<f64>], b: &[f64], groups: &[Vec<usize>], scale: &[f64]) -> Vec<f64> {
+        let m = jac.len();
+        let column = |k: usize| -> Vec<f64> { (0..m).map(|i| jac[i][k] / scale[k]).collect() };
+        let mut b = b.to_vec();
+        let mut d = vec![0.0; scale.len()];
+        // What a group's columns leave once the later groups' are taken out counts only above rounding of the
+        // columns themselves: where the later groups can do all a group does, it doesn't move.
+        let floor = 1e-20
+            * groups
+                .iter()
+                .flatten()
+                .map(|&k| column(k).iter().map(|v| v * v).sum::<f64>())
+                .fold(0.0f64, f64::max);
+        for (g, group) in groups.iter().enumerate() {
+            let rest: Vec<Vec<f64>> = groups[g + 1..].iter().flatten().map(|&k| column(k)).collect();
+            // The part of a vector the later groups can't make: its component outside their columns' span.
+            let basis: Vec<Vec<f64>> = if rest.is_empty() || m == 0 {
+                Vec::new()
+            } else {
+                let outer: Vec<Vec<f64>> =
+                    (0..m).map(|i| (0..m).map(|j| rest.iter().map(|c| c[i] * c[j]).sum()).collect()).collect();
+                let (values, vectors) = eigen(outer);
+                let top = values.iter().fold(0.0f64, |acc, v| acc.max(v.abs()));
+                (0..m)
+                    .filter(|&j| values[j] > 1e-12 * top && values[j] > 1e-300)
+                    .map(|j| (0..m).map(|i| vectors[i][j]).collect())
+                    .collect()
+            };
+            let outside = |y: &[f64]| -> Vec<f64> {
+                let mut out = y.to_vec();
+                for u in &basis {
+                    let dot: f64 = u.iter().zip(y).map(|(a, b)| a * b).sum();
+                    for (o, ui) in out.iter_mut().zip(u) {
+                        *o -= dot * ui;
+                    }
+                }
+                out
+            };
+            let cols: Vec<Vec<f64>> = group.iter().map(|&k| outside(&column(k))).collect();
+            let z = least_norm(&cols, &outside(&b), floor);
+            for (&k, zk) in group.iter().zip(&z) {
+                d[k] = zk / scale[k];
+                for (bi, row) in b.iter_mut().zip(jac) {
+                    *bi -= row[k] * d[k];
+                }
+            }
+        }
+        d
+    }
+
     pub fn solve(entities: &mut [SketchEntity], constraints: &[Value]) -> R<()> {
         if constraints.is_empty() {
             return Ok(());
         }
-        let (slots, x0) = slots(entities);
+        let (slots, x0, scale, groups) = slots(entities);
         let norm = |r: &[f64]| r.iter().map(|v| v * v).sum::<f64>().sqrt();
         let mut x = x0.clone();
         let mut r = all(entities, &slots, constraints, &x, &x0);
@@ -1058,68 +1317,62 @@ mod constraints {
             return Ok(());
         }
         let n = x.len();
-        let mut lambda = 1e-6;
-        for _ in 0..200 {
+        // The solution moving the groups Onshape holds hardest least, in turn: at each step, the start projected onto
+        // the constraints linearised where the solution has got to, group by group, backed off while it doesn't
+        // bring the residuals down; then plain Gauss–Newton steps to finish it off, moving it by no more than the
+        // residuals.
+        let all_groups = vec![(0..n).collect::<Vec<usize>>()];
+        let mut polish = false;
+        for _ in 0..100 {
             if norm(&r) < 1e-13 {
                 break;
             }
-            // The Jacobian by forward differences.
-            let h = 1e-10;
+            // The Jacobian by central differences.
+            let h = 1e-8;
             let mut jac = vec![vec![0.0; n]; r.len()];
             for k in 0..n {
-                let mut xk = x.clone();
-                xk[k] += h;
-                let rk = all(entities, &slots, constraints, &xk, &x0);
-                for (row, (a, b)) in jac.iter_mut().zip(rk.iter().zip(r.iter())) {
-                    row[k] = (a - b) / h;
+                let (mut up, mut down) = (x.clone(), x.clone());
+                up[k] += h;
+                down[k] -= h;
+                let (ru, rd) = (all(entities, &slots, constraints, &up, &x0), all(entities, &slots, constraints, &down, &x0));
+                for (row, (a, b)) in jac.iter_mut().zip(ru.iter().zip(rd.iter())) {
+                    row[k] = (a - b) / (2.0 * h);
                 }
             }
-            // (JᵀJ + λI) δ = −Jᵀr
-            let mut a = vec![vec![0.0; n]; n];
-            let mut g = vec![0.0; n];
-            for (row, ri) in jac.iter().zip(r.iter()) {
-                for i in 0..n {
-                    if row[i] == 0.0 {
-                        continue;
-                    }
-                    g[i] -= row[i] * ri;
-                    for j in 0..n {
-                        a[i][j] += row[i] * row[j];
-                    }
-                }
-            }
+            let anchor: Vec<f64> = if polish { x.clone() } else { x0.clone() };
+            let rhs: Vec<f64> = (0..r.len())
+                .map(|i| (0..n).map(|k| jac[i][k] * (x[k] - anchor[k])).sum::<f64>() - r[i])
+                .collect();
+            let step = lexicographic(&jac, &rhs, if polish { &all_groups } else { &groups }, &scale);
+            let target: Vec<f64> = (0..n).map(|k| anchor[k] + step[k]).collect();
+            let mut t = 1.0;
             let mut improved = false;
             for _ in 0..30 {
-                let mut m = a.clone();
-                for (i, row) in m.iter_mut().enumerate() {
-                    row[i] += lambda * (1.0 + row[i]);
-                }
-                let Some(step) = crate::splines::solve(m, g.clone()) else {
-                    lambda *= 10.0;
-                    continue;
-                };
-                let trial: Vec<f64> = x.iter().zip(step.iter()).map(|(a, b)| a + b).collect();
+                let trial: Vec<f64> = (0..n).map(|k| x[k] + t * (target[k] - x[k])).collect();
                 let rt = all(entities, &slots, constraints, &trial, &x0);
                 if norm(&rt) < norm(&r) {
                     x = trial;
                     r = rt;
-                    lambda = (lambda / 10.0).max(1e-12);
                     improved = true;
                     break;
                 }
-                lambda *= 10.0;
+                t /= 2.0;
             }
             if !improved {
-                break;
+                if polish {
+                    break;
+                }
+                polish = true;
             }
         }
         // Write the solved geometry back.
         for (e, slot) in entities.iter_mut().zip(slots.iter()) {
             match (slot, &mut e.geometry) {
                 (Some(Slot::Point(i)), Geometry::Point(p)) => *p = (x[*i], x[*i + 1]),
-                (Some(Slot::Line(i)), Geometry::Line(a, b)) => {
-                    *a = (x[*i], x[*i + 1]);
-                    *b = (x[*i + 2], x[*i + 3]);
+                (Some(slot @ Slot::Line(_)), Geometry::Line(a, b)) => {
+                    if let Some((p, q)) = line(&x, *slot) {
+                        (*a, *b) = (p, q);
+                    }
                 }
                 (Some(Slot::Arc(i)), Geometry::Arc { start, mid, end }) => {
                     let (cx, cy, rr, a0, a1) = (x[*i], x[*i + 1], x[*i + 2], x[*i + 3], x[*i + 4]);
@@ -1127,6 +1380,10 @@ mod constraints {
                     *start = at(a0);
                     *mid = at((a0 + a1) / 2.0);
                     *end = at(a1);
+                }
+                (Some(Slot::Circle(i)), Geometry::Circle { center, radius }) => {
+                    *center = (x[*i], x[*i + 1]);
+                    *radius = x[*i + 2];
                 }
                 _ => {}
             }
