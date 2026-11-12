@@ -1471,6 +1471,9 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   the seam, into two faces as Onshape's (the seam merged away). The engine builds each projection as a ruled sheet
   between the curve's points carried each way along the normals, splits the face with it, then merges faces across
   edges on the target's seams.
+- **Everyday parts** (batch 134): a flange with patterned bolt holes, a ribbed bracket, a keyed shaft, a slotted plate
+  chamfered round its slot, a pocket filleted at its corners and floor, and a cup shelled open match exactly.
+
 ## STEP export
 
 - **Part names** are written on each `MANIFOLD_SOLID_BREP` (`MANIFOLD_SOLID_BREP('c030.1', ...)`), as well as on
