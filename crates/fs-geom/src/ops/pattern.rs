@@ -148,18 +148,47 @@ pub fn pattern(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
     }
     // Faces: the boss (or pocket) they make, capped where it meets the rest of the body, is added to (or cut from)
     // the body at each transform.
+    // Each set of faces joined by edges makes its own tool: two holes a feature cut are two pockets (batch 139
+    // c006: a sketch's two circles cut through and patterned).
     let mut results = Vec::new();
     for (b, faces) in face_groups {
-        let tool = occt::face_feature_solid(&faces).map_err(|_| regen_error("PATTERN_FACE_FAILED"))?;
-        // Just outside the first face is inside the tool only for a pocket's void.
-        let plane = faces[0].face_tangent_plane(0.5, 0.5).map_err(occt_error)?;
-        let pocket =
-            tool.contains_point(values::add(plane.origin, values::scale(plane.normal, 1e-6))).map_err(occt_error)?;
-        let mut tools = Vec::new();
-        for t in transforms.iter() {
-            tools.push(occt::transform(&tool, &transform(t)?).map_err(occt_error)?.shape());
+        let mut components: Vec<Vec<occt::Shape>> = Vec::new();
+        for face in faces {
+            let edges = face.sub_shapes(occt::ShapeKind::Edge);
+            let touching: Vec<usize> = components
+                .iter()
+                .enumerate()
+                .filter(|(_, c)| {
+                    c.iter().any(|g| g.sub_shapes(occt::ShapeKind::Edge).iter().any(|e| edges.iter().any(|f| f.is_same(e))))
+                })
+                .map(|(i, _)| i)
+                .collect();
+            let mut joined = vec![face];
+            for &i in touching.iter().rev() {
+                joined.extend(components.remove(i));
+            }
+            components.push(joined);
         }
-        let kind = if pocket { occt::BooleanKind::Subtraction } else { occt::BooleanKind::Union };
+        let (mut pockets, mut bosses) = (Vec::new(), Vec::new());
+        for faces in &components {
+            let tool = occt::face_feature_solid(faces).map_err(|_| regen_error("PATTERN_FACE_FAILED"))?;
+            // Just outside the first face is inside the tool only for a pocket's void.
+            let plane = faces[0].face_tangent_plane(0.5, 0.5).map_err(occt_error)?;
+            let pocket =
+                tool.contains_point(values::add(plane.origin, values::scale(plane.normal, 1e-6))).map_err(occt_error)?;
+            for t in transforms.iter() {
+                let moved = occt::transform(&tool, &transform(t)?).map_err(occt_error)?.shape();
+                if pocket { pockets.push(moved) } else { bosses.push(moved) }
+            }
+        }
+        let (kind, tools) = match (bosses.is_empty(), pockets.is_empty()) {
+            (true, true) => continue,
+            (false, true) => (occt::BooleanKind::Union, bosses),
+            (true, false) => (occt::BooleanKind::Subtraction, pockets),
+            (false, false) => {
+                return Err(error("@opPattern: faces making both bosses and pockets aren't supported yet"));
+            }
+        };
         let op = occt::boolean(kind, std::slice::from_ref(&model.bodies[b].shape), &tools, true)
             .map_err(|_| regen_error("PATTERN_FACE_FAILED"))?;
         results.push((b, op));
