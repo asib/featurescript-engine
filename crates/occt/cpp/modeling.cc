@@ -2193,7 +2193,7 @@ std::unique_ptr<Operation> split_faces_op(const Shape &body, const ShapeList &fa
 
 // Merges faces of a body that lie on one surface across the `removable` edges between them, and edges left on one
 // curve where those edges met them; every other edge stays.
-std::unique_ptr<Operation> merge_faces_across_op(const Shape &body, const ShapeList &removable) {
+std::unique_ptr<Operation> merge_faces_across_op(const Shape &body, const ShapeList &removable, bool fuse_edges) {
   TopTools_IndexedMapOfShape remove;
   for (const TopoDS_Shape &e : removable.shapes) remove.Add(e);
   TopTools_MapOfShape keep;
@@ -2204,7 +2204,9 @@ std::unique_ptr<Operation> merge_faces_across_op(const Shape &body, const ShapeL
   unifier.Build();
   auto op = std::make_unique<Operation>();
   op->history = unifier.History();
-  op->result = unifier.Shape();
+  // With `fuse_edges`, pieces of a curve are one edge where only the same two faces meet them (a circle projected
+  // onto a cylinder across its seam, batch 133 c001).
+  op->result = fuse_edges ? edges_fused(unifier.Shape(), op->history) : unifier.Shape();
   return op;
 }
 

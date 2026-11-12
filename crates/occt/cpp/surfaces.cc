@@ -63,6 +63,8 @@
 #include <BRepOffsetAPI_MakeOffsetShape.hxx>
 #include <BRepOffsetAPI_NormalProjection.hxx>
 #include <BRepProj_Projection.hxx>
+#include <GeomAPI_ProjectPointOnSurf.hxx>
+#include <BRepOffsetAPI_ThruSections.hxx>
 #include <BRepTools.hxx>
 #include <BRepTools_WireExplorer.hxx>
 #include <BRep_Builder.hxx>
@@ -462,6 +464,62 @@ std::unique_ptr<ShapeList> project_edges(const ShapeList &edges, const ShapeList
           gp_Vec(closest.PointOnShape2(1), mid).Dot(d) < -1e-9)
         continue;
       out->shapes.push_back(it.Current());
+    }
+  }
+  return out;
+}
+
+// Sheets that cut faces where edges project onto them along the faces' normals: for each edge and each face, at 128
+// points along the edge its nearest point on the face's surface and the normal there; the sheet ruled between curves
+// through those points `reach` above and below the surface. Cutting with it splits the face along the projection,
+// across its seam too (OCCT's normal projection of a circle onto a cylinder loses the part past the seam), and
+// what projects beyond the face cuts nothing.
+std::unique_ptr<ShapeList> normal_projection_sheets(const ShapeList &edges, const ShapeList &faces, double reach) {
+  auto out = std::make_unique<ShapeList>();
+  for (const TopoDS_Shape &e : edges.shapes) {
+    BRepAdaptor_Curve curve(TopoDS::Edge(e));
+    const bool closed = BRep_Tool::IsClosed(TopoDS::Edge(e)) ||
+                        curve.Value(curve.FirstParameter()).Distance(curve.Value(curve.LastParameter())) < 1e-9;
+    const int n = 128;
+    const int count = closed ? n : n + 1;
+    for (const TopoDS_Shape &f : faces.shapes) {
+      Handle(Geom_Surface) surface = BRep_Tool::Surface(TopoDS::Face(f));
+      Handle(TColgp_HArray1OfPnt) above = new TColgp_HArray1OfPnt(1, count), below = new TColgp_HArray1OfPnt(1, count);
+      bool ok = true;
+      for (int i = 0; i < count && ok; ++i) {
+        double t = curve.FirstParameter() + (curve.LastParameter() - curve.FirstParameter()) * i / n;
+        GeomAPI_ProjectPointOnSurf projector(curve.Value(t), surface);
+        if (projector.NbPoints() == 0) {
+          ok = false;
+          break;
+        }
+        double u, v;
+        projector.LowerDistanceParameters(u, v);
+        gp_Pnt q;
+        gp_Vec du, dv;
+        surface->D1(u, v, q, du, dv);
+        gp_Vec normal = du.Crossed(dv);
+        if (normal.Magnitude() < 1e-15) {
+          ok = false;
+          break;
+        }
+        normal.Normalize();
+        above->SetValue(i + 1, q.Translated(normal * reach));
+        below->SetValue(i + 1, q.Translated(normal * -reach));
+      }
+      if (!ok) continue;
+      auto through = [&](const Handle(TColgp_HArray1OfPnt) &points) {
+        GeomAPI_Interpolate interpolate(points, closed, 1e-9);
+        interpolate.Perform();
+        if (!interpolate.IsDone()) throw std::runtime_error("normal projection: interpolation failed");
+        return BRepBuilderAPI_MakeWire(BRepBuilderAPI_MakeEdge(interpolate.Curve()).Edge()).Wire();
+      };
+      BRepOffsetAPI_ThruSections sheet(Standard_False, Standard_True, 1e-7);
+      sheet.AddWire(through(above));
+      sheet.AddWire(through(below));
+      sheet.Build();
+      if (!sheet.IsDone()) throw std::runtime_error("normal projection: no sheet");
+      out->shapes.push_back(sheet.Shape());
     }
   }
   return out;

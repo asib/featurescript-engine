@@ -215,13 +215,18 @@ pub fn split_face(model: &mut Model, id: FeatureId, definition: &Value, tags: &v
         let edge = model.shape(r).clone();
         let d = match direction {
             Some(d) => d,
-            // Normal to the target: the target's plane normal.
-            None => groups
-                .iter()
-                .flat_map(|(_, faces)| faces.iter())
-                .find_map(|f| f.face_plane().ok())
-                .map(|p| p.normal)
-                .ok_or_else(|| error("@opSplitFace: projecting edges onto curved faces isn't supported yet"))?,
+            // Normal to the target: the target's plane normal; onto curved targets, each point of the edge to the
+            // nearest point on them, a sheet along their normals through those points splitting them.
+            None => match groups.iter().flat_map(|(_, faces)| faces.iter()).find_map(|f| f.face_plane().ok()) {
+                Some(plane) => plane.normal,
+                None => {
+                    let targets: Vec<Shape> = groups.iter().flat_map(|(_, faces)| faces.iter().cloned()).collect();
+                    let projected = occt::normal_projection_sheets(std::slice::from_ref(&edge), &targets, 1e-3)
+                        .map_err(|_| crate::regen_error("SPLIT_FACE_FAILED"))?;
+                    tools.extend(projected);
+                    continue;
+                }
+            },
         };
         let back = occt::transform(&edge, &super::translation(values::scale(d, -reach))).map_err(occt_error)?.shape();
         tools.push(occt::prism(&back, values::scale(d, 2.0 * reach)).map_err(occt_error)?.shape());
@@ -245,6 +250,13 @@ pub fn split_face(model: &mut Model, id: FeatureId, definition: &Value, tags: &v
     if tools.is_empty() {
         return Err(crate::regen_error("SPLIT_FACE_SELECT_TOOLS"));
     }
+    // The targets' seams: pieces of a face cut across one are one face again afterwards, as Onshape's (which has no
+    // seams): a circle projected onto a cylinder's side across its seam (batch 133 c001).
+    let seams: Vec<Shape> = groups
+        .iter()
+        .flat_map(|(_, faces)| faces.iter())
+        .flat_map(|f| f.sub_shapes(ShapeKind::Edge).into_iter().filter(|e| f.is_seam(e)).collect::<Vec<_>>())
+        .collect();
     let mut groups = groups;
     // With mutual imprint and only body tools, the tools' faces are split by the targets' bodies too.
     let mutual = values::opt_bool(definition, "mutualImprint")?.unwrap_or(false);
@@ -285,6 +297,29 @@ pub fn split_face(model: &mut Model, id: FeatureId, definition: &Value, tags: &v
         results.push((b, op));
     }
     super::replace_bodies(model, &id, results);
+    if !seams.is_empty() {
+        let on_seam = |e: &Shape| {
+            e.edge_tangent(0.5, false).is_ok_and(|a| {
+                occt::vertex(a.origin).is_ok_and(|v| seams.iter().any(|s| v.distance(s).is_ok_and(|d| d.distance < 1e-7)))
+            })
+        };
+        let mut merged = Vec::new();
+        for tid in &split_tids {
+            let Some(b) = model.bodies.iter().position(|body| body.tid == *tid) else { continue };
+            let shape = model.bodies[b].shape.clone();
+            let removable: Vec<Shape> = shape
+                .sub_shapes(ShapeKind::Edge)
+                .into_iter()
+                .filter(|e| shape.ancestors(e, ShapeKind::Face).len() == 2 && on_seam(e))
+                .collect();
+            if !removable.is_empty() {
+                merged.push((b, occt::merge_faces_across_fused(&shape, &removable).map_err(occt_error)?));
+            }
+        }
+        if !merged.is_empty() {
+            super::replace_bodies(model, &id, merged);
+        }
+    }
     // Which side of the tools each piece of a split face is on. Faces the tools didn't cut aren't split: jogs
     // split their faces up front and then expect the bends' own splits to split nothing (batch 013).
     let mut sides = Vec::new();

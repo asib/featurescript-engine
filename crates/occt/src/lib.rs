@@ -241,6 +241,7 @@ mod ffi {
         fn closed_edge_on_face(face: &Shape, uv: &[f64]) -> Result<UniquePtr<Shape>>;
         fn outline_on_plane(tools: &ShapeList, plane: Frame) -> Result<UniquePtr<Shape>>;
         fn edge_between(edge: &Shape, f0: f64, f1: f64, reverse: bool) -> Result<UniquePtr<Shape>>;
+        fn normal_projection_sheets(edges: &ShapeList, faces: &ShapeList, reach: f64) -> Result<UniquePtr<ShapeList>>;
         fn project_edges(edges: &ShapeList, faces: &ShapeList, direction: Vec3) -> Result<UniquePtr<ShapeList>>;
         fn offset_edge_on_planar_face(edge: &Shape, face: &Shape, distance: f64) -> Result<UniquePtr<Shape>>;
 
@@ -391,7 +392,7 @@ mod ffi {
             radius: f64,
         ) -> Result<UniquePtr<Operation>>;
         fn split_faces_op(body: &Shape, faces: &ShapeList, tools: &ShapeList) -> Result<UniquePtr<Operation>>;
-        fn merge_faces_across_op(body: &Shape, removable: &ShapeList) -> Result<UniquePtr<Operation>>;
+        fn merge_faces_across_op(body: &Shape, removable: &ShapeList, fuse_edges: bool) -> Result<UniquePtr<Operation>>;
         fn split_faces_paired_op(
             body: &Shape,
             faces: &ShapeList,
@@ -1099,6 +1100,13 @@ pub fn edge_between(edge: &Shape, f0: f64, f1: f64, reverse: bool) -> Result<Sha
     Ok(Shape::new(ffi::edge_between(&edge.0, f0, f1, reverse)?))
 }
 
+/// Sheets that cut faces along edges projected onto them normal to them: ruled through the projections, `reach` above
+/// and below the faces along their normals.
+pub fn normal_projection_sheets(edges: &[Shape], faces: &[Shape], reach: f64) -> Result<Vec<Shape>> {
+    let sheets = ffi::normal_projection_sheets(&to_list(edges), &to_list(faces), reach)?;
+    Ok(from_list(&sheets))
+}
+
 /// Edges projected onto faces along a direction.
 pub fn project_edges(edges: &[Shape], faces: &[Shape], direction: Vec3) -> Result<Vec<Shape>> {
     let projected = ffi::project_edges(&to_list(edges), &to_list(faces), direction)?;
@@ -1505,7 +1513,12 @@ pub fn split_faces(body: &Shape, faces: &[Shape], tools: &[Shape]) -> Result<Ope
 /// A body with faces on one surface merged across the `removable` edges between them (and edges left on one curve
 /// where those met them joined); every other edge stays.
 pub fn merge_faces_across(body: &Shape, removable: &[Shape]) -> Result<Operation> {
-    Ok(Operation(ffi::merge_faces_across_op(&body.0, &to_list(removable))?))
+    Ok(Operation(ffi::merge_faces_across_op(&body.0, &to_list(removable), false)?))
+}
+
+/// As [`merge_faces_across`], and pieces of a curve one edge where only the same two faces meet them.
+pub fn merge_faces_across_fused(body: &Shape, removable: &[Shape]) -> Result<Operation> {
+    Ok(Operation(ffi::merge_faces_across_op(&body.0, &to_list(removable), true)?))
 }
 
 /// Splits faces of a body where tools cross them, each tool only the face `owners` gives it (by index into
