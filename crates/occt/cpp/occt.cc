@@ -293,14 +293,27 @@ TopoDS_Shape bspline_chains_joined(const TopoDS_Shape &shape, const Handle(BRepT
         return false;
     return true;
   };
-  // Vertices a chain runs through: two edges only, both B-splines between the same two faces.
+  // The way an edge leaves a vertex of it.
+  auto leaving = [](const TopoDS_Edge &e, const TopoDS_Vertex &v) {
+    BRepAdaptor_Curve curve(e);
+    const double t = BRep_Tool::Parameter(v, e);
+    gp_Pnt p;
+    gp_Vec d;
+    curve.D1(t, p, d);
+    if (std::abs(t - curve.LastParameter()) < std::abs(t - curve.FirstParameter())) d.Reverse();
+    return d;
+  };
+  // Vertices a chain runs through: two edges only, both B-splines between the same two faces, running on smoothly
+  // (a rectangle's projection round a cylinder keeps its corners, batch 138 c005).
   auto joint = [&](const TopoDS_Shape &v, TopoDS_Shape &a, TopoDS_Shape &b) {
     const TopTools_ListOfShape &edges = vertex_edges.FindFromKey(v);
     if (edges.Extent() != 2) return false;
     a = edges.First();
     b = edges.Last();
     if (a.IsSame(b)) return false;
-    return is_spline(TopoDS::Edge(a)) && is_spline(TopoDS::Edge(b)) && same_faces(a, b);
+    if (!is_spline(TopoDS::Edge(a)) || !is_spline(TopoDS::Edge(b)) || !same_faces(a, b)) return false;
+    const gp_Vec ta = leaving(TopoDS::Edge(a), TopoDS::Vertex(v)), tb = leaving(TopoDS::Edge(b), TopoDS::Vertex(v));
+    return ta.Magnitude() > 1e-12 && tb.Magnitude() > 1e-12 && ta.Angle(-tb) < 1e-3;
   };
   TopTools_MapOfShape used;
   Handle(BRepTools_ReShape) reshape = new BRepTools_ReShape;
