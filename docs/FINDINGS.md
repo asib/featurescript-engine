@@ -1431,8 +1431,13 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   one edge paired with the point its ball touches on the other face): within 0.03 mm³ of Onshape's, whose surface is
   its own fit. Batches 124 c008 and 128 c002, the tees' chamfers, match so too.
   Batch 130: along straight edges at 60°, 120° and a 120° concave corner, the feet are the width from the edge too
-  (the ball's would be cot(α/2) of it), as OCCT's; uneven chamfers of a cone's foot match. Known gap: uneven
-  chamfers along an intersection curve (a tee's joint with offsets 1 and 2, and 1 mm at 30°), whose rule isn't found.
+  (the ball's would be cot(α/2) of it), as OCCT's; uneven chamfers of a cone's foot match. Uneven chamfers along an
+  intersection curve follow the ball's rule with the point off each face by its own amount: with offsets d₁ (on the
+  first face, the older) and d₂ the point is d₂ off the first face and d₁ off the second (a square corner's feet d₁
+  and d₂ from the edge), with d at θ it is d·tan θ off the first and d off the second (12.68 and 3.892 mm³ added,
+  as Onshape's; the other way round 12.60 and 3.83). The engine finds that point at each of 96 places round the
+  edge, lofts the chamfer's sections (closed off past the faces, the loft's sides sewn into a ring) and cuts or
+  fills: within 0.02 mm³ of Onshape's.
 
 ## STEP export
 
