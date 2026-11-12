@@ -4,9 +4,12 @@
 use std::path::PathBuf;
 
 /// Cases the engine can't build as Onshape does yet (see docs/std-coverage.md): the tee shelled open at its ends,
-/// which OCCT's offsets make without the branch's bore (c003: refused rather than built wrong); the crossing pipes'
-/// joints filleted, OCCT's fillet three faces each where Onshape's is one (c007: areas 0.01 mm² apart).
-const KNOWN_GAPS: &[&str] = &["c003", "c007"];
+/// which OCCT's offsets make without the branch's bore (c003: refused rather than built wrong).
+const KNOWN_GAPS: &[&str] = &["c003"];
+
+/// The crossing pipes' fillets and Onshape's lie too close for OCCT's boolean between them (it reports nonsense);
+/// their volumes, areas, boxes and topology match.
+const UNCOMPARABLE: &[&str] = &["c007.1: the shapes differ"];
 
 /// The tee's chamfer (c002): Onshape's surface between the fillet's edges is its own fit, 0.012 mm² off.
 const LOOSE: &[(&str, f64)] = &[("c002", 0.05)];
@@ -19,7 +22,9 @@ fn batch_128_matches_onshape() {
         let unexpected: Vec<String> = report
             .problems()
             .into_iter()
-            .filter(|p| !KNOWN_GAPS.iter().any(|case| p.starts_with(case)) && !p.starts_with("failed probe"))
+            .filter(|p| {
+                !KNOWN_GAPS.iter().chain(UNCOMPARABLE).any(|case| p.starts_with(case)) && !p.starts_with("failed probe")
+            })
             .collect();
         assert!(unexpected.is_empty(), "{report}");
         // Every probe line but the gaps' and the failed-cases line (c003 fails in the engine alone).
