@@ -1465,6 +1465,12 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   filled; an uneven one's rational sections, their weights changing round the edge, are fitted with cubics through
   17 points with their end derivatives as they are (`GeomAPI_Interpolate::Load` rescales them unless told not to,
   and the cubic strayed 6 µm from the section: 1.5e-3 of the area).
+- **Faces split normal to curved targets** (batch 133): a sketch projected normal to the target goes along the
+  target's normal through each of its points onto the target's surface: a circle and a rectangle beside a cylinder, a
+  circle above a sphere, a circle beside a cone frustum. The rectangle taller than the cylinder splits its side across
+  the seam, into two faces as Onshape's (the seam merged away). The engine builds each projection as a ruled sheet
+  between the curve's points carried each way along the normals, splits the face with it, then merges faces across
+  edges on the target's seams.
 ## STEP export
 
 - **Part names** are written on each `MANIFOLD_SOLID_BREP` (`MANIFOLD_SOLID_BREP('c030.1', ...)`), as well as on
