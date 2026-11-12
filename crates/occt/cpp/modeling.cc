@@ -1957,28 +1957,53 @@ std::unique_ptr<Operation> replace_planar_face_op(const Shape &solid, const Shap
   }
   TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
   TopExp::MapShapesAndUniqueAncestors(solid.shape, TopAbs_EDGE, TopAbs_FACE, edge_faces);
-  // The faces round it: perpendicular to it (planes or cylinders along its normal), or planes leaning.
+  // The faces round it: perpendicular to it (planes or cylinders along its normal), or planes leaning; or, for the
+  // end of a body revolved about an axis lying in its plane, surfaces of revolution about that axis and planes
+  // square to it (a frame's segment round a cylinder, batch 138 c005).
   std::vector<TopoDS_Face> neighbours;
   bool square = true;
+  bool revolved = false;
+  gp_Ax1 axis;
+  const gp_Pln face_plane = BRepAdaptor_Surface(f).Plane();
+  auto revolution_axis = [](const BRepAdaptor_Surface &surface, gp_Ax1 &out) {
+    switch (surface.GetType()) {
+      case GeomAbs_Cylinder: out = surface.Cylinder().Axis(); return true;
+      case GeomAbs_Cone: out = surface.Cone().Axis(); return true;
+      case GeomAbs_Torus: out = surface.Torus().Axis(); return true;
+      case GeomAbs_Sphere: out = surface.Sphere().Position().Axis(); return true;
+      default: return false;
+    }
+  };
   for (TopExp_Explorer it(f, TopAbs_EDGE); it.More(); it.Next()) {
     const TopTools_ListOfShape *faces = edge_faces.Seek(it.Current());
     if (faces == nullptr) continue;
     for (const TopoDS_Shape &g : *faces) {
       if (g.IsSame(f)) continue;
       BRepAdaptor_Surface surface(TopoDS::Face(g));
+      gp_Ax1 a;
       if (surface.GetType() == GeomAbs_Plane) {
         if (std::abs(surface.Plane().Axis().Direction().Dot(n)) > 1e-9) square = false;
         neighbours.push_back(TopoDS::Face(g));
-      } else if (surface.GetType() == GeomAbs_Cylinder) {
-        if (!surface.Cylinder().Axis().Direction().IsParallel(n, 1e-9))
-          throw std::runtime_error("replace face: a neighbouring face isn't perpendicular");
+      } else if (surface.GetType() == GeomAbs_Cylinder && surface.Cylinder().Axis().Direction().IsParallel(n, 1e-9)) {
         square = false;
         neighbours.clear();
         break;
+      } else if (revolution_axis(surface, a) && face_plane.Contains(a.Location(), 1e-9) &&
+                 std::abs(a.Direction().Dot(n)) < 1e-9 &&
+                 (!revolved || (axis.Direction().IsParallel(a.Direction(), 1e-9) &&
+                                gp_Lin(axis).Distance(a.Location()) < 1e-9))) {
+        revolved = true;
+        axis = a;
       } else {
-        throw std::runtime_error("replace face: a neighbouring face isn't planar or cylindrical");
+        throw std::runtime_error("replace face: a neighbouring face isn't planar, cylindrical or revolved");
       }
     }
+  }
+  if (revolved) {
+    // Its planar neighbours must be square to the axis, carried round by the revolution.
+    for (const TopoDS_Face &g : neighbours)
+      if (!BRepAdaptor_Surface(g).Plane().Axis().Direction().IsParallel(axis.Direction(), 1e-9))
+        throw std::runtime_error("replace face: a plane next to a revolved end isn't square to its axis");
   }
   Bnd_Box bounds;
   BRepBndLib::Add(solid.shape, bounds);
@@ -1991,7 +2016,15 @@ std::unique_ptr<Operation> replace_planar_face_op(const Shape &solid, const Shap
   // are square to it; otherwise, where leaning planes are round it, by the region inside all their planes and
   // beyond the face's (batch 058 c003, a trapezoid prism's top).
   TopoDS_Shape extension;
-  if (square || neighbours.empty()) {
+  if (revolved) {
+    // Turned on round the axis, the way the face's normal points, a third of a turn.
+    GProp_GProps props;
+    BRepGProp::SurfaceProperties(f, props);
+    const gp_Vec radial(axis.Location(), props.CentreOfMass());
+    const double sign = gp_Vec(axis.Direction()).Crossed(radial).Dot(gp_Vec(n)) >= 0 ? 1 : -1;
+    TopoDS_Shape copy = BRepBuilderAPI_Copy(f).Shape();
+    extension = BRepPrimAPI_MakeRevol(copy, axis, sign * 2 * M_PI / 3, Standard_True).Shape();
+  } else if (square || neighbours.empty()) {
     TopoDS_Shape copy = BRepBuilderAPI_Copy(f).Shape();
     extension = BRepPrimAPI_MakePrism(copy, gp_Vec(n) * reach, Standard_True).Shape();
   } else {
