@@ -1,0 +1,67 @@
+{
+  "batch": "134",
+  "title": "everyday parts: a flange, a ribbed bracket, a keyed shaft, a slotted plate, a pocket, a cup",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "circular-pattern",
+      "description": "a flange: a disc (radius 30, 8 thick) with a boss (radius 12) to 23, a bore (radius 6) through, a bolt hole (radius 3) at (22, 0) patterned 6 times round; the boss's top edge filleted 2 mm and its foot 1 mm",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "rib",
+      "description": "batch 006's L (a 40 × 30 × 4 plate, a wall 4 thick and 24 tall at x = 0) with a rib 3 thick across its middle, two holes (radius 2.5) through the plate, the plate's far top edge chamfered 1 mm and the wall's outer top edge filleted 2 mm",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "extrude",
+      "description": "a shaft (radius 10, 60 long, along x) with a keyway 20 long, 6 wide and 4 deep cut in its top, both ends chamfered 1 mm",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "chamfer",
+      "description": "a 60 × 30 × 6 plate with an obround slot (40 long, 10 wide) through its middle, the slot's top edge chamfered 0.5 mm all round",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "fillet",
+      "description": "a 60 × 40 × 10 plate with a 40 × 20 pocket 6 deep: the pocket's corners filleted 4 mm, then its floor's edge 1 mm all round",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "shell",
+      "description": "a cup: a cylinder (radius 20, 30 tall), its foot filleted 3 mm, shelled 2 mm open at its top",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    }
+  ]
+}
