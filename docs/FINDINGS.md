@@ -1543,6 +1543,11 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   with holes patterned along its flange, a slotted disc, a mirrored and united block, a snap box and a pocket
   filleted along tangent chains match as built; a loft through a square, a circle and a square to Onshape's fits
   (4.2e-5 of its area).
+- **Everyday sheet metal** (batch 143): holes patterned along a box's walls, in a 3 × 2 grid on a plate and along
+  a channel's legs, a slotted flange hemmed, a jog with holes on both sides and a plate's corners rounded with a hole
+  patterned round it match as built. std patterns a sheet metal hole by its edges in the definition sheet (an edge
+  pattern, re-cut at each instance); a hole cut through two walls has edges bounding two faces, each now re-cut in
+  its own face's plane.
 - **Faces split normal to curved targets** (batch 133): a sketch projected normal to the target goes along the
   target's normal through each of its points onto the target's surface: a circle and a rectangle beside a cylinder, a
   circle above a sphere, a circle beside a cone frustum. The rectangle taller than the cylinder splits its side across

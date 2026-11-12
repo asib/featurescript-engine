@@ -208,24 +208,33 @@ pub fn pattern(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
         if let Some(t) = body.faces.first().and_then(|f| f.shape.face_tangent_plane(0.5, 0.5).ok()) {
             facing.push((body.tid, t.origin, t.normal));
         }
-        let face = body
-            .faces
-            .iter()
-            .find(|f| {
-                let own = f.shape.sub_shapes(occt::ShapeKind::Edge);
-                edges.iter().all(|e| own.iter().any(|x| x.is_same(e)))
-            })
-            .ok_or_else(|| error("@opPattern: patterned edges must bound one face"))?;
-        let frame =
-            face.shape.face_plane().map_err(|_| error("@opPattern: patterned edges must lie in a planar face"))?;
+        // The edges by the face they bound: a hole cut through two walls of a sheet metal box is a hole in each
+        // (batch 143 c001).
+        let mut by_face: Vec<(usize, Vec<occt::Shape>)> = Vec::new();
+        for edge in &edges {
+            let Some(f) = body.faces.iter().position(|f| f.shape.sub_shapes(occt::ShapeKind::Edge).iter().any(|x| x.is_same(edge)))
+            else {
+                return Err(error("@opPattern: patterned edges must bound a face"));
+            };
+            match by_face.iter_mut().find(|(g, _)| *g == f) {
+                Some((_, list)) => list.push(edge.clone()),
+                None => by_face.push((f, vec![edge.clone()])),
+            }
+        }
         let mut tools = Vec::new();
-        for region in occt::sketch_regions(&edges, frame).map_err(occt_error)? {
-            let below = occt::transform(&region, &super::translation(values::scale(frame.normal, -1.0)))
-                .map_err(occt_error)?
-                .shape();
-            let tool = occt::prism(&below, values::scale(frame.normal, 2.0)).map_err(occt_error)?.shape();
-            for t in transforms.iter() {
-                tools.push(occt::transform(&tool, &transform(t)?).map_err(occt_error)?.shape());
+        for (f, edges) in &by_face {
+            let frame = body.faces[*f]
+                .shape
+                .face_plane()
+                .map_err(|_| error("@opPattern: patterned edges must lie in a planar face"))?;
+            for region in occt::sketch_regions(edges, frame).map_err(occt_error)? {
+                let below = occt::transform(&region, &super::translation(values::scale(frame.normal, -1.0)))
+                    .map_err(occt_error)?
+                    .shape();
+                let tool = occt::prism(&below, values::scale(frame.normal, 2.0)).map_err(occt_error)?.shape();
+                for t in transforms.iter() {
+                    tools.push(occt::transform(&tool, &transform(t)?).map_err(occt_error)?.shape());
+                }
             }
         }
         let op = occt::boolean(occt::BooleanKind::Subtraction, std::slice::from_ref(&body.shape), &tools, false)
