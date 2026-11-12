@@ -1443,6 +1443,14 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   as Onshape's; the other way round 12.60 and 3.83). The engine finds that point at each of 96 places round the
   edge, lofts the chamfer's sections (closed off past the faces, the loft's sides sewn into a ring) and cuts or
   fills: within 0.02 mm³ of Onshape's.
+- **Sheet metal past one of each** (batch 131): bends aligned to either hold line, the inner, outer and middle lines,
+  slanted 45°, with their own radius; jogs anchored inside and at the nominal line, twice the thickness, keeping
+  their material; square, rectangular, round, closed and simple corners; rips with edge and butt joints: all match.
+  A jog with a wall between its bends: std's second bend line is a spline fitted through two points, and the wall
+  comes out of the definition sheet with its edges straight B-splines; swept through the thickness they made
+  surfaces of extrusion where Onshape's walls are planes, so the engine remakes straight B-spline and Bézier edges
+  of a planar face as lines before sweeping it. The round relief and the closed corner match within 0.01 (as in
+  batches 013 and 016).
 
 ## STEP export
 

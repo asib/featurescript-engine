@@ -24,6 +24,7 @@
 #include <BRepOffsetAPI_ThruSections.hxx>
 #include <Geom_BSplineSurface.hxx>
 #include <Geom_BSplineCurve.hxx>
+#include <Geom_BezierCurve.hxx>
 #include <TColStd_Array2OfReal.hxx>
 #include <Geom_TrimmedCurve.hxx>
 #include <BSplCLib.hxx>
@@ -1595,6 +1596,55 @@ std::unique_ptr<Operation> draft_angles_op(const Shape &solid, const ShapeList &
   return op;
 }
 
+namespace {
+// The face with its straight B-spline and Bézier edges remade as lines between the same vertices, so a prism of it
+// has planes there, not surfaces of extrusion (a sheet metal jog's middle wall, batch 131 c008). The history is
+// merged into `history`.
+TopoDS_Face straightened(const TopoDS_Face &face, BRepTools_History &history) {
+  Handle(BRepTools_ReShape) reshape = new BRepTools_ReShape();
+  bool changed = false;
+  for (TopExp_Explorer it(face, TopAbs_EDGE); it.More(); it.Next()) {
+    const TopoDS_Edge edge = TopoDS::Edge(it.Current().Oriented(TopAbs_FORWARD));
+    if (BRep_Tool::Degenerated(edge) || reshape->IsRecorded(edge)) continue;
+    BRepAdaptor_Curve curve(edge);
+    std::vector<gp_Pnt> poles;
+    if (curve.GetType() == GeomAbs_BSplineCurve) {
+      Handle(Geom_BSplineCurve) b = curve.BSpline();
+      for (int i = 1; i <= b->NbPoles(); ++i) poles.push_back(b->Pole(i));
+    } else if (curve.GetType() == GeomAbs_BezierCurve) {
+      Handle(Geom_BezierCurve) b = curve.Bezier();
+      for (int i = 1; i <= b->NbPoles(); ++i) poles.push_back(b->Pole(i));
+    } else {
+      continue;
+    }
+    TopoDS_Vertex v1, v2;
+    TopExp::Vertices(edge, v1, v2);
+    if (v1.IsNull() || v2.IsNull() || v1.IsSame(v2)) continue;
+    const gp_Pnt a = BRep_Tool::Pnt(v1), b = BRep_Tool::Pnt(v2);
+    const gp_Vec chord(a, b);
+    if (chord.Magnitude() < 1e-9) continue;
+    const gp_Dir along(chord);
+    bool straight = true;
+    for (const gp_Pnt &p : poles) {
+      const gp_Vec offset(a, p);
+      if (offset.Crossed(gp_Vec(along)).Magnitude() > 1e-10) straight = false;
+    }
+    // Poles along the chord but doubling back would make a line that isn't the curve.
+    for (size_t i = 1; straight && i < poles.size(); ++i)
+      if (gp_Vec(poles[i - 1], poles[i]).Dot(gp_Vec(along)) < -1e-12) straight = false;
+    if (!straight) continue;
+    BRepBuilderAPI_MakeEdge maker(v1, v2);
+    if (!maker.IsDone()) continue;
+    reshape->Replace(edge, maker.Edge());
+    changed = true;
+  }
+  if (!changed) return face;
+  const TopoDS_Face result = TopoDS::Face(reshape->Apply(face));
+  history.Merge(reshape->History());
+  return result;
+}
+}  // namespace
+
 // Thickens a face or sheet `t1` along its normal and `t2` against it. Planar faces are swept exactly; curved ones
 // are offset.
 std::unique_ptr<Operation> thicken_op(const Shape &input, double t1, double t2) {
@@ -1610,7 +1660,7 @@ std::unique_ptr<Operation> thicken_op(const Shape &input, double t1, double t2) 
   for (int i = 1; i <= faces.Extent(); ++i)
     if (BRepAdaptor_Surface(TopoDS::Face(faces(i))).GetType() != GeomAbs_Plane) planar = false;
   if (planar && faces.Extent() == 1) {
-    const TopoDS_Face &face = TopoDS::Face(faces(1));
+    const TopoDS_Face face = straightened(TopoDS::Face(faces(1)), *op->history);
     gp_Vec n(face_normal(face));
     gp_Trsf back;
     back.SetTranslation(n * -t2);
