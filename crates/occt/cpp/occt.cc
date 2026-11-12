@@ -837,6 +837,31 @@ static std::unique_ptr<ShapeList> visible_sub_shapes_impl(const Shape &s, int32_
                x.XAxis().Direction().IsParallel(y.XAxis().Direction(), 1e-9);
       }
     }
+    // Two pieces of an intersection curve (B-splines) a seam meets, between the same two faces and running on
+    // smoothly: one edge in Parasolid (crossing pipes' joints cross both pipes' seams, batch 128 c007).
+    if (!same && seam) {
+      const TopTools_ListOfShape *fa = edge_faces.Seek(visible[0]), *fb = edge_faces.Seek(visible[1]);
+      bool faces_same = fa && fb && fa->Extent() == 2 && fb->Extent() == 2;
+      if (faces_same)
+        for (const TopoDS_Shape &f : *fa) {
+          bool found = false;
+          for (const TopoDS_Shape &g : *fb) found = found || f.IsSame(g);
+          faces_same = faces_same && found;
+        }
+      if (faces_same) {
+        const TopoDS_Vertex &v = TopoDS::Vertex(vertex_edges.FindKey(i));
+        auto tangent = [&](const TopoDS_Edge &e) {
+          BRepAdaptor_Curve c(e);
+          double t = BRep_Tool::Parameter(v, e);
+          gp_Pnt p;
+          gp_Vec d;
+          c.D1(t, p, d);
+          return d;
+        };
+        gp_Vec ta = tangent(visible[0]), tb = tangent(visible[1]);
+        same = ta.Magnitude() > 1e-12 && tb.Magnitude() > 1e-12 && ta.IsParallel(tb, 1e-6);
+      }
+    }
     if (same) seam_vertices.Add(vertex_edges.FindKey(i));
   }
   auto out = std::make_unique<ShapeList>();
