@@ -62,6 +62,7 @@
 #include <BRepBuilderAPI_Sewing.hxx>
 #include <BRepLib.hxx>
 #include <BRepCheck_Analyzer.hxx>
+#include <TopTools_DataMapOfShapeInteger.hxx>
 #include <Standard_Failure.hxx>
 #include <BRepLProp_CLProps.hxx>
 #include <BRepBuilderAPI_FindPlane.hxx>
@@ -305,11 +306,103 @@ gp_Dir face_normal(const TopoDS_Face &face) {
 
 }  // namespace
 
-// Rounds edges of a solid with a constant radius.
+namespace {
+
+double largest_tolerance(const TopoDS_Shape &s) {
+  double t = 0;
+  for (TopExp_Explorer e(s, TopAbs_EDGE); e.More(); e.Next()) t = std::max(t, BRep_Tool::Tolerance(TopoDS::Edge(e.Current())));
+  for (TopExp_Explorer v(s, TopAbs_VERTEX); v.More(); v.Next())
+    t = std::max(t, BRep_Tool::Tolerance(TopoDS::Vertex(v.Current())));
+  return t;
+}
+
+// A circular fillet as part of the solid's morphological opening (eroded by the radius, then grown back by it with
+// round joins: every ball of that radius inside it): the slivers the opening takes off the solid, those along
+// the edges, cut away. Only for closed edges, whose slivers are rings of their own. Null if it can't be made.
+std::unique_ptr<Operation> fillet_by_opening(const TopoDS_Shape &solid, const TopTools_ListOfShape &edges, double r) {
+  // The edges must close up into loops: every vertex met an even number of times.
+  TopTools_IndexedDataMapOfShapeListOfShape vertex_edges;
+  for (const TopoDS_Shape &e : edges) TopExp::MapShapesAndAncestors(e, TopAbs_VERTEX, TopAbs_EDGE, vertex_edges);
+  {
+    TopTools_DataMapOfShapeInteger count;
+    for (const TopoDS_Shape &e : edges) {
+      TopoDS_Vertex a, b;
+      TopExp::Vertices(TopoDS::Edge(e), a, b);
+      if (a.IsNull() || b.IsNull()) return nullptr;
+      for (const TopoDS_Vertex &v : {a, b}) {
+        if (count.IsBound(v)) count.ChangeFind(v) += 1;
+        else count.Bind(v, 1);
+      }
+    }
+    for (TopTools_DataMapIteratorOfDataMapOfShapeInteger it(count); it.More(); it.Next())
+      if (it.Value() % 2 != 0) return nullptr;
+  }
+  try {
+    // (Intersection mode with round joins: a cross hole's cylinder with plain joins comes back empty.)
+    BRepOffsetAPI_MakeOffsetShape eroded;
+    eroded.PerformByJoin(BRepBuilderAPI_Copy(solid, Standard_True).Shape(), -r, 1e-7, BRepOffset_Skin, Standard_True,
+                         Standard_False, GeomAbs_Arc);
+    if (!eroded.IsDone() || eroded.Shape().IsNull() || !BRepCheck_Analyzer(eroded.Shape()).IsValid()) return nullptr;
+    // Its intersection curves one edge each, so each round grown back along one is one face.
+    Handle(BRepTools_History) scratch = new BRepTools_History;
+    const TopoDS_Shape core = edges_fused(eroded.Shape(), scratch);
+    BRepOffsetAPI_MakeOffsetShape opened;
+    opened.PerformByJoin(core, r, 1e-7, BRepOffset_Skin, Standard_False, Standard_False, GeomAbs_Arc);
+    if (!opened.IsDone() || opened.Shape().IsNull() || !BRepCheck_Analyzer(opened.Shape()).IsValid()) return nullptr;
+    BRepAlgoAPI_Cut slivers(solid, opened.Shape());
+    slivers.Build();
+    if (!slivers.IsDone()) return nullptr;
+    TopTools_ListOfShape chosen;
+    for (TopExp_Explorer it(slivers.Shape(), TopAbs_SOLID); it.More(); it.Next()) {
+      for (const TopoDS_Shape &e : edges) {
+        BRepExtrema_DistShapeShape distance(it.Current(), e);
+        if (distance.IsDone() && distance.Value() < 1e-6) {
+          chosen.Append(it.Current());
+          break;
+        }
+      }
+    }
+    if (chosen.IsEmpty()) return nullptr;
+    BRepAlgoAPI_Cut cut;
+    cut.SetArguments(one(solid));
+    cut.SetTools(chosen);
+    cut.Build();
+    if (!cut.IsDone() || !BRepCheck_Analyzer(cut.Shape()).IsValid()) return nullptr;
+    auto op = finish(one(solid), cut, "fillet");
+    ShapeUpgrade_UnifySameDomain unify(op->result, Standard_True, Standard_True, Standard_False);
+    unify.Build();
+    op->history->Merge(unify.History());
+    op->result = unify.Shape();
+    return op;
+  } catch (const Standard_Failure &) {
+    return nullptr;
+  }
+}
+
+}  // namespace
+
+// Rounds edges of a solid with a constant radius. Where OCCT's fillet comes out with edges far out of tolerance
+// (round a cross hole's mouth, two lopsided faces with edges 0.7 mm out, batch 125 c008), closed edges are rounded
+// as part of the solid's morphological opening instead.
 std::unique_ptr<Operation> fillet_op(const Shape &solid, const ShapeList &edges, double radius) {
+  // A copy first: a fillet gone wrong can leave the solid it was given damaged.
+  BRepBuilderAPI_Copy copier(solid.shape, Standard_True);
   BRepFilletAPI_MakeFillet maker(solid.shape);
   for (const TopoDS_Shape &e : edges.shapes) maker.Add(radius, TopoDS::Edge(e));
   maker.Build();
+  if (maker.IsDone() && largest_tolerance(maker.Shape()) > 1e-5) {
+    TopTools_ListOfShape copied;
+    for (const TopoDS_Shape &e : edges.shapes) {
+      const TopTools_ListOfShape &images = copier.Modified(e);
+      copied.Append(images.IsEmpty() ? e : images.First());
+    }
+    if (auto op = fillet_by_opening(copier.Shape(), copied, radius)) {
+      Handle(BRepTools_History) history = new BRepTools_History(one(solid.shape), copier);
+      history->Merge(op->history);
+      op->history = history;
+      return op;
+    }
+  }
   return finish(one(solid.shape), maker, "fillet");
 }
 
