@@ -1242,8 +1242,8 @@ fn single_edge(model: &Model, found: &[EntityRef]) -> Option<Shape> {
 
 /// What one side of `@evDistance` holds: shapes to measure from, and how to describe a point on each.
 enum Side {
-    /// Query results, in order, and whether they were extended.
-    Entities(Vec<(EntityType, Shape)>, bool),
+    /// Query results, in order (each with its entity, for Onshape's face parameters), and whether they were extended.
+    Entities(Vec<(EntityType, Shape, EntityRef)>, bool),
     /// Points, lines or planes, as shapes that stand in for them.
     Points,
 }
@@ -1255,7 +1255,7 @@ const FAR: f64 = 1e4;
 fn side(model: &Model, v: &Value, what: &str, extend: bool) -> R<(Side, Vec<Shape>)> {
     if v.get("queryType").is_some() {
         let found = query::evaluate(model, v)?;
-        let mut entities: Vec<(EntityType, Shape)> = Vec::new();
+        let mut entities: Vec<(EntityType, Shape, EntityRef)> = Vec::new();
         let mut shapes = Vec::new();
         for r in &found {
             if extend && r.kind == EntityType::Body {
@@ -1263,7 +1263,7 @@ fn side(model: &Model, v: &Value, what: &str, extend: bool) -> R<(Side, Vec<Shap
             }
             let shape = model.shape(*r);
             shapes.push(if extend { shape.extended(FAR).map_err(occt_error)? } else { shape.clone() });
-            entities.push((r.kind, shape.clone()));
+            entities.push((r.kind, shape.clone(), *r));
         }
         return Ok((Side::Entities(entities, extend), shapes));
     }
@@ -1314,12 +1314,21 @@ fn distance(tags: &Tags, model: &Model, definition: &Value, arc_length: bool) ->
     let describe = |side: &Side, index: usize, point: Vec3| -> R<Value> {
         let parameter = match side {
             Side::Entities(entities, extended) => match &entities[index] {
-                (EntityType::Edge, edge) if *extended => {
+                (EntityType::Edge, edge, _) if *extended => {
                     Value::number(edge.edge_fraction_extended(point).map_err(occt_error)?)
                 }
-                (EntityType::Edge, edge) => Value::number(edge.edge_fraction(point, arc_length).map_err(occt_error)?),
-                (EntityType::Face, face) => {
-                    let (u, v) = face.face_fraction(point).map_err(occt_error)?;
+                (EntityType::Edge, edge, _) => Value::number(edge.edge_fraction(point, arc_length).map_err(occt_error)?),
+                // As Onshape's, the parameters `evFaceTangentPlane` takes (as `evRaycast`'s): a revolved cone's run
+                // from its surface's frame, not OCCT's (batch 137).
+                (EntityType::Face, face, r) => {
+                    let revolved = model
+                        .info(*r)
+                        .surface_frame
+                        .and_then(|frame| crate::ops::frames::revolved_fractions_at(face, frame, point));
+                    let (u, v) = match plane_parameters_at(face, point).or(revolved) {
+                        Some(uv) => uv,
+                        None => face.face_fraction(point).map_err(occt_error)?,
+                    };
                     tags.vector2(u, v)
                 }
                 _ => Value::number(0.0),
