@@ -165,6 +165,10 @@ std::unique_ptr<Operation> fillet_op(const Shape &solid, const ShapeList &edges,
 std::unique_ptr<Operation> chamfer_by_ball_op(const Shape &solid, const ShapeList &edges, double width);
 std::unique_ptr<Operation> chamfer_by_offsets_op(const Shape &solid, const ShapeList &edges, const ShapeList &firsts,
                                                  double off1, double off2);
+std::unique_ptr<Operation> section_blend_op(const Shape &solid, const ShapeList &edges, const ShapeList &firsts,
+                                            double off1, double off2, int32_t kind,
+                                            rust::Slice<const double> coefficients, rust::Slice<const double> weights,
+                                            rust::Slice<const double> knots, int32_t degree, bool swap_concave);
 std::unique_ptr<Operation> chamfer_op(const Shape &solid, const ShapeList &edges, const ShapeList &faces,
                                       int32_t kind, double d1, double d2);
 std::unique_ptr<Operation> shell_op(const Shape &solid, const ShapeList &faces, double thickness);

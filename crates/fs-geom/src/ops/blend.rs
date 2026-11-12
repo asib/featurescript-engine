@@ -199,6 +199,41 @@ fn section_fillet(model: &mut Model, id: FeatureId, definition: &Value, section:
                 "@opFillet: conic, curvature and asymmetric fillets of three edges meeting at a vertex aren't supported yet",
             ));
         }
+        // Intersection curves (a tee's joint, a boss's foot on a pipe): built from sections round each closed chain,
+        // the centre `radius` from the leading face and `otherRadius` from the other (swapped at a concave edge), the
+        // section between its feet round the corner where the faces' tangent lines meet (batch 132).
+        // Circles too where a face isn't a plane, cylinder or cone (a spherical pocket's rim, two balls' joint).
+        let curved = |e: &Shape| match e.curve_type().ok() {
+            Some(occt::CurveType::Line) => false,
+            Some(occt::CurveType::Circle) => body.ancestors(e, ShapeKind::Face).iter().any(|f| {
+                !matches!(
+                    f.surface_type().ok(),
+                    Some(occt::SurfaceType::Plane | occt::SurfaceType::Cylinder | occt::SurfaceType::Cone)
+                )
+            }),
+            _ => true,
+        };
+        if edges.iter().all(curved) {
+            let firsts: Vec<Shape> =
+                edges.iter().map(|e| leading_face(&body, e)).collect::<Option<_>>().ok_or_else(failed)?;
+            let curvature;
+            let shape = match section {
+                Section::Circular => occt::BlendSection::Round,
+                Section::Conic(rho) => occt::BlendSection::Oblique {
+                    coefficients: &[(1.0, 0.0), (0.0, 0.0), (0.0, 1.0)],
+                    weights: &[1.0, rho / (1.0 - rho), 1.0],
+                    knots: &[0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+                    degree: 2,
+                },
+                Section::Curvature(m) => {
+                    curvature = curvature_coefficients(m, 0.0)?;
+                    occt::BlendSection::Oblique { coefficients: &curvature, weights: &[], knots: &CURVATURE_KNOTS, degree: 5 }
+                }
+            };
+            let op = occt::section_blend(&body, &edges, &firsts, (radius, other), shape, true).ok_or_else(failed)?;
+            results.push((b, op));
+            continue;
+        }
         let (mut cut, mut fill) = (Vec::new(), Vec::new());
         for edge in &edges {
             // Along an arc between a plane and a cylinder about it, the variable fillet's wedge with the setbacks

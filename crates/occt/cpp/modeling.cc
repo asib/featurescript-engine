@@ -535,13 +535,29 @@ std::vector<std::vector<TopoDS_Edge>> closed_chains(const TopTools_ListOfShape &
   return chains;
 }
 
+// A blend's cross section between its feet `a` on the first face and `b` on the second, round the corner `c` where
+// the faces' tangent lines across meet: a straight line (a chamfer); the ball's arc (a fillet; at uneven offsets the
+// conic through the feet tangent to the faces, weighted as a circle's arc, sin of half the corner's angle); or a
+// B-spline whose poles are `c + s (a − c) + t (b − c)` for each (s, t) of `coefficients`, with `weights` (none: not
+// rational), `knots` (flat) and `degree` (a conic or a curvature section, as along a straight edge).
+struct SectionShape {
+  enum Kind { Line, Round, Oblique } kind = Line;
+  std::vector<std::pair<double, double>> coefficients;
+  std::vector<double> weights, knots;
+  int degree = 0;
+  // Uneven offsets swapped at a concave edge (an asymmetric fillet's radii, batch 052).
+  bool swap_concave = false;
+};
+
 // The tool that blends a closed chain of edges between faces `f1` and `f2`: at each of 96 points round it, the point
-// `off1` from `f1` and `off2` from `f2` on the side a ball would roll, its feet on the two faces, and between them a
-// straight line (a chamfer) or the arc about it (`round`, a fillet: `off1` its radius); each section closed off past
-// the faces (out of the material at a convex edge, into it at a concave one), lofted round the chain, the loft's
-// sides sewn into a ring. `convex` says which: cut it away, or fill it.
+// `off1` from `f1` and `off2` from `f2` on the side a ball would roll, its feet on the two faces, and between them
+// the section `shape`; each section closed off past the faces (out of the material at a convex edge, into it at a
+// concave one), lofted round the chain, the loft's sides sewn into a ring. `convex` says which: cut it away, or fill
+// it.
 TopoDS_Solid sectioned_tool(const TopoDS_Shape &solid, const std::vector<TopoDS_Edge> &chain, const TopoDS_Face &f1,
-                            const TopoDS_Face &f2, double off1, double off2, bool round, bool &convex_out) {
+                            const TopoDS_Face &f2, double off1, double off2, const SectionShape &shape,
+                            bool &convex_out) {
+  const bool round = shape.kind == SectionShape::Round && std::abs(off1 - off2) < 1e-12;
   BRepBuilderAPI_MakeWire wire;
   for (const TopoDS_Edge &e : chain) wire.Add(e);
   if (!wire.IsDone()) throw std::runtime_error("chain");
@@ -566,6 +582,7 @@ TopoDS_Solid sectioned_tool(const TopoDS_Shape &solid, const std::vector<TopoDS_
   // the one on the second), then the four lines closing it off.
   const int across = 7;
   std::vector<std::array<std::vector<gp_Pnt>, 5>> sections;
+  std::vector<Handle(Geom_BSplineCurve)> sections_curves;
   for (int k = 0; k < count; ++k) {
     double t = curve.FirstParameter() + (curve.LastParameter() - curve.FirstParameter()) * k / count;
     gp_Pnt p;
@@ -587,6 +604,7 @@ TopoDS_Solid sectioned_tool(const TopoDS_Shape &solid, const std::vector<TopoDS_
       BRepClass3d_SolidClassifier classifier(solid, p.Translated((u1 + u2).Normalized() * 1e-5), 1e-9);
       convex = classifier.State() == TopAbs_IN ? 1 : 0;
     }
+    if (k == 0 && shape.swap_concave && !convex) std::swap(off1, off2);
     // The ball's side: into the material at a convex edge, into the void at a concave one.
     const double side = convex ? -1 : 1;
     gp_Pnt centre = p.Translated(n1 * (side * off1) + n2 * (side * off2));
@@ -613,7 +631,72 @@ TopoDS_Solid sectioned_tool(const TopoDS_Shape &solid, const std::vector<TopoDS_
       return out;
     };
     std::vector<gp_Pnt> blend;
-    if (round) {
+    if (shape.kind != SectionShape::Line && !round) {
+      // The corner: where the faces' tangent lines across, square to the centre's feet, meet.
+      gp_Vec u1(centre, q1), u2(centre, q2);
+      double a11 = u1.Dot(u1), a12 = u1.Dot(u2), a22 = u2.Dot(u2);
+      double det = a11 * a22 - a12 * a12;
+      if (std::abs(det) < 1e-30) throw std::runtime_error("corner");
+      // (x − 1) a11 + y a12 = 0 and x a12 + (y − 1) a22 = 0.
+      double x = (a11 * a22 - a12 * a22) / det, y = (a11 * a22 - a11 * a12) / det;
+      gp_Pnt corner = centre.Translated(u1 * x + u2 * y);
+      std::vector<std::pair<double, double>> coefficients = shape.coefficients;
+      std::vector<double> weights = shape.weights, knots = shape.knots;
+      int degree = shape.degree;
+      if (shape.kind == SectionShape::Round) {
+        double angle = gp_Vec(corner, q1).Angle(gp_Vec(corner, q2));
+        coefficients = {{1, 0}, {0, 0}, {0, 1}};
+        weights = {1, std::sin(angle / 2), 1};
+        knots = {0, 0, 0, 1, 1, 1};
+        degree = 2;
+      }
+      TColgp_Array1OfPnt poles(1, int(coefficients.size()));
+      for (size_t i = 0; i < coefficients.size(); ++i)
+        poles(int(i) + 1) = corner.Translated(gp_Vec(corner, q1) * coefficients[i].first +
+                                              gp_Vec(corner, q2) * coefficients[i].second);
+      std::vector<double> distinct;
+      std::vector<int> multiplicity;
+      for (double kv : knots) {
+        if (!distinct.empty() && std::abs(kv - distinct.back()) < 1e-12) ++multiplicity.back();
+        else distinct.push_back(kv), multiplicity.push_back(1);
+      }
+      TColStd_Array1OfReal knot_values(1, int(distinct.size()));
+      TColStd_Array1OfInteger mults(1, int(distinct.size()));
+      for (size_t i = 0; i < distinct.size(); ++i) knot_values(int(i) + 1) = distinct[i], mults(int(i) + 1) = multiplicity[i];
+      Handle(Geom_BSplineCurve) section;
+      if (weights.empty()) {
+        section = new Geom_BSplineCurve(poles, knot_values, mults, degree);
+      } else {
+        TColStd_Array1OfReal w(1, int(weights.size()));
+        for (size_t i = 0; i < weights.size(); ++i) w(int(i) + 1) = weights[i];
+        section = new Geom_BSplineCurve(poles, w, knot_values, mults, degree);
+      }
+      // Not rational where the weights differ from section to section (an uneven fillet's, its corner's angle
+      // changing round a tee's joint): OCCT's loft through them comes out wrong, and the booleans with it. A cubic
+      // through the section at 17 points with its end derivatives instead (Onshape's sections are cubic fits too).
+      // A conic's weight is the same all round, and its loft right as it is.
+      if (shape.kind == SectionShape::Round) {
+        const int n = 17;
+        Handle(TColgp_HArray1OfPnt) points = new TColgp_HArray1OfPnt(1, n);
+        Handle(TColStd_HArray1OfReal) params = new TColStd_HArray1OfReal(1, n);
+        double t0 = section->FirstParameter(), t1 = section->LastParameter();
+        for (int i = 0; i < n; ++i) {
+          double t = t0 + (t1 - t0) * i / (n - 1);
+          points->SetValue(i + 1, section->Value(t));
+          params->SetValue(i + 1, t);
+        }
+        GeomAPI_Interpolate interpolate(points, params, Standard_False, 1e-9);
+        gp_Pnt e;
+        gp_Vec d0, d1;
+        section->D1(t0, e, d0);
+        section->D1(t1, e, d1);
+        interpolate.Load(d0, d1);
+        interpolate.Perform();
+        if (interpolate.IsDone()) section = interpolate.Curve();
+      }
+      sections_curves.push_back(section);
+      blend = {q1, q2};
+    } else if (round) {
       // The arc about the centre from one foot to the other.
       gp_Vec from(centre, q1), to(centre, q2);
       double angle = from.Angle(to);
@@ -634,7 +717,9 @@ TopoDS_Solid sectioned_tool(const TopoDS_Shape &solid, const std::vector<TopoDS_
     const auto &section = sections[k % count];
     BRepBuilderAPI_MakeWire wire;
     const auto &blend = section[0];
-    if (round)
+    if (!sections_curves.empty())
+      wire.Add(BRepBuilderAPI_MakeEdge(Handle(Geom_Curve)(sections_curves[k % count])).Edge());
+    else if (round)
       wire.Add(BRepBuilderAPI_MakeEdge(GC_MakeArcOfCircle(blend.front(), blend[across / 2], blend.back()).Value()).Edge());
     else
       wire.Add(BRepBuilderAPI_MakeEdge(blend.front(), blend.back()).Edge());
@@ -724,7 +809,9 @@ std::unique_ptr<Operation> fillet_by_sections(const TopoDS_Shape &solid, const T
       TopoDS_Face f1, f2;
       if (!chain_faces(edge_faces, chain, f1, f2)) return nullptr;
       bool convex = false;
-      TopoDS_Solid tool = sectioned_tool(solid, chain, f1, f2, r, r, true, convex);
+      SectionShape arc;
+      arc.kind = SectionShape::Round;
+      TopoDS_Solid tool = sectioned_tool(solid, chain, f1, f2, r, r, arc, convex);
       (convex ? cut_tools : fill_tools).Append(tool);
     }
     return applied_tools(solid, cut_tools, fill_tools, "fillet");
@@ -761,10 +848,56 @@ std::unique_ptr<Operation> chamfer_by_offsets_op(const Shape &solid, const Shape
       if (f1.IsNull()) return nullptr;
       TopoDS_Face f2 = f1.IsSame(a) ? b : a;
       bool convex = false;
-      TopoDS_Solid tool = sectioned_tool(solid.shape, chain, f1, f2, off1, off2, false, convex);
+      TopoDS_Solid tool = sectioned_tool(solid.shape, chain, f1, f2, off1, off2, SectionShape(), convex);
       (convex ? cut_tools : fill_tools).Append(tool);
     }
     return applied_tools(solid.shape, cut_tools, fill_tools, "chamfer");
+  } catch (...) {
+    return nullptr;
+  }
+}
+
+// A fillet of closed chains of edges with a section other than the ball's arc, built from sections round each chain
+// (a tee's joint filleted with a conic, a curvature section or uneven radii, batch 132): at each point the point
+// `off1` from the first face (`firsts`, one an edge) and `off2` from the other, its feet on them the fillet's edges,
+// the section between them round the corner where the faces' tangent lines meet. `kind` 1 the ball's arc (uneven:
+// the conic weighted as a circle's), 2 the B-spline of `coefficients` (pairs, flat), `weights`, `knots` and `degree`
+// in the corner's oblique frame. `swap_concave` swaps the offsets at a concave edge. Null where it can't be made.
+std::unique_ptr<Operation> section_blend_op(const Shape &solid, const ShapeList &edges, const ShapeList &firsts,
+                                            double off1, double off2, int32_t kind,
+                                            rust::Slice<const double> coefficients, rust::Slice<const double> weights,
+                                            rust::Slice<const double> knots, int32_t degree, bool swap_concave) {
+  try {
+    if (edges.shapes.size() != firsts.shapes.size()) return nullptr;
+    SectionShape shape;
+    shape.kind = kind == 2 ? SectionShape::Oblique : SectionShape::Round;
+    for (size_t i = 0; i + 1 < coefficients.size(); i += 2) shape.coefficients.push_back({coefficients[i], coefficients[i + 1]});
+    shape.weights.assign(weights.begin(), weights.end());
+    shape.knots.assign(knots.begin(), knots.end());
+    shape.degree = degree;
+    shape.swap_concave = swap_concave;
+    TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
+    TopExp::MapShapesAndUniqueAncestors(solid.shape, TopAbs_EDGE, TopAbs_FACE, edge_faces);
+    auto chains = closed_chains(to_list(edges));
+    if (chains.empty()) return nullptr;
+    TopTools_ListOfShape cut_tools, fill_tools;
+    for (const auto &chain : chains) {
+      TopoDS_Face a, b;
+      if (!chain_faces(edge_faces, chain, a, b)) return nullptr;
+      TopoDS_Face f1;
+      for (size_t i = 0; i < edges.shapes.size() && f1.IsNull(); ++i)
+        for (const TopoDS_Edge &e : chain)
+          if (e.IsSame(edges.shapes[i])) f1 = TopoDS::Face(firsts.shapes[i]);
+      if (f1.IsNull()) return nullptr;
+      TopoDS_Face f2 = f1.IsSame(a) ? b : a;
+      bool convex = false;
+      TopoDS_Solid tool = sectioned_tool(solid.shape, chain, f1, f2, off1, off2, shape, convex);
+      (convex ? cut_tools : fill_tools).Append(tool);
+    }
+    auto op = applied_tools(solid.shape, cut_tools, fill_tools, "fillet");
+    // The blend's edges come out in pieces along the faces: one edge each, as Onshape's.
+    if (op) op->result = edges_fused(op->result, op->history);
+    return op;
   } catch (...) {
     return nullptr;
   }

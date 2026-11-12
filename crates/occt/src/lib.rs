@@ -263,6 +263,20 @@ mod ffi {
         fn fillet_op(solid: &Shape, edges: &ShapeList, radius: f64) -> Result<UniquePtr<Operation>>;
         fn chamfer_by_ball_op(solid: &Shape, edges: &ShapeList, width: f64) -> Result<UniquePtr<Operation>>;
         fn chamfer_by_offsets_op(solid: &Shape, edges: &ShapeList, firsts: &ShapeList, off1: f64, off2: f64) -> Result<UniquePtr<Operation>>;
+        #[allow(clippy::too_many_arguments)]
+        fn section_blend_op(
+            solid: &Shape,
+            edges: &ShapeList,
+            firsts: &ShapeList,
+            off1: f64,
+            off2: f64,
+            kind: i32,
+            coefficients: &[f64],
+            weights: &[f64],
+            knots: &[f64],
+            degree: i32,
+            swap_concave: bool,
+        ) -> Result<UniquePtr<Operation>>;
         fn chamfer_op(
             solid: &Shape,
             edges: &ShapeList,
@@ -1273,6 +1287,50 @@ pub fn chamfer_by_ball(solid: &Shape, edges: &[Shape], width: f64) -> Option<Ope
 /// between. None where it can't be made.
 pub fn chamfer_by_offsets(solid: &Shape, edges: &[Shape], firsts: &[Shape], off1: f64, off2: f64) -> Option<Operation> {
     let op = ffi::chamfer_by_offsets_op(&solid.0, &to_list(edges), &to_list(firsts), off1, off2).ok()?;
+    if op.is_null() { None } else { Some(Operation(op)) }
+}
+
+/// A blend's cross section for [`section_blend`].
+pub enum BlendSection<'a> {
+    /// The ball's arc; at uneven offsets the conic through the feet tangent to the faces, weighted as a circle's.
+    Round,
+    /// A B-spline whose poles are the corner (where the faces' tangent lines across meet) plus s times the way to the
+    /// first foot and t times the way to the second, for each (s, t); with weights (empty: not rational), flat knots
+    /// and a degree.
+    Oblique { coefficients: &'a [(f64, f64)], weights: &'a [f64], knots: &'a [f64], degree: i32 },
+}
+
+/// A fillet of closed chains of edges built from sections round them: at each point the point `off1` from its first
+/// face (`firsts`, one an edge) and `off2` from the other (swapped at a concave edge with `swap_concave`), its feet
+/// the fillet's edges, `section` between them. None where it can't be made.
+pub fn section_blend(
+    solid: &Shape,
+    edges: &[Shape],
+    firsts: &[Shape],
+    (off1, off2): (f64, f64),
+    section: BlendSection,
+    swap_concave: bool,
+) -> Option<Operation> {
+    let (kind, coefficients, weights, knots, degree) = match section {
+        BlendSection::Round => (1, Vec::new(), &[][..], &[][..], 0),
+        BlendSection::Oblique { coefficients, weights, knots, degree } => {
+            (2, coefficients.iter().flat_map(|&(s, t)| [s, t]).collect(), weights, knots, degree)
+        }
+    };
+    let op = ffi::section_blend_op(
+        &solid.0,
+        &to_list(edges),
+        &to_list(firsts),
+        off1,
+        off2,
+        kind,
+        &coefficients,
+        weights,
+        knots,
+        degree,
+        swap_concave,
+    )
+    .ok()?;
     if op.is_null() { None } else { Some(Operation(op)) }
 }
 
