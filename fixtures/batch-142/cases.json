@@ -1,0 +1,87 @@
+{
+  "batch": "142",
+  "title": "everyday parts: a pulley, a grooved shaft, a sheet metal bracket, a slotted plate, a mirrored part, a snap box, a filleted pocket, a three-section loft",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "revolve",
+      "description": "a pulley: a profile (radius 25, 12 wide, a V groove 6 deep and 8 across its rim, a hub of radius 8 standing 5 out each side) revolved, a bore (radius 4) with a 2 × 1.5 keyway",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "revolve",
+      "description": "a shaft (radius 8, 60 long along x) with a groove (2 wide, 1 deep) turned at x = 20, a cross hole (radius 2) through at x = 40, its ends chamfered 0.8",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "sheet-metal-flange",
+      "description": "a sheet metal bracket: a 40 × 30 plate (2 thick) with a flange 25 up on its far edge, a hole (radius 2.5) in the flange patterned 3 along it at 10",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "circular-pattern",
+      "description": "a disc (radius 30, 4 thick) with an obround slot (12 long, 4 wide) at 18 from its centre patterned 6 round it",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "mirror",
+      "description": "a 30 × 20 × 10 block with a 10 × 10 × 8 lug on its end at x = 30, mirrored across x = 0 and united",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "shell",
+      "description": "a snap box: a 40 × 30 × 15 box shelled 1.5 open at its top, a tab (6 wide, 1.5 thick, 5 tall) standing up from its rim at y = 0, a hole (radius 1) through the tab",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "fillet",
+      "description": "a 50 × 40 × 12 block with an obround pocket (30 × 16, 8 deep), its walls' top edge filleted 1 all round (a tangent chain) and its floor edge 2 all round",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c008",
+      "kind": "loft",
+      "description": "a loft through a 20 × 20 square at z = 0, a circle of radius 8 at z = 15 and a 10 × 10 square at z = 30",
+      "slotMeters": [
+        2.8000000000000003,
+        0,
+        0
+      ]
+    }
+  ]
+}

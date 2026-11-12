@@ -1539,6 +1539,10 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   the square's corners and running on tangent at the circle: OCCT's thick solid fails (its offsets joined by
   intersection or by arcs, all intersected or not), and so does a cavity of the sides' offset surfaces, which meet
   tangentially there; Onshape's inner sides are its own fits (510.93 to 511.00 mm² for four equal sides).
+- **Everyday parts, a fifth round** (batch 142): a pulley, a grooved shaft with a cross hole, a sheet metal bracket
+  with holes patterned along its flange, a slotted disc, a mirrored and united block, a snap box and a pocket
+  filleted along tangent chains match as built; a loft through a square, a circle and a square to Onshape's fits
+  (4.2e-5 of its area).
 - **Faces split normal to curved targets** (batch 133): a sketch projected normal to the target goes along the
   target's normal through each of its points onto the target's surface: a circle and a rectangle beside a cylinder, a
   circle above a sphere, a circle beside a cone frustum. The rectangle taller than the cylinder splits its side across
