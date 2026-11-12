@@ -92,10 +92,11 @@ fn locked_to_revolution(model: &mut Model, id: &FeatureId, definition: &Value) -
     if !(1..=4).contains(&cyl.kind) {
         return Ok(None);
     }
+    // Whole: an arc OCCT split at a cylinder's seam is one arc (batch 138 c005).
     let path: Vec<Shape> = query::evaluate(model, field(definition, "path"))?
         .iter()
         .filter(|r| r.kind == EntityType::Edge)
-        .map(|r| model.shape(*r).clone())
+        .map(|r| super::whole_edge(model, *r))
         .collect();
     let [edge] = path.as_slice() else { return Ok(None) };
     if edge.curve_type().ok() == Some(occt::CurveType::Line) && (cyl.kind == 1 || cyl.kind == 2) {

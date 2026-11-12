@@ -578,6 +578,24 @@ pub(crate) fn sense_from_older_faces(model: &mut Model, id: &FeatureId) {
     }
 }
 
+/// An edge as Onshape has it: run as Onshape's runs ([`onshape_edge`]) and, where OCCT split it at seam vertices
+/// (hiding the other pieces behind the one it shows), whole again: an arc across a cylinder's seam one arc (batch 138).
+pub(crate) fn whole_edge(model: &Model, r: crate::model::EntityRef) -> Shape {
+    let shown = onshape_edge(model, r);
+    let hidden: Vec<Shape> = model.bodies[r.body]
+        .shape
+        .hidden_edge_pieces()
+        .into_iter()
+        .filter(|(s, _)| s.is_same(&shown))
+        .map(|(_, h)| h)
+        .collect();
+    if hidden.is_empty() {
+        return shown;
+    }
+    let pieces: Vec<Shape> = std::iter::once(shown.clone()).chain(hidden).collect();
+    occt::joined_edge(&pieces).unwrap_or(shown)
+}
+
 /// An edge as Onshape's runs (`Info::sense`): its shape, turned round if it runs the other way.
 pub(crate) fn onshape_edge(model: &Model, r: crate::model::EntityRef) -> Shape {
     let shape = model.shape(r).clone();

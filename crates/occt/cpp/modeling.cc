@@ -2663,15 +2663,45 @@ std::unique_ptr<Operation> sweep_supported_op(const Shape &profile, const Shape 
       BRepAdaptor_CompCurve curve(spine);
       const double length = GCPnts_AbscissaPoint::Length(curve, 1e-9);
       const bool closed = BRep_Tool::IsClosed(spine) || curve.Value(curve.FirstParameter()).Distance(curve.Value(curve.LastParameter())) < 1e-7;
-      // The profile sits at one end of an open path: sweep from that end.
+      // The profile sits at one end of an open path: sweep from that end. On a closed path, from the point nearest it.
       bool backwards = false;
-      if (!closed) {
+      double s_start = 0;
+      if (closed) {
+        GProp_GProps props;
+        BRepGProp::SurfaceProperties(face, props);
+        const TopoDS_Vertex centre = BRepBuilderAPI_MakeVertex(props.CentreOfMass()).Vertex();
+        BRepExtrema_DistShapeShape nearest(centre, spine);
+        if (nearest.IsDone() && nearest.NbSolution() > 0) {
+          const gp_Pnt q = nearest.PointOnShape2(1);
+          // Its arc length along the path, sampled finely then refined.
+          double best = 1e300;
+          const int coarse = 720;
+          for (int k = 0; k < coarse; ++k) {
+            GCPnts_AbscissaPoint along(1e-10, curve, length * k / coarse, curve.FirstParameter());
+            if (!along.IsDone()) continue;
+            const double d = curve.Value(along.Parameter()).Distance(q);
+            if (d < best) best = d, s_start = length * k / coarse;
+          }
+          double lo = s_start - length / coarse, hi = s_start + length / coarse;
+          for (int it = 0; it < 60; ++it) {
+            const double m1 = lo + (hi - lo) / 3, m2 = hi - (hi - lo) / 3;
+            auto at = [&](double s) {
+              double w = std::fmod(s + length, length);
+              GCPnts_AbscissaPoint along(1e-10, curve, w, curve.FirstParameter());
+              return along.IsDone() ? curve.Value(along.Parameter()).Distance(q) : 1e300;
+            };
+            if (at(m1) < at(m2)) hi = m2; else lo = m1;
+          }
+          s_start = std::fmod((lo + hi) / 2 + length, length);
+        }
+      } else {
         BRepExtrema_DistShapeShape to_first(face, BRepBuilderAPI_MakeVertex(curve.Value(curve.FirstParameter())).Vertex());
         BRepExtrema_DistShapeShape to_last(face, BRepBuilderAPI_MakeVertex(curve.Value(curve.LastParameter())).Vertex());
         backwards = to_first.IsDone() && to_last.IsDone() && to_last.Value() + 1e-9 < to_first.Value();
       }
       auto frame_at = [&](double fraction) {
         double s = (backwards ? 1 - fraction : fraction) * length;
+        if (closed) s = std::fmod(s_start + s, length);
         GCPnts_AbscissaPoint along(1e-10, curve, s, curve.FirstParameter());
         if (!along.IsDone()) throw std::runtime_error("sweep: along the path");
         gp_Pnt p;

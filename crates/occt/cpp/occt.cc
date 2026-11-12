@@ -6,6 +6,8 @@
 #include <GeomConvert_CompCurveToBSplineCurve.hxx>
 #include <Geom2d_Curve.hxx>
 #include <BRepBuilderAPI_Copy.hxx>
+#include <BRepBuilderAPI_MakeWire.hxx>
+#include <BRepTools_WireExplorer.hxx>
 #include <Geom_BezierCurve.hxx>
 #include <ElCLib.hxx>
 #include <Geom_Circle.hxx>
@@ -548,6 +550,85 @@ std::unique_ptr<Operation> canonical_edges_op(const Shape &s) {
     op->result = s.shape;
   }
   return op;
+}
+
+// An edge OCCT split at seam vertices, whole again, as Onshape's (whose faces have no seams): its pieces (the first
+// running the way the edge runs) chained, one arc where they lie on one circle, one line where they lie on one line,
+// otherwise their curves concatenated (batch 138 c005: a frame's profile placed at an arc's start).
+std::unique_ptr<Shape> joined_edge(const ShapeList &pieces) {
+  if (pieces.shapes.empty()) throw std::runtime_error("joined edge: no pieces");
+  if (pieces.shapes.size() == 1) return wrap(pieces.shapes[0]);
+  BRepBuilderAPI_MakeWire wire;
+  for (const TopoDS_Shape &e : pieces.shapes) wire.Add(TopoDS::Edge(e));
+  if (!wire.IsDone()) throw std::runtime_error("joined edge: the pieces don't chain");
+  // The chain's ordered edges, turned to run along it, starting with the first piece.
+  std::vector<TopoDS_Edge> ordered;
+  for (BRepTools_WireExplorer it(wire.Wire()); it.More(); it.Next()) ordered.push_back(it.Current());
+  const TopoDS_Edge first = TopoDS::Edge(pieces.shapes[0]);
+  size_t start = 0;
+  for (size_t i = 0; i < ordered.size(); ++i)
+    if (ordered[i].IsSame(first)) start = i;
+  // Running the first piece's way round.
+  const bool flip = ordered[start].Orientation() != first.Orientation();
+  std::vector<TopoDS_Edge> chain;
+  for (size_t k = 0; k < ordered.size(); ++k) {
+    size_t i = flip ? (start + ordered.size() - k) % ordered.size() : (start + k) % ordered.size();
+    chain.push_back(TopoDS::Edge(flip ? ordered[i].Reversed() : ordered[i]));
+  }
+  // Open chains start at a free end, not in the middle.
+  TopoDS_Vertex v0, v1;
+  TopExp::Vertices(wire.Wire(), v0, v1);
+  const bool closed = v0.IsNull() || v0.IsSame(v1);
+  if (!closed) {
+    for (size_t r = 0; r < chain.size(); ++r) {
+      TopoDS_Vertex a = TopExp::FirstVertex(chain[0], Standard_True);
+      if (a.IsSame(v0) || a.IsSame(v1)) break;
+      std::rotate(chain.begin(), chain.begin() + 1, chain.end());
+    }
+  }
+  const gp_Pnt a = BRep_Tool::Pnt(TopExp::FirstVertex(chain.front(), Standard_True));
+  const gp_Pnt b = BRep_Tool::Pnt(TopExp::LastVertex(chain.back(), Standard_True));
+  BRepAdaptor_Curve c0(chain.front());
+  bool all_circles = true, all_lines = true;
+  for (const TopoDS_Edge &e : chain) {
+    BRepAdaptor_Curve c(e);
+    if (c.GetType() != GeomAbs_Circle || c0.GetType() != GeomAbs_Circle ||
+        c.Circle().Location().Distance(c0.Circle().Location()) > 1e-9 ||
+        std::abs(c.Circle().Radius() - c0.Circle().Radius()) > 1e-9 ||
+        !c.Circle().Axis().Direction().IsParallel(c0.Circle().Axis().Direction(), 1e-9))
+      all_circles = false;
+    if (c.GetType() != GeomAbs_Line || c0.GetType() != GeomAbs_Line ||
+        !c.Line().Direction().IsParallel(c0.Line().Direction(), 1e-9) || c0.Line().Distance(c.Line().Location()) > 1e-9)
+      all_lines = false;
+  }
+  if (all_circles) {
+    // The circle turned to run the way the chain does at its start.
+    gp_Circ circle = c0.Circle();
+    gp_Pnt p;
+    gp_Vec t;
+    c0.D1(c0.FirstParameter() + 1e-6 * (c0.LastParameter() - c0.FirstParameter()), p, t);
+    if (chain.front().Orientation() == TopAbs_REVERSED) {
+      c0.D1(c0.LastParameter() - 1e-6 * (c0.LastParameter() - c0.FirstParameter()), p, t);
+      t.Reverse();
+    }
+    const gp_Vec radial(circle.Location(), p);
+    if (gp_Vec(circle.Axis().Direction()).Crossed(radial).Dot(t) < 0) circle.SetAxis(circle.Axis().Reversed());
+    double u0 = ElCLib::Parameter(circle, a), u1 = ElCLib::Parameter(circle, b);
+    if (closed) u1 = u0 + 2 * M_PI;
+    else if (u1 <= u0) u1 += 2 * M_PI;
+    return wrap(BRepBuilderAPI_MakeEdge(circle, u0, u1).Edge());
+  }
+  if (all_lines) return wrap(BRepBuilderAPI_MakeEdge(a, b).Edge());
+  GeomConvert_CompCurveToBSplineCurve joined;
+  for (const TopoDS_Edge &e : chain) {
+    double f, l;
+    Handle(Geom_Curve) c = BRep_Tool::Curve(e, f, l);
+    if (c.IsNull()) throw std::runtime_error("joined edge: a piece has no curve");
+    Handle(Geom_TrimmedCurve) trimmed = new Geom_TrimmedCurve(c, f, l);
+    if (e.Orientation() == TopAbs_REVERSED) trimmed->Reverse();
+    if (!joined.Add(GeomConvert::CurveToBSplineCurve(trimmed), 1e-6)) throw std::runtime_error("joined edge: can't join");
+  }
+  return wrap(BRepBuilderAPI_MakeEdge(joined.BSplineCurve()).Edge());
 }
 
 // A shape with edges fused as edges_fused does.

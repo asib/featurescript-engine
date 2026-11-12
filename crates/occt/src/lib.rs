@@ -199,6 +199,7 @@ mod ffi {
         ) -> Result<UniquePtr<Operation>>;
         fn sweep_supported_op(profile: &Shape, path: &Shape, faces: &ShapeList) -> Result<UniquePtr<Operation>>;
         fn canonical_edges_op(s: &Shape) -> Result<UniquePtr<Operation>>;
+        fn joined_edge(pieces: &ShapeList) -> Result<UniquePtr<Shape>>;
         fn loft_op(wires: &ShapeList, solid: bool) -> Result<UniquePtr<Operation>>;
         fn loft_op_matching(wires: &ShapeList, solid: bool, check: bool) -> Result<UniquePtr<Operation>>;
         fn loft_pieces_op(wires: &ShapeList, counts: &[u32], solid: bool) -> Result<UniquePtr<Operation>>;
@@ -919,6 +920,11 @@ pub fn sweep_controlled(profile: &Shape, path: &Shape, lock: Option<Vec3>) -> Re
         Some(d) => (2, d),
     };
     Ok(Operation(ffi::sweep_controlled_op(&profile.0, &path.0, mode, direction)?))
+}
+
+/// An edge split at seam vertices, whole: its pieces (the first running the way the edge runs) joined into one edge.
+pub fn joined_edge(pieces: &[Shape]) -> Result<Shape> {
+    Ok(Shape::new(ffi::joined_edge(&to_list(pieces))?))
 }
 
 /// The shape with its B-spline edges that lie on a line or a circle given that curve (its faces kept).
