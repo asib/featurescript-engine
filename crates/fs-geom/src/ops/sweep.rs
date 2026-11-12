@@ -230,6 +230,8 @@ pub fn sweep(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
     if let Some(done) = locked_to_revolution(model, &id, definition)? {
         return Ok(done);
     }
+    // Locked to curved faces: the profile turns with their normals along the path (batch 137).
+    let mut supported: Option<Vec<Shape>> = None;
     // The profile kept as it is, or turning only about a direction (batch 021).
     let control: Option<Option<Vec3>> = if values::opt_bool(definition, "keepProfileOrientation")?.unwrap_or(false) {
         Some(None)
@@ -247,15 +249,19 @@ pub fn sweep(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
                     .filter(|r| r.kind == EntityType::Face)
                     .map(|r| model.shape(r).clone())
                     .collect();
-                let normals: Vec<Vec3> =
-                    faces.iter().map(|f| f.face_plane().map(|p| p.normal)).collect::<Result<_, _>>().map_err(|_| {
-                        error("@opSweep: profiles locked to faces other than planes aren't supported yet")
-                    })?;
-                let Some(&first) = normals.first() else { return Err(regen_error("SWEEP_SELECT_LOCK_FACES")) };
-                if normals.iter().any(|n| values::norm(values::cross(*n, first)) > 1e-9) {
-                    return Err(error("@opSweep: profiles locked to faces of different planes aren't supported yet"));
+                if faces.is_empty() {
+                    return Err(regen_error("SWEEP_SELECT_LOCK_FACES"));
                 }
-                Some(Some(first))
+                let normals: Option<Vec<Vec3>> = faces.iter().map(|f| f.face_plane().ok().map(|p| p.normal)).collect();
+                match normals {
+                    Some(normals) if normals.iter().all(|n| values::norm(values::cross(*n, normals[0])) < 1e-9) => {
+                        Some(Some(normals[0]))
+                    }
+                    _ => {
+                        supported = Some(faces);
+                        None
+                    }
+                }
             }
             Some(other) => return Err(error(format!("@opSweep: profileControl {other} isn't supported yet"))),
         }
@@ -265,11 +271,31 @@ pub fn sweep(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
         found.iter().filter(|r| r.kind == EntityType::Face).map(|r| model.shape(*r).clone()).collect();
     let edges: Vec<Shape> =
         found.iter().filter(|r| r.kind == EntityType::Edge).map(|r| model.shape(*r).clone()).collect();
-    let path_edges: Vec<Shape> = query::evaluate(model, field(definition, "path"))?
-        .iter()
-        .filter(|r| r.kind == EntityType::Edge)
-        .map(|r| model.shape(*r).clone())
-        .collect();
+    // A closed edge OCCT split at a seam vertex is shown as its first piece: the others go with it (a curve a split
+    // left round a cylinder, across its seam, batch 137 c004).
+    let mut path_edges: Vec<Shape> = Vec::new();
+    for r in query::evaluate(model, field(definition, "path"))?.iter().filter(|r| r.kind == EntityType::Edge) {
+        let shown = model.shape(*r).clone();
+        let hidden: Vec<Shape> = model.bodies[r.body]
+            .shape
+            .hidden_edge_pieces()
+            .into_iter()
+            .filter(|(s, _)| s.is_same(&shown))
+            .map(|(_, h)| h)
+            .collect();
+        for e in std::iter::once(shown).chain(hidden) {
+            if !path_edges.iter().any(|p| p.is_same(&e)) {
+                path_edges.push(e);
+            }
+        }
+    }
+    // Nothing to sweep or nothing to sweep along (a profile sketched on a degenerate plane has no region).
+    if path_edges.is_empty() {
+        return Err(regen_error("SWEEP_SELECT_PATH"));
+    }
+    if faces.is_empty() && edges.is_empty() {
+        return Err(regen_error("SWEEP_SELECT_PROFILE"));
+    }
     let paths = occt::connect_edges(&path_edges).map_err(occt_error)?;
     let [path] = paths.as_slice() else { return Err(regen_error("SWEEP_PATH_NO_CONSTRAINT")) };
     // Locked to faces, a profile can't turn a sharp corner of its path: Onshape finds the path invalid (an L of
@@ -300,9 +326,24 @@ pub fn sweep(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
         return twisted_or_scaled(model, &id, &profiles, &path_edges, twist, scale, solid);
     }
     for profile in &profiles {
-        let op = match control {
-            Some(lock) => occt::sweep_controlled(profile, path, lock),
-            None => occt::sweep(profile, path),
+        // A path edge Onshape can lock to curved faces is one of theirs, or a line, circle or ellipse on them: a
+        // helix (Onshape's own fit, 7 µm off its cylinder) fails (batch 137 c001–c003).
+        if let Some(faces) = &supported {
+            for edge in path.sub_shapes(ShapeKind::Edge) {
+                let theirs = faces.iter().any(|f| f.sub_shapes(ShapeKind::Edge).iter().any(|e| e.is_same(&edge)));
+                let analytic = matches!(
+                    edge.curve_type().ok(),
+                    Some(occt::CurveType::Line | occt::CurveType::Circle | occt::CurveType::Ellipse)
+                );
+                if !theirs && !analytic {
+                    return Err(regen_error("SWEEP_FAILED"));
+                }
+            }
+        }
+        let op = match (&supported, control) {
+            (Some(faces), _) => occt::sweep_supported(profile, path, faces),
+            (None, Some(lock)) => occt::sweep_controlled(profile, path, lock),
+            (None, None) => occt::sweep(profile, path),
         }
         .map_err(|_| regen_error("SWEEP_FAILED"))?;
         add_with_caps(model, &id, &op, solid)?;

@@ -68,6 +68,8 @@
 #include <BRepExtrema_DistShapeShape.hxx>
 #include <BRepBuilderAPI_Sewing.hxx>
 #include <BRepLib.hxx>
+#include <GeomProjLib.hxx>
+#include <Geom2d_Curve.hxx>
 #include <BRepCheck_Analyzer.hxx>
 #include <GeomAPI_PointsToBSplineSurface.hxx>
 #include <GC_MakeArcOfCircle.hxx>
@@ -2605,8 +2607,149 @@ std::unique_ptr<Shape> remove_faces_open(const Shape &solid, const ShapeList &fa
 // 2: the trihedron's binormal along it) or follows a path with sharp corners (`mode` 0: a corrected Frenet
 // trihedron, the pieces either side of a corner extended to meet, which mitres a constant profile, batch 034). The
 // caps are the faces on the first and last sections.
+static std::unique_ptr<Operation> sweep_controlled_impl(const Shape &profile, const TopoDS_Wire &path, int mode,
+                                                        Vec3 direction, const TopoDS_Shape *support);
+
 std::unique_ptr<Operation> sweep_controlled_op(const Shape &profile, const Shape &path, int mode, Vec3 direction) {
-  TopoDS_Wire spine = TopoDS::Wire(path.shape);
+  return sweep_controlled_impl(profile, TopoDS::Wire(path.shape), mode, direction, nullptr);
+}
+
+// A sweep locked to faces (`mode` 3): the profile turns with the faces' normals along the path, which lies on them
+// (a helix round a cylinder or a cone, a curve a split left on a cylinder or a sphere; batch 137). Each path edge
+// gets its curve on the face it lies on, projected where it has none.
+std::unique_ptr<Operation> sweep_supported_op(const Shape &profile, const Shape &path, const ShapeList &faces) {
+  BRepBuilderAPI_Copy copier(path.shape, Standard_False);
+  TopoDS_Wire spine = TopoDS::Wire(copier.Shape());
+  BRep_Builder builder;
+  TopoDS_Compound support;
+  builder.MakeCompound(support);
+  for (const TopoDS_Shape &f : faces.shapes) builder.Add(support, f);
+  for (TopExp_Explorer it(spine, TopAbs_EDGE); it.More(); it.Next()) {
+    const TopoDS_Edge &edge = TopoDS::Edge(it.Current());
+    BRepAdaptor_Curve curve(edge);
+    const gp_Pnt mid = curve.Value((curve.FirstParameter() + curve.LastParameter()) / 2);
+    const TopoDS_Vertex probe = BRepBuilderAPI_MakeVertex(mid).Vertex();
+    bool done = false;
+    for (const TopoDS_Shape &f : faces.shapes) {
+      const TopoDS_Face &face = TopoDS::Face(f);
+      BRepExtrema_DistShapeShape d(probe, face);
+      if (!d.IsDone() || d.Value() > 1e-6) continue;
+      double first, last;
+      if (!BRep_Tool::CurveOnSurface(edge, face, first, last).IsNull()) {
+        done = true;
+        break;
+      }
+      double a, b;
+      Handle(Geom_Curve) c3d = BRep_Tool::Curve(edge, a, b);
+      if (c3d.IsNull()) continue;
+      TopLoc_Location location;
+      Handle(Geom_Surface) surface = BRep_Tool::Surface(face, location);
+      Handle(Geom2d_Curve) c2d = GeomProjLib::Curve2d(c3d, a, b, surface);
+      if (c2d.IsNull()) continue;
+      builder.UpdateEdge(edge, c2d, face, 1e-6);
+      done = true;
+      break;
+    }
+    if (!done) throw std::runtime_error("sweep: a path edge isn't on the faces it's locked to");
+  }
+  // A face profile of one loop: carried along the path in the frame of its tangent and the faces' normal, a copy at
+  // each of 192 points along it (by arc length), lofted through (OCCT's own trihedron on a support drifts round a
+  // cylinder: batch 137 c004 came out 7.8e-4 of its area off and lopsided). A closed path makes a ring.
+  if (profile.shape.ShapeType() == TopAbs_FACE) {
+    const TopoDS_Face &face = TopoDS::Face(profile.shape);
+    int loops = 0;
+    for (TopExp_Explorer it(face, TopAbs_WIRE); it.More(); it.Next()) ++loops;
+    if (loops == 1) {
+      BRepAdaptor_CompCurve curve(spine);
+      const double length = GCPnts_AbscissaPoint::Length(curve, 1e-9);
+      const bool closed = BRep_Tool::IsClosed(spine) || curve.Value(curve.FirstParameter()).Distance(curve.Value(curve.LastParameter())) < 1e-7;
+      // The profile sits at one end of an open path: sweep from that end.
+      bool backwards = false;
+      if (!closed) {
+        BRepExtrema_DistShapeShape to_first(face, BRepBuilderAPI_MakeVertex(curve.Value(curve.FirstParameter())).Vertex());
+        BRepExtrema_DistShapeShape to_last(face, BRepBuilderAPI_MakeVertex(curve.Value(curve.LastParameter())).Vertex());
+        backwards = to_first.IsDone() && to_last.IsDone() && to_last.Value() + 1e-9 < to_first.Value();
+      }
+      auto frame_at = [&](double fraction) {
+        double s = (backwards ? 1 - fraction : fraction) * length;
+        GCPnts_AbscissaPoint along(1e-10, curve, s, curve.FirstParameter());
+        if (!along.IsDone()) throw std::runtime_error("sweep: along the path");
+        gp_Pnt p;
+        gp_Vec t;
+        curve.D1(along.Parameter(), p, t);
+        if (backwards) t.Reverse();
+        gp_Vec n;
+        double best = 1e300;
+        for (const TopoDS_Shape &f : faces.shapes) {
+          const TopoDS_Face &lock = TopoDS::Face(f);
+          GeomAPI_ProjectPointOnSurf on(p, BRep_Tool::Surface(lock));
+          if (on.NbPoints() == 0 || on.LowerDistance() >= best) continue;
+          best = on.LowerDistance();
+          double u, v;
+          on.LowerDistanceParameters(u, v);
+          BRepGProp_Face normals(lock);
+          gp_Pnt q;
+          normals.Normal(u, v, q, n);
+        }
+        if (best > 1e-6 || n.Magnitude() < 1e-12) throw std::runtime_error("sweep: off the faces");
+        t.Normalize();
+        n = n - t * n.Dot(t);
+        n.Normalize();
+        return gp_Ax3(p, gp_Dir(t), gp_Dir(n));
+      };
+      const int count = 192;
+      const gp_Ax3 start = frame_at(0);
+      std::vector<TopoDS_Wire> sections;
+      const TopoDS_Wire outer = BRepTools::OuterWire(face);
+      for (int k = 0; k <= count; ++k) {
+        if (closed && k == count) {
+          sections.push_back(sections.front());
+          break;
+        }
+        // From the world into the start's frame, then out of this point's into the world.
+        gp_Trsf into_start, into_here;
+        into_start.SetTransformation(start);
+        into_here.SetTransformation(frame_at(double(k) / count));
+        const gp_Trsf carry = into_here.Inverted() * into_start;
+        sections.push_back(TopoDS::Wire(BRepBuilderAPI_Transform(outer, carry, Standard_True).Shape()));
+      }
+      BRepOffsetAPI_ThruSections loft(Standard_True, Standard_False, 1e-7);
+      loft.CheckCompatibility(Standard_False);
+      for (const TopoDS_Wire &w : sections) loft.AddWire(w);
+      loft.Build();
+      if (!loft.IsDone()) throw std::runtime_error("sweep: loft");
+      auto op = std::make_unique<Operation>();
+      op->history = new BRepTools_History;
+      if (closed) {
+        TopTools_MapOfShape caps;
+        caps.Add(loft.FirstShape());
+        caps.Add(loft.LastShape());
+        BRepBuilderAPI_Sewing ring(1e-7);
+        for (TopExp_Explorer f(loft.Shape(), TopAbs_FACE); f.More(); f.Next())
+          if (!caps.Contains(f.Current())) ring.Add(f.Current());
+        ring.Perform();
+        TopExp_Explorer shells(ring.SewedShape(), TopAbs_SHELL);
+        if (!shells.More()) throw std::runtime_error("sweep: ring");
+        BRepBuilderAPI_MakeSolid make(TopoDS::Shell(shells.Current()));
+        TopoDS_Solid body = make.Solid();
+        BRepLib::OrientClosedSolid(body);
+        op->result = body;
+      } else {
+        TopoDS_Shape body = loft.Shape();
+        op->result = body;
+        op->first.push_back(loft.FirstShape());
+        op->last.push_back(loft.LastShape());
+      }
+      if (!BRepCheck_Analyzer(op->result).IsValid()) throw std::runtime_error("sweep: invalid");
+      return op;
+    }
+  }
+  return sweep_controlled_impl(profile, spine, 3, Vec3{0, 0, 1}, &support);
+}
+
+static std::unique_ptr<Operation> sweep_controlled_impl(const Shape &profile, const TopoDS_Wire &path, int mode,
+                                                        Vec3 direction, const TopoDS_Shape *support) {
+  TopoDS_Wire spine = path;
   {
     TopoDS_Vertex first, last;
     TopExp::Vertices(spine, first, last);
@@ -2694,6 +2837,8 @@ std::unique_ptr<Operation> sweep_controlled_op(const Shape &profile, const Shape
       maker.SetTransitionMode(BRepBuilderAPI_RightCorner);
     } else if (mode == 1) {
       maker.SetMode(gp_Ax2(gp::Origin(), gp::DZ(), gp::DX()));
+    } else if (mode == 3 && support != nullptr) {
+      maker.SetMode(*support);
     } else {
       maker.SetMode(gp_Dir(direction.x, direction.y, direction.z));
     }

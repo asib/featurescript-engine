@@ -1492,6 +1492,19 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   Gauss–Newton steps finish it off. Sketch curves constrained to each other come out in the order the sketch made
   them (136 c015: a circle, then a line normal to it); in a sketch drawn in Onshape, closed curves after open ones
   (batch 103).
+- **Sweeps locked to curved faces** (batch 137): along a helix round a cylinder or a cone frustum, locked to it,
+  Onshape fails (`SWEEP_FAILED`): its helix is its own fit, 7 µm off the face (batch 124). Along an edge of the face
+  (the curve a split left round a cylinder, across its seam) or a circle on it (a small circle split from a sphere by
+  a tilted plane) it runs, the profile turning with the face's normal along the path. The engine refuses a locked
+  path edge that is neither one of the faces' edges nor a line, circle or ellipse; it carries the profile in the frame
+  of the path's tangent and the face's normal, a copy at each of 192 points along it, and lofts through them (a ring
+  for a closed path), as OCCT's sweep on a support drifts (round the cylinder 7.8e-4 of the area off, lopsided). The
+  ring round the cylinder is exact: 21.040594 mm³, the path 21.040590 mm long, the square 1 mm² (Pappus); Onshape's
+  is 21.055754 mm³, its path 21.0366 mm. `evDistance` gave a revolved cone's raw OCCT parameters, which
+  `evFaceTangentPlane` reads in the cone's own frame (a point's parameter evaluated on the far side): it now gives
+  them as `evRaycast` does. The normal projection's ruled sheet (batch 133) took its two curves at their default
+  chord-length parameters, longer outside a cylinder than inside, so its rulings tilted and a circle's projection
+  round the cylinder came out 6 µm inside the exact curve; both now go through the edge's own parameters (0.05 µm).
 - **Faces split normal to curved targets** (batch 133): a sketch projected normal to the target goes along the
   target's normal through each of its points onto the target's surface: a circle and a rectangle beside a cylinder, a
   circle above a sphere, a circle beside a cone frustum. The rectangle taller than the cylinder splits its side across

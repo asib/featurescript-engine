@@ -197,6 +197,7 @@ mod ffi {
             mode: i32,
             direction: Vec3,
         ) -> Result<UniquePtr<Operation>>;
+        fn sweep_supported_op(profile: &Shape, path: &Shape, faces: &ShapeList) -> Result<UniquePtr<Operation>>;
         fn loft_op(wires: &ShapeList, solid: bool) -> Result<UniquePtr<Operation>>;
         fn loft_op_matching(wires: &ShapeList, solid: bool, check: bool) -> Result<UniquePtr<Operation>>;
         fn loft_pieces_op(wires: &ShapeList, counts: &[u32], solid: bool) -> Result<UniquePtr<Operation>>;
@@ -917,6 +918,11 @@ pub fn sweep_controlled(profile: &Shape, path: &Shape, lock: Option<Vec3>) -> Re
         Some(d) => (2, d),
     };
     Ok(Operation(ffi::sweep_controlled_op(&profile.0, &path.0, mode, direction)?))
+}
+
+/// Sweeps a face or wire along a path wire lying on `faces`, the profile turning with their normals.
+pub fn sweep_supported(profile: &Shape, path: &Shape, faces: &[Shape]) -> Result<Operation> {
+    Ok(Operation(ffi::sweep_supported_op(&profile.0, &path.0, &to_list(faces))?))
 }
 
 pub fn sweep(profile: &Shape, path: &Shape) -> Result<Operation> {

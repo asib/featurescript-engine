@@ -1,0 +1,57 @@
+{
+  "batch": "137",
+  "title": "sweeps locked to curved faces along other paths",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "sweep",
+      "description": "a cylinder (radius 10, 30 tall): a 1 × 1 square across its side swept along a left-handed helix on it (2 turns, 20 high), locked to the side",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "sweep",
+      "description": "a cylinder (radius 10, 30 tall): a thread's triangle (1 out, 1.6 along) on its side swept along a right-handed helix on it, locked to the side",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "sweep",
+      "description": "a cone frustum (radius 10 to 6, 20 tall): a 1 × 1 square across its side swept along a helix round it (3 turns), locked to the side",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "sweep",
+      "description": "a cylinder (radius 10, 30 tall): its side split by a circle of radius 4 on the plane x = 15 projected normal to it; a 1 × 1 square swept round the split edge, locked to the side",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "sweep",
+      "description": "a sphere of radius 10: its face split by a plane 5 from its centre, tilted 30° from its axis; a 1 × 1 square swept round the split edge, locked to the sphere",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    }
+  ]
+}
