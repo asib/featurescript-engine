@@ -1,0 +1,87 @@
+{
+  "batch": "140",
+  "title": "everyday parts: a hinge, a gear blank, a sheet metal box, a pipe elbow, a bottle, a handle, counterbored holes, a drafted block",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "extrude",
+      "description": "a hinge leaf: a 40 × 20 × 2 plate with a knuckle (a tube of radius 3 round a pin hole of radius 1.5) along its far edge, two screw holes (radius 1.5), its free corners rounded 3",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "circular-pattern",
+      "description": "a gear blank: a disc (radius 20, 6 thick) with a tooth (a 4 × 3 block) on its rim patterned 12 round it, a bore (radius 5) through, its faces' bore edges chamfered 0.5",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "sheet-metal-flange",
+      "description": "a sheet metal box: a 40 × 30 plate (1.5 thick, bends of radius 1) with flanges 15 up on all four edges, its corners closed by default, a hole (radius 4) in its floor",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "sweep",
+      "description": "a pipe elbow: a circle (radius 5) swept round a quarter arc of radius 20, shelled 1 mm open at both ends, a flange (radius 9, 2 thick) on each end",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "revolve",
+      "description": "a bottle: a profile (body radius 15, 40 tall, a shoulder up to a neck of radius 6 that is 10 tall) revolved, its foot filleted 3, shelled 1 open at its neck",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "sweep",
+      "description": "a handle: a circle (radius 2.5) swept along a three-point arc from (0, 0, 0) through (15, 0, 12) to (30, 0, 0), standing on a 40 × 10 × 3 plate, united",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "hole",
+      "description": "a 80 × 20 × 8 plate with a counterbored hole (6 through, counterbore 10 × 4) at (10, 10), patterned 4 along x at 20 mm",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c008",
+      "kind": "draft",
+      "description": "a 40 × 30 × 20 block, its four sides drafted 3° from its bottom, a boss (radius 5, 8 tall) on its top, filleted 1 at its foot",
+      "slotMeters": [
+        2.8000000000000003,
+        0,
+        0
+      ]
+    }
+  ]
+}

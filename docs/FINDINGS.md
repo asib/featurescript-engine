@@ -1526,6 +1526,10 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   `fullFeaturePattern`): the engine made one tool of the two separate holes and patterned only one; each set of faces
   joined by edges is now its own tool. `dummyFeature` does nothing; `jogSectionPartInternal` sections as
   `jogSectionPart` does after clearing sheet metal data (a sheet metal L comes out a plain part).
+- **Everyday parts, a third round** (batch 140): a hinge leaf, a sheet metal box of four flanges, a swept and
+  shelled pipe elbow with flanges, a bottle, a swept handle, patterned counterbored holes and a drafted block with a
+  boss match as built. A tooth added to a disc's rim and patterned without `fullFeaturePattern` fails in Onshape
+  (`PATTERN_SWITCH_TO_PER_INSTANCE`, its top and bottom merged into the disc's faces), as in the engine.
 - **Faces split normal to curved targets** (batch 133): a sketch projected normal to the target goes along the
   target's normal through each of its points onto the target's surface: a circle and a rectangle beside a cylinder, a
   circle above a sphere, a circle beside a cone frustum. The rectangle taller than the cylinder splits its side across
