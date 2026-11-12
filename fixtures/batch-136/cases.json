@@ -1,0 +1,177 @@
+{
+  "batch": "136",
+  "title": "sketch solving: underdetermined sketches, more constraints",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "sketch",
+      "description": "a free line from (0, 0) to (10, 0) made 15 long",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "sketch",
+      "description": "a line from (0, 0) to (10, 0), its start fixed, made 15 long",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "sketch",
+      "description": "a line from (0, 0) to (10, 0), its end fixed, made 15 long",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "sketch",
+      "description": "a line from (0, 0) to (10, 0), its start coincident with a free point there, made 15 long",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "sketch",
+      "description": "a line from (0, 0) to (10, 0), its end coincident with a free point there, made 15 long",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "sketch",
+      "description": "a free line from (0, 0) to (10, 0) and a free point at (5, 2) put on it",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "sketch",
+      "description": "a free circle at (5, 5) of radius 3 given radius 4",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c008",
+      "kind": "sketch",
+      "description": "two free lines, (0, 0) to (10, 0) and (11, 1) to (20, 5), the first's end joined to the second's start",
+      "slotMeters": [
+        2.8000000000000003,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c009",
+      "kind": "sketch",
+      "description": "a free line from (0, 0) to (10, 2) made horizontal",
+      "slotMeters": [
+        3.2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c010",
+      "kind": "sketch",
+      "description": "a free line from (0, 5) to (10, 7) made parallel to a fixed line from (0, 0) to (10, 0)",
+      "slotMeters": [
+        3.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c011",
+      "kind": "sketch",
+      "description": "a fixed circle at (0, 0) of radius 5 and a circle at (9, 1) of radius 3, its centre fixed in y at 0 and its radius 3, made tangent outside",
+      "slotMeters": [
+        0,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c012",
+      "kind": "sketch",
+      "description": "a point at (4, 4) put on a fixed circle at (0, 0) of radius 5, 3 to the right of a fixed point at the origin",
+      "slotMeters": [
+        0.4,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c013",
+      "kind": "sketch",
+      "description": "a point at (3, 4) on a fixed vertical line at x = 3, 6 from a fixed horizontal line along y = 0",
+      "slotMeters": [
+        0.8,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c014",
+      "kind": "sketch",
+      "description": "a fixed circle of radius 5 at (0, 0) and a circle of radius 3 at (12, 0), its centre fixed, made equal",
+      "slotMeters": [
+        1.2000000000000002,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c015",
+      "kind": "sketch",
+      "description": "a fixed circle of radius 5 at (0, 0) and a line from (6, 1) to (12, 3), its start fixed, made normal to the circle",
+      "slotMeters": [
+        1.6,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c016",
+      "kind": "sketch",
+      "description": "a fixed point at (2, 3) and a point at (17, 4) made its mirror image across a fixed vertical construction line at x = 10",
+      "slotMeters": [
+        2,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c017",
+      "kind": "sketch",
+      "description": "a fixed horizontal line and a parallel line drawn 4 above it, made 6 from it, its start fixed in x by a vertical line",
+      "slotMeters": [
+        2.4000000000000004,
+        0.4,
+        0
+      ]
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+probe c001 { bodies : [] , construction : [] , values : { curves : [ [ [ 0 , 0 , 0 ] , [ 7.5 , 0 , 0 ] , [ 15 , 0 , 0 ] ] ] , points : [] } }
+probe c002 { bodies : [] , construction : [] , values : { curves : [ [ [ 0 , 0 , 0 ] , [ 7.5 , 0 , 0 ] , [ 15 , 0 , 0 ] ] ] , points : [] } }
+probe c003 { bodies : [] , construction : [] , values : { curves : [ [ [ -5 , 0 , 0 ] , [ 2.5 , 0 , 0 ] , [ 10 , 0 , 0 ] ] ] , points : [] } }
+probe c004 { bodies : [] , construction : [] , values : { curves : [ [ [ 0 , 0 , 0 ] , [ 7.5 , 0 , 0 ] , [ 15 , 0 , 0 ] ] ] , points : [ [ 0 , 0 , 0 ] ] } }
+probe c005 { bodies : [] , construction : [] , values : { curves : [ [ [ 0 , 0 , 0 ] , [ 7.5 , 0 , 0 ] , [ 15 , 0 , 0 ] ] ] , points : [ [ 15 , 0 , 0 ] ] } }
+probe c006 { bodies : [] , construction : [] , values : { curves : [ [ [ 0 , 0 , 0 ] , [ 5 , 0 , 0 ] , [ 10 , 0 , 0 ] ] ] , points : [ [ 5 , 0 , 0 ] ] } }
+probe c007 { bodies : [] , construction : [] , values : { curves : [ [ [ 9 , 5 , 0 ] , [ 1 , 5 , 0 ] , [ 9 , 5 , 0 ] ] ] , points : [ [ 5 , 5 , 0 ] ] } }
+probe c008 { bodies : [] , construction : [] , values : { curves : [ [ [ 0 , 0 , 0 ] , [ 5 , 0 , 0 ] , [ 10 , 0 , 0 ] ] , [ [ 10 , 0 , 0 ] , [ 14.5 , 2 , 0 ] , [ 19 , 4 , 0 ] ] ] , points : [] } }
+probe c009 { bodies : [] , construction : [] , values : { curves : [ [ [ -0.09902 , 1 , 0 ] , [ 5 , 1 , 0 ] , [ 10.09902 , 1 , 0 ] ] ] , points : [] } }
+probe c010 { bodies : [] , construction : [] , values : { curves : [ [ [ 0 , 0 , 0 ] , [ 5 , 0 , 0 ] , [ 10 , 0 , 0 ] ] , [ [ -0.09902 , 6 , 0 ] , [ 5 , 6 , 0 ] , [ 10.09902 , 6 , 0 ] ] ] , points : [] } }
+probe c011 { bodies : [] , construction : [] , values : { curves : [ [ [ 5 , 0 , 0 ] , [ -5 , 0 , 0 ] , [ 5 , 0 , 0 ] ] , [ [ 11 , 0 , 0 ] , [ 5 , 0 , 0 ] , [ 11 , 0 , 0 ] ] ] , points : [ [ 0 , 0 , 0 ] , [ 8 , 0 , 0 ] , [ 0 , 0 , 0 ] ] } }
+probe c012 { bodies : [] , construction : [] , values : { curves : [ [ [ 5 , 0 , 0 ] , [ -5 , 0 , 0 ] , [ 5 , 0 , 0 ] ] ] , points : [ [ 0 , 0 , 0 ] , [ 0 , 0 , 0 ] , [ 3 , 4 , 0 ] ] } }
+probe c013 { bodies : [] , construction : [] , values : { curves : [ [ [ 0 , 0 , 0 ] , [ 10 , 0 , 0 ] , [ 20 , 0 , 0 ] ] , [ [ 3 , -2 , 0 ] , [ 3 , 9 , 0 ] , [ 3 , 20 , 0 ] ] ] , points : [ [ 3 , 6 , 0 ] ] } }
+probe c014 { bodies : [] , construction : [] , values : { curves : [ [ [ 5 , 0 , 0 ] , [ -5 , 0 , 0 ] , [ 5 , 0 , 0 ] ] , [ [ 17 , 0 , 0 ] , [ 7 , 0 , 0 ] , [ 17 , 0 , 0 ] ] ] , points : [ [ 0 , 0 , 0 ] , [ 12 , 0 , 0 ] ] } }
+probe c015 { bodies : [] , construction : [] , values : { curves : [ [ [ 5 , 0 , 0 ] , [ -5 , 0 , 0 ] , [ 5 , 0 , 0 ] ] , [ [ 6 , 1 , 0 ] , [ 8.959182 , 1.493197 , 0 ] , [ 11.918364 , 1.986394 , 0 ] ] ] , points : [ [ 0 , 0 , 0 ] ] } }
+probe c016 { bodies : [] , construction : [] , values : { curves : [ [ [ 10 , -5 , 0 ] , [ 10 , 10 , 0 ] , [ 10 , 25 , 0 ] ] ] , points : [ [ 2 , 3 , 0 ] , [ 18 , 3 , 0 ] ] } }
+probe c017 { bodies : [] , construction : [] , values : { curves : [ [ [ 0 , 0 , 0 ] , [ 10 , 0 , 0 ] , [ 20 , 0 , 0 ] ] , [ [ 0 , 6 , 0 ] , [ 10 , 6 , 0 ] , [ 20 , 6 , 0 ] ] , [ [ 0 , -5 , 0 ] , [ 0 , 7.5 , 0 ] , [ 0 , 20 , 0 ] ] ] , points : [] } }
+batch-136 failed cases: []
