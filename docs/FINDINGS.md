@@ -1376,8 +1376,8 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   the axis); OCCT's default corrected Frenet frame turns it against the torsion, so along a path that leaves its
   plane with no straight stretch the engine sweeps with the Frenet frame. Onshape's helix is its own fit, 7 µm off
   the engine's. A tee of pipes (radius 5 and 4, the fillet reaching the larger pipe's equator) has its joint filleted
-  as batch 128's tees are (OCCT's fillet three faces; filled as part of the solid's closing). Known gap: its 1 mm
-  chamfer measured otherwise along the curve (5.6 mm³ apart).
+  as batch 128's tees are (OCCT's fillet three faces; filled as part of the solid's closing), and its chamfer as
+  batch 129 found Onshape makes them (within 0.005 mm³).
 - **Sphere rims, helices square to the path** (batch 125): a dome (a ball united on a block) filleted at its
   concave foot fills a torus, the arc beyond both faces; the engine revolves it as for a pocket's rim. A pocket's rim
   chamfered 1 mm equally is a cone through the point 1 mm out along the plane and the point 1 mm away on the sphere
@@ -1417,8 +1417,22 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   boundary): OCCT's offsets of the tee lose the branch's bore and come out valid, so the engine refuses that shell
   rather than build it wrong. A pipe joint crossing both pipes' seams is shown as one edge, as Onshape's (its pieces
   between the same two faces, running on smoothly). A capsule shelled open at its base and a shelled box's window
-  filleted match as built. Known gaps: the tee's chamfer (its 1 mm measured otherwise), its shell, and crossing
-  pipes' fillets (OCCT's three faces a joint, within 0.01 mm² of Onshape's one).
+  filleted match as built. Known gaps: the tee's shell, and crossing pipes' fillets (OCCT's three faces a joint,
+  within 0.01 mm² of Onshape's one). (The tee's chamfer: batch 129.)
+- **Where equal chamfers of curved edges meet their faces** (batch 129): along circles between surfaces of revolution
+  (a spherical pocket's rim, a cone standing on a plate, its foot and its top) the feet are the width from the edge in
+  a straight line square to it, as batch 125 found. Along intersection curves (a tee's joint at 1 and 2 mm, a boss
+  rising from a lying cylinder, a cross hole's mouth) they are where a ball of that radius touching both faces touches
+  them, the fillet's edges: at the tee's side (y = 3) the branch's foot is at z = √105 = 10.247 and the pipe's at
+  (3.6364, 9.3154), the ball's, exactly; the chamfer is the ruled surface joining the points each ball touches (std's
+  default `ChamferMethod.FACE_OFFSET`, "Offset"). At a square corner the two agree. OCCT's chamfer puts the feet the
+  width away as along circles (the tee's 1 mm chamfer added 10.18 mm³ to Onshape's 7.27). The engine builds such
+  chamfers from the fillet of their width, its face swapped for the ruled surface between its edges (each point on
+  one edge paired with the point its ball touches on the other face): within 0.03 mm³ of Onshape's, whose surface is
+  its own fit. Batches 124 c008 and 128 c002, the tees' chamfers, match so too.
+  Batch 130: along straight edges at 60°, 120° and a 120° concave corner, the feet are the width from the edge too
+  (the ball's would be cot(α/2) of it), as OCCT's; uneven chamfers of a cone's foot match. Known gap: uneven
+  chamfers along an intersection curve (a tee's joint with offsets 1 and 2, and 1 mm at 30°), whose rule isn't found.
 
 ## STEP export
 

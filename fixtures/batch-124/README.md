@@ -14,4 +14,4 @@ Findings (docs/FINDINGS.md): OCCT leaves an intersection curve in pieces where P
 top, the cross hole's mouths); a plane–sphere rim's fillet is a torus, which OCCT's fillet can't make across the
 sphere's seam; a square swept along a helix keeps square to its axis (the Frenet frame). The tee's shell, which
 OCCT's thick solid can't build, is cut by the solid offset face by face. The tee's fillet, which OCCT's fillet
-makes in three faces, is filled as part of the solid's closing. Known gap: its chamfer's 1 mm measured otherwise.
+makes in three faces, is filled as part of the solid's closing. Its chamfer runs between the fillet's edges, as batch 129 found.

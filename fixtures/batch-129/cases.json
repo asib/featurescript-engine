@@ -1,0 +1,77 @@
+{
+  "batch": "129",
+  "title": "where equal chamfers of curved edges meet their faces",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "chamfer",
+      "description": "a tee of a pipe of radius 10 and a branch of radius 3: the joint chamfered 1 mm",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "chamfer",
+      "description": "a tee of a pipe of radius 10 and a branch of radius 3: the joint chamfered 2 mm",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "chamfer",
+      "description": "a cylinder of radius 10 lying along x with a boss of radius 3 rising from its axis at x = 5: the foot chamfered 1 mm",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "chamfer",
+      "description": "a cylinder of radius 10 lying along x with a hole of radius 2 cut down through it at x = 5: the top mouth chamfered 0.5 mm",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "chamfer",
+      "description": "a 30 × 20 × 10 block with a pocket of a sphere (radius 6) centred 2 above its top: the rim chamfered 1 mm",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "chamfer",
+      "description": "a cone frustum (radius 8 to 4, 10 tall) standing on a 30 × 30 × 5 plate: its foot chamfered 1 mm",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "chamfer",
+      "description": "a cone frustum (radius 8 to 4, 10 tall) standing on a 30 × 30 × 5 plate: its top edge chamfered 1 mm",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    }
+  ]
+}

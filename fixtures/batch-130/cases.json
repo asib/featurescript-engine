@@ -1,0 +1,67 @@
+{
+  "batch": "130",
+  "title": "chamfers where the two rules differ: corners other than square, uneven chamfers of curved edges",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "chamfer",
+      "description": "an equilateral triangular prism (side 20, 20 tall): an upright 60° edge chamfered 2 mm",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "chamfer",
+      "description": "a regular hexagonal prism (side 10, 20 tall): an upright 120° edge chamfered 2 mm",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "chamfer",
+      "description": "a prism of a V (its inner corner 120°, 20 tall): the concave upright edge chamfered 2 mm",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "chamfer",
+      "description": "a tee of a pipe of radius 10 and a branch of radius 3: the joint chamfered with offsets 1 and 2",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "chamfer",
+      "description": "a tee of a pipe of radius 10 and a branch of radius 3: the joint chamfered 1 mm at 30°",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "chamfer",
+      "description": "a cone frustum (radius 8 to 4, 10 tall) standing on a 30 × 30 × 5 plate: its foot chamfered with offsets 1 and 2",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    }
+  ]
+}

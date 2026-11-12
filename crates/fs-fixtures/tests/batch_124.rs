@@ -3,18 +3,19 @@
 
 use std::path::PathBuf;
 
-/// Cases the engine can't build as Onshape does yet (see docs/std-coverage.md): the tee's joint chamfered,
-/// Onshape's 1 mm measured otherwise along the curve between two cylinders (c008: 5.6 mm³ apart).
-const KNOWN_GAPS: &[&str] = &["c008"];
+/// Cases the engine can't build as Onshape does yet (see docs/std-coverage.md): none.
+const KNOWN_GAPS: &[&str] = &[];
 
 /// The bowl's two spheres from two kernels, a hair apart, defeat OCCT's boolean between them (it reports the
 /// whole volume); Onshape's volume, area and box of it match.
-const UNCOMPARABLE: &[&str] = &["c010.1: the shapes differ"];
+const UNCOMPARABLE: &[&str] = &["c010.1: the shapes differ", "c008.1: the shapes differ"];
 
 /// Sweeps along a helix (c001, c002): Onshape's helix is its own fit, micrometres off the engine's (7 µm between
 /// the springs' surfaces), so areas differ by up to 0.004 mm². (The profiles lie 18° off square to the path, the
 /// generator having taken the helix's hand the wrong way round; both sweep them alike.)
-const LOOSE: &[(&str, f64)] = &[("c001", 0.01), ("c002", 0.01)];
+/// The tee's chamfer (c008): Onshape's surface between the fillet's edges is its own fit, 0.016 mm² off the engine's
+/// (volumes within 0.005 mm³; the shapes too close for OCCT's boolean between them).
+const LOOSE: &[(&str, f64)] = &[("c001", 0.01), ("c002", 0.01), ("c008", 0.05)];
 
 #[test]
 fn batch_124_matches_onshape() {
@@ -29,7 +30,6 @@ fn batch_124_matches_onshape() {
             .into_iter()
             .filter(|p| {
                 !KNOWN_GAPS.iter().chain(UNCOMPARABLE).any(|case| p.starts_with(case))
-                    && !p.starts_with("engine STEP: c008.1")
             })
             .collect();
         assert!(unexpected.is_empty(), "{report}");

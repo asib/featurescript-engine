@@ -3,17 +3,19 @@
 
 use std::path::PathBuf;
 
-/// Cases the engine can't build as Onshape does yet (see docs/std-coverage.md): the tee's joint chamfered, its
-/// 1 mm measured otherwise (c002: 0.85 mm² apart); the tee shelled open at its ends, which OCCT's offsets make
-/// without the branch's bore (c003: refused rather than built wrong); the crossing pipes' joints filleted, OCCT's
-/// fillet three faces each where Onshape's is one (c007: areas 0.01 mm² apart).
-const KNOWN_GAPS: &[&str] = &["c002", "c003", "c007"];
+/// Cases the engine can't build as Onshape does yet (see docs/std-coverage.md): the tee shelled open at its ends,
+/// which OCCT's offsets make without the branch's bore (c003: refused rather than built wrong); the crossing pipes'
+/// joints filleted, OCCT's fillet three faces each where Onshape's is one (c007: areas 0.01 mm² apart).
+const KNOWN_GAPS: &[&str] = &["c003", "c007"];
+
+/// The tee's chamfer (c002): Onshape's surface between the fillet's edges is its own fit, 0.012 mm² off.
+const LOOSE: &[(&str, f64)] = &[("c002", 0.05)];
 
 #[test]
 fn batch_128_matches_onshape() {
     fs_interp::run_with_large_stack(|| {
         let batch = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/batch-128");
-        let report = fs_fixtures::check_batch(&batch, None).unwrap();
+        let report = fs_fixtures::check_batch_with(&batch, None, LOOSE).unwrap();
         let unexpected: Vec<String> = report
             .problems()
             .into_iter()
