@@ -1,0 +1,77 @@
+{
+  "batch": "128",
+  "title": "joints of curved faces: tees, a capsule, a window, a boss on a pipe, crossing pipes",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "fillet",
+      "description": "a tee of a pipe of radius 10 and a branch of radius 3: the joint filleted 1 mm",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "chamfer",
+      "description": "a tee of a pipe of radius 10 and a branch of radius 3: the joint chamfered 1 mm",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "shell",
+      "description": "a tee of a pipe of radius 10 and a branch of radius 3: shelled 1 mm inwards, open at its three ends",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "shell",
+      "description": "a capsule (a cylinder of radius 10, 20 tall, capped by a hemisphere) shelled 1 mm inwards, open at its base",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "fillet",
+      "description": "a 40 × 30 × 20 box shelled 2 mm open at its top, a 16 × 8 window cut through its front: the window's outer edges filleted 0.5 mm",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "fillet",
+      "description": "a cylinder of radius 10 lying along x with a boss of radius 3 rising from its axis to z = 20: the boss's foot filleted 1 mm",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "fillet",
+      "description": "pipes of radius 5 along x and radius 4 along y crossing, united: their joints filleted 1 mm",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    }
+  ]
+}

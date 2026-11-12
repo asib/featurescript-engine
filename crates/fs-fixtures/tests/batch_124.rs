@@ -3,10 +3,9 @@
 
 use std::path::PathBuf;
 
-/// Cases the engine can't build as Onshape does yet (see docs/std-coverage.md): the tee's joint filleted, OCCT's
-/// fillet three B-spline faces where Onshape's is one (c007: areas 0.005 mm² apart); chamfered, Onshape's 1 mm
-/// measured otherwise along the curve between two cylinders (c008: 5.6 mm³ apart).
-const KNOWN_GAPS: &[&str] = &["c007", "c008"];
+/// Cases the engine can't build as Onshape does yet (see docs/std-coverage.md): the tee's joint chamfered,
+/// Onshape's 1 mm measured otherwise along the curve between two cylinders (c008: 5.6 mm³ apart).
+const KNOWN_GAPS: &[&str] = &["c008"];
 
 /// The bowl's two spheres from two kernels, a hair apart, defeat OCCT's boolean between them (it reports the
 /// whole volume); Onshape's volume, area and box of it match.

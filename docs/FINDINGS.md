@@ -1375,9 +1375,9 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   A profile swept along a helix keeps its place in the path's Frenet frame (a square's box stays ±11.0011 about
   the axis); OCCT's default corrected Frenet frame turns it against the torsion, so along a path that leaves its
   plane with no straight stretch the engine sweeps with the Frenet frame. Onshape's helix is its own fit, 7 µm off
-  the engine's. Known gaps: a tee of pipes (radius 5 and 4, the fillet reaching the larger pipe's equator) has its
-  joint filleted in three B-spline faces where Onshape's is one, its 1 mm chamfer measured otherwise along the curve
-  (5.6 mm³ apart).
+  the engine's. A tee of pipes (radius 5 and 4, the fillet reaching the larger pipe's equator) has its joint filleted
+  as batch 128's tees are (OCCT's fillet three faces; filled as part of the solid's closing). Known gap: its 1 mm
+  chamfer measured otherwise along the curve (5.6 mm³ apart).
 - **Sphere rims, helices square to the path** (batch 125): a dome (a ball united on a block) filleted at its
   concave foot fills a torus, the arc beyond both faces; the engine revolves it as for a pocket's rim. A pocket's rim
   chamfered 1 mm equally is a cone through the point 1 mm out along the plane and the point 1 mm away on the sphere
@@ -1408,6 +1408,17 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   filleted as a plane's rim round a sphere is, the torus tangent to both circles in the half plane (OCCT's fillet
   fails there); and a top thickened with the fillet on its edge has one wall at each end, the walls on one plane from
   neighbouring edges merged (the caps kept as they are).
+- **Joints of curved faces** (batch 128): a concave joint between cylinders (a tee of a pipe of radius 10 and a
+  branch of radius 3; a boss rising from a lying cylinder) filleted 1 mm: OCCT's fillet comes out in three faces with
+  edges a millimetre out, so the engine fills it as part of the solid's morphological closing (grown by the radius
+  with sharp joins, so the joint stays an edge, mended where OCCT leaves a face's wires out of order, then shrunk
+  back with round joins, which round it), the material added along the joint united with the solid: one face, as
+  Onshape's (to 1e-4 mm²). A shell is accepted only whole (a point the thickness in from each face kept lies on its
+  boundary): OCCT's offsets of the tee lose the branch's bore and come out valid, so the engine refuses that shell
+  rather than build it wrong. A pipe joint crossing both pipes' seams is shown as one edge, as Onshape's (its pieces
+  between the same two faces, running on smoothly). A capsule shelled open at its base and a shelled box's window
+  filleted match as built. Known gaps: the tee's chamfer (its 1 mm measured otherwise), its shell, and crossing
+  pipes' fillets (OCCT's three faces a joint, within 0.01 mm² of Onshape's one).
 
 ## STEP export
 

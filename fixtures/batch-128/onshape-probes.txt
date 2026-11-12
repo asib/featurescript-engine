@@ -1,0 +1,8 @@
+probe c001 { bodies : [ { area : 3957.240290640358 , bounds : [ -25 , -10 , -10 , 25 , 10 , 20 ] , edges : 5 , faces : 6 , name : c001.1 , type : SOLID , vertices : 0 , volume : 15996.858448482979 } ] , construction : [] }
+probe c002 { bodies : [ { area : 3955.9669172650415 , bounds : [ 375 , -10 , -10 , 425.00000000000006 , 10 , 20 ] , edges : 5 , faces : 6 , name : c002.1 , type : SOLID , vertices : 0 , volume : 16001.19306611032 } ] , construction : [] }
+probe c003 { bodies : [ { area : 6395.316116707084 , bounds : [ 775 , -10 , -10 , 825.0000000000001 , 10 , 20 ] , edges : 8 , faces : 7 , name : c003.1 , type : SOLID , vertices : 0 , volume : 3131.5415347570347 } ] , construction : [] }
+probe c004 { bodies : [ { area : 3584.557141064091 , bounds : [ 1190 , -10 , 0 , 1210 , 10 , 30.000000000000014 ] , edges : 4 , faces : 5 , name : c004.1 , type : SOLID , vertices : 0 , volume : 1761.3862360452692 } ] , construction : [] }
+probe c005 { bodies : [ { area : 7261.840704324177 , bounds : [ 1600 , 0 , 0 , 1640.0000000000002 , 30 , 20 ] , edges : 44 , faces : 19 , name : c005.1 , type : SOLID , vertices : 28 , volume : 6893.376848082256 } ] , construction : [] }
+probe c006 { bodies : [ { area : 3328.921743154923 , bounds : [ 1980 , -10 , -10 , 2020 , 10 , 20 ] , edges : 5 , faces : 6 , name : c006.1 , type : SOLID , vertices : 0 , volume : 12855.26579013184 } ] , construction : [] }
+probe c007 { bodies : [ { area : 2195.1785912544 , bounds : [ 2380 , -20 , -5 , 2420 , 20 , 5 ] , edges : 8 , faces : 9 , name : c007.1 , type : SOLID , vertices : 0 , volume : 4698.766402648684 } ] , construction : [] }
+batch-128 failed cases: []
