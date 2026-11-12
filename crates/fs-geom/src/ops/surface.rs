@@ -1771,18 +1771,39 @@ pub fn ruled_surface(model: &mut Model, id: FeatureId, definition: &Value) -> R<
             };
             if overrides.iter().any(|o| {
                 (values::norm(values::sub(o.vertex, a)) < 1e-7 || values::norm(values::sub(o.vertex, b)) < 1e-7)
-                    && (o.up_to.is_some() || o.direction.is_some())
+                    && o.direction.is_some()
             }) {
-                return Err(error("@opRuledSurface: up to or along overrides on curved edges aren't supported yet"));
+                return Err(error("@opRuledSurface: along-a-vector overrides on curved edges aren't supported yet"));
             }
             let (w0, w1) = (width_at(a).unwrap_or(width), width_at(b).unwrap_or(width));
             let (a0, a1) = (angle_at(a).unwrap_or(angle), angle_at(b).unwrap_or(angle));
             let smooth = |t: f64| if cubic { t * t * (3.0 - 2.0 * t) } else { t };
+            // The frame the rulings turn with: the rulings at angle 0 and a quarter turn, and the edge's tangent.
+            let frame_at = |t: f64| -> R<[occt::Vec3; 3]> {
+                let along = edge.edge_tangent(t, true).map_err(occt_error)?.direction;
+                Ok([direction_at(edge, 0.0, t)?, direction_at(edge, std::f64::consts::FRAC_PI_2, t)?, along])
+            };
+            // Each end's ruling (an up-to point's from the vertex to it), held in that frame.
+            let end_ruling = |t: f64, p: occt::Vec3, w: f64, angle: f64| -> R<[f64; 3]> {
+                let v = match overrides.iter().find(|o| values::norm(values::sub(o.vertex, p)) < 1e-7).and_then(|o| o.up_to) {
+                    Some(q) => values::sub(q, p),
+                    None => values::scale(direction_at(edge, angle, t)?, w),
+                };
+                let f = frame_at(t)?;
+                Ok([values::dot(v, f[0]), values::dot(v, f[1]), values::dot(v, f[2])])
+            };
+            let (r0, r1) = (end_ruling(0.0, a, w0, a0)?, end_ruling(1.0, b, w1, a1)?);
+            // Onshape blends the ends' rulings as vectors in that frame (batch 139: normal at one end and tangent at
+            // the other, its far edge shorter between them; up to a point at one end).
             let far_at = |t: f64| -> R<occt::Vec3> {
                 let s = smooth(t);
                 let point = edge.edge_tangent(t, true).map_err(occt_error)?.origin;
-                let d = direction_at(edge, a0 + (a1 - a0) * s, t)?;
-                Ok(values::add(point, values::scale(d, w0 + (w1 - w0) * s)))
+                let f = frame_at(t)?;
+                let c: Vec<f64> = (0..3).map(|k| r0[k] + (r1[k] - r0[k]) * s).collect();
+                Ok(values::add(
+                    point,
+                    values::add(values::add(values::scale(f[0], c[0]), values::scale(f[1], c[1])), values::scale(f[2], c[2])),
+                ))
             };
             let n = 32;
             let parameters: Vec<f64> = (0..=n).map(|k| k as f64 / n as f64).collect();
