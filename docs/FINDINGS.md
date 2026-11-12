@@ -1364,7 +1364,11 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
 - **Everyday modelling** (batch 124): where a boolean or an extrude up to a curved face leaves an intersection curve,
   OCCT cuts it into pieces (B-splines meeting at vertices only they share) and Parasolid keeps one edge: a boss up to
   a lying cylinder's side has two edges, a cross hole through a lying cylinder four. The engine concatenates such
-  B-splines (`BRepLib_FuseEdges` with B-spline concatenation, after booleans and on an extrude's piece up to a face).
+  B-splines after booleans and on an extrude's piece up to a face: chains of B-spline edges between the same two
+  faces meeting at vertices only they share are concatenated (each piece turned to run along the chain), the curves
+  on both faces projected again, kept only where the joined edge is as tight as its pieces. (`BRepLib_FuseEdges`'s
+  own concatenation joined a cross hole's lower mouth with a vertex 3 mm out of tolerance, and changes the
+  tolerances of the shape it is given in place; it now joins conics only.)
   A fillet of the circle where a block's top meets a spherical pocket is a torus; OCCT's fillet breaks where the
   sphere's seam meets the circle (six B-spline scraps), so the engine revolves the section (the arc tangent to the
   plane's line and the sphere's circle) round the circle's axis and cuts it away, exactly Onshape's (2244.82030 mm²).
@@ -1378,8 +1382,11 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   concave foot fills a torus, the arc beyond both faces; the engine revolves it as for a pocket's rim. A pocket's rim
   chamfered 1 mm equally is a cone through the point 1 mm out along the plane and the point 1 mm away on the sphere
   in a straight line (16.28845 mm³ removed, as Onshape's; by arc length it would be 16.27195): the engine revolves
-  that line. Sweeps along helices square to the path, both hands, match to Onshape's helix fit. Known gap: a cross
-  hole's mouth filleted (OCCT's fillet two lopsided faces with edges 0.7 mm out of tolerance).
+  that line. Sweeps along helices square to the path, both hands, match to Onshape's helix fit. A cross hole's
+  mouth filleted 0.5 mm: OCCT's fillet comes out with edges 0.7 mm out of tolerance, so where a fillet does that, a
+  closed edge is rounded as part of the solid's morphological opening (eroded by the radius in intersection mode,
+  its intersection curves joined, grown back with round joins: every ball of that radius inside it), the sliver
+  the opening takes off along the edge cut away: one face, as Onshape's (to 7e-5 mm² and 2e-5 mm³).
 - **Shells OCCT's thick solid can't make** (batches 124 c009, 125 c007): a tee of pipes open at its ends and a
   hemisphere open at its flat face come out of `BRepOffsetAPI_MakeThickSolid` invalid, and the failed attempt leaves
   the solid it was given damaged in place (its edges' tolerances and curves changed: a second attempt hands back
