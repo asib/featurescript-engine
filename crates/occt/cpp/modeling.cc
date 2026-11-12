@@ -591,6 +591,50 @@ TopoDS_Shape planar_cavity(const TopoDS_Shape &solid, const TopTools_ListOfShape
 
 }  // namespace
 
+namespace {
+
+// Whether a shell came out whole: a point on each face kept, moved the thickness in from it, lies on the result's
+// boundary (a shell that lost a face's offset leaves material there instead: a tee's branch bore, batch 128 c003).
+bool shell_whole(const TopoDS_Shape &solid, const TopTools_ListOfShape &removed, const TopoDS_Shape &result, double thickness) {
+  TopTools_MapOfShape gone;
+  for (const TopoDS_Shape &f : removed) gone.Add(f);
+  for (TopExp_Explorer f(solid, TopAbs_FACE); f.More(); f.Next()) {
+    if (gone.Contains(f.Current())) continue;
+    const TopoDS_Face &face = TopoDS::Face(f.Current());
+    BRepAdaptor_Surface surface(face);
+    double u0 = surface.FirstUParameter(), u1 = surface.LastUParameter(), v0 = surface.FirstVParameter(), v1 = surface.LastVParameter();
+    // A point inside the face: tried at a few places in its parameter box.
+    bool checked = false;
+    for (double fu : {0.5, 0.3, 0.7}) {
+      for (double fv : {0.5, 0.3, 0.7}) {
+        double u = u0 + fu * (u1 - u0), v = v0 + fv * (v1 - v0);
+        gp_Pnt p;
+        gp_Vec du, dv;
+        surface.D1(u, v, p, du, dv);
+        BRepExtrema_DistShapeShape on(BRepBuilderAPI_MakeVertex(p).Vertex(), face);
+        if (!on.IsDone() || on.Value() > 1e-7) continue;
+        gp_Vec n = du.Crossed(dv);
+        if (n.Magnitude() < 1e-12) continue;
+        n.Normalize();
+        if (face.Orientation() == TopAbs_REVERSED) n.Reverse();
+        // Inwards for an inward shell (`thickness` negative), outwards otherwise.
+        gp_Pnt moved = p.Translated(n * thickness);
+        BRepExtrema_DistShapeShape distance(BRepBuilderAPI_MakeVertex(moved).Vertex(), result);
+        if (!distance.IsDone()) return false;
+        // On the boundary, not inside the material.
+        BRepClass3d_SolidClassifier classifier(result, moved, 1e-6);
+        if (classifier.State() == TopAbs_IN) return false;
+        checked = true;
+        break;
+      }
+      if (checked) break;
+    }
+  }
+  return true;
+}
+
+}  // namespace
+
 // Shells a solid, removing `faces`: `thickness` positive outward, negative inward. Corners are sharp, as in Onshape.
 // Where OCCT's thick solid comes out invalid (vertices where four planes meet, as two chamfers do at a block's
 // corner, batch 122 c008), an all-planar solid shelled inwards is cut by its cavity built plane by plane.
@@ -608,7 +652,24 @@ std::unique_ptr<Operation> shell_op(const Shape &solid, const ShapeList &faces, 
   maker.MakeThickSolidByJoin(copy, copied_faces, thickness, 1e-7, BRepOffset_Skin, Standard_False, Standard_False,
                              GeomAbs_Intersection);
   maker.Build();
-  if (maker.IsDone() && BRepCheck_Analyzer(maker.Shape()).IsValid()) {
+  // Every face kept must have its offset in the result: OCCT's can come out valid with one missing (a tee of
+  // pipes, its branch's bore, batch 128 c003).
+  bool complete = maker.IsDone();
+  if (complete) {
+    TopTools_MapOfShape removed;
+    for (const TopoDS_Shape &f : copied_faces) removed.Add(f);
+    TopTools_IndexedMapOfShape result_faces;
+    TopExp::MapShapes(maker.Shape(), TopAbs_FACE, result_faces);
+    for (TopExp_Explorer f(copy, TopAbs_FACE); f.More() && complete; f.Next()) {
+      if (removed.Contains(f.Current())) continue;
+      bool imaged = false;
+      for (const TopoDS_Shape &g : maker.Generated(f.Current())) imaged = imaged || result_faces.Contains(g);
+      for (const TopoDS_Shape &g : maker.Modified(f.Current()))
+        imaged = imaged || (result_faces.Contains(g) && !g.IsSame(f.Current()));
+      if (!imaged) complete = false;
+    }
+  }
+  if (complete && BRepCheck_Analyzer(maker.Shape()).IsValid()) {
     auto op = std::make_unique<Operation>();
     op->history = new BRepTools_History(one(solid.shape), copier);
     op->history->Merge(new BRepTools_History(one(copy), maker));
@@ -639,10 +700,110 @@ std::unique_ptr<Operation> shell_op(const Shape &solid, const ShapeList &faces, 
         if (offset.IsDone() && BRepCheck_Analyzer(offset.Shape()).IsValid()) {
           BRepAlgoAPI_Cut cut(solid.shape, offset.Shape());
           cut.Build();
-          if (cut.IsDone() && BRepCheck_Analyzer(cut.Shape()).IsValid()) return finish(one(solid.shape), cut, "shell");
+          if (cut.IsDone() && BRepCheck_Analyzer(cut.Shape()).IsValid() &&
+              shell_whole(solid.shape, to_list(faces), cut.Shape(), thickness))
+            return finish(one(solid.shape), cut, "shell");
         }
       } catch (const Standard_Failure &) {
       }
+    }
+    // Otherwise, where each removed face is planar and its neighbours run straight along its normal from it
+    // (planes square to it, cylinders along it): the whole solid offset inwards, its images of the removed faces
+    // run out past the solid, and that cavity cut away (a tee of pipes, batch 128 c003).
+    try {
+      BRepOffsetAPI_MakeOffsetShape inner;
+      inner.PerformByJoin(BRepBuilderAPI_Copy(solid.shape, Standard_True).Shape(), thickness, 1e-7, BRepOffset_Skin,
+                          Standard_False, Standard_False, GeomAbs_Intersection);
+      bool ok = inner.IsDone() && !inner.Shape().IsNull() && BRepCheck_Analyzer(inner.Shape()).IsValid();
+      TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
+      TopExp::MapShapesAndUniqueAncestors(solid.shape, TopAbs_EDGE, TopAbs_FACE, edge_faces);
+      std::vector<std::pair<gp_Dir, TopoDS_Face>> removed;
+      for (const TopoDS_Shape &f : faces.shapes) {
+        if (!ok) break;
+        Handle(Geom_Plane) plane = Handle(Geom_Plane)::DownCast(BRep_Tool::Surface(TopoDS::Face(f)));
+        if (plane.IsNull()) { ok = false; break; }
+        gp_Dir normal = plane->Pln().Axis().Direction();
+        if (!plane->Pln().Position().Direct()) normal.Reverse();
+        if (f.Orientation() == TopAbs_REVERSED) normal.Reverse();
+        for (TopExp_Explorer e(f, TopAbs_EDGE); e.More() && ok; e.Next()) {
+          if (!edge_faces.Contains(e.Current())) continue;
+          for (const TopoDS_Shape &g : edge_faces.FindFromKey(e.Current())) {
+            if (g.IsSame(f)) continue;
+            BRepAdaptor_Surface surface(TopoDS::Face(g));
+            if (surface.GetType() == GeomAbs_Plane) {
+              if (std::abs(gp_Vec(surface.Plane().Axis().Direction()).Dot(gp_Vec(normal))) > 1e-9) ok = false;
+            } else if (surface.GetType() == GeomAbs_Cylinder) {
+              if (!surface.Cylinder().Axis().Direction().IsParallel(normal, 1e-9)) ok = false;
+            } else {
+              ok = false;
+            }
+          }
+        }
+        removed.push_back({normal, TopoDS::Face(f)});
+      }
+      // The images of the removed faces in the offset: its planar faces parallel to them, a thickness in.
+      TopoDS_Shape cavity = ok ? inner.Shape() : TopoDS_Shape();
+      for (auto &[normal, face] : removed) {
+        if (!ok) break;
+        gp_Pln original = Handle(Geom_Plane)::DownCast(BRep_Tool::Surface(face))->Pln();
+        bool found = false;
+        for (TopExp_Explorer g(inner.Shape(), TopAbs_FACE); g.More(); g.Next()) {
+          Handle(Geom_Plane) p = Handle(Geom_Plane)::DownCast(BRep_Tool::Surface(TopoDS::Face(g.Current())));
+          if (p.IsNull() || !p->Pln().Axis().Direction().IsParallel(normal, 1e-9)) continue;
+          if (std::abs(original.Distance(p->Pln().Location()) - std::abs(thickness)) > 1e-9) continue;
+          // Swept back from beyond the solid to it, its walls' cylinders running as the offset's next to it.
+          TopoDS_Shape start = BRepBuilderAPI_Copy(g.Current(), Standard_True).Shape();
+          bool backwards = false;
+          {
+            TopTools_IndexedDataMapOfShapeListOfShape inner_edges;
+            TopExp::MapShapesAndUniqueAncestors(inner.Shape(), TopAbs_EDGE, TopAbs_FACE, inner_edges);
+            for (TopExp_Explorer e(g.Current(), TopAbs_EDGE); e.More(); e.Next()) {
+              if (!inner_edges.Contains(e.Current())) continue;
+              for (const TopoDS_Shape &h : inner_edges.FindFromKey(e.Current())) {
+                BRepAdaptor_Surface surface(TopoDS::Face(h), Standard_False);
+                if (surface.GetType() == GeomAbs_Cylinder &&
+                    gp_Vec(surface.Cylinder().Axis().Direction()).Dot(gp_Vec(normal)) < 0)
+                  backwards = true;
+              }
+            }
+          }
+          gp_Vec sweep = gp_Vec(normal) * (-3 * thickness);
+          if (backwards) {
+            gp_Trsf out;
+            out.SetTranslation(sweep);
+            start = BRepBuilderAPI_Transform(start, out, Standard_True).Shape();
+            sweep.Reverse();
+          }
+          BRepPrimAPI_MakePrism prism(start, sweep);
+          if (!prism.IsDone()) { ok = false; break; }
+          TopExp_Explorer solids(prism.Shape(), TopAbs_SOLID);
+          if (!solids.More()) { ok = false; break; }
+          TopoDS_Solid run = TopoDS::Solid(solids.Current());
+          BRepLib::OrientClosedSolid(run);
+          BRepAlgoAPI_Fuse fuse(cavity, run);
+          fuse.Build();
+          if (!fuse.IsDone()) { ok = false; break; }
+          cavity = fuse.Shape();
+          found = true;
+          break;
+        }
+        if (!found) ok = false;
+      }
+      if (ok) {
+        BRepAlgoAPI_Cut cut(solid.shape, cavity);
+        cut.Build();
+        if (cut.IsDone() && BRepCheck_Analyzer(cut.Shape()).IsValid() &&
+            shell_whole(solid.shape, to_list(faces), cut.Shape(), thickness)) {
+          // The run-outs' walls carry on the offset's: one face each, as Onshape's.
+          auto op = finish(one(solid.shape), cut, "shell");
+          ShapeUpgrade_UnifySameDomain unify(op->result, Standard_True, Standard_True, Standard_False);
+          unify.Build();
+          op->history->Merge(unify.History());
+          op->result = unify.Shape();
+          return op;
+        }
+      }
+    } catch (const Standard_Failure &) {
     }
   }
   throw std::runtime_error("shell failed");
