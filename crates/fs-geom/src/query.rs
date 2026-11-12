@@ -525,9 +525,23 @@ fn resolve(model: &Model, query: &Value) -> R<Vec<EntityRef>> {
         "CONTAINS_POINT" => {
             let point = values::vec3(field(query, "point"), "qContainsPoint point")?;
             let vertex = occt::vertex(point).map_err(crate::occt_error)?;
+            let near = |shape: &occt::Shape| shape.distance(&vertex).is_ok_and(|d| d.distance <= CONTAINS_TOLERANCE);
+            // A closed edge OCCT split at a seam vertex is shown as its first piece: the point may be on another
+            // (where two balls meet, batch 127 c007).
+            let mut pieces: std::collections::HashMap<usize, Vec<(occt::Shape, occt::Shape)>> = Default::default();
             sub(model, query, "subquery")?
                 .into_iter()
-                .filter(|r| model.shape(*r).distance(&vertex).is_ok_and(|d| d.distance <= CONTAINS_TOLERANCE))
+                .filter(|r| {
+                    let shape = model.shape(*r);
+                    if near(shape) {
+                        return true;
+                    }
+                    if r.kind != EntityType::Edge {
+                        return false;
+                    }
+                    let hidden = pieces.entry(r.body).or_insert_with(|| model.bodies[r.body].shape.hidden_edge_pieces());
+                    hidden.iter().any(|(shown, piece)| shown.is_same(shape) && near(piece))
+                })
                 .collect()
         }
         // A sketch entity's edges, vertices or bodies. The operation id is the sketch's id, perhaps with "wireOp"
