@@ -1451,7 +1451,6 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   surfaces of extrusion where Onshape's walls are planes, so the engine remakes straight B-spline and Bézier edges
   of a planar face as lines before sweeping it. The round relief and the closed corner match within 0.01 (as in
   batches 013 and 016).
-
 - **Non-circular fillets of curved edges** (batch 132): along a tee's joint, a boss's foot on a pipe, a spherical
   pocket's rim, a cone's foot and the circle where two balls meet, Onshape's conic, curvature and uneven fillets have
   their feet where the rolling ball touches the faces (its centre `d₁` and `d₂` off them; within 1e-6 mm), and
