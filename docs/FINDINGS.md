@@ -1414,13 +1414,16 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   with sharp joins, so the joint stays an edge, mended where OCCT leaves a face's wires out of order, then shrunk
   back with round joins, which round it), the material added along the joint united with the solid: one face, as
   Onshape's (to 1e-4 mm²). A shell is accepted only whole (a point the thickness in from each face kept lies on its
-  boundary): OCCT's offsets of the tee lose the branch's bore and come out valid, so the engine refuses that shell
-  rather than build it wrong. A pipe joint crossing both pipes' seams is shown as one edge, as Onshape's (its pieces
+  boundary): OCCT's offsets of the tee lose the branch's bore and come out valid. So the engine builds that cavity
+  from the surfaces: each kept face's offset a thickness in and each removed face's own, bounded to cover the solid,
+  split against each other into cells (`BOPAlgo_MakerVolume`), the cells inside the solid farther than the
+  thickness from every kept face cut away, then their walls and the joint's pieces merged: 7 faces and 8 edges,
+  3131.54 mm³, as Onshape's. A pipe joint crossing both pipes' seams is shown as one edge, as Onshape's (its pieces
   between the same two faces, running on smoothly). A capsule shelled open at its base and a shelled box's window
   filleted match as built. Crossing pipes' joints: OCCT's fillet makes three faces a joint and the closing adds
   nothing, so the engine builds the fillet from sections, the ball's arc at each of 96 points round the joint
-  (lofted, closed off past the faces, filled), one face a joint as Onshape's (to 1e-4 mm²). Known gap: the tee's
-  shell. (The tee's chamfer: batch 129.)
+  (lofted, closed off past the faces, filled), one face a joint as Onshape's (to 1e-4 mm²). (The tee's chamfer: batch
+  129.)
 - **Where equal chamfers of curved edges meet their faces** (batch 129): along circles between surfaces of revolution
   (a spherical pocket's rim, a cone standing on a plate, its foot and its top) the feet are the width from the edge in
   a straight line square to it, as batch 125 found. Along intersection curves (a tee's joint at 1 and 2 mm, a boss

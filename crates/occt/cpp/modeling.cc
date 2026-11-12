@@ -3,6 +3,12 @@
 #include "occt/cpp/occt.h"
 
 #include <BRepGProp.hxx>
+#include <GeomAdaptor_Surface.hxx>
+#include <ElSLib.hxx>
+#include <BRepGProp_Face.hxx>
+#include <IntTools_Context.hxx>
+#include <BOPTools_AlgoTools3D.hxx>
+#include <BOPAlgo_MakerVolume.hxx>
 #include <BRepFill.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
@@ -1007,6 +1013,150 @@ namespace {
 
 // Whether a shell came out whole: a point on each face kept, moved the thickness in from it, lies on the result's
 // boundary (a shell that lost a face's offset leaves material there instead: a tee's branch bore, batch 128 c003).
+// The surface of `face` bounded to cover `box`: planes, cylinders and cones cut to its extent (a cone not past its
+// apex), closed surfaces whole. Null for other surfaces.
+TopoDS_Face covering_face(const Handle(Geom_Surface) &surface, const TopoDS_Face &face, const Bnd_Box &box) {
+  double x0, y0, z0, x1, y1, z1;
+  box.Get(x0, y0, z0, x1, y1, z1);
+  std::vector<gp_Pnt> corners;
+  for (double x : {x0, x1})
+    for (double y : {y0, y1})
+      for (double z : {z0, z1}) corners.push_back(gp_Pnt(x, y, z));
+  GeomAdaptor_Surface adaptor(surface);
+  double u0 = 1e100, u1 = -1e100, v0 = 1e100, v1 = -1e100;
+  auto widen = [&](double u, double v) {
+    u0 = std::min(u0, u), u1 = std::max(u1, u), v0 = std::min(v0, v), v1 = std::max(v1, v);
+  };
+  switch (adaptor.GetType()) {
+    case GeomAbs_Plane:
+      for (const gp_Pnt &c : corners) {
+        double u, v;
+        ElSLib::Parameters(adaptor.Plane(), c, u, v);
+        widen(u, v);
+      }
+      break;
+    case GeomAbs_Cylinder:
+      for (const gp_Pnt &c : corners) {
+        double u, v;
+        ElSLib::Parameters(adaptor.Cylinder(), c, u, v);
+        widen(u, v);
+      }
+      u0 = 0, u1 = 2 * M_PI;
+      break;
+    case GeomAbs_Cone: {
+      const gp_Cone cone = adaptor.Cone();
+      const double along = 1 / std::cos(cone.SemiAngle());
+      for (const gp_Pnt &c : corners) {
+        double h = gp_Vec(cone.Location(), c).Dot(gp_Vec(cone.Axis().Direction()));
+        widen(0, h * along);
+      }
+      u0 = 0, u1 = 2 * M_PI;
+      // Not past the apex: kept to the side the face is on.
+      const double apex = -cone.RefRadius() / std::sin(cone.SemiAngle());
+      BRepAdaptor_Surface own(face);
+      double side = 0.5 * (own.FirstVParameter() + own.LastVParameter());
+      if (side > apex) v0 = std::max(v0, apex);
+      else v1 = std::min(v1, apex);
+      if (v1 <= v0) return TopoDS_Face();
+      break;
+    }
+    case GeomAbs_Sphere:
+    case GeomAbs_Torus: {
+      BRepBuilderAPI_MakeFace whole(surface, Precision::Confusion());
+      return whole.IsDone() ? whole.Face() : TopoDS_Face();
+    }
+    default:
+      return TopoDS_Face();
+  }
+  BRepBuilderAPI_MakeFace bounded(surface, u0, u1, v0, v1, Precision::Confusion());
+  return bounded.IsDone() ? bounded.Face() : TopoDS_Face();
+}
+
+// A point strictly inside `cell`: a little in from a point inside one of its faces.
+bool point_in_cell(const TopoDS_Shape &cell, double step, gp_Pnt &out) {
+  Handle(IntTools_Context) context = new IntTools_Context;
+  BRepClass3d_SolidClassifier classifier(cell);
+  for (TopExp_Explorer f(cell, TopAbs_FACE); f.More(); f.Next()) {
+    const TopoDS_Face &face = TopoDS::Face(f.Current());
+    gp_Pnt p;
+    gp_Pnt2d uv;
+    if (BOPTools_AlgoTools3D::PointInFace(face, p, uv, context) != 0) continue;
+    BRepGProp_Face props(face);
+    gp_Pnt q;
+    gp_Vec n;
+    props.Normal(uv.X(), uv.Y(), q, n);
+    if (n.Magnitude() < 1e-12) continue;
+    n.Normalize();
+    for (double sign : {-1.0, 1.0}) {
+      gp_Pnt inside = p.Translated(n * (sign * step));
+      classifier.Perform(inside, 1e-9);
+      if (classifier.State() == TopAbs_IN) {
+        out = inside;
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+// The cavity of a solid shelled inwards, built from the surfaces: each kept face's offset a thickness in and each
+// removed face's own, bounded to cover the solid, split against each other into cells, and the cells inside the
+// solid farther than the thickness from every kept face taken. For where OCCT's offset loses faces (a tee of pipes
+// loses its branch, batch 128 c003). Only planes, cylinders, cones, spheres and tori; null otherwise.
+TopTools_ListOfShape arranged_cavity(const TopoDS_Shape &solid, const TopTools_ListOfShape &removed, double thickness) {
+  TopTools_ListOfShape cells;
+  TopTools_MapOfShape gone;
+  for (const TopoDS_Shape &f : removed) gone.Add(f);
+  Bnd_Box box;
+  BRepBndLib::Add(solid, box);
+  box.Enlarge(std::sqrt(box.SquareExtent()) * 0.1 + 4 * std::abs(thickness));
+  BOPAlgo_MakerVolume maker;
+  TopTools_ListOfShape arguments;
+  TopoDS_Compound kept;
+  BRep_Builder builder;
+  builder.MakeCompound(kept);
+  std::vector<std::tuple<Handle(Geom_Surface), TopLoc_Location, bool>> seen;
+  for (TopExp_Explorer f(solid, TopAbs_FACE); f.More(); f.Next()) {
+    const TopoDS_Face &face = TopoDS::Face(f.Current());
+    const bool keep = !gone.Contains(face);
+    if (keep) builder.Add(kept, face);
+    TopLoc_Location location;
+    Handle(Geom_Surface) raw = BRep_Tool::Surface(face, location);
+    // Faces on one surface (a face split in two) give it once.
+    bool repeated = false;
+    for (auto &[s, l, k] : seen) repeated = repeated || (s == raw && l.IsEqual(location) && k == keep);
+    if (repeated) continue;
+    seen.push_back({raw, location, keep});
+    Handle(Geom_Surface) surface = BRep_Tool::Surface(face);
+    if (keep) {
+      double d = face.Orientation() == TopAbs_REVERSED ? -thickness : thickness;
+      Handle(Geom_OffsetSurface) offset = new Geom_OffsetSurface(surface, d);
+      Handle(Geom_Surface) plain = offset->Surface();
+      if (plain.IsNull()) return TopTools_ListOfShape();
+      surface = plain;
+    }
+    TopoDS_Face covering = covering_face(surface, face, box);
+    if (covering.IsNull()) return TopTools_ListOfShape();
+    arguments.Append(covering);
+  }
+  maker.SetArguments(arguments);
+  maker.SetIntersect(Standard_True);
+  maker.Perform();
+  if (maker.HasErrors()) return TopTools_ListOfShape();
+  const double depth = std::abs(thickness);
+  BRepClass3d_SolidClassifier inside(solid);
+  for (TopExp_Explorer c(maker.Shape(), TopAbs_SOLID); c.More(); c.Next()) {
+    gp_Pnt p;
+    if (!point_in_cell(c.Current(), depth * 0.01, p)) return TopTools_ListOfShape();
+    inside.Perform(p, 1e-9);
+    if (inside.State() != TopAbs_IN) continue;
+    BRepExtrema_DistShapeShape distance(BRepBuilderAPI_MakeVertex(p).Vertex(), kept);
+    if (!distance.IsDone()) return TopTools_ListOfShape();
+    if (distance.Value() >= depth) cells.Append(c.Current());
+  }
+  return cells;
+}
+
 bool shell_whole(const TopoDS_Shape &solid, const TopTools_ListOfShape &removed, const TopoDS_Shape &result, double thickness) {
   TopTools_MapOfShape gone;
   for (const TopoDS_Shape &f : removed) gone.Add(f);
@@ -1212,6 +1362,28 @@ std::unique_ptr<Operation> shell_op(const Shape &solid, const ShapeList &faces, 
           unify.Build();
           op->history->Merge(unify.History());
           op->result = unify.Shape();
+          return op;
+        }
+      }
+    } catch (const Standard_Failure &) {
+    }
+    // Otherwise the cavity built from the faces' surfaces, cell by cell.
+    try {
+      TopTools_ListOfShape cells = arranged_cavity(solid.shape, to_list(faces), thickness);
+      if (!cells.IsEmpty()) {
+        BRepAlgoAPI_Cut cut;
+        cut.SetArguments(one(solid.shape));
+        cut.SetTools(cells);
+        cut.Build();
+        if (cut.IsDone() && BRepCheck_Analyzer(cut.Shape()).IsValid() &&
+            shell_whole(solid.shape, to_list(faces), cut.Shape(), thickness)) {
+          // The cells split the cavity's walls and the curves where they meet: one face and one edge each, as
+          // Onshape's.
+          auto op = finish(one(solid.shape), cut, "shell");
+          ShapeUpgrade_UnifySameDomain unify(op->result, Standard_True, Standard_True, Standard_False);
+          unify.Build();
+          op->history->Merge(unify.History());
+          op->result = edges_fused(unify.Shape(), op->history);
           return op;
         }
       }
