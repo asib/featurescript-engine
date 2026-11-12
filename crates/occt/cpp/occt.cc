@@ -6,6 +6,12 @@
 #include <GeomConvert_CompCurveToBSplineCurve.hxx>
 #include <Geom2d_Curve.hxx>
 #include <BRepBuilderAPI_Copy.hxx>
+#include <Geom_BezierCurve.hxx>
+#include <ElCLib.hxx>
+#include <Geom_Circle.hxx>
+#include <Geom_Line.hxx>
+#include <GC_MakeCircle.hxx>
+#include <BRepLib.hxx>
 #include <GProp_PrincipalProps.hxx>
 #include <algorithm>
 
@@ -466,6 +472,82 @@ TopoDS_Shape edges_fused(const TopoDS_Shape &shape, const Handle(BRepTools_Histo
     }
   }
   return bspline_chains_joined(result, history);
+}
+
+// The shape with its B-spline edges that lie on a line or a circle (within 0.1 µm) given that line or circle as
+// their curve, their curves on their faces refitted: as Onshape's, whose split of a cylinder's side by a rectangle
+// projected onto it has lines up it and arcs round it (batch 138 c005). The faces are kept.
+std::unique_ptr<Operation> canonical_edges_op(const Shape &s) {
+  BRepBuilderAPI_Copy copier(s.shape, Standard_True);
+  const TopoDS_Shape copy = copier.Shape();
+  auto op = std::make_unique<Operation>();
+  TopTools_ListOfShape arguments;
+  arguments.Append(s.shape);
+  op->history = new BRepTools_History(arguments, copier);
+  op->result = copy;
+  TopTools_IndexedMapOfShape edges;
+  TopExp::MapShapes(copy, TopAbs_EDGE, edges);
+  BRep_Builder builder;
+  const double tolerance = 1e-7;
+  for (int i = 1; i <= edges.Extent(); ++i) {
+    TopoDS_Edge edge = TopoDS::Edge(edges(i));
+    if (BRep_Tool::Degenerated(edge)) continue;
+    double first, last;
+    Handle(Geom_Curve) curve = BRep_Tool::Curve(edge, first, last);
+    if (curve.IsNull()) continue;
+    if (!curve->IsKind(STANDARD_TYPE(Geom_BSplineCurve)) && !curve->IsKind(STANDARD_TYPE(Geom_BezierCurve))) continue;
+    const int samples = 32;
+    std::vector<gp_Pnt> points;
+    for (int k = 0; k <= samples; ++k) points.push_back(curve->Value(first + (last - first) * k / samples));
+    const gp_Pnt a = points.front(), m = points[samples / 2], b = points.back();
+    Handle(Geom_Curve) canonical;
+    double c0 = 0, c1 = 0;
+    // A line through its ends.
+    if (a.Distance(b) > 1e-9) {
+      gp_Lin line(a, gp_Dir(gp_Vec(a, b)));
+      bool on = true;
+      for (const gp_Pnt &p : points) on = on && line.Distance(p) < tolerance;
+      if (on) {
+        canonical = new Geom_Line(line);
+        c0 = ElCLib::Parameter(line, a);
+        c1 = ElCLib::Parameter(line, b);
+      }
+    }
+    // A circle through its ends and middle (or, closed, its quarters).
+    if (canonical.IsNull()) {
+      gp_Pnt p0 = a, p1 = points[samples / 4], p2 = m;
+      if (a.Distance(b) > 1e-9) p1 = m, p2 = b;
+      GC_MakeCircle through(p0, p1, p2);
+      if (through.IsDone()) {
+        Handle(Geom_Circle) circle = through.Value();
+        const gp_Circ c = circle->Circ();
+        bool on = true;
+        for (const gp_Pnt &p : points) on = on && c.Distance(p) < tolerance;
+        if (on) {
+          // Running the way the edge runs: the circle's own way round or turned over.
+          const double u0 = ElCLib::Parameter(c, a), uq = ElCLib::Parameter(c, points[1]);
+          double forward = uq - u0;
+          while (forward < 0) forward += 2 * M_PI;
+          if (forward > M_PI) circle->Reverse();
+          const gp_Circ turned = circle->Circ();
+          c0 = ElCLib::Parameter(turned, a);
+          c1 = ElCLib::Parameter(turned, b);
+          if (c1 <= c0 + 1e-12) c1 += 2 * M_PI;
+          canonical = circle;
+        }
+      }
+    }
+    if (canonical.IsNull()) continue;
+    builder.UpdateEdge(edge, canonical, BRep_Tool::Tolerance(edge));
+    builder.Range(edge, c0, c1, Standard_True);
+    BRepLib::SameParameter(edge, tolerance, Standard_True);
+  }
+  if (!BRepCheck_Analyzer(copy).IsValid()) {
+    // Leave it as it was.
+    op->history = new BRepTools_History;
+    op->result = s.shape;
+  }
+  return op;
 }
 
 // A shape with edges fused as edges_fused does.

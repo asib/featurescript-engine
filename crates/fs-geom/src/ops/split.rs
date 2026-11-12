@@ -211,6 +211,7 @@ pub fn split_face(model: &mut Model, id: FeatureId, definition: &Value, tags: &v
         v => Some(values::normalize(values::vec3(v, "opSplitFace direction")?).ok_or_else(|| error("zero direction"))?),
     };
     let mut tools: Vec<Shape> = Vec::new();
+    let mut projected_normal = false;
     for r in optional("edgeTools")? {
         let edge = model.shape(r).clone();
         let d = match direction {
@@ -224,6 +225,7 @@ pub fn split_face(model: &mut Model, id: FeatureId, definition: &Value, tags: &v
                     let projected = occt::normal_projection_sheets(std::slice::from_ref(&edge), &targets, 1e-3)
                         .map_err(|_| crate::regen_error("SPLIT_FACE_FAILED"))?;
                     tools.extend(projected);
+                    projected_normal = true;
                     continue;
                 }
             },
@@ -319,6 +321,16 @@ pub fn split_face(model: &mut Model, id: FeatureId, definition: &Value, tags: &v
         if !merged.is_empty() {
             super::replace_bodies(model, &id, merged);
         }
+    }
+    // Projected onto curved targets, edges on lines and circles are lines and circles, as Onshape's: a rectangle's
+    // sides up a cylinder and round it (batch 138 c005).
+    if projected_normal {
+        let mut canonical = Vec::new();
+        for tid in &split_tids {
+            let Some(b) = model.bodies.iter().position(|body| body.tid == *tid) else { continue };
+            canonical.push((b, occt::canonical_edges(&model.bodies[b].shape).map_err(occt_error)?));
+        }
+        super::replace_bodies(model, &id, canonical);
     }
     // Which side of the tools each piece of a split face is on. Faces the tools didn't cut aren't split: jogs
     // split their faces up front and then expect the bends' own splits to split nothing (batch 013).

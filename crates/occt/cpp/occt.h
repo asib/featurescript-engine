@@ -119,6 +119,7 @@ std::unique_ptr<Shape> make_helix_edge(Vec3 origin, Vec3 direction, Vec3 start, 
 std::unique_ptr<Operation> sweep_op(const Shape &profile, const Shape &path);
 std::unique_ptr<Operation> sweep_controlled_op(const Shape &profile, const Shape &path, int mode, Vec3 direction);
 std::unique_ptr<Operation> sweep_supported_op(const Shape &profile, const Shape &path, const ShapeList &faces);
+std::unique_ptr<Operation> canonical_edges_op(const Shape &s);
 std::unique_ptr<Operation> loft_op(const ShapeList &wires, bool solid);
 std::unique_ptr<Operation> loft_op_matching(const ShapeList &wires, bool solid, bool check);
 std::unique_ptr<Operation> loft_pieces_op(const ShapeList &wires, rust::Slice<const uint32_t> counts, bool solid);

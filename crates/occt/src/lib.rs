@@ -198,6 +198,7 @@ mod ffi {
             direction: Vec3,
         ) -> Result<UniquePtr<Operation>>;
         fn sweep_supported_op(profile: &Shape, path: &Shape, faces: &ShapeList) -> Result<UniquePtr<Operation>>;
+        fn canonical_edges_op(s: &Shape) -> Result<UniquePtr<Operation>>;
         fn loft_op(wires: &ShapeList, solid: bool) -> Result<UniquePtr<Operation>>;
         fn loft_op_matching(wires: &ShapeList, solid: bool, check: bool) -> Result<UniquePtr<Operation>>;
         fn loft_pieces_op(wires: &ShapeList, counts: &[u32], solid: bool) -> Result<UniquePtr<Operation>>;
@@ -918,6 +919,11 @@ pub fn sweep_controlled(profile: &Shape, path: &Shape, lock: Option<Vec3>) -> Re
         Some(d) => (2, d),
     };
     Ok(Operation(ffi::sweep_controlled_op(&profile.0, &path.0, mode, direction)?))
+}
+
+/// The shape with its B-spline edges that lie on a line or a circle given that curve (its faces kept).
+pub fn canonical_edges(shape: &Shape) -> Result<Operation> {
+    Ok(Operation(ffi::canonical_edges_op(&shape.0)?))
 }
 
 /// Sweeps a face or wire along a path wire lying on `faces`, the profile turning with their normals.
