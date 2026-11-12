@@ -1,0 +1,57 @@
+{
+  "batch": "133",
+  "title": "faces split by sketches projected normal to curved targets",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "split-face",
+      "description": "a cylinder of radius 10, 30 tall: its side split by a circle of radius 4 on the plane x = 15, projected normal to it",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "split-face",
+      "description": "a cylinder of radius 10, 30 tall: its side split by a rectangle 8 wide and taller than it on the plane x = 15, projected normal to it",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "split-face",
+      "description": "a sphere of radius 10: split by a circle of radius 5 on the plane z = 15, projected normal to it",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "split-face",
+      "description": "a cone frustum (radius 10 to 5, 20 tall): its side split by a circle of radius 3 on the plane x = 15, projected normal to it",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "split-face",
+      "description": "a 40 × 30 × 12 block: its top split by a circle of radius 5 above it, projected normal to it",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    }
+  ]
+}
