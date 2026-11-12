@@ -214,8 +214,27 @@ fn section_fillet(model: &mut Model, id: FeatureId, definition: &Value, section:
             _ => true,
         };
         if edges.iter().all(curved) {
+            // The sections are built from the leading face, as they always have been (from the other, a pocket's
+            // rim comes out unfilleted); `radius` goes to whichever face Onshape measures it from.
             let firsts: Vec<Shape> =
                 edges.iter().map(|e| leading_face(&body, e)).collect::<Option<_>>().ok_or_else(failed)?;
+            let fallback = edges.iter().find_map(|e| radius_face(model, b, &body, e));
+            let swapped: Vec<bool> = edges
+                .iter()
+                .zip(&firsts)
+                .map(|(e, first)| {
+                    let measured = radius_face(model, b, &body, e).or_else(|| {
+                        fallback.clone().filter(|f| body.ancestors(e, ShapeKind::Face).iter().any(|g| g.is_same(f)))
+                    });
+                    measured.is_some_and(|f| !f.is_same(first))
+                })
+                .collect();
+            if swapped.iter().any(|s| *s != swapped[0]) && radius != other {
+                return Err(error(
+                    "@opFillet: uneven fillets of curved edges measured from different sides aren't supported yet",
+                ));
+            }
+            let offsets = if swapped[0] { (other, radius) } else { (radius, other) };
             let curvature;
             let shape = match section {
                 Section::Circular => occt::BlendSection::Round,
@@ -230,7 +249,7 @@ fn section_fillet(model: &mut Model, id: FeatureId, definition: &Value, section:
                     occt::BlendSection::Oblique { coefficients: &curvature, weights: &[], knots: &CURVATURE_KNOTS, degree: 5 }
                 }
             };
-            let op = occt::section_blend(&body, &edges, &firsts, (radius, other), shape, true).ok_or_else(failed)?;
+            let op = occt::section_blend(&body, &edges, &firsts, offsets, shape, false).ok_or_else(failed)?;
             results.push((b, op));
             continue;
         }
@@ -243,12 +262,29 @@ fn section_fillet(model: &mut Model, id: FeatureId, definition: &Value, section:
                 if faces.len() != 2 {
                     return Err(failed());
                 }
-                if leading_face(&body, edge).is_some_and(|l| l.is_same(&faces[1])) {
-                    faces.swap(0, 1);
-                }
-                let (_, convex) =
-                    arc_variable_wedge(&body, edge, [&faces[0], &faces[1]], [[radius; 4], [radius; 4]], section)?;
-                let (d1, d2) = if convex { (radius, other) } else { (other, radius) };
+                // `radius` from the face Onshape measures it from; failing that, from the leading face at a convex
+                // edge and the other at a concave one.
+                let (d1, d2) = match radius_face(model, b, &body, edge) {
+                    Some(f) => {
+                        if f.is_same(&faces[1]) {
+                            faces.swap(0, 1);
+                        }
+                        (radius, other)
+                    }
+                    None => {
+                        if leading_face(&body, edge).is_some_and(|l| l.is_same(&faces[1])) {
+                            faces.swap(0, 1);
+                        }
+                        let (_, convex) = arc_variable_wedge(
+                            &body,
+                            edge,
+                            [&faces[0], &faces[1]],
+                            [[radius; 4], [radius; 4]],
+                            section,
+                        )?;
+                        if convex { (radius, other) } else { (other, radius) }
+                    }
+                };
                 let (wedge, inside) =
                     arc_variable_wedge(&body, edge, [&faces[0], &faces[1]], [[d1; 4], [d2; 4]], section)?;
                 if inside {
@@ -776,6 +812,34 @@ fn curvature_coefficients(m: f64, cos: f64) -> R<Vec<(f64, f64)>> {
         (0.0, 1.0 - 0.3 * m),
         (0.0, 1.0),
     ])
+}
+
+/// Of the two faces next to an edge, the one Onshape measures an asymmetric fillet's `radius` from along a curved
+/// edge, convex or concave: the one in whose loop the edge runs against the way Onshape's runs (`Info::sense`). So
+/// an extruded cylinder's top edge from the cylinder and its bottom edge from the bottom; a revolved one's, whose
+/// circles run back against the revolve, the other way round; an edge a boolean made between a target and a tool
+/// from the target's face (a tee's joint, a hole's rim, a boss's foot; batches 132, 135).
+fn radius_face(model: &Model, b: usize, body: &Shape, edge: &Shape) -> Option<Shape> {
+    let entity = model.bodies[b].edges.iter().find(|e| e.shape.is_same(edge))?;
+    let faces = body.ancestors(edge, ShapeKind::Face);
+    let (p, d) = match entity.info.sense {
+        Some(sense) => sense,
+        None => {
+            let t = entity.shape.edge_tangent(0.5, false).ok()?;
+            (t.origin, t.direction)
+        }
+    };
+    faces.into_iter().find(|f| {
+        f.sub_shapes(ShapeKind::Edge)
+            .into_iter()
+            .find(|u| u.is_same(edge))
+            .and_then(|u| {
+                let t = u.edge_fraction(p, false).ok()?;
+                let a = u.edge_tangent(t, false).ok()?;
+                Some(crate::values::dot(a.direction, d) < 0.0)
+            })
+            .unwrap_or(false)
+    })
 }
 
 /// Of the two faces next to an edge, the one whose normal (at the edge's middle) leans most along x, then y, then

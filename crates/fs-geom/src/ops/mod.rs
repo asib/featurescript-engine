@@ -786,6 +786,7 @@ fn boolean_bodies_with(
     }
 
     let mut results = Vec::new();
+    let mut senses: Vec<(Shape, (Vec3, Vec3))> = Vec::new();
     for (inputs, objects, group_tools) in &groups {
         // Sheets joined face to face must face the same way to merge: turn over a tool sheet facing against a
         // target it lies on (a sheet metal tab).
@@ -801,6 +802,55 @@ fn boolean_bodies_with(
         }
         let op = occt::boolean(kind, &shapes(objects), &tool_shapes, unify)
             .map_err(|e| error(format!("@opBoolean: {e}")))?;
+        // A new edge where a tool's face crosses a target's runs along n_target × n_tool in Onshape (the faces' outward
+        // normals in the result): a tee's joint, a hole's far rim (batches 088, 132, 135). Edges the inputs had keep
+        // the way they ran (a hole's rim on its sketch's plane, a boss's foot).
+        {
+            let images = |faces: Vec<Shape>| -> Vec<Shape> {
+                faces
+                    .into_iter()
+                    .flat_map(|f| {
+                        let m = op.modified(&f);
+                        if m.is_empty() && !op.is_deleted(&f) { vec![f] } else { m }
+                    })
+                    .collect()
+            };
+            let from_objects = images(objects.iter().flat_map(|&b| model.bodies[b].shape.sub_shapes(ShapeKind::Face)).collect());
+            let from_tools = images(tool_shapes.iter().flat_map(|t| t.sub_shapes(ShapeKind::Face)).collect());
+            let old_edges = images(
+                objects
+                    .iter()
+                    .map(|&b| model.bodies[b].shape.clone())
+                    .chain(tool_shapes.iter().cloned())
+                    .flat_map(|s| s.sub_shapes(ShapeKind::Edge))
+                    .collect(),
+            );
+            let result = op.shape();
+            for edge in result.sub_shapes(ShapeKind::Edge) {
+                if old_edges.iter().any(|e| e.is_same(&edge)) {
+                    continue;
+                }
+                let faces = result.ancestors(&edge, ShapeKind::Face);
+                if faces.len() != 2 {
+                    continue;
+                }
+                let target = faces.iter().find(|f| from_objects.iter().any(|g| g.is_same(f)));
+                let tool = faces.iter().find(|f| from_tools.iter().any(|g| g.is_same(f)));
+                let (Some(target), Some(tool)) = (target, tool) else { continue };
+                if target.is_same(tool) {
+                    continue;
+                }
+                let Ok(mid) = edge.edge_tangent(0.5, false) else { continue };
+                let normal = |f: &Shape| -> Option<Vec3> {
+                    let (u, v) = f.face_fraction(mid.origin).ok()?;
+                    f.face_tangent_plane(u, v).ok().map(|p| p.normal)
+                };
+                let (Some(nt), Some(nb)) = (normal(target), normal(tool)) else { continue };
+                if let Some(d) = crate::values::normalize(crate::values::cross(nt, nb)) {
+                    senses.push((edge, (mid.origin, d)));
+                }
+            }
+        }
         let input_bodies: Vec<_> = inputs.iter().map(|&b| model.bodies[b].clone()).collect();
         // Faces a tool leaves in the result, such as a pocket's walls, keep the tool's creator, unless the tool is
         // kept: then they are new, made by this operation.
@@ -881,6 +931,21 @@ fn boolean_bodies_with(
         let construction = body.construction && matches!(kind, BooleanKind::Subtraction);
         let new = NewBody { body_type: BodyType::of(&solid), tid, construction, ..NewBody::replacing(&body, solid) };
         model.add_body(new, &origins, &default, &|_| None);
+        let b = model.bodies.len() - 1;
+        let updates: Vec<(usize, (Vec3, Vec3))> = model.bodies[b]
+            .edges
+            .iter()
+            .enumerate()
+            .filter_map(|(i, e)| senses.iter().find(|(s, _)| s.is_same(&e.shape)).map(|(_, sense)| (i, *sense)))
+            .collect();
+        if !updates.is_empty() {
+            model.update_body(b, |body| {
+                for (i, sense) in &updates {
+                    let e = &mut body.edges[*i];
+                    e.info = Rc::new(Info { sense: Some(*sense), ..(*e.info).clone() });
+                }
+            });
+        }
     }
     Ok(())
 }

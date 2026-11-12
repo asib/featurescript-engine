@@ -1456,14 +1456,23 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   their feet where the rolling ball touches the faces (its centre `d₁` and `d₂` off them; within 1e-6 mm), and
   between them the section of a straight edge's fillet in the plane through the ball's centre and feet, round the
   corner where the faces' tangent lines across meet. Its faces are its own fits, 4e-5 to 7e-5 of their areas under
-  the exact surfaces (as batch 082's conic round a cylinder's top). An uneven fillet's centre round a tee's joint is
-  `radius` from the leading face at a convex edge, the other way round at a concave one, as along straight edges; but
-  a cone frustum's top edge (a convex circle between the top and the cone, the cone leading) has `radius` from the top
-  and `otherRadius` from the cone, the other way round from a cylinder's (batch 082 c003): the rule for circles is
-  still to find. The engine builds these fillets from sections at 96 places round the edge, lofted and cut or
+  the exact surfaces (as batch 082's conic round a cylinder's top). An uneven fillet's `radius` round a tee's joint is
+  measured from the pipe, round a cone frustum's top from the top (batch 135 gives the rule). The engine builds these fillets from sections at 96 places round the edge, lofted and cut or
   filled; an uneven one's rational sections, their weights changing round the edge, are fitted with cubics through
   17 points with their end derivatives as they are (`GeomAPI_Interpolate::Load` rescales them unless told not to,
   and the cubic strayed 6 µm from the section: 1.5e-3 of the area).
+- **Uneven fillets of circles** (batch 135): an uneven fillet's `radius` is measured from the face
+  in whose loop the edge runs against Onshape's direction for it, convex or concave: an extruded cylinder's top edge
+  from the cylinder and its bottom edge from the bottom (the circles run anticlockwise about the sketch's normal); a
+  revolved part's from the other face (its circles run back against the revolve, batch 088): fCone's top from the
+  top, its bottom from the cone, a revolved cylinder's top from the top; a hole's rim on its sketch's plane and a
+  boss's foot (the tool's own circles) from the plate; a drafted extrude's top from the cone. A new edge where a
+  boolean's tool crosses its target runs along n_target × n_tool (the result's outward normals): a tee's joint from
+  the pipe (batch 132), a hole's far rim anticlockwise as batch 088 found. The engine gives such edges that sense and
+  keeps building the sections from the leading face (from the other a pocket's rim came out unfilleted), the
+  offsets swapped where Onshape measures from the other face. Onshape's own volumes of these fillets are up to
+  0.13 mm³ over the exact (an extruded cylinder's top, 1 and 2 mm: 6256.8203 mm³ by Pappus, Onshape's 6256.9501,
+  the engine's 6256.8154).
 - **Faces split normal to curved targets** (batch 133): a sketch projected normal to the target goes along the
   target's normal through each of its points onto the target's surface: a circle and a rectangle beside a cylinder, a
   circle above a sphere, a circle beside a cone frustum. The rectangle taller than the cylinder splits its side across
