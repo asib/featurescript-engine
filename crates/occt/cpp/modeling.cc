@@ -62,6 +62,10 @@
 #include <BRepBuilderAPI_Sewing.hxx>
 #include <BRepLib.hxx>
 #include <BRepCheck_Analyzer.hxx>
+#include <TColStd_HArray1OfReal.hxx>
+#include <TColgp_HArray1OfPnt.hxx>
+#include <GeomFill.hxx>
+#include <GeomAPI_Interpolate.hxx>
 #include <TopTools_DataMapOfShapeInteger.hxx>
 #include <Standard_Failure.hxx>
 #include <BRepLProp_CLProps.hxx>
@@ -482,6 +486,140 @@ std::unique_ptr<Operation> variable_fillet_op(const Shape &solid, const ShapeLis
 
 // Chamfers edges: kind 0 equal distances `d1`; kind 1 distances `d1` on `faces[i]` and `d2` on the other face;
 // kind 2 distance `d1` on `faces[i]` and angle `d2`. `faces` has a face next to each edge (unused for kind 0).
+// An equal chamfer as Onshape makes one along an intersection curve (its "offset" method): its edges where a ball
+// of its width touching both faces touches them, the fillet's edges, and between them the straight lines joining
+// each pair of points one ball touches (batch 129: a tee's joint, a cross hole's mouth). Built from the fillet of
+// that radius, its face swapped for that ruled surface. Null if it can't be made.
+static std::unique_ptr<Operation> chamfer_by_ball_impl(const Shape &solid, const ShapeList &edges, double width);
+std::unique_ptr<Operation> chamfer_by_ball_op(const Shape &solid, const ShapeList &edges, double width) {
+  try {
+    return chamfer_by_ball_impl(solid, edges, width);
+  } catch (const Standard_Failure &) {
+    return nullptr;
+  } catch (const std::exception &) {
+    return nullptr;
+  }
+}
+static std::unique_ptr<Operation> chamfer_by_ball_impl(const Shape &solid, const ShapeList &edges, double width) {
+  std::unique_ptr<Operation> fillet;
+  try {
+    fillet = fillet_op(solid, edges, width);
+  } catch (...) {
+    return nullptr;
+  }
+  if (!fillet) return nullptr;
+  const TopoDS_Shape filleted = fillet->result;
+  // The fillet's faces: those the input had nothing of.
+  TopTools_IndexedMapOfShape kept;
+  for (TopExp_Explorer f(solid.shape, TopAbs_FACE); f.More(); f.Next()) {
+    kept.Add(f.Current());
+    for (const TopoDS_Shape &m : fillet->history->Modified(f.Current())) kept.Add(m);
+  }
+  TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
+  TopExp::MapShapesAndUniqueAncestors(filleted, TopAbs_EDGE, TopAbs_FACE, edge_faces);
+  BRepBuilderAPI_Sewing sewing(1e-6);
+  int swapped = 0;
+  for (TopExp_Explorer f(filleted, TopAbs_FACE); f.More(); f.Next()) {
+    const TopoDS_Face &face = TopoDS::Face(f.Current());
+    if (kept.Contains(face)) {
+      sewing.Add(face);
+      continue;
+    }
+    // Its two edges along the faces it joins (not its seam), and those faces.
+    std::vector<TopoDS_Edge> sides;
+    std::vector<TopoDS_Face> neighbours;
+    for (TopExp_Explorer e(face, TopAbs_EDGE); e.More(); e.Next()) {
+      const TopoDS_Edge &edge = TopoDS::Edge(e.Current());
+      if (BRep_Tool::IsClosed(edge, face) || BRep_Tool::Degenerated(edge)) continue;
+      bool seen = false;
+      for (const TopoDS_Edge &s : sides) seen = seen || s.IsSame(edge);
+      if (seen) continue;
+      for (const TopoDS_Shape &g : edge_faces.FindFromKey(edge))
+        if (!g.IsSame(face)) {
+          sides.push_back(edge);
+          neighbours.push_back(TopoDS::Face(g));
+        }
+    }
+    if (sides.size() != 2) return nullptr;
+    // Along the first side: each point, the ball's centre `width` off its face towards the fillet, and the point
+    // that ball touches on the other face.
+    BRepAdaptor_Curve first(sides[0]);
+    Handle(Geom_Surface) other = BRep_Tool::Surface(neighbours[1]);
+    BRepAdaptor_Surface near(neighbours[0]);
+    const int n = 96;
+    TColgp_Array1OfPnt a(1, n), b(1, n);
+    // Which way off the first face the centre lies: towards the fillet face's middle.
+    BRepAdaptor_Surface middle(face);
+    gp_Pnt inside = middle.Value(0.5 * (middle.FirstUParameter() + middle.LastUParameter()),
+                                 0.5 * (middle.FirstVParameter() + middle.LastVParameter()));
+    double sign = 0;  // which way along the first face's own normal the centres lie: set at the first point
+    for (int k = 0; k < n; ++k) {
+      double t = first.FirstParameter() + (first.LastParameter() - first.FirstParameter()) * k / n;
+      gp_Pnt p = first.Value(t);
+      GeomAPI_ProjectPointOnSurf on(p, BRep_Tool::Surface(neighbours[0]));
+      if (on.NbPoints() == 0) return nullptr;
+      double u, v;
+      on.LowerDistanceParameters(u, v);
+      gp_Pnt q;
+      gp_Vec du, dv;
+      near.D1(u, v, q, du, dv);
+      gp_Vec normal = du.Crossed(dv);
+      if (normal.Magnitude() < 1e-12) return nullptr;
+      normal.Normalize();
+      if (sign == 0) sign = normal.Dot(gp_Vec(p, inside)) >= 0 ? 1 : -1;
+      gp_Pnt centre = p.Translated(normal * (sign * width));
+      GeomAPI_ProjectPointOnSurf touch(centre, other);
+      if (touch.NbPoints() == 0) return nullptr;
+      a(k + 1) = p;
+      b(k + 1) = touch.NearestPoint();
+    }
+    // Both curves through those points on the same parameters, periodic round a closed edge.
+    bool closed = BRep_Tool::IsClosed(sides[0]) || first.Value(first.FirstParameter()).Distance(first.Value(first.LastParameter())) < 1e-7;
+    if (!closed) return nullptr;
+    Handle(TColgp_HArray1OfPnt) ha = new TColgp_HArray1OfPnt(1, n), hb = new TColgp_HArray1OfPnt(1, n);
+    // (Periodic: one parameter more than points, the last closing the curve.)
+    Handle(TColStd_HArray1OfReal) params = new TColStd_HArray1OfReal(1, n + 1);
+    for (int k = 1; k <= n; ++k) {
+      ha->SetValue(k, a(k));
+      hb->SetValue(k, b(k));
+      params->SetValue(k, double(k - 1) / n);
+    }
+    params->SetValue(n + 1, 1.0);
+    GeomAPI_Interpolate ia(ha, params, Standard_True, 1e-9), ib(hb, params, Standard_True, 1e-9);
+    ia.Perform();
+    ib.Perform();
+    if (!ia.IsDone() || !ib.IsDone()) return nullptr;
+    Handle(Geom_Surface) ruled = GeomFill::Surface(ia.Curve(), ib.Curve());
+    if (ruled.IsNull()) return nullptr;
+    double u0, u1, v0, v1;
+    ruled->Bounds(u0, u1, v0, v1);
+    BRepBuilderAPI_MakeFace maker(ruled, u0, u1, v0, v1, 1e-7);
+    if (!maker.IsDone()) return nullptr;
+    sewing.Add(maker.Face());
+    ++swapped;
+  }
+  if (swapped == 0) return nullptr;
+  sewing.Perform();
+  TopExp_Explorer shells(sewing.SewedShape(), TopAbs_SHELL);
+  if (!shells.More()) return nullptr;
+  BRepBuilderAPI_MakeSolid make(TopoDS::Shell(shells.Current()));
+  if (!make.IsDone()) return nullptr;
+  TopoDS_Solid result = make.Solid();
+  BRepLib::OrientClosedSolid(result);
+  if (!BRepCheck_Analyzer(result).IsValid()) return nullptr;
+  // The history: through the fillet, then the sewing (the swapped faces new).
+  auto op = std::make_unique<Operation>();
+  op->history = fillet->history;
+  Handle(BRepTools_History) sewn = new BRepTools_History;
+  for (TopExp_Explorer f(filleted, TopAbs_FACE); f.More(); f.Next())
+    if (sewing.IsModified(f.Current())) sewn->AddModified(f.Current(), sewing.Modified(f.Current()));
+  for (TopExp_Explorer e(filleted, TopAbs_EDGE); e.More(); e.Next())
+    if (sewing.IsModified(e.Current())) sewn->AddModified(e.Current(), sewing.Modified(e.Current()));
+  op->history->Merge(sewn);
+  op->result = result;
+  return op;
+}
+
 std::unique_ptr<Operation> chamfer_op(const Shape &solid, const ShapeList &edges, const ShapeList &faces,
                                       int32_t kind, double d1, double d2) {
   BRepFilletAPI_MakeChamfer maker(solid.shape);

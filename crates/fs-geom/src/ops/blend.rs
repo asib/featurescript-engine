@@ -815,6 +815,16 @@ pub fn chamfer(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
             results.push((b, op));
             continue;
         }
+        // Along intersection curves (neither lines nor circles), Onshape's chamfer runs between the edges of the
+        // fillet of its width (batch 129: a tee's joint, a cross hole's mouth); along lines and circles its feet are
+        // its width from the edge, as OCCT's.
+        if let occt::Chamfer::Equal(width) = kind
+            && edges.iter().all(|e| !matches!(e.curve_type().ok(), Some(occt::CurveType::Line | occt::CurveType::Circle)))
+            && let Some(op) = occt::chamfer_by_ball(&body, &edges, width)
+        {
+            results.push((b, op));
+            continue;
+        }
         let mut faces = Vec::new();
         for edge in &edges {
             // The first distance goes on the older of the edge's faces, by the oldest entity each came from (batch

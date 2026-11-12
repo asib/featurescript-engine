@@ -261,6 +261,7 @@ mod ffi {
         fn make_sphere(center: Vec3, radius: f64) -> Result<UniquePtr<Shape>>;
         fn split_op(objects: &ShapeList, tools: &ShapeList) -> Result<UniquePtr<Operation>>;
         fn fillet_op(solid: &Shape, edges: &ShapeList, radius: f64) -> Result<UniquePtr<Operation>>;
+        fn chamfer_by_ball_op(solid: &Shape, edges: &ShapeList, width: f64) -> Result<UniquePtr<Operation>>;
         fn chamfer_op(
             solid: &Shape,
             edges: &ShapeList,
@@ -1258,6 +1259,14 @@ pub enum Chamfer {
 }
 
 /// Chamfers edges of a solid; `faces` holds a reference face next to each edge for the uneven kinds.
+/// An equal chamfer as Onshape makes one along an intersection curve: the fillet of its width with its face swapped
+/// for the ruled surface between the fillet's edges, each pair of points one ball touches joined. None where it can't
+/// be made.
+pub fn chamfer_by_ball(solid: &Shape, edges: &[Shape], width: f64) -> Option<Operation> {
+    let op = ffi::chamfer_by_ball_op(&solid.0, &to_list(edges), width).ok()?;
+    if op.is_null() { None } else { Some(Operation(op)) }
+}
+
 pub fn chamfer(solid: &Shape, edges: &[Shape], faces: &[Shape], kind: Chamfer) -> Result<Operation> {
     let (k, d1, d2) = match kind {
         Chamfer::Equal(d) => (0, d, 0.0),
