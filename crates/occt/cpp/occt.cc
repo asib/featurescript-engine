@@ -859,7 +859,8 @@ static std::unique_ptr<ShapeList> visible_sub_shapes_impl(const Shape &s, int32_
           return d;
         };
         gp_Vec ta = tangent(visible[0]), tb = tangent(visible[1]);
-        same = ta.Magnitude() > 1e-12 && tb.Magnitude() > 1e-12 && ta.IsParallel(tb, 1e-6);
+        // (Within a thousandth of a radian: a blend lofted round a loop meets itself a few ten-thousandths askew.)
+        same = ta.Magnitude() > 1e-12 && tb.Magnitude() > 1e-12 && ta.IsParallel(tb, 1e-3);
       }
     }
     if (same) seam_vertices.Add(vertex_edges.FindKey(i));
