@@ -1,5 +1,9 @@
 #include "occt/cpp/occt.h"
 #include <ShapeFix_Edge.hxx>
+#include <Geom_BSplineCurve.hxx>
+#include <BRepTools_ReShape.hxx>
+#include <GeomConvert.hxx>
+#include <GeomConvert_CompCurveToBSplineCurve.hxx>
 #include <Geom2d_Curve.hxx>
 #include <BRepBuilderAPI_Copy.hxx>
 #include <GProp_PrincipalProps.hxx>
@@ -260,35 +264,195 @@ std::unique_ptr<Operation> prism(const Shape &profile, Vec3 v) {
 // Edges left on one ellipse (or another conic) that meet at a vertex nothing else uses, joined into one: the
 // same-domain unifier joins only lines and circles. A closed hem's corner sheet is one with the piece std adds at
 // its base (batch 021 c012), its end one edge as in Onshape.
-// Edges between the same two faces meeting at a vertex only they share become one edge, B-splines too (an
-// intersection curve OCCT leaves in pieces is one edge in Parasolid, batch 124).
-TopoDS_Shape edges_fused(const TopoDS_Shape &shape, const Handle(BRepTools_History) &history) {
-  BRepLib_FuseEdges fuser(shape, Standard_False);
-  fuser.SetConcatBSpl(Standard_True);
-  if (fuser.NbVertices() == 0) return shape;
-  fuser.Perform();
-  TopTools_DataMapOfIntegerListOfShape old_edges;
-  TopTools_DataMapOfIntegerShape new_edges;
-  TopTools_DataMapOfShapeShape faces;
-  fuser.Edges(old_edges);
-  fuser.ResultEdges(new_edges);
-  fuser.Faces(faces);
-  Handle(BRepTools_History) fused = new BRepTools_History;
-  for (TopTools_DataMapIteratorOfDataMapOfIntegerListOfShape it(old_edges); it.More(); it.Next()) {
-    if (!new_edges.IsBound(it.Key())) continue;
-    const TopoDS_Shape &edge = new_edges(it.Key());
-    TopTools_IndexedMapOfShape kept;
-    TopExp::MapShapes(edge, TopAbs_VERTEX, kept);
-    for (TopTools_ListIteratorOfListOfShape e(it.Value()); e.More(); e.Next()) {
-      fused->AddModified(e.Value(), edge);
-      for (TopExp_Explorer v(e.Value(), TopAbs_VERTEX); v.More(); v.Next())
-        if (!kept.Contains(v.Current())) fused->Remove(v.Current());
+namespace {
+
+// Joins chains of B-spline edges that lie between the same two faces and meet at vertices only they share: the
+// curves concatenated (each piece turned to run along the chain), one edge on both faces. A chain whose joined edge
+// isn't as tight as its pieces is left as it was. Recorded in `history`.
+TopoDS_Shape bspline_chains_joined(const TopoDS_Shape &shape, const Handle(BRepTools_History) &history) {
+  TopTools_IndexedDataMapOfShapeListOfShape edge_faces, vertex_edges;
+  TopExp::MapShapesAndUniqueAncestors(shape, TopAbs_EDGE, TopAbs_FACE, edge_faces);
+  TopExp::MapShapesAndUniqueAncestors(shape, TopAbs_VERTEX, TopAbs_EDGE, vertex_edges);
+  auto is_spline = [](const TopoDS_Edge &e) {
+    if (BRep_Tool::Degenerated(e)) return false;
+    GeomAbs_CurveType t = BRepAdaptor_Curve(e).GetType();
+    return t == GeomAbs_BSplineCurve || t == GeomAbs_BezierCurve;
+  };
+  auto same_faces = [&](const TopoDS_Shape &a, const TopoDS_Shape &b) {
+    if (!edge_faces.Contains(a) || !edge_faces.Contains(b)) return false;
+    const TopTools_ListOfShape &fa = edge_faces.FindFromKey(a), &fb = edge_faces.FindFromKey(b);
+    if (fa.Extent() != 2 || fb.Extent() != 2) return false;
+    for (const TopoDS_Shape &f : fa) {
+      bool found = false;
+      for (const TopoDS_Shape &g : fb) found = found || f.IsSame(g);
+      if (!found) return false;
+    }
+    // Neither a seam of a face it lies on.
+    for (const TopoDS_Shape &f : fa)
+      if (BRep_Tool::IsClosed(TopoDS::Edge(a), TopoDS::Face(f)) || BRep_Tool::IsClosed(TopoDS::Edge(b), TopoDS::Face(f)))
+        return false;
+    return true;
+  };
+  // Vertices a chain runs through: two edges only, both B-splines between the same two faces.
+  auto joint = [&](const TopoDS_Shape &v, TopoDS_Shape &a, TopoDS_Shape &b) {
+    const TopTools_ListOfShape &edges = vertex_edges.FindFromKey(v);
+    if (edges.Extent() != 2) return false;
+    a = edges.First();
+    b = edges.Last();
+    if (a.IsSame(b)) return false;
+    return is_spline(TopoDS::Edge(a)) && is_spline(TopoDS::Edge(b)) && same_faces(a, b);
+  };
+  TopTools_MapOfShape used;
+  Handle(BRepTools_ReShape) reshape = new BRepTools_ReShape;
+  Handle(BRepTools_History) joined_history = new BRepTools_History;
+  bool changed = false;
+  for (int i = 1; i <= vertex_edges.Extent(); ++i) {
+    TopoDS_Shape a, b;
+    if (!joint(vertex_edges.FindKey(i), a, b) || used.Contains(a)) continue;
+    // Walk the chain both ways from this edge.
+    std::vector<TopoDS_Edge> chain{TopoDS::Edge(a)};
+    TopTools_MapOfShape in_chain;
+    in_chain.Add(a);
+    for (int direction = 0; direction < 2; ++direction) {
+      TopoDS_Edge end = direction == 0 ? chain.back() : chain.front();
+      while (true) {
+        bool extended = false;
+        for (TopExp_Explorer v(end, TopAbs_VERTEX); v.More() && !extended; v.Next()) {
+          TopoDS_Shape x, y;
+          if (!joint(v.Current(), x, y)) continue;
+          TopoDS_Shape next = x.IsSame(end) ? y : x;
+          if (in_chain.Contains(next)) continue;
+          in_chain.Add(next);
+          if (direction == 0) chain.push_back(TopoDS::Edge(next)); else chain.insert(chain.begin(), TopoDS::Edge(next));
+          end = TopoDS::Edge(next);
+          extended = true;
+        }
+        if (!extended) break;
+      }
+    }
+    for (const TopoDS_Edge &e : chain) used.Add(e);
+    if (chain.size() < 2) continue;
+    // The curves, each run along the chain from the first edge's start.
+    TopoDS_Vertex first_vertex, current;
+    GeomConvert_CompCurveToBSplineCurve compound;
+    bool ok = true;
+    double tolerance = 0;
+    for (size_t k = 0; k < chain.size() && ok; ++k) {
+      const TopoDS_Edge &e = chain[k];
+      TopoDS_Edge forward = TopoDS::Edge(e.Oriented(TopAbs_FORWARD));
+      TopoDS_Vertex v0 = TopExp::FirstVertex(forward), v1 = TopExp::LastVertex(forward);
+      double f, l;
+      Handle(Geom_Curve) curve = BRep_Tool::Curve(forward, f, l);
+      if (curve.IsNull()) { ok = false; break; }
+      Handle(Geom_BSplineCurve) piece = GeomConvert::CurveToBSplineCurve(new Geom_TrimmedCurve(curve, f, l));
+      bool reversed = false;
+      if (k == 0) {
+        // Start where the chain does: at the end the next edge doesn't share.
+        const TopoDS_Edge &next = chain[1];
+        bool v1_shared = false;
+        for (TopExp_Explorer v(next, TopAbs_VERTEX); v.More(); v.Next()) v1_shared = v1_shared || v.Current().IsSame(v1);
+        if (!v1_shared) reversed = true;
+        first_vertex = reversed ? v1 : v0;
+        current = reversed ? v0 : v1;
+      } else if (v0.IsSame(current)) {
+        current = v1;
+      } else if (v1.IsSame(current)) {
+        reversed = true;
+        current = v0;
+      } else {
+        ok = false;
+        break;
+      }
+      if (reversed) piece->Reverse();
+      tolerance = std::max(tolerance, BRep_Tool::Tolerance(e));
+      if (!compound.Add(piece, std::max(tolerance, 1e-7) * 10, Standard_True)) ok = false;
+    }
+    if (!ok) continue;
+    Handle(Geom_BSplineCurve) curve = compound.BSplineCurve();
+    // The vertices kept, their tolerances widened to the curve's ends if need be.
+    BRep_Builder builder;
+    for (const TopoDS_Vertex &v : {first_vertex, current}) {
+      gp_Pnt p = BRep_Tool::Pnt(v);
+      double gap = std::max(p.Distance(curve->StartPoint()) * (v.IsSame(first_vertex) ? 1 : 0),
+                            p.Distance(curve->EndPoint()) * (v.IsSame(current) ? 1 : 0));
+      if (gap > BRep_Tool::Tolerance(v)) builder.UpdateVertex(v, gap * 1.01);
+    }
+    BRepBuilderAPI_MakeEdge maker(curve, first_vertex, current, curve->FirstParameter(), curve->LastParameter());
+    if (!maker.IsDone()) continue;
+    TopoDS_Edge joined = maker.Edge();
+    // On both faces: curves there projected from the 3D curve.
+    const TopTools_ListOfShape &faces = edge_faces.FindFromKey(chain[0]);
+    ShapeFix_Edge fix;
+    for (const TopoDS_Shape &f : faces) fix.FixAddPCurve(joined, TopoDS::Face(f), Standard_False, 1e-7);
+    fix.FixSameParameter(joined);
+    if (BRep_Tool::Tolerance(joined) > std::max(10 * tolerance, 1e-6)) continue;
+    // The joined edge runs as the chain's first edge did, when it was forward; replacing that edge, the others go.
+    TopoDS_Edge first = chain[0];
+    TopoDS_Vertex fv = TopExp::FirstVertex(TopoDS::Edge(first.Oriented(TopAbs_FORWARD)));
+    TopoDS_Shape replacement = fv.IsSame(first_vertex) ? TopoDS_Shape(joined) : joined.Reversed();
+    reshape->Replace(first.Oriented(TopAbs_FORWARD), replacement);
+    for (size_t k = 1; k < chain.size(); ++k) reshape->Remove(chain[k]);
+    for (const TopoDS_Edge &e : chain) joined_history->AddModified(e, joined);
+    changed = true;
+  }
+  if (!changed) return shape;
+  TopoDS_Shape out = reshape->Apply(shape);
+  // The faces rebuilt round the joined edges carry on the faces they were.
+  {
+    Handle(BRepTools_History) rebuilt = reshape->History();
+    for (TopExp_Explorer f(shape, TopAbs_FACE); f.More(); f.Next()) {
+      if (rebuilt.IsNull()) break;
+      const TopTools_ListOfShape &images = rebuilt->Modified(f.Current());
+      for (const TopoDS_Shape &image : images)
+        if (!image.IsSame(f.Current())) joined_history->AddModified(f.Current(), image);
     }
   }
-  for (TopTools_DataMapIteratorOfDataMapOfShapeShape it(faces); it.More(); it.Next())
-    if (!it.Key().IsSame(it.Value())) fused->AddModified(it.Key(), it.Value());
-  history->Merge(fused);
-  return fuser.Shape();
+  // The vertices between pieces go.
+  TopTools_IndexedMapOfShape kept;
+  TopExp::MapShapes(out, TopAbs_VERTEX, kept);
+  for (int i = 1; i <= vertex_edges.Extent(); ++i)
+    if (!kept.Contains(vertex_edges.FindKey(i))) joined_history->Remove(vertex_edges.FindKey(i));
+  history->Merge(joined_history);
+  return out;
+}
+
+}  // namespace
+
+// Edges between the same two faces meeting at a vertex only they share become one edge: conics on one circle or
+// line (`BRepLib_FuseEdges`), and chains of B-splines, which OCCT leaves in pieces where Parasolid keeps one edge
+// (an intersection curve, batch 124) and whose own concatenation can come out millimetres out (batch 125 c008).
+TopoDS_Shape edges_fused(const TopoDS_Shape &shape, const Handle(BRepTools_History) &history) {
+  TopoDS_Shape result = shape;
+  {
+    BRepLib_FuseEdges fuser(shape, Standard_False);
+    fuser.SetConcatBSpl(Standard_False);
+    if (fuser.NbVertices() > 0) {
+      fuser.Perform();
+      TopTools_DataMapOfIntegerListOfShape old_edges;
+      TopTools_DataMapOfIntegerShape new_edges;
+      TopTools_DataMapOfShapeShape faces;
+      fuser.Edges(old_edges);
+      fuser.ResultEdges(new_edges);
+      fuser.Faces(faces);
+      Handle(BRepTools_History) fused = new BRepTools_History;
+      for (TopTools_DataMapIteratorOfDataMapOfIntegerListOfShape it(old_edges); it.More(); it.Next()) {
+        if (!new_edges.IsBound(it.Key())) continue;
+        const TopoDS_Shape &edge = new_edges(it.Key());
+        TopTools_IndexedMapOfShape kept;
+        TopExp::MapShapes(edge, TopAbs_VERTEX, kept);
+        for (TopTools_ListIteratorOfListOfShape e(it.Value()); e.More(); e.Next()) {
+          fused->AddModified(e.Value(), edge);
+          for (TopExp_Explorer v(e.Value(), TopAbs_VERTEX); v.More(); v.Next())
+            if (!kept.Contains(v.Current())) fused->Remove(v.Current());
+        }
+      }
+      for (TopTools_DataMapIteratorOfDataMapOfShapeShape it(faces); it.More(); it.Next())
+        if (!it.Key().IsSame(it.Value())) fused->AddModified(it.Key(), it.Value());
+      history->Merge(fused);
+      result = fuser.Shape();
+    }
+  }
+  return bspline_chains_joined(result, history);
 }
 
 // A shape with edges fused as edges_fused does.
