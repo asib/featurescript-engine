@@ -1401,6 +1401,13 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   engine records those pieces with their side. Faces moved on curved faces (a hole's wall, a boss's side), heals of
   a cross hole through a lying cylinder and of a spherical pocket, feature patterns of a boss round a cylinder's top
   and of a hole along a block, a merged mirror, a 270° revolve and a subtraction keeping its tool match as built.
+- **Features in sequence** (batch 127): shells of a filleted block with a hole, fillets inside a shelled box, a rib
+  across one, a shelled box mirrored and split, and a drafted face with a hole in it match as built. Three engine
+  fixes: `qContainsPoint` finds a closed edge by any of the pieces OCCT split it into at a seam vertex (the circle
+  where two balls meet, its point on the hidden piece); that circle, between two spheres centred on its axis, is
+  filleted as a plane's rim round a sphere is, the torus tangent to both circles in the half plane (OCCT's fillet
+  fails there); and a top thickened with the fillet on its edge has one wall at each end, the walls on one plane from
+  neighbouring edges merged (the caps kept as they are).
 
 ## STEP export
 
