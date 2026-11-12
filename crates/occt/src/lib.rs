@@ -262,6 +262,7 @@ mod ffi {
         fn split_op(objects: &ShapeList, tools: &ShapeList) -> Result<UniquePtr<Operation>>;
         fn fillet_op(solid: &Shape, edges: &ShapeList, radius: f64) -> Result<UniquePtr<Operation>>;
         fn chamfer_by_ball_op(solid: &Shape, edges: &ShapeList, width: f64) -> Result<UniquePtr<Operation>>;
+        fn chamfer_by_offsets_op(solid: &Shape, edges: &ShapeList, firsts: &ShapeList, off1: f64, off2: f64) -> Result<UniquePtr<Operation>>;
         fn chamfer_op(
             solid: &Shape,
             edges: &ShapeList,
@@ -1264,6 +1265,14 @@ pub enum Chamfer {
 /// be made.
 pub fn chamfer_by_ball(solid: &Shape, edges: &[Shape], width: f64) -> Option<Operation> {
     let op = ffi::chamfer_by_ball_op(&solid.0, &to_list(edges), width).ok()?;
+    if op.is_null() { None } else { Some(Operation(op)) }
+}
+
+/// An uneven chamfer as Onshape makes one along an intersection curve: at each point of the edge the point `off1`
+/// from its first face (`firsts`, one an edge) and `off2` from the other, its feet on them the chamfer's edges, ruled
+/// between. None where it can't be made.
+pub fn chamfer_by_offsets(solid: &Shape, edges: &[Shape], firsts: &[Shape], off1: f64, off2: f64) -> Option<Operation> {
+    let op = ffi::chamfer_by_offsets_op(&solid.0, &to_list(edges), &to_list(firsts), off1, off2).ok()?;
     if op.is_null() { None } else { Some(Operation(op)) }
 }
 

@@ -862,6 +862,21 @@ pub fn chamfer(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
             }
             faces.push(face);
         }
+        // Uneven chamfers along intersection curves: the point off the first face by the second distance (or the
+        // distance times the angle's tangent) and off the other by the first, its feet the chamfer's edges (batch
+        // 130).
+        let curved = edges.iter().all(|e| !matches!(e.curve_type().ok(), Some(occt::CurveType::Line | occt::CurveType::Circle)));
+        let offsets = match kind {
+            occt::Chamfer::TwoDistances(first, second) => Some((second, first)),
+            occt::Chamfer::DistanceAngle(d, angle) => Some((d * angle.tan(), d)),
+            occt::Chamfer::Equal(_) => None,
+        };
+        if curved && let Some((off1, off2)) = offsets {
+            if let Some(op) = occt::chamfer_by_offsets(&body, &edges, &faces, off1, off2) {
+                results.push((b, op));
+                continue;
+            }
+        }
         let op = occt::chamfer(&body, &edges, &faces, kind).map_err(|_| regen_error("CHAMFER_FAILED"))?;
         results.push((b, op));
     }

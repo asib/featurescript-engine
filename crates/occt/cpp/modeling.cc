@@ -490,6 +490,149 @@ std::unique_ptr<Operation> variable_fillet_op(const Shape &solid, const ShapeLis
 // of its width touching both faces touches them, the fillet's edges, and between them the straight lines joining
 // each pair of points one ball touches (batch 129: a tee's joint, a cross hole's mouth). Built from the fillet of
 // that radius, its face swapped for that ruled surface. Null if it can't be made.
+// An uneven chamfer as Onshape makes one along an intersection curve: at each point of the edge, the point `off1`
+// from the first face and `off2` from the second (on the side a ball would roll), its feet on the two faces are the
+// chamfer's edges, and between them it is ruled (batch 130: a tee's joint with offsets 1 and 2 has the point 2 off
+// the first face and 1 off the second, the feet 1 and 2 from the edge at a square corner). Built as a tool lofted
+// through the chamfer's sections, closed off past the faces, and cut away (filled at a concave edge). Null if it
+// can't be made.
+std::unique_ptr<Operation> chamfer_by_offsets_op(const Shape &solid, const ShapeList &edges, const ShapeList &firsts,
+                                                 double off1, double off2) {
+  try {
+    if (edges.shapes.size() != firsts.shapes.size()) return nullptr;
+    TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
+    TopExp::MapShapesAndUniqueAncestors(solid.shape, TopAbs_EDGE, TopAbs_FACE, edge_faces);
+    TopTools_ListOfShape cut_tools, fill_tools;
+    for (size_t i = 0; i < edges.shapes.size(); ++i) {
+      const TopoDS_Edge &edge = TopoDS::Edge(edges.shapes[i]);
+      const TopoDS_Face &f1 = TopoDS::Face(firsts.shapes[i]);
+      TopoDS_Face f2;
+      if (!edge_faces.Contains(edge)) return nullptr;
+      for (const TopoDS_Shape &g : edge_faces.FindFromKey(edge))
+        if (!g.IsSame(f1)) f2 = TopoDS::Face(g);
+      if (f2.IsNull()) return nullptr;
+      BRepAdaptor_Curve curve(edge);
+      gp_Pnt start = curve.Value(curve.FirstParameter()), end = curve.Value(curve.LastParameter());
+      if (start.Distance(end) > 1e-7) return nullptr;
+      Handle(Geom_Surface) s1 = BRep_Tool::Surface(f1), s2 = BRep_Tool::Surface(f2);
+      // A face's outward normal at the point of it nearest `p`, and that point.
+      auto normal = [](const Handle(Geom_Surface) &surface, const TopoDS_Face &face, const gp_Pnt &p, gp_Pnt &foot) {
+        GeomAPI_ProjectPointOnSurf on(p, surface);
+        if (on.NbPoints() == 0) throw std::runtime_error("projection failed");
+        double u, v;
+        on.LowerDistanceParameters(u, v);
+        gp_Vec du, dv;
+        surface->D1(u, v, foot, du, dv);
+        gp_Vec n = du.Crossed(dv);
+        n.Normalize();
+        if (face.Orientation() == TopAbs_REVERSED) n.Reverse();
+        return n;
+      };
+      const int count = 96;
+      std::vector<std::array<gp_Pnt, 5>> sections;
+      int convex = -1;
+      const double delta = 0.5 * std::max(off1, off2);
+      for (int k = 0; k < count; ++k) {
+        double t = curve.FirstParameter() + (curve.LastParameter() - curve.FirstParameter()) * k / count;
+        gp_Pnt p;
+        gp_Vec tangent;
+        curve.D1(t, p, tangent);
+        tangent.Normalize();
+        gp_Pnt foot;
+        gp_Vec n1 = normal(s1, f1, p, foot), n2 = normal(s2, f2, p, foot);
+        if (convex < 0) {
+          // Into each face square to the edge; convex where the material lies between those directions.
+          auto into = [&](const gp_Vec &n, const TopoDS_Face &face) {
+            gp_Vec u = tangent.Crossed(n);
+            gp_Pnt q = p.Translated(u * 1e-5);
+            BRepExtrema_DistShapeShape d(BRepBuilderAPI_MakeVertex(q).Vertex(), face);
+            if (!d.IsDone() || d.Value() > 1e-6) u.Reverse();
+            return u;
+          };
+          gp_Vec u1 = into(n1, f1), u2 = into(n2, f2);
+          BRepClass3d_SolidClassifier classifier(solid.shape, p.Translated((u1 + u2).Normalized() * 1e-5), 1e-9);
+          convex = classifier.State() == TopAbs_IN ? 1 : 0;
+        }
+        // The ball's side: into the material at a convex edge, into the void at a concave one.
+        const double side = convex ? -1 : 1;
+        gp_Pnt centre = p.Translated(n1 * (side * off1) + n2 * (side * off2));
+        gp_Pnt q1, q2;
+        for (int it = 0; it < 60; ++it) {
+          gp_Vec m1 = normal(s1, f1, centre, q1) * side;
+          double d1 = gp_Vec(q1, centre).Dot(m1);
+          centre.Translate(m1 * (off1 - d1));
+          gp_Vec m2 = normal(s2, f2, centre, q2) * side;
+          double d2 = gp_Vec(q2, centre).Dot(m2);
+          centre.Translate(m2 * (off2 - d2));
+          // Kept in the plane square to the edge.
+          centre.Translate(tangent * -gp_Vec(p, centre).Dot(tangent));
+          if (std::abs(off1 - d1) < 1e-12 && std::abs(off2 - d2) < 1e-12) break;
+        }
+        gp_Vec a1 = normal(s1, f1, centre, q1), a2 = normal(s2, f2, centre, q2);
+        // Past the faces: out of the material to cut, into it to fill.
+        const double away = convex ? 1 : -1;
+        sections.push_back({q1, q2, q2.Translated(a2 * (away * delta)), p.Translated((n1 + n2) * (away * delta)),
+                            q1.Translated(a1 * (away * delta))});
+      }
+      BRepOffsetAPI_ThruSections loft(Standard_True, Standard_False, 1e-7);
+      loft.CheckCompatibility(Standard_False);
+      for (int k = 0; k <= count; ++k) {
+        const auto &section = sections[k % count];
+        BRepBuilderAPI_MakePolygon polygon;
+        for (const gp_Pnt &q : section) polygon.Add(q);
+        polygon.Close();
+        loft.AddWire(polygon.Wire());
+      }
+      loft.Build();
+      if (!loft.IsDone()) return nullptr;
+      // Its caps lie on each other where the loop closes: without them, its sides sewn into a ring.
+      TopTools_MapOfShape caps;
+      caps.Add(loft.FirstShape());
+      caps.Add(loft.LastShape());
+      BRepBuilderAPI_Sewing ring(1e-7);
+      for (TopExp_Explorer f(loft.Shape(), TopAbs_FACE); f.More(); f.Next())
+        if (!caps.Contains(f.Current())) ring.Add(f.Current());
+      ring.Perform();
+      TopExp_Explorer shells(ring.SewedShape(), TopAbs_SHELL);
+      if (!shells.More()) return nullptr;
+      BRepBuilderAPI_MakeSolid make(TopoDS::Shell(shells.Current()));
+      if (!make.IsDone()) return nullptr;
+      TopoDS_Solid piece = make.Solid();
+      BRepLib::OrientClosedSolid(piece);
+      if (!BRepCheck_Analyzer(piece).IsValid()) return nullptr;
+      (convex ? cut_tools : fill_tools).Append(piece);
+    }
+    TopoDS_Shape shape = solid.shape;
+    std::unique_ptr<Operation> op;
+    for (int pass = 0; pass < 2; ++pass) {
+      TopTools_ListOfShape &tools = pass == 0 ? cut_tools : fill_tools;
+      if (tools.IsEmpty()) continue;
+      std::unique_ptr<BRepAlgoAPI_BooleanOperation> boolean;
+      if (pass == 0) boolean = std::make_unique<BRepAlgoAPI_Cut>(); else boolean = std::make_unique<BRepAlgoAPI_Fuse>();
+      boolean->SetArguments(one(shape));
+      boolean->SetTools(tools);
+      boolean->Build();
+      if (!boolean->IsDone()) return nullptr;
+      auto step = finish(one(shape), *boolean, "chamfer");
+      if (op) {
+        op->history->Merge(step->history);
+        op->result = step->result;
+      } else {
+        op = std::move(step);
+      }
+      shape = op->result;
+    }
+    if (!op || !BRepCheck_Analyzer(op->result).IsValid()) return nullptr;
+    ShapeUpgrade_UnifySameDomain unify(op->result, Standard_True, Standard_True, Standard_False);
+    unify.Build();
+    op->history->Merge(unify.History());
+    op->result = unify.Shape();
+    return op;
+  } catch (...) {
+    return nullptr;
+  }
+}
+
 static std::unique_ptr<Operation> chamfer_by_ball_impl(const Shape &solid, const ShapeList &edges, double width);
 std::unique_ptr<Operation> chamfer_by_ball_op(const Shape &solid, const ShapeList &edges, double width) {
   try {
