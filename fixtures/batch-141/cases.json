@@ -1,0 +1,87 @@
+{
+  "batch": "141",
+  "title": "everyday parts: a hole grid, a mirrored gusset, a lofted transition, a sheet metal channel, a split block, an intersection, a thickened loft, countersinks",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "linear-pattern",
+      "description": "a 60 × 40 × 5 plate with a hole (radius 3) at (10, 10) patterned 3 along x at 20 and 2 along y at 20",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "mirror",
+      "description": "an L bracket (a 40 × 30 × 4 plate, a wall 4 thick and 25 tall at x = 0) with a triangular gusset (4 thick) at y = 2, mirrored across y = 15",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "loft",
+      "description": "a transition: a 30 × 30 square at z = 0 lofted to a circle of radius 10 at z = 25, shelled 1.5 open at both ends",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "sheet-metal-hem",
+      "description": "a sheet metal U channel (a 20 base, 15 legs, 50 deep, 1.5 thick) with a hole (radius 2.5) in its base patterned 3 along it at 15, one leg's top edge hemmed 6",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "split-part",
+      "description": "a 40 × 30 × 20 block split by a plane through it at 30° and the upper piece's top edges filleted 2",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "boolean",
+      "description": "an L profile (30 × 20, 5 thick) extruded 30 along y intersected with a circle (radius 14 about (15, 15)) extruded 30 along z",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "thicken",
+      "description": "a sheet lofted between a line at z = 0 and an arc at z = 20 (rising 5 in its middle), thickened 2",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c008",
+      "kind": "hole",
+      "description": "a 60 × 20 × 10 plate with countersunk holes (6, countersink 12 at 90°, 8 deep) at (15, 10) and (45, 10)",
+      "slotMeters": [
+        2.8000000000000003,
+        0,
+        0
+      ]
+    }
+  ]
+}

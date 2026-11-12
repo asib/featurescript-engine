@@ -199,8 +199,15 @@ pub fn pattern(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
         .into_iter()
         .filter(|(b, _)| model.bodies[*b].body_type == crate::model::BodyType::Sheet)
         .collect();
+    // How each sheet faced, to keep it so: a boolean of a sheet whose shell is turned over as a whole (as an extrude's
+    // sheets are) gives its faces back the shell's own way (batch 141 c004: a sheet metal channel's definition, its
+    // material then rebuilt on the other side).
+    let mut facing: Vec<(crate::model::Tid, occt::Vec3, occt::Vec3)> = Vec::new();
     for (b, edges) in edge_groups {
         let body = &model.bodies[b];
+        if let Some(t) = body.faces.first().and_then(|f| f.shape.face_tangent_plane(0.5, 0.5).ok()) {
+            facing.push((body.tid, t.origin, t.normal));
+        }
         let face = body
             .faces
             .iter()
@@ -226,6 +233,25 @@ pub fn pattern(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
         results.push((b, op));
     }
     replace_bodies(model, &id, results);
+    for (tid, at, normal) in facing {
+        let Some(b) = model.bodies.iter().position(|body| body.tid == tid) else { continue };
+        let Ok(vertex) = occt::vertex(at) else { continue };
+        let Some(face) = model.bodies[b].faces.iter().find(|f| vertex.distance(&f.shape).is_ok_and(|d| d.distance < 1e-7))
+        else {
+            continue;
+        };
+        let Some(now) = face.shape.face_fraction(at).ok().and_then(|(u, v)| face.shape.face_tangent_plane(u, v).ok()) else {
+            continue;
+        };
+        if values::dot(now.normal, normal) < 0.0 {
+            model.update_body(b, |body| {
+                body.shape = body.shape.reversed();
+                for f in body.faces.iter_mut() {
+                    f.shape = f.shape.reversed();
+                }
+            });
+        }
+    }
     Ok(Value::UNDEFINED)
 }
 

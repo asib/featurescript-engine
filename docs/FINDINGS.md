@@ -1530,6 +1530,15 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   shelled pipe elbow with flanges, a bottle, a swept handle, patterned counterbored holes and a drafted block with a
   boss match as built. A tooth added to a disc's rim and patterned without `fullFeaturePattern` fails in Onshape
   (`PATTERN_SWITCH_TO_PER_INSTANCE`, its top and bottom merged into the disc's faces), as in the engine.
+- **Everyday parts, a fourth round** (batch 141): a hole grid patterned in two directions, a split block filleted,
+  an L intersected with a cylinder and countersunk holes match as built. A sheet metal channel's hole patterned along
+  it (a face pattern of the hole, which std re-cuts in the definition sheet as an edge pattern): the definition
+  sheet, which the extrude had made by turning OCCT's shell over as a whole, came back from the boolean with its
+  faces the shell's own way, and the part was rebuilt with its material inside the channel; the engine keeps the
+  sheet facing as it did. Known gap: a square lofted to a circle and shelled open at both ends, its sides meeting at
+  the square's corners and running on tangent at the circle: OCCT's thick solid fails (its offsets joined by
+  intersection or by arcs, all intersected or not), and so does a cavity of the sides' offset surfaces, which meet
+  tangentially there; Onshape's inner sides are its own fits (510.93 to 511.00 mm² for four equal sides).
 - **Faces split normal to curved targets** (batch 133): a sketch projected normal to the target goes along the
   target's normal through each of its points onto the target's surface: a circle and a rectangle beside a cylinder, a
   circle above a sphere, a circle beside a cone frustum. The rectangle taller than the cylinder splits its side across
