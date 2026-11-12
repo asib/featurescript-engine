@@ -338,37 +338,79 @@ std::unique_ptr<Operation> fillet_by_opening(const TopoDS_Shape &solid, const To
       if (it.Value() % 2 != 0) return nullptr;
   }
   try {
-    // (Intersection mode with round joins: a cross hole's cylinder with plain joins comes back empty.)
-    BRepOffsetAPI_MakeOffsetShape eroded;
-    eroded.PerformByJoin(BRepBuilderAPI_Copy(solid, Standard_True).Shape(), -r, 1e-7, BRepOffset_Skin, Standard_True,
-                         Standard_False, GeomAbs_Arc);
-    if (!eroded.IsDone() || eroded.Shape().IsNull() || !BRepCheck_Analyzer(eroded.Shape()).IsValid()) return nullptr;
-    // Its intersection curves one edge each, so each round grown back along one is one face.
-    Handle(BRepTools_History) scratch = new BRepTools_History;
-    const TopoDS_Shape core = edges_fused(eroded.Shape(), scratch);
-    BRepOffsetAPI_MakeOffsetShape opened;
-    opened.PerformByJoin(core, r, 1e-7, BRepOffset_Skin, Standard_False, Standard_False, GeomAbs_Arc);
-    if (!opened.IsDone() || opened.Shape().IsNull() || !BRepCheck_Analyzer(opened.Shape()).IsValid()) return nullptr;
-    BRepAlgoAPI_Cut slivers(solid, opened.Shape());
-    slivers.Build();
-    if (!slivers.IsDone()) return nullptr;
-    TopTools_ListOfShape chosen;
-    for (TopExp_Explorer it(slivers.Shape(), TopAbs_SOLID); it.More(); it.Next()) {
-      for (const TopoDS_Shape &e : edges) {
-        BRepExtrema_DistShapeShape distance(it.Current(), e);
-        if (distance.IsDone() && distance.Value() < 1e-6) {
-          chosen.Append(it.Current());
-          break;
+    // The slivers a solid's opening takes off it, those touching the edges.
+    auto slivers_along = [&](const TopoDS_Shape &shape) -> TopTools_ListOfShape {
+      TopTools_ListOfShape chosen;
+      // (Intersection mode with round joins: a cross hole's cylinder with plain joins comes back empty.)
+      BRepOffsetAPI_MakeOffsetShape eroded;
+      eroded.PerformByJoin(BRepBuilderAPI_Copy(shape, Standard_True).Shape(), -r, 1e-7, BRepOffset_Skin, Standard_True,
+                           Standard_False, GeomAbs_Arc);
+      if (!eroded.IsDone() || eroded.Shape().IsNull() || !BRepCheck_Analyzer(eroded.Shape()).IsValid()) return chosen;
+      // Its intersection curves one edge each, so each round grown back along one is one face.
+      Handle(BRepTools_History) scratch = new BRepTools_History;
+      const TopoDS_Shape core = edges_fused(eroded.Shape(), scratch);
+      BRepOffsetAPI_MakeOffsetShape opened;
+      opened.PerformByJoin(core, r, 1e-7, BRepOffset_Skin, Standard_False, Standard_False, GeomAbs_Arc);
+      if (!opened.IsDone() || opened.Shape().IsNull() || !BRepCheck_Analyzer(opened.Shape()).IsValid()) return chosen;
+      BRepAlgoAPI_Cut slivers(shape, opened.Shape());
+      slivers.Build();
+      if (!slivers.IsDone()) return chosen;
+      for (TopExp_Explorer it(slivers.Shape(), TopAbs_SOLID); it.More(); it.Next()) {
+        for (const TopoDS_Shape &e : edges) {
+          BRepExtrema_DistShapeShape distance(it.Current(), e);
+          if (distance.IsDone() && distance.Value() < 1e-6) {
+            chosen.Append(it.Current());
+            break;
+          }
+        }
+      }
+      return chosen;
+    };
+    // Convex edges lose what the solid's opening takes off along them; concave ones gain what its closing adds
+    // there (grown by the radius with sharp joins, so the edge stays an edge, then shrunk back with round ones, which
+    // round it).
+    bool concave = false;
+    TopTools_ListOfShape chosen = slivers_along(solid);
+    if (chosen.IsEmpty()) {
+      concave = true;
+      BRepOffsetAPI_MakeOffsetShape grown;
+      grown.PerformByJoin(BRepBuilderAPI_Copy(solid, Standard_True).Shape(), r, 1e-7, BRepOffset_Skin, Standard_True,
+                          Standard_False, GeomAbs_Intersection);
+      if (!grown.IsDone() || grown.Shape().IsNull()) return nullptr;
+      TopoDS_Shape grown_shape = grown.Shape();
+      // (Crossing pipes grown come out with a face's wires out of order: mended.)
+      if (!BRepCheck_Analyzer(grown_shape).IsValid()) {
+        Handle(ShapeFix_Shape) fix = new ShapeFix_Shape(grown_shape);
+        fix->Perform();
+        grown_shape = fix->Shape();
+        if (!BRepCheck_Analyzer(grown_shape).IsValid()) return nullptr;
+      }
+      Handle(BRepTools_History) scratch = new BRepTools_History;
+      const TopoDS_Shape hull = edges_fused(grown_shape, scratch);
+      BRepOffsetAPI_MakeOffsetShape closed;
+      closed.PerformByJoin(hull, -r, 1e-7, BRepOffset_Skin, Standard_False, Standard_False, GeomAbs_Arc);
+      if (!closed.IsDone() || closed.Shape().IsNull() || !BRepCheck_Analyzer(closed.Shape()).IsValid()) return nullptr;
+      BRepAlgoAPI_Cut added(closed.Shape(), solid);
+      added.Build();
+      if (!added.IsDone()) return nullptr;
+      for (TopExp_Explorer it(added.Shape(), TopAbs_SOLID); it.More(); it.Next()) {
+        for (const TopoDS_Shape &e : edges) {
+          BRepExtrema_DistShapeShape distance(it.Current(), e);
+          if (distance.IsDone() && distance.Value() < 1e-6) {
+            chosen.Append(it.Current());
+            break;
+          }
         }
       }
     }
     if (chosen.IsEmpty()) return nullptr;
-    BRepAlgoAPI_Cut cut;
-    cut.SetArguments(one(solid));
-    cut.SetTools(chosen);
-    cut.Build();
-    if (!cut.IsDone() || !BRepCheck_Analyzer(cut.Shape()).IsValid()) return nullptr;
-    auto op = finish(one(solid), cut, "fillet");
+    std::unique_ptr<BRepAlgoAPI_BooleanOperation> boolean;
+    if (concave) boolean = std::make_unique<BRepAlgoAPI_Fuse>(); else boolean = std::make_unique<BRepAlgoAPI_Cut>();
+    boolean->SetArguments(one(solid));
+    boolean->SetTools(chosen);
+    boolean->Build();
+    if (!boolean->IsDone() || !BRepCheck_Analyzer(boolean->Shape()).IsValid()) return nullptr;
+    auto op = finish(one(solid), *boolean, "fillet");
     ShapeUpgrade_UnifySameDomain unify(op->result, Standard_True, Standard_True, Standard_False);
     unify.Build();
     op->history->Merge(unify.History());
@@ -390,7 +432,14 @@ std::unique_ptr<Operation> fillet_op(const Shape &solid, const ShapeList &edges,
   BRepFilletAPI_MakeFillet maker(solid.shape);
   for (const TopoDS_Shape &e : edges.shapes) maker.Add(radius, TopoDS::Edge(e));
   maker.Build();
-  if (maker.IsDone() && largest_tolerance(maker.Shape()) > 1e-5) {
+  // Also where it rounds an edge with more than one face (crossing pipes' joints in three each, batch 128 c007),
+  // as Onshape rounds a closed edge with one.
+  int made = 0;
+  if (maker.IsDone())
+    for (const TopoDS_Shape &e : edges.shapes)
+      for (const TopoDS_Shape &g : maker.Generated(e))
+        if (g.ShapeType() == TopAbs_FACE) ++made;
+  if (maker.IsDone() && (largest_tolerance(maker.Shape()) > 1e-5 || made > (int)edges.shapes.size())) {
     TopTools_ListOfShape copied;
     for (const TopoDS_Shape &e : edges.shapes) {
       const TopTools_ListOfShape &images = copier.Modified(e);
