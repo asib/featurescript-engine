@@ -1452,6 +1452,19 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   of a planar face as lines before sweeping it. The round relief and the closed corner match within 0.01 (as in
   batches 013 and 016).
 
+- **Non-circular fillets of curved edges** (batch 132): along a tee's joint, a boss's foot on a pipe, a spherical
+  pocket's rim, a cone's foot and the circle where two balls meet, Onshape's conic, curvature and uneven fillets have
+  their feet where the rolling ball touches the faces (its centre `d₁` and `d₂` off them; within 1e-6 mm), and
+  between them the section of a straight edge's fillet in the plane through the ball's centre and feet, round the
+  corner where the faces' tangent lines across meet. Its faces are its own fits, 4e-5 to 7e-5 of their areas under
+  the exact surfaces (as batch 082's conic round a cylinder's top). An uneven fillet's centre round a tee's joint is
+  `radius` from the leading face at a convex edge, the other way round at a concave one, as along straight edges; but
+  a cone frustum's top edge (a convex circle between the top and the cone, the cone leading) has `radius` from the top
+  and `otherRadius` from the cone, the other way round from a cylinder's (batch 082 c003): the rule for circles is
+  still to find. The engine builds these fillets from sections at 96 places round the edge, lofted and cut or
+  filled; an uneven one's rational sections, their weights changing round the edge, are fitted with cubics through
+  17 points with their end derivatives as they are (`GeomAPI_Interpolate::Load` rescales them unless told not to,
+  and the cubic strayed 6 µm from the section: 1.5e-3 of the area).
 ## STEP export
 
 - **Part names** are written on each `MANIFOLD_SOLID_BREP` (`MANIFOLD_SOLID_BREP('c030.1', ...)`), as well as on

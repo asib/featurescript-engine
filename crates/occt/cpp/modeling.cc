@@ -691,9 +691,13 @@ TopoDS_Solid sectioned_tool(const TopoDS_Shape &solid, const std::vector<TopoDS_
         gp_Vec d0, d1;
         section->D1(t0, e, d0);
         section->D1(t1, e, d1);
-        interpolate.Load(d0, d1);
+        // The derivatives as they are: by default Load rescales them, and the cubic strays 6 µm from the section near
+        // its feet (batch 132 c005).
+        interpolate.Load(d0, d1, Standard_False);
         interpolate.Perform();
-        if (interpolate.IsDone()) section = interpolate.Curve();
+        // A rational section among the cubics would bend the loft there.
+        if (!interpolate.IsDone()) throw std::runtime_error("section fit");
+        section = interpolate.Curve();
       }
       sections_curves.push_back(section);
       blend = {q1, q2};
