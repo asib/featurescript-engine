@@ -480,11 +480,15 @@ std::unique_ptr<ShapeList> normal_projection_sheets(const ShapeList &edges, cons
     BRepAdaptor_Curve curve(TopoDS::Edge(e));
     const bool closed = BRep_Tool::IsClosed(TopoDS::Edge(e)) ||
                         curve.Value(curve.FirstParameter()).Distance(curve.Value(curve.LastParameter())) < 1e-9;
+    // Both curves through their points at the same parameters (the edge's own): at their default chord lengths,
+    // longer outside a cylinder than inside, the rulings tilted off the normals and a circle's projection round a
+    // cylinder came out 6 µm inside it (batch 137 c004). A closed edge's first point again at the end.
     const int n = 128;
-    const int count = closed ? n : n + 1;
+    const int count = n + 1;
     for (const TopoDS_Shape &f : faces.shapes) {
       Handle(Geom_Surface) surface = BRep_Tool::Surface(TopoDS::Face(f));
       Handle(TColgp_HArray1OfPnt) above = new TColgp_HArray1OfPnt(1, count), below = new TColgp_HArray1OfPnt(1, count);
+      Handle(TColStd_HArray1OfReal) params = new TColStd_HArray1OfReal(1, count);
       bool ok = true;
       for (int i = 0; i < count && ok; ++i) {
         double t = curve.FirstParameter() + (curve.LastParameter() - curve.FirstParameter()) * i / n;
@@ -506,10 +510,11 @@ std::unique_ptr<ShapeList> normal_projection_sheets(const ShapeList &edges, cons
         normal.Normalize();
         above->SetValue(i + 1, q.Translated(normal * reach));
         below->SetValue(i + 1, q.Translated(normal * -reach));
+        params->SetValue(i + 1, t);
       }
       if (!ok) continue;
       auto through = [&](const Handle(TColgp_HArray1OfPnt) &points) {
-        GeomAPI_Interpolate interpolate(points, closed, 1e-9);
+        GeomAPI_Interpolate interpolate(points, params, Standard_False, 1e-9);
         interpolate.Perform();
         if (!interpolate.IsDone()) throw std::runtime_error("normal projection: interpolation failed");
         return BRepBuilderAPI_MakeWire(BRepBuilderAPI_MakeEdge(interpolate.Curve()).Edge()).Wire();
