@@ -1516,6 +1516,16 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   edge OCCT split at seam vertices (`evEdgeTangentLine`, `evLine`, a locked sweep's path) as the one edge Onshape has,
   its pieces joined. Still, std orients each segment's profile from its edge's ends and directions: Onshape's arcs'
   profiles come out turned 14° (the rectangle's sides' angle round the cylinder), the engine's otherwise (a gap).
+- **Ruled surfaces' overrides along a curved edge; feature patterns of separate faces** (batch 139): along a curved
+  edge Onshape blends the rulings at the edge's two ends as vectors held in the frame that turns with the edge (the
+  ruling at angle 0, the one a quarter turn from it, the edge's tangent), with smoothstep weights (`useCubicInterpolation`):
+  a tangent surface with its ruling normal at one end has its far edge pulled in between (77.2845 mm², not the
+  93.49 of blending the angle and the width apart, which agree with it when only the width changes, batch 040); one
+  end's ruling up to a point blends the vector to that point in the end's frame (120.492 mm²). The engine blends so.
+  A feature pattern of a hole feature that cut a sketch's two circles patterns the holes' faces (not
+  `fullFeaturePattern`): the engine made one tool of the two separate holes and patterned only one; each set of faces
+  joined by edges is now its own tool. `dummyFeature` does nothing; `jogSectionPartInternal` sections as
+  `jogSectionPart` does after clearing sheet metal data (a sheet metal L comes out a plain part).
 - **Faces split normal to curved targets** (batch 133): a sketch projected normal to the target goes along the
   target's normal through each of its points onto the target's surface: a circle and a rectangle beside a cylinder, a
   circle above a sphere, a circle beside a cone frustum. The rectangle taller than the cylinder splits its side across
