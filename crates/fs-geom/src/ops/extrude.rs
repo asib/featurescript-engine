@@ -205,9 +205,11 @@ pub fn extrude(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
             }
         }
         Some(Bound::ThroughAll) => -reach,
-        // Up to a plane: swept from far behind, then cut at the plane (a hem's step, batch 021).
+        // Up to a plane: swept from far behind, then cut at the plane (a hem's step, batch 021); up to a curved face or
+        // bodies, of a solid, the same (batch 164 c004, c005).
         Some(Bound::Surface(face, _)) if face.face_plane().is_ok() => -reach,
-        Some(_) => return Err(error("@opExtrude: up-to start bounds other than planes aren't supported yet")),
+        Some(Bound::Surface(..) | Bound::Bodies(..)) if solid => -reach,
+        Some(_) => return Err(error("@opExtrude: up-to start bounds of sheets other than planes aren't supported yet")),
     };
     let end_at = match &end {
         Bound::Blind(d) => *d,
@@ -326,7 +328,7 @@ pub fn extrude(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
         };
         // A planar start bound: keep what's ahead of the plane along the direction; its faces there are the start cap.
         let result = match &start {
-            Some(Bound::Surface(face, offset)) => {
+            Some(Bound::Surface(face, offset)) if face.face_plane().is_ok() => {
                 let mut plane = face.face_plane().map_err(occt_error)?;
                 plane.origin = add(plane.origin, scale(direction, *offset));
                 let cutter = occt::plane_face(plane, -2.0 * reach, 2.0 * reach, -2.0 * reach, 2.0 * reach)
@@ -360,6 +362,50 @@ pub fn extrude(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
                     }
                 }
                 ahead
+            }
+            // Up to a curved face or bodies: keep the piece the profile is in; its faces on the bound are the start cap.
+            Some(Bound::Surface(face, offset)) => {
+                let cutter = if *offset == 0.0 {
+                    face.clone()
+                } else {
+                    occt::transform(face, &translation(scale(direction, *offset))).map_err(occt_error)?.shape()
+                };
+                let split =
+                    occt::split(&result, std::slice::from_ref(&cutter)).map_err(|_| regen_error("EXTRUDE_FAILED"))?;
+                let kept: Vec<Shape> = pieces_touching(&split.shape(), std::slice::from_ref(profile), kind)
+                    .into_iter()
+                    .map(|p| occt::edges_fused(&p).unwrap_or(p))
+                    .collect();
+                for piece in &kept {
+                    for f in piece.sub_shapes(ShapeKind::Face) {
+                        if f.distance(&cutter).is_ok_and(|d| d.distance < 1e-7) && on_surface(&f, &cutter) {
+                            start_cap.insert_all(&f);
+                        }
+                    }
+                }
+                kept
+            }
+            Some(Bound::Bodies(bodies, offset)) => {
+                let bodies: Vec<Shape> = if *offset == 0.0 {
+                    bodies.clone()
+                } else {
+                    let t = translation(scale(direction, *offset));
+                    bodies
+                        .iter()
+                        .map(|b| occt::transform(b, &t).map(|op| op.shape()))
+                        .collect::<Result<_, _>>()
+                        .map_err(occt_error)?
+                };
+                let split = occt::split(&result, &bodies).map_err(|_| regen_error("EXTRUDE_FAILED"))?;
+                let kept = pieces_touching(&split.shape(), std::slice::from_ref(profile), kind);
+                for piece in &kept {
+                    for f in piece.sub_shapes(ShapeKind::Face) {
+                        if bodies.iter().any(|b| on_surface(&f, b)) {
+                            start_cap.insert_all(&f);
+                        }
+                    }
+                }
+                kept
             }
             _ => result,
         };
