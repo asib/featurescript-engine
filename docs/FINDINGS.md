@@ -1729,6 +1729,13 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   difference grid had seemed within 0.07). Across the middle of the gap Onshape's is near the cubic with chord-length
   tangents, and toward the side lines it dips less (96% as much a quarter of the way along): no Coons or Gordon
   blend of those tried gives that. Known gap.
+- **Variable fillets with radii at points** (batch 165): along the edge the radius runs through the ends' radii and
+  the points' (at fractions of the edge's length along Onshape's way of it). Smooth, each stretch between two is the
+  S curve 3s² − 2s³, level at both (2 to 4 halfway: 2.056 at a tenth, 2.208 at a fifth). "Straight" is level at each
+  point and bends nowhere at the edge's ends: from an end 1.5s − 0.5s³, to an end 1.5s² − 0.5s³, between two points
+  the S curve (2 to 4 halfway: 2.299, 2.592); with no points it is the line it was. Between planes the fillet is
+  exactly the B-spline surface whose rows carry those spans' Bézier radii, one face; the engine now builds it so
+  (joining spans at triple knots), and samples the law for OCCT elsewhere.
 - **Revolves bounded at both ends, curved second-direction bounds, tangent propagation** (batch 164): with both
   bounds up to something, each bound is where it's first met going forward from the profile (as batch 024 found for
   a start bound alone), and the revolve runs forward from the start's to the end's: up to planes y = 5 and y = −5

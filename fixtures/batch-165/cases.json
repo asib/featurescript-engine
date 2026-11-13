@@ -1,0 +1,57 @@
+{
+  "batch": "165",
+  "title": "variable fillets with radii at points along the edge",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "fillet",
+      "description": "a variable fillet, 2 at both ends and 4 halfway, smooth",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "fillet",
+      "description": "the same, straight",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "fillet",
+      "description": "a variable fillet, 2 and 3 at the ends, 4 a quarter along and 1.5 at 0.6, smooth",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "fillet",
+      "description": "the same, straight",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "fillet",
+      "description": "a variable fillet, no radii at its ends (2 there), 5 at 0.3, smooth",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    }
+  ]
+}
