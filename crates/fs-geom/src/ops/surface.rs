@@ -1222,12 +1222,28 @@ pub fn boundary_surface(model: &mut Model, id: FeatureId, definition: &Value) ->
         }
         let mut ends: [Option<EndCondition>; 2] = [None, None];
         for info in &u_conditions {
-            if !field(info, "adjacentFaces").is_undefined() {
-                return Err(error("@opBoundarySurface: matching adjacent faces isn't supported yet"));
-            }
             let index = (field(info, "profileIndex").as_number().unwrap_or(0.0) as usize).min(1);
+            let magnitude = field(info, "magnitude").as_number().unwrap_or(1.0);
+            // Matching a flat face next to the profile: tangent to the face's plane, as tangent to a profile's own
+            // plane is (batch 159).
+            if !field(info, "adjacentFaces").is_undefined() {
+                if values::opt_bool(info, "matchCurvature")?.unwrap_or(false) {
+                    return Err(error("@opBoundarySurface: matching adjacent faces' curvature isn't supported yet"));
+                }
+                let normals: Vec<occt::Vec3> = shapes(model, field(info, "adjacentFaces"), EntityType::Face)?
+                    .iter()
+                    .map(|f| f.face_plane().map(|p| p.normal))
+                    .collect::<Result<_, _>>()
+                    .map_err(|_| error("@opBoundarySurface: matching curved adjacent faces isn't supported yet"))?;
+                let Some(&normal) = normals.first() else { return Err(regen_error("BSURF_FAILED")) };
+                if normals.iter().any(|n| values::norm(values::cross(*n, normal)) > 1e-9) {
+                    return Err(error("@opBoundarySurface: matching adjacent faces in several planes isn't supported yet"));
+                }
+                ends[index] = Some(EndCondition { magnitude, tangent: true, vector: normal });
+                continue;
+            }
             ends[index] = Some(EndCondition {
-                magnitude: field(info, "magnitude").as_number().unwrap_or(1.0),
+                magnitude,
                 tangent: values::opt_bool(info, "tangentToPlane")?.unwrap_or(false),
                 vector: values::vec3(field(info, "vector"), "@opBoundarySurface derivative vector")?,
             });
