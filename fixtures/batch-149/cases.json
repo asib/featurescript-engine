@@ -1,0 +1,57 @@
+{
+  "batch": "149",
+  "title": "everyday sheet metal, a second round: a lipped tray, a Z bracket with holes, a bent tab, a rolled hem, a tear-drop hem",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "sheet-metal-flange",
+      "description": "a tray: a sheet metal plate (80 × 50, 1.5 thick) with flanges 25 up all four edges, the long walls' outer top edges flanged again 8 into lips",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "sheet-metal-start",
+      "description": "a Z bracket: a sketch up 15, along 25 and up 15 extruded 40 as sheet metal (1.5 thick), a hole (radius 3) in its web and one (radius 2.5) in each leg",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "sheet-metal-bend",
+      "description": "a sheet metal plate (60 × 40, 1.5 thick) with a 20 × 15 tab added on its far edge, bent 90° up along a line across the tab at y = 45",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "sheet-metal-hem",
+      "description": "a sheet metal plate (50 × 40, 1.5 thick) with a flange 25 up its far edge, the flange's top edge rolled 240° (inner radius 1)",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "sheet-metal-hem",
+      "description": "a sheet metal plate (50 × 40, 1.5 thick) with a flange 25 up its far edge, the flange's top edge hemmed as a tear drop 6 long (inner radius 1)",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    }
+  ]
+}

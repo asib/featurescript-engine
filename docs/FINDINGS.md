@@ -1587,15 +1587,11 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   thickened, a rib normal to its sketch and a two-distance chamfer match as built. A column extruded up to next from
   inside another part (the first case's plate, built at the same place) runs on to its own roof in Onshape: up to
   next passes by parts the profile starts inside.
-- **Probes of splits and sketches** (batch 150): a cylinder's side split by a rectangle projected normal to it has
-  edges running as the tool edges they came from (`skRectangle` draws all four sides rising: the arcs run round
-  and the lines up as those sides do), and the engine now runs them so. Sketches drawn a little off: a circle and a
-  line held tangent (either drawn first), a line's start held on a circle and a tilted line held tangent to one all
-  move the circle's centre and leave the line; of two circles held tangent the second moves; of two lines with ends
-  held together the second slides (keeping its length and direction). Where lines sit is now held before where
-  circles, arcs and points do in the engine's solver. Known gap: two dimensioned circles joined by lines held tangent
-  to both (c008, as batch 147's cam), where Onshape leaves the second line exactly where it was, turns the first
-  about its middle and moves both circles a little (0.05).
+- **Everyday sheet metal, a second round** (batch 149): a tray with lips flanged off its walls' top edges, a Z
+  bracket extruded from a sketch with holes in its web and legs, a rolled hem and a tear-drop hem match as built.
+  A tab bent along a line across it: the bend's strip wrapped onto its cylinder came out inside out (the rebuilt
+  loops ran as their first edges happened to), so the bend wasn't united with the walls; a wrapped face with a
+  negative area is now rebuilt with its loops reversed, and the bend matches.
 - **Faces split normal to curved targets** (batch 133): a sketch projected normal to the target goes along the
   target's normal through each of its points onto the target's surface: a circle and a rectangle beside a cylinder, a
   circle above a sphere, a circle beside a cone frustum. The rectangle taller than the cylinder splits its side across
