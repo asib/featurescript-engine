@@ -3858,6 +3858,11 @@ std::unique_ptr<Operation> loft_clamped_op(const ShapeList &wires, bool solid, V
         }
       }
     }
+    // The spans meet with one slope either side (C1), so their knots need only the degree less one: as Hermite
+    // pieces OCCT takes the surface for C0, which it won't offset (a bottle lofted through three circles and
+    // shelled, batch 145 c005).
+    for (int j = s->NbUKnots() - 1; j >= 2; --j)
+      if (s->UMultiplicity(j) > s->UDegree() - 1) s->RemoveUKnot(j, s->UDegree() - 1, 1e-9);
     // A side ending at a point has a degenerate row there: the face's edge there is degenerate.
     ShapeFix_Face fix(BRepBuilderAPI_MakeFace(s, side.u1, side.u2, 0, 1, 1e-7).Face());
     fix.Perform();
