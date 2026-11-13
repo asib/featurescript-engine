@@ -1652,7 +1652,12 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   grows (8 to 8.0799) and the other line slides straight up 0.1; only the second dimensioned, the first shrinks (15 to
   14.9201) and the line slides down; neither, the second grows, whichever circle was drawn first. The changed
   circle's centre lies on the lines' bisector, moved 0.1 at 30° to x: its split between moving and growing is no
-  plain least-norm one (that would move it 0.022 and grow it 0.095), nor a contact point held. Known gap.
+  plain least-norm one (that would move it 0.022 and grow it 0.095), nor a contact point held. Lines drawn 0.1 inside
+  the first circle (c004) move the bisector twice as far, yet the split is the same: the radius changes four fifths
+  of what it would with the centre held (0.0777 of 0.0972; c001 0.0799 of 0.0999), the centre's move along the
+  bisector the other fifth, the shrinking first circle of c002 too. As a least-norm split that weights the radius
+  1/(2 sin)² times the centre (sin of the lines' half-angle, 0.2299); neither that nor any joint least-norm over the
+  circles, the other line and its turn found explains it. Known gap.
 - **Fills with tangency conditions** (batch 157): across a gap between a level sheet and one rising at 26.6° (lines
   along its sides), a fill tangent to the rising sheet only is the plane, as Onshape's plain fill is (that plane
   already continues the sheet); Onshape faces it up (0, 0.894 up), the engine down. Tangent to both, Onshape's heights
