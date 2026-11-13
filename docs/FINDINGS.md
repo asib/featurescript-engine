@@ -1624,6 +1624,16 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   second). The engine fills so now, the patch from its fits of the edges (0.0033 mm² off for the arcs); it had used
   OCCT's filling wherever the corners lay in a plane. A three-sided loop is filled by a rule not found: no Coons
   patch with a side collapsed to a corner (405 mm² to Onshape's 389.91); the engine's is OCCT's (393.17).
+- **Dimensioned circles and tangent lines settling** (batch 154): one line drawn a little off held tangent to two
+  dimensioned circles stays where it was, before or after them, and each circle moves the shortest way onto it,
+  along its normal (0.0514). The engine's least-norm step had divided by a rounding-sized eigenvalue of a rank-one
+  Gram matrix (1e-17, above its absolute floor) and sent the circles sliding 0.24 along the line too; eigenvalues
+  under 1e-12 of the largest are now left out, and the one-line cases match. Known gap: with two lines held tangent
+  (two circles, one, with or without radius dimensions, the second line's constraints first, the lower line drawn
+  first), Onshape keeps the lower line where it was, moves the circles the shortest way onto it, and moves the other
+  line onto them: along its normal for one circle (0.1), turned about its middle for two. Batch 150's two lines with
+  their ends held together kept the lower one too. The engine keeps both lines and moves the circles to where both
+  touch them (0.22).
 - **Faces split normal to curved targets** (batch 133): a sketch projected normal to the target goes along the
   target's normal through each of its points onto the target's surface: a circle and a rectangle beside a cylinder, a
   circle above a sphere, a circle beside a cone frustum. The rectangle taller than the cylinder splits its side across

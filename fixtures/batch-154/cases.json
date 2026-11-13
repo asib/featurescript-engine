@@ -1,0 +1,77 @@
+{
+  "batch": "154",
+  "title": "probes: dimensioned circles and tangent lines settling",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "sketch",
+      "description": "two dimensioned circles, then one line drawn a little off held tangent to both",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "sketch",
+      "description": "a line drawn a little off, then two dimensioned circles it is held tangent to",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "sketch",
+      "description": "two dimensioned circles and two lines held tangent to both, the second line's constraints given first",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "sketch",
+      "description": "two dimensioned circles and two lines held tangent to both, the lower line drawn first",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "sketch",
+      "description": "two circles without dimensions and two lines held tangent to both (batch 147's cam)",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "sketch",
+      "description": "two lines drawn a little off, then a dimensioned circle held tangent to both",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "sketch",
+      "description": "two dimensioned circles and two lines held tangent to both, the radius dimensions given first",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    }
+  ]
+}

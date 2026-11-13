@@ -1,0 +1,8 @@
+probe c001 { bodies : [] , construction : [] , values : { curves : [ [ circle , -0.011814 , -0.050008 , 15 ] , [ circle , 30.011771 , 0.049824 , 8 ] , [ line , 3.7 , 14.486 , 31.667 , 7.879 ] ] } }
+probe c002 { bodies : [] , construction : [] , values : { curves : [ [ circle , -0.011814 , -0.050008 , 15 ] , [ circle , 30.011771 , 0.049824 , 8 ] , [ line , 3.7 , 14.486 , 31.667 , 7.879 ] ] } }
+probe c003 { bodies : [] , construction : [] , values : { curves : [ [ circle , -0.011814 , 0.050008 , 15 ] , [ circle , 30.011771 , -0.049824 , 8 ] , [ line , 3.7 , -14.486 , 31.667 , -7.879 ] , [ line , 3.722275 , 14.579088 , 31.644719 , 7.786249 ] ] } }
+probe c004 { bodies : [] , construction : [] , values : { curves : [ [ circle , -0.011814 , 0.050008 , 15 ] , [ circle , 30.011771 , -0.049824 , 8 ] , [ line , 3.7 , -14.486 , 31.667 , -7.879 ] , [ line , 3.722275 , 14.579088 , 31.644719 , 7.786249 ] ] } }
+probe c005 { bodies : [] , construction : [] , values : { curves : [ [ circle , -0.011814 , 0.050008 , 15 ] , [ circle , 30.086986 , 0.050008 , 8.079865 ] , [ line , 3.7 , -14.486 , 31.667 , -7.879 ] , [ line , 3.7 , 14.586016 , 31.667 , 7.979016 ] ] } }
+probe c006 { bodies : [] , construction : [] , values : { curves : [ [ circle , -0.011814 , 0.050008 , 15 ] , [ line , 3.7 , -14.486 , 31.667 , -7.879 ] , [ line , 3.7 , 14.586016 , 31.667 , 7.979016 ] ] } }
+probe c007 { bodies : [] , construction : [] , values : { curves : [ [ circle , -0.011814 , 0.050008 , 15 ] , [ circle , 30.011771 , -0.049824 , 8 ] , [ line , 3.7 , -14.486 , 31.667 , -7.879 ] , [ line , 3.722275 , 14.579088 , 31.644719 , 7.786249 ] ] } }
+batch-154 failed cases: []
