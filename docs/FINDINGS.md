@@ -1658,13 +1658,14 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   undimensioned circle's radius gives way before the other line turns: only the first circle dimensioned, the second
   grows (8 to 8.0799) and the other line slides straight up 0.1; only the second dimensioned, the first shrinks (15 to
   14.9201) and the line slides down; neither, the second grows, whichever circle was drawn first. The changed
-  circle's centre lies on the lines' bisector, moved 0.1 at 30° to x: its split between moving and growing is no
-  plain least-norm one (that would move it 0.022 and grow it 0.095), nor a contact point held. Lines drawn 0.1 inside
-  the first circle (c004) move the bisector twice as far, yet the split is the same: the radius changes four fifths
-  of what it would with the centre held (0.0777 of 0.0972; c001 0.0799 of 0.0999), the centre's move along the
-  bisector the other fifth, the shrinking first circle of c002 too. As a least-norm split that weights the radius
-  1/(2 sin)² times the centre (sin of the lines' half-angle, 0.2299); neither that nor any joint least-norm over the
-  circles, the other line and its turn found explains it. Known gap.
+  circle's centre lies on the lines' bisector, and its radius changes four fifths of what it would with its centre
+  held there, the centre moving along the bisector for the rest. Batch 160, at other angles between the lines (the
+  sines of their half-angles 0.12 to 0.40), finds the share cos²(2θ) for lines 2θ apart, to 1e-5. The engine now gives such a
+  circle (nothing but tangencies to two lines, and the ends of those lines held on it; not the first of them by x
+  where no circle has a radius given) its place and radius after the other lines' turns, and settles it so between
+  the lines after solving. Batch 147's cam, its lines' ends held on the circles, needs the lines' ends to slide where
+  they're held on a circle the line is tangent to (the held line keeps only where it lies and its direction); a line's
+  end held on a circle it isn't tangent to still holds, the circle moving to it (batch 150 c004). The cam matches now.
 - **Fills with tangency conditions** (batch 157): across a gap between a level sheet and one rising at 26.6° (lines
   along its sides), a fill tangent to the rising sheet only is the plane, as Onshape's plain fill is (that plane
   already continues the sheet); Onshape faces it up (0, 0.894 up), the engine down. The engine now fills flat where a

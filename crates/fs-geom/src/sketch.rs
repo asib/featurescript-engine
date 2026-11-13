@@ -876,16 +876,22 @@ mod constraints {
     /// moving a point by one), and the order in which Onshape's solver lets them move (batch 136): the groups it
     /// holds hardest first, each entity's direction, length or radius, oldest entity first, then each entity's place,
     /// oldest first. A line's end moves when its length changes, its middle stays when it turns.
-    fn slots(entities: &[SketchEntity], fixed: bool) -> (Vec<Option<Slot>>, Vec<f64>, Vec<f64>, Vec<Vec<usize>>) {
+    fn slots(
+        entities: &[SketchEntity],
+        fixed: bool,
+        wedged: &[(usize, [usize; 2])],
+        ends_named: &[usize],
+    ) -> (Vec<Option<Slot>>, Vec<f64>, Vec<f64>, Vec<Vec<usize>>) {
         let mut x = Vec::new();
         let mut scale = Vec::new();
         let mut out = Vec::new();
+        let mut free = Vec::new();
         // Where lines sit holds before where circles, arcs and points do: a circle drawn off a line it's held
         // tangent to (or a line's end held on it) moves its centre, whichever was drawn first (batch 150 c002–c004,
         // c006).
         let (mut stiff, mut place, mut line_place): (Vec<Vec<usize>>, Vec<Vec<usize>>, Vec<Vec<usize>>) =
             (Vec::new(), Vec::new(), Vec::new());
-        for e in entities {
+        for (index, e) in entities.iter().enumerate() {
             let i = x.len();
             let slot = match &e.geometry {
                 Geometry::Point(p) => {
@@ -924,8 +930,12 @@ mod constraints {
                 Geometry::Circle { center, radius } => {
                     x.extend([center.0, center.1, *radius]);
                     scale.extend([1.0, 1.0, 1.0]);
-                    stiff.push(vec![i + 2]);
-                    place.push(vec![i, i + 1]);
+                    if wedged.iter().any(|(w, _)| *w == index) {
+                        free.push(vec![i, i + 1, i + 2]);
+                    } else {
+                        stiff.push(vec![i + 2]);
+                        place.push(vec![i, i + 1]);
+                    }
                     Some(Slot::Circle(i))
                 }
                 _ => None,
@@ -952,24 +962,40 @@ mod constraints {
             let (pa, pb) = (start(a), start(b));
             if (pa.0 - pb.0).abs() > 1e-9 { pa.0.total_cmp(&pb.0) } else { pa.1.total_cmp(&pb.1) }
         });
+        // The held line holds where it lies and its direction; where constraints hold its ends, they slide along it
+        // after the circles move onto it (batch 147's cam: its ends held on the circles go to where they touch it).
+        let slides = |a: usize| {
+            out.iter().position(|s| matches!(s, Some(Slot::Line(i)) if *i == a)).is_some_and(|e| ends_named.contains(&e))
+        };
+        let sliding = anchor.is_some_and(slides);
         let mut groups: Vec<Vec<usize>> = Vec::new();
         if let Some(a) = anchor {
-            groups.push(vec![a, a + 1, a + 2, a + 3]);
+            groups.push(if sliding { vec![a, a + 1, a + 2] } else { vec![a, a + 1, a + 2, a + 3] });
         }
         let is_anchor = |g: &Vec<usize>| anchor.is_some_and(|a| g.contains(&a) || g.contains(&(a + 2)));
         // (Two circles held tangent to the held line and to another: the circles move the shortest way onto the held
         // line, the other turns about its middle onto them, batch 154 c003.)
         let mut turns = Vec::new();
+        // So do the other lines' ends held on circles they're held tangent to (the cam's other line lengthens).
+        let mut ends = Vec::new();
         for g in stiff.into_iter().filter(|g| !is_anchor(g)) {
             match lines.iter().find(|&&i| g.contains(&(i + 2))) {
                 Some(&i) => {
-                    groups.push(vec![i + 3]);
+                    if slides(i) {
+                        ends.push(vec![i + 3, i + 4]);
+                    } else {
+                        groups.push(vec![i + 3]);
+                    }
                     turns.push(vec![i + 2]);
                 }
                 None => groups.push(g),
             }
         }
         let (mut along, mut across) = (Vec::new(), Vec::new());
+        if let Some(a) = anchor.filter(|_| sliding) {
+            along.push(vec![a + 3, a + 4]);
+        }
+        along.extend(ends);
         for g in line_place.into_iter().filter(|g| !is_anchor(g)) {
             let i = g[0];
             let level = x[i + 2].cos().abs() >= x[i + 2].sin().abs();
@@ -978,6 +1004,9 @@ mod constraints {
         }
         groups.extend(place);
         groups.extend(turns);
+        // A circle without a radius of its own wedged between two lines gives way, place and radius, before the other
+        // line turns (batch 156, 160).
+        groups.extend(free);
         groups.extend(along);
         groups.extend(across);
         (out, x, scale, groups)
@@ -1360,6 +1389,121 @@ mod constraints {
         d
     }
 
+    /// Circles with no radius of their own (nothing but tangencies to two lines), each with its lines: Onshape changes
+    /// such a circle's radius rather than turn a line (batch 156). Where no circle in the sketch has its radius given,
+    /// the one whose centre comes first, by x and then y, keeps its radius, as the line starting first holds (156
+    /// c003, c004: the second of two such circles grows, whichever was drawn first).
+    fn wedged_circles(entities: &[SketchEntity], constraints: &[Value]) -> Vec<(usize, [usize; 2])> {
+        let names = |id: &str, n: Option<&str>| n.is_some_and(|n| n == id || n.rsplit_once('.').is_some_and(|(b, _)| b == id));
+        let line_index = |name: Option<&str>| {
+            entities.iter().position(|e| Some(&*e.id) == name && matches!(e.geometry, Geometry::Line(..)))
+        };
+        let mut sized = false;
+        let mut out: Vec<(usize, [usize; 2])> = Vec::new();
+        for (index, e) in entities.iter().enumerate() {
+            let Geometry::Circle { .. } = e.geometry else { continue };
+            let id = &*e.id;
+            let mut lines = Vec::new();
+            let mut ends = Vec::new();
+            let mut other = false;
+            for c in constraints {
+                let (first, second) = (field(c, "localFirst").as_str(), field(c, "localSecond").as_str());
+                if !names(id, first) && !names(id, second) {
+                    continue;
+                }
+                let partner = if first == Some(id) { second } else if second == Some(id) { first } else { None };
+                let end = partner.and_then(|p| p.rsplit_once('.')).filter(|(_, s)| matches!(*s, "start" | "end"));
+                match (field(c, "constraintType").as_str(), line_index(partner), end) {
+                    (Some("TANGENT"), Some(l), _) => lines.push(l),
+                    // A tangent line's end on it (batch 147's cam).
+                    (Some("COINCIDENT"), None, Some((line, _))) => ends.push(line_index(Some(line))),
+                    (Some("RADIUS" | "DIAMETER"), ..) => {
+                        sized = true;
+                        other = true;
+                    }
+                    _ => other = true,
+                }
+            }
+            let other = other || ends.iter().any(|l| l.is_none_or(|l| !lines.contains(&l)));
+            if let ([a, b], false) = (&lines[..], other) {
+                out.push((index, [*a, *b]));
+            }
+        }
+        if !sized {
+            let centre = |i: usize| match entities[i].geometry {
+                Geometry::Circle { center, .. } => center,
+                _ => (0.0, 0.0),
+            };
+            if let Some(first) = out.iter().map(|w| w.0).min_by(|&a, &b| {
+                let (pa, pb) = (centre(a), centre(b));
+                if (pa.0 - pb.0).abs() > 1e-9 { pa.0.total_cmp(&pb.0) } else { pa.1.total_cmp(&pb.1) }
+            }) {
+                out.retain(|w| w.0 != first);
+            }
+        }
+        out
+    }
+
+    /// Each wedged circle settled between its two lines as Onshape's is: of what its radius would change by with its
+    /// centre held where it was across the lines' bisector, it changes cos²(2θ) of it (2θ the angle between the lines),
+    /// its centre moving along the bisector for the rest (batch 160: sines of the half-angle 0.12 to 0.40, to 1e-5; batch
+    /// 156's four fifths at 26.6°).
+    fn settle_wedged(slots: &[Option<Slot>], wedged: &[(usize, [usize; 2])], x: &mut [f64], x0: &[f64]) {
+        for (circle, [l1, l2]) in wedged {
+            let (Some(Slot::Circle(i)), Some(s1), Some(s2)) = (slots[*circle], slots[*l1], slots[*l2]) else { continue };
+            let (Some((a1, b1)), Some((a2, b2))) = (line(x, s1), line(x, s2)) else { continue };
+            let unit = |a: P2, b: P2| {
+                let l = (b.0 - a.0).hypot(b.1 - a.1).max(1e-300);
+                ((b.0 - a.0) / l, (b.1 - a.1) / l)
+            };
+            let (d1, d2) = (unit(a1, b1), unit(a2, b2));
+            let cross = d1.0 * d2.1 - d1.1 * d2.0;
+            if cross.abs() < 1e-9 {
+                continue;
+            }
+            // Where the lines meet, and each's way from there toward the circle.
+            let t = ((a2.0 - a1.0) * d2.1 - (a2.1 - a1.1) * d2.0) / cross;
+            let apex = (a1.0 + t * d1.0, a1.1 + t * d1.1);
+            let centre = (x[i], x[i + 1]);
+            let toward = |d: P2| {
+                if (centre.0 - apex.0) * d.0 + (centre.1 - apex.1) * d.1 >= 0.0 { d } else { (-d.0, -d.1) }
+            };
+            let (u1, u2) = (toward(d1), toward(d2));
+            let bisector = unit((0.0, 0.0), (u1.0 + u2.0, u1.1 + u2.1));
+            let sine = (u1.0 * bisector.1 - u1.1 * bisector.0).abs();
+            if sine < 1e-9 {
+                continue;
+            }
+            let along = (x0[i] - apex.0) * bisector.0 + (x0[i + 1] - apex.1) * bisector.1;
+            let held = (apex.0 + along * bisector.0, apex.1 + along * bisector.1);
+            let change = along * sine - x0[i + 2];
+            let cos2 = 1.0 - 2.0 * sine * sine;
+            let slide = change * (1.0 - cos2 * cos2) / sine;
+            // The lines' ends held on the circle (batch 147's cam) go to where it now touches them.
+            let on = |p: P2| ((p.0 - x[i]).hypot(p.1 - x[i + 1]) - x[i + 2]).abs() < 1e-7;
+            let touching: Vec<(Slot, bool, bool)> =
+                [(s1, a1, b1), (s2, a2, b2)].iter().map(|&(slot, a, b)| (slot, on(a), on(b))).collect();
+            x[i] = held.0 - slide * bisector.0;
+            x[i + 1] = held.1 - slide * bisector.1;
+            x[i + 2] = x0[i + 2] + change * cos2 * cos2;
+            for (slot, start_on, end_on) in touching {
+                let (Slot::Line(j), Some((a, b))) = (slot, line(x, slot)) else { continue };
+                if !start_on && !end_on {
+                    continue;
+                }
+                let d = unit(a, b);
+                let k = (x[i] - a.0) * d.0 + (x[i + 1] - a.1) * d.1;
+                let foot = (a.0 + k * d.0, a.1 + k * d.1);
+                let (a, b) = (if start_on { foot } else { a }, if end_on { foot } else { b });
+                let length = (b.0 - a.0) * d.0 + (b.1 - a.1) * d.1;
+                x[j] = (a.0 + b.0) / 2.0;
+                x[j + 1] = (a.1 + b.1) / 2.0;
+                x[j + 3] = length;
+                x[j + 4] = length;
+            }
+        }
+    }
+
     /// Where a line Onshape lets move is held only tangent to circles or arcs, it slides along itself as Onshape's
     /// does: carried as far as their centres move on average, then turned about where it so carried crosses its solved
     /// place, each of its points keeping its distance from there (batch 155: drawn 0.2 further off than the held line,
@@ -1400,16 +1544,15 @@ mod constraints {
             };
             let (d0, d1) = (unit(a0, b0), unit(a1, b1));
             let cross = d0.0 * d1.1 - d0.1 * d1.0;
-            let start = if cross.abs() < 1e-12 {
-                // Not turned: straight across onto its solved place.
-                let t = (p.0 - a1.0) * d1.0 + (p.1 - a1.1) * d1.1;
-                (a1.0 + t * d1.0, a1.1 + t * d1.1)
-            } else {
-                // Where the carried line (p + t d0) crosses the solved one; the start keeps its distance from there.
-                let t = ((a1.0 - p.0) * d1.1 - (a1.1 - p.1) * d1.0) / cross;
-                let crossing = (p.0 + t * d0.0, p.1 + t * d0.1);
-                (crossing.0 - t * d1.0, crossing.1 - t * d1.1)
-            };
+            // Not turned, it slides as solved, straight across its main axis (batch 156: the other line slides straight
+            // up while a circle without a radius of its own gives way).
+            if cross.abs() < 1e-9 {
+                continue;
+            }
+            // Where the carried line (p + t d0) crosses the solved one; the start keeps its distance from there.
+            let t = ((a1.0 - p.0) * d1.1 - (a1.1 - p.1) * d1.0) / cross;
+            let crossing = (p.0 + t * d0.0, p.1 + t * d0.1);
+            let start = (crossing.0 - t * d1.0, crossing.1 - t * d1.1);
             let h = x[i + 4] / 2.0;
             x[i] = start.0 + h * d1.0;
             x[i + 1] = start.1 + h * d1.1;
@@ -1421,7 +1564,36 @@ mod constraints {
             return Ok(());
         }
         let fixed = constraints.iter().any(|c| field(c, "constraintType").as_str() == Some("FIX"));
-        let (slots, x0, scale, groups) = slots(entities, fixed);
+        let wedged = if fixed { Vec::new() } else { wedged_circles(entities, constraints) };
+        // Lines with an end held on a circle or arc they're held tangent to (batch 147's cam), not on one they merely
+        // reach (batch 150 c004: the circle moves to the line's end).
+        fn pair(c: &Value) -> (&str, &str) {
+            (field(c, "localFirst").as_str().unwrap_or(""), field(c, "localSecond").as_str().unwrap_or(""))
+        }
+        let tangent_to = |line: &str, curve: &str| {
+            constraints.iter().any(|c| {
+                field(c, "constraintType").as_str() == Some("TANGENT") && {
+                    let (a, b) = pair(c);
+                    (a == line && b == curve) || (a == curve && b == line)
+                }
+            })
+        };
+        let ends_named: Vec<usize> = entities
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| {
+                constraints.iter().any(|c| {
+                    let (a, b) = pair(c);
+                    field(c, "constraintType").as_str() == Some("COINCIDENT")
+                        && [(a, b), (b, a)].iter().any(|(end, curve)| {
+                            end.rsplit_once('.').is_some_and(|(l, s)| l == &*e.id && matches!(s, "start" | "end"))
+                                && tangent_to(&e.id, curve)
+                        })
+                })
+            })
+            .map(|(i, _)| i)
+            .collect();
+        let (slots, x0, scale, groups) = slots(entities, fixed, &wedged, &ends_named);
         let norm = |r: &[f64]| r.iter().map(|v| v * v).sum::<f64>().sqrt();
         let mut x = x0.clone();
         let mut r = all(entities, &slots, constraints, &x, &x0);
@@ -1478,6 +1650,7 @@ mod constraints {
             }
         }
         if !fixed {
+            settle_wedged(&slots, &wedged, &mut x, &x0);
             follow_circles(entities, &slots, constraints, &mut x, &x0);
         }
         // Write the solved geometry back.
