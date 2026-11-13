@@ -1601,6 +1601,10 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   circles, arcs and points do in the engine's solver. Known gap: two dimensioned circles joined by lines held tangent
   to both (c008, as batch 147's cam), where Onshape leaves the second line exactly where it was, turns the first
   about its middle and moves both circles a little (0.05).
+- **A chamfer varying from run to run** (batch 129 c004, a cross hole's mouth chamfered): built from the fillet of
+  its width, its face swapped for the surface ruled between the fillet's edges, the rulings taken from whichever edge
+  OCCT listed first, which varied with memory layout (one run in ten or so, 0.54 mm² of area off Onshape's). It
+  now starts from the longer edge, as the runs matching Onshape did.
 - **Faces split normal to curved targets** (batch 133): a sketch projected normal to the target goes along the
   target's normal through each of its points onto the target's surface: a circle and a rectangle beside a cylinder, a
   circle above a sphere, a circle beside a cone frustum. The rectangle taller than the cylinder splits its side across

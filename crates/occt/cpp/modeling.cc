@@ -1121,6 +1121,17 @@ static std::unique_ptr<Operation> chamfer_by_ball_impl(const Shape &solid, const
         }
     }
     if (sides.size() != 2) return nullptr;
+    // From the longer side: the order the fillet lists its edges in varies from run to run, and the rulings taken
+    // from the other side are a little off Onshape's (batch 129 c004: 0.54 mm² of a cross hole's mouth).
+    {
+      GProp_GProps p0, p1;
+      BRepGProp::LinearProperties(sides[0], p0);
+      BRepGProp::LinearProperties(sides[1], p1);
+      if (p1.Mass() > p0.Mass() + 1e-9) {
+        std::swap(sides[0], sides[1]);
+        std::swap(neighbours[0], neighbours[1]);
+      }
+    }
     // Along the first side: each point, the ball's centre `width` off its face towards the fillet, and the point
     // that ball touches on the other face.
     BRepAdaptor_Curve first(sides[0]);
