@@ -129,8 +129,8 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   unless end derivatives are given, which are with respect to that parameter; a spline whose last point is its
   first is periodic. This reproduces Onshape's splines to 1e-8. (Batch 004, c004–c006.)
 - **`skEllipticalArc`'s parameters have a period of 1** and `skEllipse`'s `majorAxis` must be a unit vector.
-- **Up to next stops at the first face of any part**, whatever the boolean scope, even when the extrude starts
-  inside a part. (Batch 004, c026.)
+- **Up to next stops at the first face of any part**, whatever the boolean scope, even when the profile lies on a
+  part's face (batch 004, c026), but passes by a part the profile starts inside (batch 148 c002).
 - **A sheet extruded from edges faces along the edge's tangent × the extrude direction.** (Batch 004, c013.)
 - **Thin walls:** the first thickness goes to the right of the first edge (its direction × the plane normal) for
   an open chain, outward for a closed loop; corners are sharp. (Batch 004, c019–c021.)
@@ -1582,6 +1582,11 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   edge (the corner between the faces' feet and the ball's arc, carried along the edge and cut back by the planes at
   its ends on the edge's side), cut from or added to the solid: Onshape's faces, edges and vertices, its area to
   3e-5 mm².
+- **Everyday parts, a ninth round** (batch 148): a pillow block with its bore chamfered by distance and angle, a dome
+  revolved and shelled, a bracket mirrored and united, a pin patterned as a part and united, an offset surface
+  thickened, a rib normal to its sketch and a two-distance chamfer match as built. A column extruded up to next from
+  inside another part (the first case's plate, built at the same place) runs on to its own roof in Onshape: up to
+  next passes by parts the profile starts inside.
 - **Probes of splits and sketches** (batch 150): a cylinder's side split by a rectangle projected normal to it has
   edges running as the tool edges they came from (`skRectangle` draws all four sides rising: the arcs run round
   and the lines up as those sides do), and the engine now runs them so. Sketches drawn a little off: a circle and a
