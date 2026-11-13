@@ -1609,6 +1609,10 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   its width, its face swapped for the surface ruled between the fillet's edges, the rulings taken from whichever edge
   OCCT listed first, which varied with memory layout (one run in ten or so, 0.54 mm² of area off Onshape's). It
   now starts from the longer edge, as the runs matching Onshape did.
+- **Everyday parts, a tenth round** (batch 151): a revolve up to a plane through its axis, a boss patterned round a
+  disc as faces, a pocket mirrored as faces, a boss up to another part with an offset, a block intersected with a
+  cylinder, a cylinder's side thickened into a tube, a split with its top piece deleted and a draft carried round a
+  filleted block by tangent propagation all match as built (to 1e-13).
 - **Faces split normal to curved targets** (batch 133): a sketch projected normal to the target goes along the
   target's normal through each of its points onto the target's surface: a circle and a rectangle beside a cylinder, a
   circle above a sphere, a circle beside a cone frustum. The rectangle taller than the cylinder splits its side across

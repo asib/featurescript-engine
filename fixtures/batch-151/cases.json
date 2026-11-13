@@ -1,0 +1,87 @@
+{
+  "batch": "151",
+  "title": "everyday parts, a tenth round: revolve up to a plane, face patterns and mirrors, up to a part with an offset, an intersection, a thickened side, a split and delete, a propagated draft",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "revolve",
+      "description": "a 10 × 8 rectangle (from x = 10) revolved about z up to a plane through the axis at 120°",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "circular-pattern",
+      "description": "a disc (radius 20, 5 thick) with a boss (radius 2, 4 tall) at (12, 0) on top, its faces patterned six times round the disc",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "mirror",
+      "description": "a 60 × 30 × 10 block with a 15 × 20 pocket 4 deep at one end, the pocket's faces mirrored across x = 30",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "extrude",
+      "description": "a 40 × 20 × 5 plate and, apart, a block above it (z = 20 to 30); a boss (radius 4) extruded from the plate up to the block, stopping 2 short",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "boolean",
+      "description": "a 30 × 30 × 20 block intersected with a cylinder (radius 18) up its middle",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "thicken",
+      "description": "a cylinder (radius 10, 20 tall) with its side thickened 2 out into a tube of its own",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "split",
+      "description": "a 40 × 30 × 20 block with its upright edges filleted 4, split by a plane at z = 12 and the piece above deleted",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c008",
+      "kind": "draft",
+      "description": "a 40 × 30 × 20 block with its upright edges filleted 4, its front side drafted 3° from its bottom with tangent propagation",
+      "slotMeters": [
+        2.8000000000000003,
+        0,
+        0
+      ]
+    }
+  ]
+}
