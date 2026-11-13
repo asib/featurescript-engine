@@ -829,6 +829,8 @@ pub fn loft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
         .as_array()
         .ok_or_else(|| error("@opLoft: profileSubqueries must be an array"))?;
     let mut wires = Vec::new();
+    // The first profile's one open edge, as Onshape's runs: a point on it and its direction there.
+    let mut open_start: Option<(Vec3, Vec3)> = None;
     for q in subqueries.iter() {
         let found = query::evaluate(model, q)?;
         let faces: Vec<&_> = found.iter().filter(|r| r.kind == EntityType::Face).collect();
@@ -847,6 +849,17 @@ pub fn loft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
             let [vertex] = vertices[..] else { return Err(regen_error("LOFT_PROFILE_FAILED")) };
             wires.push(model.shape(*vertex).clone());
             continue;
+        }
+        if wires.is_empty()
+            && let [r] = found.iter().filter(|r| r.kind == EntityType::Edge).collect::<Vec<_>>()[..]
+        {
+            let edge = super::onshape_edge(model, *r);
+            let ends = [0.0, 1.0].map(|t| edge.edge_tangent(t, false).map(|a| a.origin));
+            if let ([Ok(a), Ok(b)], Ok(mid)) = (ends, edge.edge_tangent(0.5, false))
+                && values::norm(values::sub(a, b)) > 1e-9
+            {
+                open_start = Some((mid.origin, mid.direction));
+            }
         }
         let mut connected = occt::connect_edges(&edges).map_err(occt_error)?;
         if connected.len() != 1 {
@@ -1017,9 +1030,37 @@ pub fn loft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
         }
     }
     // A sheet lofted from wires faces the other way from OCCT's, as an extruded one does: outward from a loop
-    // (a thin loft thickens outward, batch 028).
-    add_lofted(model, &id, &op, solid, &wires)?;
+    // (a thin loft thickens outward, batch 028); from an open profile, as Onshape's does.
+    let shape = if solid { op.shape() } else { open_loft_facing(op.shape(), open_start, &wires[1]) };
+    add_lofted_shape(model, &id, &shape, &op.first(), &op.last(), solid, &wires)?;
     Ok(Value::UNDEFINED)
+}
+
+/// Onshape's sheet lofted from an open profile faces along the profile (as its edge runs) crossed with the way to the
+/// next profile (batch 144 c003: two arcs, the sheet facing their centres; its sheet metal lofts face so, batch 017).
+/// The loft's shape to add (which reverses a sheet), turned round where it would face the other way.
+fn open_loft_facing(shape: Shape, start: Option<(Vec3, Vec3)>, next: &Shape) -> Shape {
+    use values::{cross, dot, norm, sub};
+    let Some((p, t)) = start else { return shape };
+    let Some(towards) = occt::vertex(p).and_then(|v| v.distance(next)).ok().map(|d| sub(d.b, d.a)) else {
+        return shape;
+    };
+    let facing = cross(t, towards);
+    if norm(facing) < 1e-12 {
+        return shape;
+    }
+    let near = shape
+        .sub_shapes(ShapeKind::Face)
+        .into_iter()
+        .filter_map(|f| f.distance(&occt::vertex(p).ok()?).ok().map(|d| (d.distance, f)))
+        .min_by(|a, b| a.0.total_cmp(&b.0));
+    let Some((_, face)) = near else { return shape };
+    let normal = face.face_fraction(p).and_then(|(u, v)| face.face_tangent_plane(u, v)).map(|f| f.normal);
+    // Added reversed, the sheet will face against this normal.
+    match normal {
+        Ok(n) if dot(n, facing) > 0.0 => shape.reversed(),
+        _ => shape,
+    }
 }
 
 /// The cubic B-spline basis functions on a knot vector at `u`.
