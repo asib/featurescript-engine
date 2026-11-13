@@ -1640,8 +1640,12 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   and a mirror across a fixed axis are, lines' places still hold oldest first, batches 029, 135 c019, 149 c005); the other lines keep their lengths and give way after the circles and points,
   turning about their middles only where sliding won't do, then sliding along their main axis and last across it
   (a level line slides straight up, batch 154 c006; two lines' ends held together, the second slides, 150 c007).
-  Batch 150's dimensioned cam (c008) now matches. Known gap: one line drawn 0.2 further off than the other (c005,
-  c006), where Onshape moves the other along its normal as it turns it.
+  Batch 150's dimensioned cam (c008) now matches. A line held only tangent to circles slides along itself with
+  them: Onshape carries it as far as their centres move on average, then turns it about where it so carried crosses
+  its new place, each of its points keeping its distance from there. Drawn 0.2 further off than the held line (c005),
+  its middle moves along the normal halfway between its old and new directions (0.1943 across, 0.0006 along its new
+  direction); with the held line drawn further off (c006), the circles go 0.19 to it and the other line goes as far
+  with them (0.0882 along itself). The engine now does the same after solving, and every case matches.
 - **Circles without radius dimensions settling** (batch 156): one circle between two lines and two circles under one
   line settle as the engine's do (the circles' centres move, their radii hold). With two lines and two circles, an
   undimensioned circle's radius gives way before the other line turns: only the first circle dimensioned, the second

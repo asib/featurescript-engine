@@ -1360,6 +1360,62 @@ mod constraints {
         d
     }
 
+    /// Where a line Onshape lets move is held only tangent to circles or arcs, it slides along itself as Onshape's
+    /// does: carried as far as their centres move on average, then turned about where it so carried crosses its solved
+    /// place, each of its points keeping its distance from there (batch 155: drawn 0.2 further off than the held line,
+    /// its middle moves along the normal halfway between its old and new directions, c005; with the circles carried
+    /// 0.19 by the held line drawn further off, it is carried as far, c006).
+    fn follow_circles(entities: &[SketchEntity], slots: &[Option<Slot>], constraints: &[Value], x: &mut [f64], x0: &[f64]) {
+        for (index, slot) in slots.iter().enumerate() {
+            let Some(Slot::Line(i)) = *slot else { continue };
+            let id = &*entities[index].id;
+            let names = |n: Option<&str>| n.is_some_and(|n| n == id || n.rsplit_once('.').is_some_and(|(b, _)| b == id));
+            let mut centres = Vec::new();
+            let mut only_tangent = true;
+            for c in constraints {
+                let (first, second) = (field(c, "localFirst").as_str(), field(c, "localSecond").as_str());
+                if !names(first) && !names(second) {
+                    continue;
+                }
+                let other = if first == Some(id) { second } else if second == Some(id) { first } else { None };
+                match (field(c, "constraintType").as_str(), other.and_then(|o| part(entities, slots, o))) {
+                    (Some("TANGENT"), Some(Part::Entity(Slot::Circle(j) | Slot::Arc(j)))) => centres.push(j),
+                    _ => only_tangent = false,
+                }
+            }
+            // The held line doesn't move at all.
+            if !only_tangent || centres.is_empty() || (i..i + 5).all(|k| (x[k] - x0[k]).abs() < 1e-12) {
+                continue;
+            }
+            let count = centres.len() as f64;
+            let shift = (
+                centres.iter().map(|&j| x[j] - x0[j]).sum::<f64>() / count,
+                centres.iter().map(|&j| x[j + 1] - x0[j + 1]).sum::<f64>() / count,
+            );
+            let (Some((a0, b0)), Some((a1, b1))) = (line(x0, Slot::Line(i)), line(x, Slot::Line(i))) else { continue };
+            let p = (a0.0 + shift.0, a0.1 + shift.1);
+            let unit = |a: P2, b: P2| {
+                let l = (b.0 - a.0).hypot(b.1 - a.1).max(1e-300);
+                ((b.0 - a.0) / l, (b.1 - a.1) / l)
+            };
+            let (d0, d1) = (unit(a0, b0), unit(a1, b1));
+            let cross = d0.0 * d1.1 - d0.1 * d1.0;
+            let start = if cross.abs() < 1e-12 {
+                // Not turned: straight across onto its solved place.
+                let t = (p.0 - a1.0) * d1.0 + (p.1 - a1.1) * d1.1;
+                (a1.0 + t * d1.0, a1.1 + t * d1.1)
+            } else {
+                // Where the carried line (p + t d0) crosses the solved one; the start keeps its distance from there.
+                let t = ((a1.0 - p.0) * d1.1 - (a1.1 - p.1) * d1.0) / cross;
+                let crossing = (p.0 + t * d0.0, p.1 + t * d0.1);
+                (crossing.0 - t * d1.0, crossing.1 - t * d1.1)
+            };
+            let h = x[i + 4] / 2.0;
+            x[i] = start.0 + h * d1.0;
+            x[i + 1] = start.1 + h * d1.1;
+        }
+    }
+
     pub fn solve(entities: &mut [SketchEntity], constraints: &[Value]) -> R<()> {
         if constraints.is_empty() {
             return Ok(());
@@ -1420,6 +1476,9 @@ mod constraints {
                 }
                 polish = true;
             }
+        }
+        if !fixed {
+            follow_circles(entities, &slots, constraints, &mut x, &x0);
         }
         // Write the solved geometry back.
         for (e, slot) in entities.iter_mut().zip(slots.iter()) {
