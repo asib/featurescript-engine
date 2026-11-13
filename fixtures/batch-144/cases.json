@@ -1,0 +1,87 @@
+{
+  "batch": "144",
+  "title": "everyday surfacing and direct edits: a vase, a cable, a thickened arch, moved, deleted and replaced faces, a thickened face, a drafted extrude",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "revolve",
+      "description": "a vase: a fit spline through (10, 0), (14, 10), (9, 25), (11, 35) closed by lines to the axis, revolved, shelled 1.2 open at its top",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "sweep",
+      "description": "a cable: a circle (radius 1.5) swept along a fit spline through (0, 0, 0), (15, 8, 4), (30, 0, 10), (45, -6, 6)",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "thicken",
+      "description": "an arched sheet lofted between an arc at y = 0 and one at y = 30 (both 40 across, rising 8), thickened 2",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "move-face",
+      "description": "a 30 × 20 × 10 block lengthened 8 by moving its end face, then its top edges filleted 2",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "delete-face",
+      "description": "a 30 × 20 × 10 block with its top front edge filleted 4, the fillet then deleted",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "replace-face",
+      "description": "a 30 × 20 × 10 block with a 10 × 10 boss 5 tall on its top, the block's top replaced by a plane 3 above it",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "thicken",
+      "description": "a 30 × 20 × 10 block with its front face thickened 3 out and added to it",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c008",
+      "kind": "extrude",
+      "description": "a circle (radius 12) extruded 15 with a 5° draft inwards, its top edge filleted 2 and a hole (radius 4) through it",
+      "slotMeters": [
+        2.8000000000000003,
+        0,
+        0
+      ]
+    }
+  ]
+}

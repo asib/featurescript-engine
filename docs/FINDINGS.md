@@ -1548,6 +1548,14 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   patterned round it match as built. std patterns a sheet metal hole by its edges in the definition sheet (an edge
   pattern, re-cut at each instance); a hole cut through two walls has edges bounding two faces, each now re-cut in
   its own face's plane.
+- **Everyday surfacing and direct edits** (batch 144): a fit spline revolved and shelled into a vase, a cable swept
+  along a 3D fit spline, a block lengthened by moving its end face, a fillet deleted, a face thickened onto its block
+  and a drafted cylinder filleted and holed match as built (Onshape measures the B-spline bodies to 4e-4: the cable's
+  exact volume, πr²L, is the engine's). A sheet lofted from an open profile faces along the profile (as its edge
+  runs) crossed with the way to the next profile, as sheet metal lofts do: between two arcs (counterclockwise about
+  their sketches' normals) it faces their centres, so thickening goes in towards them. Replacing a planar face
+  changes only the face's own column, growing it up to the plane or cutting it back: a boss on a block's top outlasts
+  the top replaced by a plane below the boss's top (the engine had cut away everything past the plane).
 - **Faces split normal to curved targets** (batch 133): a sketch projected normal to the target goes along the
   target's normal through each of its points onto the target's surface: a circle and a rectangle beside a cylinder, a
   circle above a sphere, a circle beside a cone frustum. The rectangle taller than the cylinder splits its side across
