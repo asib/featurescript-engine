@@ -420,6 +420,22 @@ std::unique_ptr<Operation> fillet_by_opening(const TopoDS_Shape &solid, const To
       }
     }
     if (chosen.IsEmpty()) return nullptr;
+    // A sliver running along an edge not given rounds that edge too: the slivers along a knob's notched top joined
+    // through its notches' corners down to its bottom (batch 145 c008). Not this way, then.
+    {
+      TopTools_MapOfShape given;
+      for (const TopoDS_Shape &e : edges) given.Add(e);
+      for (TopExp_Explorer it(solid, TopAbs_EDGE); it.More(); it.Next()) {
+        if (given.Contains(it.Current()) || BRep_Tool::Degenerated(TopoDS::Edge(it.Current()))) continue;
+        BRepAdaptor_Curve curve(TopoDS::Edge(it.Current()));
+        const TopoDS_Vertex middle =
+            BRepBuilderAPI_MakeVertex(curve.Value((curve.FirstParameter() + curve.LastParameter()) / 2));
+        for (const TopoDS_Shape &sliver : chosen) {
+          BRepExtrema_DistShapeShape distance(middle, sliver);
+          if (distance.IsDone() && distance.Value() < 1e-6) return nullptr;
+        }
+      }
+    }
     std::unique_ptr<BRepAlgoAPI_BooleanOperation> boolean;
     if (concave) boolean = std::make_unique<BRepAlgoAPI_Fuse>(); else boolean = std::make_unique<BRepAlgoAPI_Cut>();
     boolean->SetArguments(one(solid));
