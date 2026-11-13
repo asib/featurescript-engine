@@ -117,31 +117,42 @@ fn locked_to_revolution(model: &mut Model, id: &FeatureId, definition: &Value) -
     if !about_axis {
         return Ok(None);
     }
-    // How far round: the whole circle, or the arc from its start to its end about the circle's own normal.
-    let ends = edge.edge_end_vertices().map_err(occt_error)?;
-    let closed = ends.len() < 2 || ends[0].is_same(&ends[1]);
-    let angle = if closed {
-        2.0 * std::f64::consts::PI
-    } else {
-        let a = edge.edge_tangent(0.0, false).map_err(occt_error)?.origin;
-        let b = edge.edge_tangent(1.0, false).map_err(occt_error)?.origin;
-        let (u, w) = (sub(a, circle.frame.origin), sub(b, circle.frame.origin));
-        let mut t = dot(cross(u, w), circle.frame.normal).atan2(dot(u, w));
-        if t <= 0.0 {
-            t += 2.0 * std::f64::consts::PI;
-        }
-        t
-    };
     let found = query::evaluate(model, field(definition, "profiles"))?;
     let faces: Vec<Shape> =
         found.iter().filter(|r| r.kind == EntityType::Face).map(|r| model.shape(*r).clone()).collect();
     if faces.is_empty() {
         return Ok(None);
     }
+    // How far round: the whole circle, or the arc between its ends, about the circle's normal turned the way the arc
+    // runs from the end the profile is at (std puts it at the far end of an edge a closed frame path runs backwards
+    // along, batch 138 c005).
+    let ends = edge.edge_end_vertices().map_err(occt_error)?;
+    let closed = ends.len() < 2 || ends[0].is_same(&ends[1]);
+    let start = edge.edge_tangent(0.0, false).map_err(occt_error)?;
+    let end = edge.edge_tangent(1.0, false).map_err(occt_error)?.origin;
+    let at_end = faces[0].centroid().is_ok_and(|c| norm(sub(c, end)) < norm(sub(c, start.origin)));
+    let (from, to) = if at_end && !closed { (end, start.origin) } else { (start.origin, end) };
+    let mut turning = if dot(cross(sub(start.origin, circle.frame.origin), start.direction), circle.frame.normal) < 0.0 {
+        values::scale(circle.frame.normal, -1.0)
+    } else {
+        circle.frame.normal
+    };
+    if at_end && !closed {
+        turning = values::scale(turning, -1.0);
+    }
+    let angle = if closed {
+        2.0 * std::f64::consts::PI
+    } else {
+        let (u, w) = (sub(from, circle.frame.origin), sub(to, circle.frame.origin));
+        let mut t = dot(cross(u, w), turning).atan2(dot(u, w));
+        if t <= 0.0 {
+            t += 2.0 * std::f64::consts::PI;
+        }
+        t
+    };
     for profile in &faces {
-        let op =
-            occt::revolve(profile, occt::Axis { origin: circle.frame.origin, direction: circle.frame.normal }, angle)
-                .map_err(|_| regen_error("SWEEP_FAILED"))?;
+        let op = occt::revolve(profile, occt::Axis { origin: circle.frame.origin, direction: turning }, angle)
+            .map_err(|_| regen_error("SWEEP_FAILED"))?;
         add_with_caps(model, id, &op, true)?;
     }
     Ok(Some(Value::UNDEFINED))
@@ -276,7 +287,9 @@ pub fn sweep(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
     // left round a cylinder, across its seam, batch 137 c004).
     let mut path_edges: Vec<Shape> = Vec::new();
     for r in query::evaluate(model, field(definition, "path"))?.iter().filter(|r| r.kind == EntityType::Edge) {
-        let shown = model.shape(*r).clone();
+        // Running as Onshape's edge does: std places the profile at its start (a frame's segment along a split's
+        // edge, batch 138 c005).
+        let shown = super::onshape_edge(model, *r);
         let hidden: Vec<Shape> = model.bodies[r.body]
             .shape
             .hidden_edge_pieces()
