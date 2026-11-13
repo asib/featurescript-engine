@@ -270,11 +270,12 @@ pub fn intersect_faces(model: &mut Model, id: FeatureId, definition: &Value) -> 
 }
 
 pub fn fill_surface(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
-    for key in ["edgesG2", "guideVertices"] {
-        if !field(definition, key).is_undefined() && !query::evaluate(model, field(definition, key))?.is_empty() {
-            return Err(error(format!("@opFillSurface: {key} isn't supported yet")));
-        }
-    }
+    let found = |key: &str| -> R<Vec<crate::model::EntityRef>> {
+        if field(definition, key).is_undefined() { Ok(Vec::new()) } else { query::evaluate(model, field(definition, key)) }
+    };
+    // Guides (std's fill passes `guideEntities`; the operation documents `guideVertices`), checked below.
+    let mut guides = found("guideVertices")?;
+    guides.extend(found("guideEntities")?);
     // Each edge as Onshape's runs: a flat fill of sketch curves faces as the loop of them runs, from the first (batch
     // 158; 159 c009–c011: drawn half each way round, whichever is listed first sets it).
     let mut edges = Vec::new();
@@ -291,11 +292,10 @@ pub fn fill_surface(model: &mut Model, id: FeatureId, definition: &Value) -> R<V
     }
     // Edges the fill is to be tangent along: where the loop is flat and the faces along them lie in its plane, the flat
     // fill already is, and Onshape's is that plane (batch 157 c003: a gap whose far sheet rises as the gap does).
-    let tangent = if field(definition, "edgesG1").is_undefined() {
-        Vec::new()
-    } else {
-        query::evaluate(model, field(definition, "edgesG1"))?
-    };
+    // Curvature continuity along a flat face the flat fill continues is met as tangency is (a plane's curvature is
+    // a plane's).
+    let mut tangent = found("edgesG1")?;
+    tangent.extend(found("edgesG2")?);
     if !tangent.is_empty() {
         let mut all = edges.clone();
         all.extend(tangent.iter().filter(|r| r.kind == EntityType::Edge).map(|&r| super::onshape_edge(model, r)));
@@ -319,11 +319,31 @@ pub fn fill_surface(model: &mut Model, id: FeatureId, definition: &Value) -> R<V
                 })
         });
         if !continued {
-            return Err(error("@opFillSurface: edgesG1 isn't supported yet"));
+            return Err(error("@opFillSurface: tangent and curvature conditions other than along faces the flat fill continues aren't supported yet"));
         }
         // In the order std lists the edges: the G0 ones, then the G1 ones.
         edges = all;
         refs.extend(tangent.iter().filter(|r| r.kind == EntityType::Edge));
+    }
+    // Guides the flat fill passes through anyway change nothing; others aren't supported yet.
+    if !guides.is_empty() {
+        let plane = loop_plane(&edges);
+        let origin = edges.first().and_then(|e| e.edge_tangent(0.0, false).ok()).map(|t| t.origin);
+        let on = |p: occt::Vec3| match (plane, origin) {
+            (Some(n), Some(o)) => values::dot(values::sub(p, o), n).abs() < 1e-7,
+            _ => false,
+        };
+        let flat = guides.iter().all(|&r| {
+            let shape = model.shape(r).clone();
+            match r.kind {
+                EntityType::Vertex => shape.vertex_point().is_ok_and(on),
+                EntityType::Edge => (0..=8).all(|k| shape.edge_tangent(k as f64 / 8.0, false).is_ok_and(|t| on(t.origin))),
+                _ => false,
+            }
+        });
+        if !flat {
+            return Err(error("@opFillSurface: guides off the flat fill's plane aren't supported yet"));
+        }
     }
     // A flat loop with sheets' edges in it faces as if sewn to the oldest of those sheets: it runs that sheet's edge
     // the other way from the sheet's own loop, whichever edge is listed first (batch 159 c004, c006–c008: a gap

@@ -1686,6 +1686,11 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   (159 c006–c008): as if sewn to the level sheet, its loop running that sheet's edge against the sheet's own loop,
   though both sheet edges run the same way (+y) and the rising sheet's face points down. The engine now faces a flat
   fill with sheets' edges in its loop as sewn to the oldest of those sheets, and batch 157's flat fills match.
+- **Fills meeting curvature conditions and guides as planes** (batch 161 c005, c006): batch 157's gap filled with
+  curvature continuity to the rising sheet (which the plane continues) is the plane, as is a rectangle filled with a
+  guide point in its plane. The engine now lets curvature edges through where the flat fill continues their faces, as
+  tangent ones, and guides that lie in the flat fill's plane; it takes std's `guideEntities` (it had read only
+  `guideVertices`, which std's fill doesn't pass, so guides were ignored) and refuses other guides.
 - **Which way an extruded sheet's edges run** (batch 159 c012): its profile's copy and the far edge run as the
   profile does; the side edges swept from the profile's ends run out from the profile along the extrude, where a
   solid's run back from the far end (batch 088). The engine now runs a sheet's so.
