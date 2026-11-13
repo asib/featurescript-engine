@@ -1,0 +1,77 @@
+{
+  "batch": "147",
+  "title": "everyday parts, an eighth round: a cam, a boss up to a tilted plane, a 270° ring, a drafted tray, a shaft collar, a swept handle, holes in a slanted face",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "extrude",
+      "description": "a cam: circles of radius 15 at the origin and 8 at (30, 0) joined by two lines held tangent to both, extruded 6, bores of radius 5 and 3",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "extrude",
+      "description": "a 40 × 20 × 5 plate with a boss (radius 5) at its middle extruded up to a plane through (20, 10, 25) tilted 11.3° about y",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "revolve",
+      "description": "a ring (radii 10 to 20, 8 tall) revolved 270° about z, its start cap's outer edge filleted 2",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "extrude",
+      "description": "a tray: a 60 × 40 × 15 block with a 50 × 30 pocket 10 deep cut with a 5° draft, its floor's edges filleted 2",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "extrude",
+      "description": "a shaft collar: a ring (radii 8 to 15, 10 tall) split by a slot 2 wide on its +x side, a clamp hole (radius 1.5) across the slot at x = 11.5, half way up",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "sweep",
+      "description": "a handle: a circle (radius 3) swept up 20, round an arc (radius 5), along 30, round another and down 20",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "hole",
+      "description": "a wedge (sloping from 20 tall to 10 over 40, 20 deep) with two holes (diameter 5, 10 deep) drilled square to its slanted face",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    }
+  ]
+}

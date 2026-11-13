@@ -1570,6 +1570,14 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   elbow swept and shelled open at both ends, a flanged pipe with patterned bolt holes and a filleted joint, a lid
   split off a filleted box, a box drafted from its bottom, a pocket mirrored as a feature, a gear-like disc of tooth
   parts patterned and united, and a keyed, chamfered shaft all match as built (to 1e-7).
+- **Everyday parts, an eighth round** (batch 147): a boss up to a tilted plane, a ring revolved 270° with a cap's
+  edge filleted, a split shaft collar, a swept handle and holes drilled square to a slanted face match as built.
+  Known gaps: a cam's lines, drawn a little off and held tangent to two undimensioned circles, solve differently:
+  Onshape keeps both lines' directions and the first circle's radius exactly, lengthens the lines, grows the second
+  circle (8 to 8.08) and moves both circles, leaving the whole symmetric about y = 0.05; the engine keeps both radii
+  and the lines' lengths and turns the second line (no ordering of the engine's groups tried reproduces Onshape's).
+  A drafted pocket's floor edges filleted: OCCT patches the two corners at one end (B-spline faces), where Onshape's
+  fillets meet without, as OCCT's do at the other end.
 - **Faces split normal to curved targets** (batch 133): a sketch projected normal to the target goes along the
   target's normal through each of its points onto the target's surface: a circle and a rectangle beside a cylinder, a
   circle above a sphere, a circle beside a cone frustum. The rectangle taller than the cylinder splits its side across
