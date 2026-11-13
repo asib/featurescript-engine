@@ -41,8 +41,12 @@ for (;;) {
       timer = setTimeout(() => reject(new Error('timed out after 60 s')), 60 * 1000);
     });
     const { title, href } = await Promise.race([nudge(), timeout]).finally(() => clearTimeout(timer));
-    const signedOut = href.includes('/signin');
-    console.log(`${new Date().toISOString()} ${signedOut ? 'SIGNED OUT' : 'signed in'}: ${title}`);
+    // Any Onshape tab on the sign-in page means the session is gone: a tab opened before it went keeps showing the
+    // document it had, so the nudged tab alone can look signed in when it isn't.
+    const endpoint = process.env.CDP_ENDPOINT ?? 'http://127.0.0.1:9222';
+    const tabs = (await (await fetch(`${endpoint}/json/list`)).json()).filter((t) => t.type === 'page' && t.url.includes('onshape'));
+    const signedOut = href.includes('/signin') || tabs.some((t) => t.url.includes('/signin'));
+    console.log(`${new Date().toISOString()} ${signedOut ? 'SIGNED OUT' : 'signed in'}: ${title} (${tabs.length} Onshape tabs)`);
   } catch (error) {
     console.log(`${new Date().toISOString()} no Onshape tab reachable: ${error.message}`);
   } finally {
