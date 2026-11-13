@@ -212,8 +212,11 @@ pub fn split_face(model: &mut Model, id: FeatureId, definition: &Value, tags: &v
     };
     let mut tools: Vec<Shape> = Vec::new();
     let mut projected_normal = false;
+    // The tool edges as Onshape's run: the edges projected from them run the same way.
+    let mut tool_edges: Vec<Shape> = Vec::new();
     for r in optional("edgeTools")? {
         let edge = model.shape(r).clone();
+        tool_edges.push(super::onshape_edge(model, r));
         let d = match direction {
             Some(d) => d,
             // Normal to the target: the target's plane normal; onto curved targets, each point of the edge to the
@@ -331,6 +334,36 @@ pub fn split_face(model: &mut Model, id: FeatureId, definition: &Value, tags: &v
             canonical.push((b, occt::canonical_edges(&model.bodies[b].shape).map_err(occt_error)?));
         }
         super::replace_bodies(model, &id, canonical);
+        // The split's edges run as the tool edges they were projected from run (batch 150 c001: a rectangle's sides,
+        // all drawn rising, up a cylinder and round it; std's frame orients its segments from them, batch 138 c005).
+        for tid in &split_tids {
+            let Some(b) = model.bodies.iter().position(|body| body.tid == *tid) else { continue };
+            let body = &model.bodies[b];
+            let mut senses = Vec::new();
+            for edge in body.edges.iter().filter(|e| e.info.is_created_by(&id)) {
+                let Ok(mid) = edge.shape.edge_tangent(0.5, false) else { continue };
+                let Ok(point) = occt::vertex(mid.origin) else { continue };
+                let nearest = tool_edges
+                    .iter()
+                    .filter_map(|t| point.distance(t).ok().map(|d| (d.distance, d.b, t)))
+                    .min_by(|a, b| a.0.total_cmp(&b.0));
+                let Some((_, at, tool)) = nearest else { continue };
+                let Ok(along) = tool.edge_fraction(at, false).and_then(|f| tool.edge_tangent(f, false)) else { continue };
+                let d = if values::dot(mid.direction, along.direction) < 0.0 {
+                    values::scale(mid.direction, -1.0)
+                } else {
+                    mid.direction
+                };
+                senses.push((edge.shape.clone(), (mid.origin, d)));
+            }
+            model.update_body(b, |body| {
+                for (shape, sense) in &senses {
+                    if let Some(e) = body.edges.iter_mut().find(|e| e.shape.is_same(shape)) {
+                        e.info = std::rc::Rc::new(crate::model::Info { sense: Some(*sense), ..(*e.info).clone() });
+                    }
+                }
+            });
+        }
     }
     // Which side of the tools each piece of a split face is on. Faces the tools didn't cut aren't split: jogs
     // split their faces up front and then expect the bends' own splits to split nothing (batch 013).
