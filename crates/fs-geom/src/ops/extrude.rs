@@ -368,6 +368,9 @@ pub fn extrude(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
         }
         // A sheet swept from edges faces along tangent × direction in Onshape, the reverse of OCCT's prism.
         let result = if solid { result } else { result.iter().map(|s| s.reversed()).collect() };
+        // A sheet swept from a straight curve that isn't a line (a spline through points in a row) is a plane in
+        // Onshape, its edges kept (batch 163 c007–c009).
+        let result: Vec<Shape> = if solid { result } else { result.iter().map(flattened).collect() };
         made.extend(result.into_iter().map(|s| (s, if solid { BodyType::Solid } else { BodyType::Sheet })));
     }
     // Cylinders swept from circles get Onshape's coordinate system.
@@ -518,4 +521,31 @@ fn moved_start(first: &[Shape], moved: &Shape) -> Vec<Shape> {
 pub(super) fn on_surface(face: &Shape, cutter: &Shape) -> bool {
     face.face_tangent_plane(0.5, 0.5)
         .is_ok_and(|p| occt::vertex(p.origin).is_ok_and(|v| v.distance(cutter).is_ok_and(|d| d.distance < 1e-7)))
+}
+
+/// A one-face sheet whose face is flat but not a plane, rebuilt on the plane through its edges, facing as it did.
+fn flattened(sheet: &Shape) -> Shape {
+    let faces = sheet.sub_shapes(ShapeKind::Face);
+    let [face] = &faces[..] else { return sheet.clone() };
+    if face.face_plane().is_ok() {
+        return sheet.clone();
+    }
+    let grid: Option<Vec<occt::Frame>> =
+        [0.0, 0.5, 1.0].iter().flat_map(|&u| [0.0, 0.5, 1.0].map(|v| face.face_tangent_plane(u, v).ok())).collect();
+    let Some(grid) = grid else { return sheet.clone() };
+    let n = grid[0].normal;
+    let flat = grid.iter().all(|t| {
+        crate::values::norm(crate::values::cross(t.normal, n)) < 1e-9
+            && crate::values::dot(crate::values::sub(t.origin, grid[0].origin), n).abs() < 1e-7
+    });
+    if !flat {
+        return sheet.clone();
+    }
+    let Ok(plane) = occt::fill_edges(&face.sub_shapes(ShapeKind::Edge)) else { return sheet.clone() };
+    let facing = plane.sub_shapes(ShapeKind::Face).first().and_then(|f| f.face_tangent_plane(0.5, 0.5).ok()).map(|t| t.normal);
+    match facing {
+        Some(m) if crate::values::dot(m, n) < 0.0 => plane.reversed(),
+        Some(_) => plane,
+        None => sheet.clone(),
+    }
 }

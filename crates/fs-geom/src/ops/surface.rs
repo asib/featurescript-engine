@@ -1335,11 +1335,28 @@ pub fn boundary_surface(model: &mut Model, id: FeatureId, definition: &Value) ->
                 if values::opt_bool(info, "matchCurvature")?.unwrap_or(false) {
                     return Err(error("@opBoundarySurface: matching adjacent faces' curvature isn't supported yet"));
                 }
+                // (A flat face of another kind, a sheet extruded from a straight spline, as its plane: batch 163.)
+                let flat_normal = |f: &Shape| -> Option<occt::Vec3> {
+                    if let Ok(p) = f.face_plane() {
+                        return Some(p.normal);
+                    }
+                    let grid: Vec<occt::Frame> = [0.0, 0.5, 1.0]
+                        .iter()
+                        .flat_map(|&u| [0.0, 0.5, 1.0].map(|v| f.face_tangent_plane(u, v).ok()))
+                        .collect::<Option<_>>()?;
+                    let n = grid[0].normal;
+                    grid.iter()
+                        .all(|t| {
+                            values::norm(values::cross(t.normal, n)) < 1e-9
+                                && values::dot(values::sub(t.origin, grid[0].origin), n).abs() < 1e-7
+                        })
+                        .then_some(n)
+                };
                 let normals: Vec<occt::Vec3> = shapes(model, field(info, "adjacentFaces"), EntityType::Face)?
                     .iter()
-                    .map(|f| f.face_plane().map(|p| p.normal))
-                    .collect::<Result<_, _>>()
-                    .map_err(|_| error("@opBoundarySurface: matching curved adjacent faces isn't supported yet"))?;
+                    .map(flat_normal)
+                    .collect::<Option<_>>()
+                    .ok_or_else(|| error("@opBoundarySurface: matching curved adjacent faces isn't supported yet"))?;
                 let Some(&normal) = normals.first() else { return Err(regen_error("BSURF_FAILED")) };
                 if normals.iter().any(|n| values::norm(values::cross(*n, normal)) > 1e-9) {
                     return Err(error("@opBoundarySurface: matching adjacent faces in several planes isn't supported yet"));
