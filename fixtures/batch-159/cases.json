@@ -52,6 +52,76 @@
         0,
         0
       ]
+    },
+    {
+      "name": "c006",
+      "kind": "fill",
+      "description": "batch 157's gap filled flat, the lines listed first",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "fill",
+      "description": "the gap filled flat, the rising sheet's edge listed first",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c008",
+      "kind": "fill",
+      "description": "the gap filled flat, listed round the loop from the level sheet's edge",
+      "slotMeters": [
+        2.8000000000000003,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c009",
+      "kind": "fill",
+      "description": "a rectangle of lines drawn half each way round it, listed from the bottom (drawn anticlockwise)",
+      "slotMeters": [
+        3.2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c010",
+      "kind": "fill",
+      "description": "the rectangle drawn half each way, listed from the right side (drawn clockwise)",
+      "slotMeters": [
+        3.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c011",
+      "kind": "fill",
+      "description": "a rectangle with three sides drawn clockwise and the bottom anticlockwise, listed from the bottom",
+      "slotMeters": [
+        0,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c012",
+      "kind": "extrude",
+      "description": "which way the edges of a sheet extruded from a line run: a level sheet and a rising one",
+      "slotMeters": [
+        0.4,
+        0.4,
+        0
+      ]
     }
   ]
 }

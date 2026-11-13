@@ -23,6 +23,27 @@ export const buildFixtureBatch159 = defineFeature(function(context is Context, i
         if (!runFixtureCase(context, id, "c005", vector(1.6, 0, 0) * meter,
                 function(context is Context, id is Id) { return c005(context, id); }))
             failed = append(failed, "c005");
+        if (!runFixtureCase(context, id, "c006", vector(2, 0, 0) * meter,
+                function(context is Context, id is Id) { return c006(context, id); }))
+            failed = append(failed, "c006");
+        if (!runFixtureCase(context, id, "c007", vector(2.4, 0, 0) * meter,
+                function(context is Context, id is Id) { return c007(context, id); }))
+            failed = append(failed, "c007");
+        if (!runFixtureCase(context, id, "c008", vector(2.8, 0, 0) * meter,
+                function(context is Context, id is Id) { return c008(context, id); }))
+            failed = append(failed, "c008");
+        if (!runFixtureCase(context, id, "c009", vector(3.2, 0, 0) * meter,
+                function(context is Context, id is Id) { return c009(context, id); }))
+            failed = append(failed, "c009");
+        if (!runFixtureCase(context, id, "c010", vector(3.6, 0, 0) * meter,
+                function(context is Context, id is Id) { return c010(context, id); }))
+            failed = append(failed, "c010");
+        if (!runFixtureCase(context, id, "c011", vector(0, 0.4, 0) * meter,
+                function(context is Context, id is Id) { return c011(context, id); }))
+            failed = append(failed, "c011");
+        if (!runFixtureCase(context, id, "c012", vector(0.4, 0.4, 0) * meter,
+                function(context is Context, id is Id) { return c012(context, id); }))
+            failed = append(failed, "c012");
         println("batch-159 failed cases: " ~ toString(failed));
     });
 

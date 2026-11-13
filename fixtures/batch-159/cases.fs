@@ -29,6 +29,33 @@ function surfaceProbe(context is Context, faces is Query) returns array
     return out;
 }
 
+// The fill's area and its normal at the middle of its parameters, rounded to 1e-6.
+function facing(context is Context, faces is Query) returns array
+{
+    var out = [];
+    const r = function(x) { return round(x * 1e6) / 1e6; };
+    for (var f in evaluateQuery(context, faces))
+    {
+        const p = evFaceTangentPlane(context, { "face" : f, "parameter" : vector(0.5, 0.5) });
+        out = append(out, [r(evArea(context, { "entities" : f }) / millimeter ^ 2), [r(p.normal[0]), r(p.normal[1]), r(p.normal[2])]]);
+    }
+    return out;
+}
+
+// For each point, the start and direction of the edge through it, rounded to 1e-6.
+function runs(context is Context, edges is Query, points is array) returns array
+{
+    var out = [];
+    const r = function(x) { return round(x * 1e6) / 1e6; };
+    for (var p in points)
+    {
+        const t = evEdgeTangentLine(context, { "edge" : qContainsPoint(edges, p * millimeter), "parameter" : 0 });
+        out = append(out, [[r(t.origin[0] / millimeter), r(t.origin[1] / millimeter), r(t.origin[2] / millimeter)],
+                [r(t.direction[0]), r(t.direction[1]), r(t.direction[2])]]);
+    }
+    return out;
+}
+
 // boundary-surface: from a level sheet's edge, matching its tangency, to a line 10 across and 5 up
 export function c001(context is Context, id is Id)
 {
@@ -98,4 +125,138 @@ export function c005(context is Context, id is Id)
     skSolve(t);
     boundarySurface(context, id + "surface1", { "uProfilesArray" : [{ "uProfileEntities" : qContainsPoint(qOwnedByBody(qBodyType(qCreatedBy(id + "a", EntityType.BODY), BodyType.SHEET), EntityType.EDGE), vector(0, 10, 0) * millimeter), "uCondition" : BSurfEndDerivativeType.MATCH_TANGENT, "uMagnitude" : 1, "uReference" : qNothing(), "uDirection" : qNothing() }, { "uProfileEntities" : qOwnedByBody(qBodyType(qCreatedBy(id + "t", EntityType.BODY), BodyType.WIRE), EntityType.EDGE), "uCondition" : BSurfEndDerivativeType.DEFAULT, "uMagnitude" : 1, "uReference" : qNothing(), "uDirection" : qNothing() }], "vProfilesArray" : [] });
     return { "faces" : surfaceProbe(context, qOwnedByBody(qBodyType(qCreatedBy(id + "surface1", EntityType.BODY), BodyType.SHEET), EntityType.FACE)) };
+}
+
+// fill: batch 157's gap filled flat, the lines listed first
+export function c006(context is Context, id is Id)
+{
+    const aSketch = newSketchOnPlane(context, id + "aSketch", { "sketchPlane" : plane(vector(0, 0, 0) * millimeter, vector(-1, 0, 0), vector(0, 1, 0)) });
+    skLineSegment(aSketch, "l1", { "start" : vector(0, 0) * millimeter, "end" : vector(20, 0) * millimeter });
+    skSolve(aSketch);
+    extrude(context, id + "a", { "bodyType" : ExtendedToolBodyType.SURFACE, "surfaceEntities" : qOwnedByBody(qBodyType(qCreatedBy(id + "aSketch", EntityType.BODY), BodyType.WIRE), EntityType.EDGE), "endBound" : BoundingType.BLIND, "depth" : 20 * millimeter });
+    const bSketch = newSketchOnPlane(context, id + "bSketch", { "sketchPlane" : plane(vector(10, 0, 5) * millimeter, vector(0.894427, 0, 0.447214), vector(0, 1, 0)) });
+    skLineSegment(bSketch, "l1", { "start" : vector(0, 0) * millimeter, "end" : vector(20, 0) * millimeter });
+    skSolve(bSketch);
+    extrude(context, id + "b", { "bodyType" : ExtendedToolBodyType.SURFACE, "surfaceEntities" : qOwnedByBody(qBodyType(qCreatedBy(id + "bSketch", EntityType.BODY), BodyType.WIRE), EntityType.EDGE), "endBound" : BoundingType.BLIND, "depth" : 20 * millimeter });
+    const s1 = newSketchOnPlane(context, id + "s1", { "sketchPlane" : plane(vector(0, 0, 0) * millimeter, vector(0, -1, 0), vector(1, 0, 0)) });
+    skLineSegment(s1, "l1", { "start" : vector(0, 0) * millimeter, "end" : vector(10, 5) * millimeter });
+    skSolve(s1);
+    const s2 = newSketchOnPlane(context, id + "s2", { "sketchPlane" : plane(vector(0, 20, 0) * millimeter, vector(0, -1, 0), vector(1, 0, 0)) });
+    skLineSegment(s2, "l1", { "start" : vector(0, 0) * millimeter, "end" : vector(10, 5) * millimeter });
+    skSolve(s2);
+    fill(context, id + "fill1", { "edges" : [{ "entities" : qOwnedByBody(qBodyType(qCreatedBy(id + "s1", EntityType.BODY), BodyType.WIRE), EntityType.EDGE), "continuity" : GeometricContinuity.G0 }, { "entities" : qOwnedByBody(qBodyType(qCreatedBy(id + "s2", EntityType.BODY), BodyType.WIRE), EntityType.EDGE), "continuity" : GeometricContinuity.G0 }, { "entities" : qContainsPoint(qOwnedByBody(qBodyType(qCreatedBy(id + "a", EntityType.BODY), BodyType.SHEET), EntityType.EDGE), vector(0, 10, 0) * millimeter), "continuity" : GeometricContinuity.G0 }, { "entities" : qContainsPoint(qOwnedByBody(qBodyType(qCreatedBy(id + "b", EntityType.BODY), BodyType.SHEET), EntityType.EDGE), vector(10, 10, 5) * millimeter), "continuity" : GeometricContinuity.G0 }], "surfaceOperationType" : NewSurfaceOperationType.NEW });
+    return { "faces" : facing(context, qOwnedByBody(qBodyType(qCreatedBy(id + "fill1", EntityType.BODY), BodyType.SHEET), EntityType.FACE)) };
+}
+
+// fill: the gap filled flat, the rising sheet's edge listed first
+export function c007(context is Context, id is Id)
+{
+    const aSketch = newSketchOnPlane(context, id + "aSketch", { "sketchPlane" : plane(vector(0, 0, 0) * millimeter, vector(-1, 0, 0), vector(0, 1, 0)) });
+    skLineSegment(aSketch, "l1", { "start" : vector(0, 0) * millimeter, "end" : vector(20, 0) * millimeter });
+    skSolve(aSketch);
+    extrude(context, id + "a", { "bodyType" : ExtendedToolBodyType.SURFACE, "surfaceEntities" : qOwnedByBody(qBodyType(qCreatedBy(id + "aSketch", EntityType.BODY), BodyType.WIRE), EntityType.EDGE), "endBound" : BoundingType.BLIND, "depth" : 20 * millimeter });
+    const bSketch = newSketchOnPlane(context, id + "bSketch", { "sketchPlane" : plane(vector(10, 0, 5) * millimeter, vector(0.894427, 0, 0.447214), vector(0, 1, 0)) });
+    skLineSegment(bSketch, "l1", { "start" : vector(0, 0) * millimeter, "end" : vector(20, 0) * millimeter });
+    skSolve(bSketch);
+    extrude(context, id + "b", { "bodyType" : ExtendedToolBodyType.SURFACE, "surfaceEntities" : qOwnedByBody(qBodyType(qCreatedBy(id + "bSketch", EntityType.BODY), BodyType.WIRE), EntityType.EDGE), "endBound" : BoundingType.BLIND, "depth" : 20 * millimeter });
+    const s1 = newSketchOnPlane(context, id + "s1", { "sketchPlane" : plane(vector(0, 0, 0) * millimeter, vector(0, -1, 0), vector(1, 0, 0)) });
+    skLineSegment(s1, "l1", { "start" : vector(0, 0) * millimeter, "end" : vector(10, 5) * millimeter });
+    skSolve(s1);
+    const s2 = newSketchOnPlane(context, id + "s2", { "sketchPlane" : plane(vector(0, 20, 0) * millimeter, vector(0, -1, 0), vector(1, 0, 0)) });
+    skLineSegment(s2, "l1", { "start" : vector(0, 0) * millimeter, "end" : vector(10, 5) * millimeter });
+    skSolve(s2);
+    fill(context, id + "fill1", { "edges" : [{ "entities" : qContainsPoint(qOwnedByBody(qBodyType(qCreatedBy(id + "b", EntityType.BODY), BodyType.SHEET), EntityType.EDGE), vector(10, 10, 5) * millimeter), "continuity" : GeometricContinuity.G0 }, { "entities" : qContainsPoint(qOwnedByBody(qBodyType(qCreatedBy(id + "a", EntityType.BODY), BodyType.SHEET), EntityType.EDGE), vector(0, 10, 0) * millimeter), "continuity" : GeometricContinuity.G0 }, { "entities" : qOwnedByBody(qBodyType(qCreatedBy(id + "s1", EntityType.BODY), BodyType.WIRE), EntityType.EDGE), "continuity" : GeometricContinuity.G0 }, { "entities" : qOwnedByBody(qBodyType(qCreatedBy(id + "s2", EntityType.BODY), BodyType.WIRE), EntityType.EDGE), "continuity" : GeometricContinuity.G0 }], "surfaceOperationType" : NewSurfaceOperationType.NEW });
+    return { "faces" : facing(context, qOwnedByBody(qBodyType(qCreatedBy(id + "fill1", EntityType.BODY), BodyType.SHEET), EntityType.FACE)) };
+}
+
+// fill: the gap filled flat, listed round the loop from the level sheet's edge
+export function c008(context is Context, id is Id)
+{
+    const aSketch = newSketchOnPlane(context, id + "aSketch", { "sketchPlane" : plane(vector(0, 0, 0) * millimeter, vector(-1, 0, 0), vector(0, 1, 0)) });
+    skLineSegment(aSketch, "l1", { "start" : vector(0, 0) * millimeter, "end" : vector(20, 0) * millimeter });
+    skSolve(aSketch);
+    extrude(context, id + "a", { "bodyType" : ExtendedToolBodyType.SURFACE, "surfaceEntities" : qOwnedByBody(qBodyType(qCreatedBy(id + "aSketch", EntityType.BODY), BodyType.WIRE), EntityType.EDGE), "endBound" : BoundingType.BLIND, "depth" : 20 * millimeter });
+    const bSketch = newSketchOnPlane(context, id + "bSketch", { "sketchPlane" : plane(vector(10, 0, 5) * millimeter, vector(0.894427, 0, 0.447214), vector(0, 1, 0)) });
+    skLineSegment(bSketch, "l1", { "start" : vector(0, 0) * millimeter, "end" : vector(20, 0) * millimeter });
+    skSolve(bSketch);
+    extrude(context, id + "b", { "bodyType" : ExtendedToolBodyType.SURFACE, "surfaceEntities" : qOwnedByBody(qBodyType(qCreatedBy(id + "bSketch", EntityType.BODY), BodyType.WIRE), EntityType.EDGE), "endBound" : BoundingType.BLIND, "depth" : 20 * millimeter });
+    const s1 = newSketchOnPlane(context, id + "s1", { "sketchPlane" : plane(vector(0, 0, 0) * millimeter, vector(0, -1, 0), vector(1, 0, 0)) });
+    skLineSegment(s1, "l1", { "start" : vector(0, 0) * millimeter, "end" : vector(10, 5) * millimeter });
+    skSolve(s1);
+    const s2 = newSketchOnPlane(context, id + "s2", { "sketchPlane" : plane(vector(0, 20, 0) * millimeter, vector(0, -1, 0), vector(1, 0, 0)) });
+    skLineSegment(s2, "l1", { "start" : vector(0, 0) * millimeter, "end" : vector(10, 5) * millimeter });
+    skSolve(s2);
+    fill(context, id + "fill1", { "edges" : [{ "entities" : qContainsPoint(qOwnedByBody(qBodyType(qCreatedBy(id + "a", EntityType.BODY), BodyType.SHEET), EntityType.EDGE), vector(0, 10, 0) * millimeter), "continuity" : GeometricContinuity.G0 }, { "entities" : qOwnedByBody(qBodyType(qCreatedBy(id + "s2", EntityType.BODY), BodyType.WIRE), EntityType.EDGE), "continuity" : GeometricContinuity.G0 }, { "entities" : qContainsPoint(qOwnedByBody(qBodyType(qCreatedBy(id + "b", EntityType.BODY), BodyType.SHEET), EntityType.EDGE), vector(10, 10, 5) * millimeter), "continuity" : GeometricContinuity.G0 }, { "entities" : qOwnedByBody(qBodyType(qCreatedBy(id + "s1", EntityType.BODY), BodyType.WIRE), EntityType.EDGE), "continuity" : GeometricContinuity.G0 }], "surfaceOperationType" : NewSurfaceOperationType.NEW });
+    return { "faces" : facing(context, qOwnedByBody(qBodyType(qCreatedBy(id + "fill1", EntityType.BODY), BodyType.SHEET), EntityType.FACE)) };
+}
+
+// fill: a rectangle of lines drawn half each way round it, listed from the bottom (drawn anticlockwise)
+export function c009(context is Context, id is Id)
+{
+    const e0 = newSketchOnPlane(context, id + "e0", { "sketchPlane" : plane(vector(0, 0, 0) * millimeter, vector(0, 0, 1), vector(1, 0, 0)) });
+    skLineSegment(e0, "l1", { "start" : vector(0, 0) * millimeter, "end" : vector(30, 0) * millimeter });
+    skSolve(e0);
+    const e1 = newSketchOnPlane(context, id + "e1", { "sketchPlane" : plane(vector(0, 0, 0) * millimeter, vector(0, 0, 1), vector(1, 0, 0)) });
+    skLineSegment(e1, "l1", { "start" : vector(30, 20) * millimeter, "end" : vector(30, 0) * millimeter });
+    skSolve(e1);
+    const e2 = newSketchOnPlane(context, id + "e2", { "sketchPlane" : plane(vector(0, 0, 0) * millimeter, vector(0, 0, 1), vector(1, 0, 0)) });
+    skLineSegment(e2, "l1", { "start" : vector(30, 20) * millimeter, "end" : vector(0, 20) * millimeter });
+    skSolve(e2);
+    const e3 = newSketchOnPlane(context, id + "e3", { "sketchPlane" : plane(vector(0, 0, 0) * millimeter, vector(0, 0, 1), vector(1, 0, 0)) });
+    skLineSegment(e3, "l1", { "start" : vector(0, 0) * millimeter, "end" : vector(0, 20) * millimeter });
+    skSolve(e3);
+    fill(context, id + "fill1", { "edges" : [{ "entities" : qOwnedByBody(qBodyType(qCreatedBy(id + "e0", EntityType.BODY), BodyType.WIRE), EntityType.EDGE), "continuity" : GeometricContinuity.G0 }, { "entities" : qOwnedByBody(qBodyType(qCreatedBy(id + "e1", EntityType.BODY), BodyType.WIRE), EntityType.EDGE), "continuity" : GeometricContinuity.G0 }, { "entities" : qOwnedByBody(qBodyType(qCreatedBy(id + "e2", EntityType.BODY), BodyType.WIRE), EntityType.EDGE), "continuity" : GeometricContinuity.G0 }, { "entities" : qOwnedByBody(qBodyType(qCreatedBy(id + "e3", EntityType.BODY), BodyType.WIRE), EntityType.EDGE), "continuity" : GeometricContinuity.G0 }], "surfaceOperationType" : NewSurfaceOperationType.NEW });
+    return { "faces" : facing(context, qOwnedByBody(qBodyType(qCreatedBy(id + "fill1", EntityType.BODY), BodyType.SHEET), EntityType.FACE)) };
+}
+
+// fill: the rectangle drawn half each way, listed from the right side (drawn clockwise)
+export function c010(context is Context, id is Id)
+{
+    const e0 = newSketchOnPlane(context, id + "e0", { "sketchPlane" : plane(vector(0, 0, 0) * millimeter, vector(0, 0, 1), vector(1, 0, 0)) });
+    skLineSegment(e0, "l1", { "start" : vector(0, 0) * millimeter, "end" : vector(30, 0) * millimeter });
+    skSolve(e0);
+    const e1 = newSketchOnPlane(context, id + "e1", { "sketchPlane" : plane(vector(0, 0, 0) * millimeter, vector(0, 0, 1), vector(1, 0, 0)) });
+    skLineSegment(e1, "l1", { "start" : vector(30, 20) * millimeter, "end" : vector(30, 0) * millimeter });
+    skSolve(e1);
+    const e2 = newSketchOnPlane(context, id + "e2", { "sketchPlane" : plane(vector(0, 0, 0) * millimeter, vector(0, 0, 1), vector(1, 0, 0)) });
+    skLineSegment(e2, "l1", { "start" : vector(30, 20) * millimeter, "end" : vector(0, 20) * millimeter });
+    skSolve(e2);
+    const e3 = newSketchOnPlane(context, id + "e3", { "sketchPlane" : plane(vector(0, 0, 0) * millimeter, vector(0, 0, 1), vector(1, 0, 0)) });
+    skLineSegment(e3, "l1", { "start" : vector(0, 0) * millimeter, "end" : vector(0, 20) * millimeter });
+    skSolve(e3);
+    fill(context, id + "fill1", { "edges" : [{ "entities" : qOwnedByBody(qBodyType(qCreatedBy(id + "e1", EntityType.BODY), BodyType.WIRE), EntityType.EDGE), "continuity" : GeometricContinuity.G0 }, { "entities" : qOwnedByBody(qBodyType(qCreatedBy(id + "e2", EntityType.BODY), BodyType.WIRE), EntityType.EDGE), "continuity" : GeometricContinuity.G0 }, { "entities" : qOwnedByBody(qBodyType(qCreatedBy(id + "e3", EntityType.BODY), BodyType.WIRE), EntityType.EDGE), "continuity" : GeometricContinuity.G0 }, { "entities" : qOwnedByBody(qBodyType(qCreatedBy(id + "e0", EntityType.BODY), BodyType.WIRE), EntityType.EDGE), "continuity" : GeometricContinuity.G0 }], "surfaceOperationType" : NewSurfaceOperationType.NEW });
+    return { "faces" : facing(context, qOwnedByBody(qBodyType(qCreatedBy(id + "fill1", EntityType.BODY), BodyType.SHEET), EntityType.FACE)) };
+}
+
+// fill: a rectangle with three sides drawn clockwise and the bottom anticlockwise, listed from the bottom
+export function c011(context is Context, id is Id)
+{
+    const e0 = newSketchOnPlane(context, id + "e0", { "sketchPlane" : plane(vector(0, 0, 0) * millimeter, vector(0, 0, 1), vector(1, 0, 0)) });
+    skLineSegment(e0, "l1", { "start" : vector(0, 0) * millimeter, "end" : vector(30, 0) * millimeter });
+    skSolve(e0);
+    const e1 = newSketchOnPlane(context, id + "e1", { "sketchPlane" : plane(vector(0, 0, 0) * millimeter, vector(0, 0, 1), vector(1, 0, 0)) });
+    skLineSegment(e1, "l1", { "start" : vector(30, 20) * millimeter, "end" : vector(30, 0) * millimeter });
+    skSolve(e1);
+    const e2 = newSketchOnPlane(context, id + "e2", { "sketchPlane" : plane(vector(0, 0, 0) * millimeter, vector(0, 0, 1), vector(1, 0, 0)) });
+    skLineSegment(e2, "l1", { "start" : vector(0, 20) * millimeter, "end" : vector(30, 20) * millimeter });
+    skSolve(e2);
+    const e3 = newSketchOnPlane(context, id + "e3", { "sketchPlane" : plane(vector(0, 0, 0) * millimeter, vector(0, 0, 1), vector(1, 0, 0)) });
+    skLineSegment(e3, "l1", { "start" : vector(0, 0) * millimeter, "end" : vector(0, 20) * millimeter });
+    skSolve(e3);
+    fill(context, id + "fill1", { "edges" : [{ "entities" : qOwnedByBody(qBodyType(qCreatedBy(id + "e0", EntityType.BODY), BodyType.WIRE), EntityType.EDGE), "continuity" : GeometricContinuity.G0 }, { "entities" : qOwnedByBody(qBodyType(qCreatedBy(id + "e1", EntityType.BODY), BodyType.WIRE), EntityType.EDGE), "continuity" : GeometricContinuity.G0 }, { "entities" : qOwnedByBody(qBodyType(qCreatedBy(id + "e2", EntityType.BODY), BodyType.WIRE), EntityType.EDGE), "continuity" : GeometricContinuity.G0 }, { "entities" : qOwnedByBody(qBodyType(qCreatedBy(id + "e3", EntityType.BODY), BodyType.WIRE), EntityType.EDGE), "continuity" : GeometricContinuity.G0 }], "surfaceOperationType" : NewSurfaceOperationType.NEW });
+    return { "faces" : facing(context, qOwnedByBody(qBodyType(qCreatedBy(id + "fill1", EntityType.BODY), BodyType.SHEET), EntityType.FACE)) };
+}
+
+// extrude: which way the edges of a sheet extruded from a line run: a level sheet and a rising one
+export function c012(context is Context, id is Id)
+{
+    const aSketch = newSketchOnPlane(context, id + "aSketch", { "sketchPlane" : plane(vector(0, 0, 0) * millimeter, vector(-1, 0, 0), vector(0, 1, 0)) });
+    skLineSegment(aSketch, "l1", { "start" : vector(0, 0) * millimeter, "end" : vector(20, 0) * millimeter });
+    skSolve(aSketch);
+    extrude(context, id + "a", { "bodyType" : ExtendedToolBodyType.SURFACE, "surfaceEntities" : qOwnedByBody(qBodyType(qCreatedBy(id + "aSketch", EntityType.BODY), BodyType.WIRE), EntityType.EDGE), "endBound" : BoundingType.BLIND, "depth" : 20 * millimeter });
+    const bSketch = newSketchOnPlane(context, id + "bSketch", { "sketchPlane" : plane(vector(10, 0, 5) * millimeter, vector(0.894427, 0, 0.447214), vector(0, 1, 0)) });
+    skLineSegment(bSketch, "l1", { "start" : vector(0, 0) * millimeter, "end" : vector(20, 0) * millimeter });
+    skSolve(bSketch);
+    extrude(context, id + "b", { "bodyType" : ExtendedToolBodyType.SURFACE, "surfaceEntities" : qOwnedByBody(qBodyType(qCreatedBy(id + "bSketch", EntityType.BODY), BodyType.WIRE), EntityType.EDGE), "endBound" : BoundingType.BLIND, "depth" : 20 * millimeter });
+    return { "level" : runs(context, qOwnedByBody(qBodyType(qCreatedBy(id + "a", EntityType.BODY), BodyType.SHEET), EntityType.EDGE), [vector(0, 10, 0), vector(-20, 10, 0), vector(-10, 0, 0), vector(-10, 20, 0)]), "rising" : runs(context, qOwnedByBody(qBodyType(qCreatedBy(id + "b", EntityType.BODY), BodyType.SHEET), EntityType.EDGE), [vector(10, 10, 5), vector(27.888544, 10, 13.944272), vector(18.944272, 0, 9.472136), vector(18.944272, 20, 9.472136)]) };
 }
