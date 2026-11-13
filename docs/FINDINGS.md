@@ -1514,8 +1514,12 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   (it had joined the rectangle's four sides into one edge), replaces a planar end of a body revolved about an axis
   in its plane (a segment round a cylinder) by turning the body on round the axis before cutting it, and evaluates an
   edge OCCT split at seam vertices (`evEdgeTangentLine`, `evLine`, a locked sweep's path) as the one edge Onshape has,
-  its pieces joined. Still, std orients each segment's profile from its edge's ends and directions: Onshape's arcs'
-  profiles come out turned 14° (the rectangle's sides' angle round the cylinder), the engine's otherwise (a gap).
+  its pieces joined. Std orients each segment's profile from its edge's ends and directions, and chains the edges
+  into a path from where they meet: with the split's edges running and ordered as the tool edges they came from
+  (batch 150), an arc split at the seam ending where its last piece does, an arc swept round its circle the way it
+  runs from the end the profile is at (std puts it at the far end of an edge the closed path runs backwards along),
+  and an edge carried on through a mitre's column one edge, every segment is Onshape's (area, volume and bounds to
+  1e-6; Onshape's STEP of the arc segments reads back 4e-3 small).
 - **Ruled surfaces' overrides along a curved edge; feature patterns of separate faces** (batch 139): along a curved
   edge Onshape blends the rulings at the edge's two ends as vectors held in the frame that turns with the edge (the
   ruling at angle 0, the one a quarter turn from it, the edge's tangent), with smoothstep weights (`useCubicInterpolation`):
