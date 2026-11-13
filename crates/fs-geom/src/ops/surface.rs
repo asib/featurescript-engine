@@ -275,10 +275,14 @@ pub fn fill_surface(model: &mut Model, id: FeatureId, definition: &Value) -> R<V
             return Err(error(format!("@opFillSurface: {key} isn't supported yet")));
         }
     }
-    let mut edges = shapes(model, field(definition, "edgesG0"), EntityType::Edge)?;
+    // Each edge as Onshape's runs: a flat fill faces as the loop of them runs, from the first (batch 158; a sheet's edge
+    // first, batch 157 c004).
+    let mut edges = Vec::new();
     for r in query::evaluate(model, field(definition, "edgesG0"))? {
-        if r.kind == EntityType::Body {
-            edges.extend(model.body(r).edges.iter().map(|e| e.shape.clone()));
+        match r.kind {
+            EntityType::Edge => edges.push(super::onshape_edge(model, r)),
+            EntityType::Body => edges.extend(model.body(r).edges.iter().map(|e| e.shape.clone())),
+            _ => {}
         }
     }
     let face = match bilinear_fill(&edges).or_else(|| coons_fill(&edges)) {
