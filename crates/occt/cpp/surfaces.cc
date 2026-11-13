@@ -859,8 +859,7 @@ std::unique_ptr<Operation> wrap_onto_cylinder(const ShapeList &faces, Vec3 sourc
       // Distances round the cylinder are measured at `arc_radius` if one is given (a sheet metal bend's allowance).
       return gp_Pnt2d(ta + s / (arc_radius > 0 ? arc_radius : r), za + z);
     };
-    BRepBuilderAPI_MakeFace maker(cylinder, Precision::Confusion());
-    bool first = true;
+    std::vector<TopoDS_Wire> wires;
     TopoDS_Face built;
     for (TopExp_Explorer w(face, TopAbs_WIRE); w.More(); w.Next()) {
       BRepBuilderAPI_MakeWire wire;
@@ -893,15 +892,24 @@ std::unique_ptr<Operation> wrap_onto_cylinder(const ShapeList &faces, Vec3 sourc
         edge_images.emplace_back(e.Current(), wire.Edge());
       }
       if (!wire.IsDone()) throw std::runtime_error("wrap: a wire couldn't be rebuilt");
-      if (first) {
-        maker = BRepBuilderAPI_MakeFace(cylinder, wire.Wire(), Standard_True);
-        first = false;
-      } else {
-        maker.Add(wire.Wire());
-      }
+      wires.push_back(wire.Wire());
     }
-    if (!maker.IsDone()) throw std::runtime_error("wrap: the face couldn't be rebuilt");
-    ShapeFix_Face fix(maker.Face());
+    if (wires.empty()) throw std::runtime_error("wrap: a face has no wires");
+    // The rebuilt wires run as their first edges happen to: where that leaves the face inside out (its area
+    // negative: a sheet metal bend across a tab, batch 149 c003), they run the other way.
+    auto face_from = [&](bool reversed) {
+      BRepBuilderAPI_MakeFace maker(cylinder, TopoDS::Wire(reversed ? wires[0].Reversed() : wires[0]), Standard_True);
+      for (size_t k = 1; k < wires.size(); ++k) maker.Add(TopoDS::Wire(reversed ? wires[k].Reversed() : wires[k]));
+      if (!maker.IsDone()) throw std::runtime_error("wrap: the face couldn't be rebuilt");
+      return maker.Face();
+    };
+    TopoDS_Face rebuilt = face_from(false);
+    {
+      GProp_GProps props;
+      BRepGProp::SurfaceProperties(rebuilt, props);
+      if (props.Mass() < 0) rebuilt = face_from(true);
+    }
+    ShapeFix_Face fix(rebuilt);
     fix.SetContext(new ShapeBuild_ReShape);
     fix.Perform();
     built = fix.Face();
