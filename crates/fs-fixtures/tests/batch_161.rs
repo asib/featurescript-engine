@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 /// Cases that differ (see docs/FINDINGS.md): three-sided fills (c001, c002) and fills tangent to sheets they don't
 /// continue (c003, c004), Onshape's own adaptive fits (bicubic, knots refined unevenly over a plane in metres; a thin
-/// plate comes within 0.07 mm of them). The engine refuses the tangent ones, which the failed cases' line shows.
+/// plate is 0.11 to 0.16 mm off them). The engine refuses the tangent ones, which the failed cases' line shows.
 const KNOWN_GAPS: &[&str] = &["c001", "c002", "c003", "c004", "failed probe"];
 
 #[test]

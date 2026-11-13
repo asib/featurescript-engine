@@ -1711,7 +1711,10 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   117, loosely): there Onshape's magnitude-1 derivative, pole by pole, has its first two and last two rows the exact
   projected chord's value and slope at the ends (to 2e-6, batch 117 c001), and its interior within 5e-3 of a least-
   squares fit of the exact projected chord at the knots pulled 0.04 toward the pole chords projected across the
-  control polygon; what exactly it is pulled toward isn't found. A sheet extruded from a straight spline is a plane in Onshape, its edges splines still; the engine's
+  control polygon; what exactly it is pulled toward isn't found. Taking its fit as the magnitude's (Greville points,
+  pull 0.04), the anchor Onshape's poles imply is no projection of the pole chords (its third row (0.016, 20, −0.001)
+  against the chord's (0.907, 20, 1.567)), and no direction projects the third pole chord onto Onshape's row: its
+  interior comes from a fit of another kind. A sheet extruded from a straight spline is a plane in Onshape, its edges splines still; the engine's
   is now, and a flat face of any kind matched next to a profile counts as its plane (163 c007–c009).
 - **Fills meeting curvature conditions and guides as planes** (batch 161 c005, c006): batch 157's gap filled with
   curvature continuity to the rising sheet (which the plane continues) is the plane, as is a rectangle filled with a
@@ -1721,8 +1724,11 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
 - **Onshape's own fills** (batch 161 c001–c004): its three-sided fills and fills tangent to sheets they don't
   continue are bicubic B-splines over a plane, their knots in metres across the loop's extent in that plane (batch
   157's gap: ±10.0025 mm along it, ±5.59 across), refined unevenly (spacings halving toward some edges): adaptive fits.
-  A thin plate (least bending energy, positions on every edge, slopes on the tangent ones) solved over the gap comes
-  within 0.07 mm of Onshape's heights but isn't its surface. Known gap.
+  A thin plate (least bending energy, positions on every edge, slopes on the tangent ones, solved by a converged spline
+  Ritz method) dips 0.11 to 0.16 mm below Onshape's heights, so it isn't Onshape's surface (an earlier, unconverged
+  difference grid had seemed within 0.07). Across the middle of the gap Onshape's is near the cubic with chord-length
+  tangents, and toward the side lines it dips less (96% as much a quarter of the way along): no Coons or Gordon
+  blend of those tried gives that. Known gap.
 - **Which way an extruded sheet's edges run** (batch 159 c012): its profile's copy and the far edge run as the
   profile does; the side edges swept from the profile's ends run out from the profile along the extrude, where a
   solid's run back from the far end (batch 088). The engine now runs a sheet's so.

@@ -15,7 +15,7 @@ batch 163).
 Findings (docs/FINDINGS.md): the curvature-continuous fill and the fill with a guide in its plane are the plane, as
 the engine's are. Onshape's three-sided and tangent fills are bicubic B-splines over a plane, their knots in metres
 across the loop's extent there (±10.0025 mm along the gap, ±5.59 across it) refined unevenly: adaptive fits, which
-a thin plate solved over the gap comes within 0.07 mm of but isn't. At magnitude 2 the boundary surface's rows next
+a thin plate solved over the gap is 0.11 to 0.16 mm off. At magnitude 2 the boundary surface's rows next
 to its ends are the magnitude-scaled quadratic plus the correction from the ends exactly (as at magnitude 1); its
 interior rows' middle poles both shift by a further term, along x the same whether the arc rises 4 or 2 (−0.2977 at
 the third row, −0.0172 at the middle one), along y in proportion to the row's chord.
