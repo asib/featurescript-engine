@@ -87,14 +87,23 @@ pub fn extract_wires(model: &mut Model, id: FeatureId, definition: &Value) -> R<
 }
 
 pub fn extract_surface(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
-    if values::opt_bool(definition, "tangentPropagation")?.unwrap_or(false) {
-        return Err(error("@opExtractSurface: tangent propagation isn't supported yet"));
-    }
     let offset = match field(definition, "offset") {
         v if v.is_undefined() => 0.0,
         v => values::length(v, "opExtractSurface offset")?,
     };
-    let faces = faces_of(model, field(definition, "faces"))?;
+    let mut faces = faces_of(model, field(definition, "faces"))?;
+    // With tangent propagation, the faces tangent to them across their edges too (sheet metal's thicken start,
+    // batch 164 c006).
+    if values::opt_bool(definition, "tangentPropagation")?.unwrap_or(false) {
+        let seeds: Vec<crate::model::EntityRef> =
+            query::evaluate(model, field(definition, "faces"))?.into_iter().filter(|r| r.kind == EntityType::Face).collect();
+        for r in crate::topology::tangent_connected_faces(model, &seeds, crate::topology::TANGENT_TOLERANCE) {
+            let shape = model.shape(r).clone();
+            if !faces.iter().any(|f| f.is_same(&shape)) {
+                faces.push(shape);
+            }
+        }
+    }
     if faces.is_empty() {
         return Err(regen_error("EXTRACT_SURFACE_FAILED"));
     }
