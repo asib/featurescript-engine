@@ -137,7 +137,56 @@ fn untransformed_profile(model: &Model, definition: &Value) -> R<(Vec<Shape>, bo
     if edges.is_empty() {
         return Err(regen_error("EXTRUDE_NO_SELECTED_REGION"));
     }
-    Ok((occt::connect_edges(&edges).map_err(occt_error)?, false))
+    // Lines in a row along one line sweep one face, as a region's do (batch 166 c001: a sheet from two such lines).
+    let wires = occt::connect_edges(&edges).map_err(occt_error)?;
+    Ok((wires.into_iter().map(|w| collinear_merged(&w).unwrap_or(w)).collect(), false))
+}
+
+/// A wire with each run of lines along one line, end to end, made one line; `None` if it has no such run.
+fn collinear_merged(wire: &Shape) -> Option<Shape> {
+    let edges = wire.sub_shapes(ShapeKind::Edge);
+    let line = |e: &Shape| -> Option<(Vec3, Vec3)> {
+        (e.curve_type().ok() == Some(occt::CurveType::Line))
+            .then(|| Some((e.edge_tangent(0.0, false).ok()?.origin, e.edge_tangent(1.0, false).ok()?.origin)))
+            .flatten()
+    };
+    let mut out: Vec<Shape> = Vec::new();
+    let mut run: Option<(Vec3, Vec3)> = None;
+    let mut merged_any = false;
+    let flush = |run: &mut Option<(Vec3, Vec3)>, out: &mut Vec<Shape>| -> Option<()> {
+        if let Some((a, b)) = run.take() {
+            out.push(occt::line_edge(a, b).ok()?);
+        }
+        Some(())
+    };
+    for e in &edges {
+        match (line(e), run) {
+            (Some((a, b)), Some((ra, rb))) => {
+                let d = crate::values::normalize(sub(rb, ra))?;
+                let e_dir = crate::values::normalize(sub(b, a))?;
+                let joined = crate::values::norm(sub(a, rb)) < 1e-9 && crate::values::norm(crate::values::cross(d, e_dir)) < 1e-9 && dot(d, e_dir) > 0.0;
+                if joined {
+                    run = Some((ra, b));
+                    merged_any = true;
+                    continue;
+                }
+                flush(&mut run, &mut out)?;
+                run = Some((a, b));
+            }
+            (Some((a, b)), None) => {
+                run = Some((a, b));
+            }
+            (None, _) => {
+                flush(&mut run, &mut out)?;
+                out.push(e.clone());
+            }
+        }
+    }
+    flush(&mut run, &mut out)?;
+    if !merged_any {
+        return None;
+    }
+    occt::ordered_wire(&out).ok()
 }
 
 /// Keeps the pieces of `shape` that touch `start` (the profile at the start of the extrude).
