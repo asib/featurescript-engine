@@ -1702,8 +1702,13 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   (163 c008); with the other end free, its quadratic's middle pole moves with it. Onshape builds these surfaces pole by
   pole on the knots across the profiles: a line raised to a cubic on the other's knots; an arc as its own cubic of
   even spans over even angles (four for batch 159's 87°), a least-squares fit with its ends and end derivatives exact
-  (to 9e-6 of Onshape's poles). The engine builds them from sampled rows on its own knots, so its poles differ even at
-  magnitude 1, and refuses other magnitudes between curved profiles. Known gap, now with the rule to follow.
+  (to 9e-6 of Onshape's poles). The engine now builds boundary surfaces conditioned tangent to planes so, between
+  lines, arcs and cubic splines, and batches 159 and 160 match exactly (163 c001–c004, c006–c009; 161 c007–c009; 162
+  c001, c004–c009). Known gap: uneven knots (162 c002, c003; 163 c005), where Onshape's interior fractions (0.858,
+  0.855; 0.945, 0.919) aren't this fit's (0.843, 0.815; 0.916, 0.923), nor any tried with the knots, the sample points
+  or the pull weighted otherwise. Normal-to-profile conditions keep the engine's sampled construction (batches 063,
+  117, loosely). A sheet extruded from a straight spline is a plane in Onshape, its edges splines still; the engine's
+  is now, and a flat face of any kind matched next to a profile counts as its plane (163 c007–c009).
 - **Fills meeting curvature conditions and guides as planes** (batch 161 c005, c006): batch 157's gap filled with
   curvature continuity to the rising sheet (which the plane continues) is the plane, as is a rectangle filled with a
   guide point in its plane. The engine now lets curvature edges through where the flat fill continues their faces, as

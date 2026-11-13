@@ -1541,6 +1541,305 @@ struct EndCondition {
     vector: occt::Vec3,
 }
 
+/// A profile edge as Onshape takes it into a boundary surface: a cubic B-spline over 0 to 1, running as the edge does
+/// (batch 161, 163): a line raised to a cubic; an arc as a cubic of even spans over even angles, a power of two of
+/// them, none over 22.5° (four for 87°, eight for 135°, batch 063), its ends and end derivatives exact and the rest a
+/// least-squares fit (to 1e-5 of Onshape's poles); a non-rational cubic spline as it is. Others: `None`.
+fn profile_spline(edge: &Shape) -> Option<(Vec<occt::Vec3>, Vec<f64>)> {
+    use crate::values::{add, norm, scale, sub};
+    let at = |f: f64| edge.edge_tangent(f, false).ok();
+    let (start, end) = (at(0.0)?, at(1.0)?);
+    match edge.curve_type().ok()? {
+        occt::CurveType::Line => {
+            let (a, b) = (start.origin, end.origin);
+            let d = sub(b, a);
+            Some(((0..4).map(|k| add(a, scale(d, k as f64 / 3.0))).collect(), vec![0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0]))
+        }
+        occt::CurveType::Circle => {
+            let centre = edge.curve_definition().ok()?.frame.origin;
+            let (x, y, radius, angle) =
+                crate::curve_extend::arc_frame(centre, start.origin, start.direction, end.origin).ok()?;
+            let mut spans = 1usize;
+            while angle / spans as f64 > 22.5f64.to_radians() + 1e-9 {
+                spans *= 2;
+            }
+            let point = |f: f64| add(centre, add(scale(x, radius * (f * angle).cos()), scale(y, radius * (f * angle).sin())));
+            let speed = |f: f64| add(scale(x, -radius * angle * (f * angle).sin()), scale(y, radius * angle * (f * angle).cos()));
+            let mut knots = vec![0.0; 4];
+            knots.extend((1..spans).map(|k| k as f64 / spans as f64));
+            knots.extend([1.0; 4]);
+            let n = spans + 3;
+            let h = 1.0 / spans as f64;
+            let mut poles = vec![occt::Vec3::new(0.0, 0.0, 0.0); n];
+            poles[0] = point(0.0);
+            poles[1] = add(point(0.0), scale(speed(0.0), h / 3.0));
+            poles[n - 2] = sub(point(1.0), scale(speed(1.0), h / 3.0));
+            poles[n - 1] = point(1.0);
+            let free: Vec<usize> = (2..n - 2).collect();
+            if !free.is_empty() {
+                let samples: Vec<f64> = (0..=64 * spans).map(|k| k as f64 / (64 * spans) as f64).collect();
+                let fixed = [0, 1, n - 2, n - 1];
+                let rows: Vec<(Vec<f64>, occt::Vec3)> = samples
+                    .iter()
+                    .map(|&f| {
+                        let b = basis_at(&knots, n, f);
+                        let rest = fixed.iter().fold(occt::Vec3::new(0.0, 0.0, 0.0), |acc, &i| add(acc, scale(poles[i], b[i])));
+                        (free.iter().map(|&i| b[i]).collect(), sub(point(f), rest))
+                    })
+                    .collect();
+                let solved = least_squares(&rows, &[], 0.0)?;
+                for (k, &i) in free.iter().enumerate() {
+                    poles[i] = solved[k];
+                }
+            }
+            Some((poles, knots))
+        }
+        occt::CurveType::BSpline => {
+            let data = edge.edge_bspline(1e-7, false, false).ok()?;
+            if data.degree != 3 || data.rational || data.periodic {
+                return None;
+            }
+            let (k0, k1) = (*data.knots.first()?, *data.knots.last()?);
+            let mut knots: Vec<f64> = data.knots.iter().map(|k| (k - k0) / (k1 - k0)).collect();
+            let mut poles = data.poles.clone();
+            if norm(sub(poles[0], start.origin)) > norm(sub(poles[0], end.origin)) {
+                poles.reverse();
+                knots = knots.iter().rev().map(|k| 1.0 - k).collect();
+            }
+            Some((poles, knots))
+        }
+        _ => None,
+    }
+}
+
+/// The cubic B-spline basis functions at `u`, one per pole.
+fn basis_at(knots: &[f64], n: usize, u: f64) -> Vec<f64> {
+    let span = crate::bspline::find_span(n, 3, u, knots);
+    let b = crate::bspline::basis_derivatives(span, u, 3, 0, knots);
+    let mut out = vec![0.0; n];
+    for j in 0..4 {
+        out[span - 3 + j] = b[0][j];
+    }
+    out
+}
+
+/// The least-squares solution of rows `(coefficients, target)`, plus `pull` times the distance of each unknown from
+/// `anchors` (if given), by the normal equations.
+fn least_squares(rows: &[(Vec<f64>, occt::Vec3)], anchors: &[occt::Vec3], pull: f64) -> Option<Vec<occt::Vec3>> {
+    let k = rows.first().map(|r| r.0.len())?;
+    let mut a = vec![vec![0.0; k]; k];
+    let mut b = vec![[0.0; 3]; k];
+    for (c, t) in rows {
+        for i in 0..k {
+            for j in 0..k {
+                a[i][j] += c[i] * c[j];
+            }
+            b[i][0] += c[i] * t.x;
+            b[i][1] += c[i] * t.y;
+            b[i][2] += c[i] * t.z;
+        }
+    }
+    for i in 0..k {
+        if let Some(anchor) = anchors.get(i) {
+            a[i][i] += pull;
+            b[i][0] += pull * anchor.x;
+            b[i][1] += pull * anchor.y;
+            b[i][2] += pull * anchor.z;
+        }
+    }
+    // Gaussian elimination with partial pivoting.
+    for col in 0..k {
+        let pivot = (col..k).max_by(|&i, &j| a[i][col].abs().total_cmp(&a[j][col].abs()))?;
+        if a[pivot][col].abs() < 1e-300 {
+            return None;
+        }
+        a.swap(col, pivot);
+        b.swap(col, pivot);
+        for row in col + 1..k {
+            let f = a[row][col] / a[col][col];
+            for c2 in col..k {
+                a[row][c2] -= f * a[col][c2];
+            }
+            for d in 0..3 {
+                b[row][d] -= f * b[col][d];
+            }
+        }
+    }
+    let mut x = vec![[0.0; 3]; k];
+    for row in (0..k).rev() {
+        for d in 0..3 {
+            let s: f64 = (row + 1..k).map(|c2| a[row][c2] * x[c2][d]).sum();
+            x[row][d] = (b[row][d] - s) / a[row][row];
+        }
+    }
+    Some(x.into_iter().map(|v| occt::Vec3::new(v[0], v[1], v[2])).collect())
+}
+
+/// A cubic B-spline with the knot `u` inserted once (Boehm).
+fn insert_knot(poles: &[occt::Vec3], knots: &[f64], u: f64) -> (Vec<occt::Vec3>, Vec<f64>) {
+    use crate::values::{add, scale};
+    let n = poles.len();
+    let k = crate::bspline::find_span(n, 3, u, knots);
+    let mut out = Vec::with_capacity(n + 1);
+    for i in 0..=n {
+        let q = if i + 3 <= k {
+            poles[i]
+        } else if i > k {
+            poles[i - 1]
+        } else {
+            let alpha = (u - knots[i]) / (knots[i + 3] - knots[i]);
+            add(scale(poles[i], alpha), scale(poles[i - 1], 1.0 - alpha))
+        };
+        out.push(q);
+    }
+    let mut new_knots = knots.to_vec();
+    new_knots.insert(k + 1, u);
+    (out, new_knots)
+}
+
+/// Two cubic B-splines over 0 to 1 on one knot vector: each given the other's knots it lacks.
+fn compatible(
+    a: (Vec<occt::Vec3>, Vec<f64>),
+    b: (Vec<occt::Vec3>, Vec<f64>),
+) -> ((Vec<occt::Vec3>, Vec<f64>), (Vec<occt::Vec3>, Vec<f64>)) {
+    let interior = |k: &[f64]| -> Vec<f64> { k[4..k.len() - 4].to_vec() };
+    let missing = |have: &[f64], want: &[f64]| -> Vec<f64> {
+        let mut have = have.to_vec();
+        let mut out = Vec::new();
+        for &w in want {
+            if let Some(i) = have.iter().position(|h| (h - w).abs() < 1e-9) {
+                have.remove(i);
+            } else {
+                out.push(w);
+            }
+        }
+        out
+    };
+    let (ia, ib) = (interior(&a.1), interior(&b.1));
+    let (mut a, mut b) = (a, b);
+    for u in missing(&ia, &ib) {
+        a = insert_knot(&a.0, &a.1, u);
+    }
+    for u in missing(&ib, &ia) {
+        b = insert_knot(&b.0, &b.1, u);
+    }
+    (a, b)
+}
+
+/// A boundary surface between two profiles, conditioned tangent to planes, built as Onshape builds it, pole by pole
+/// on the knots across its profiles (batches 161–163): each conditioned profile leaves along its chord to the other,
+/// the part along the plane's normal taken out, pole by pole; at a magnitude other than 1 the leaving derivative's
+/// poles are a least-squares fit at every knot to the magnitude times the magnitude-1 derivative, pulled toward the
+/// magnitude-1 poles with weight 0.04, the first two and last two the magnitude times them (to 1e-6 of Onshape's,
+/// batch 163); a free profile is reached as the quadratic's, raised to a cubic, plus at each pole the correction
+/// blended from the profiles' ends (batch 159 c005). `None` where it doesn't apply (other conditions or curves).
+fn poled_surface(profiles: &[Shape], ends: &[Option<EndCondition>; 2], ruled: &Shape) -> R<Option<Shape>> {
+    use crate::values::{add, dot, norm, normalize, scale, sub};
+    if profiles.len() != 2 || ends.iter().all(Option::is_none) || ends.iter().flatten().any(|e| !e.tangent) {
+        return Ok(None);
+    }
+    let single = |w: &Shape| match &w.sub_shapes(ShapeKind::Edge)[..] {
+        [e] => Some(e.clone()),
+        _ => None,
+    };
+    let (Some(first), Some(second)) = (single(&profiles[0]), single(&profiles[1])) else { return Ok(None) };
+    let (Some(a), Some(b)) = (profile_spline(&first), profile_spline(&second)) else { return Ok(None) };
+    // The partner runs the same way as the first profile.
+    let (a0, a1) = (a.0[0], *a.0.last().expect("poles"));
+    let (b0, b1) = (b.0[0], *b.0.last().expect("poles"));
+    let b = if norm(sub(a0, b0)) + norm(sub(a1, b1)) > norm(sub(a0, b1)) + norm(sub(a1, b0)) {
+        (b.0.iter().rev().copied().collect(), b.1.iter().rev().map(|k| 1.0 - k).collect())
+    } else {
+        b
+    };
+    // Each conditioned profile must lie square to its plane's normal.
+    let mut normals = [None, None];
+    for (index, end) in ends.iter().enumerate() {
+        let Some(end) = end else { continue };
+        let Some(n) = normalize(end.vector) else { return Ok(None) };
+        let poles = if index == 0 { &a.0 } else { &b.0 };
+        if poles.iter().any(|p| dot(sub(*p, poles[0]), n).abs() > 1e-7) {
+            return Ok(None);
+        }
+        normals[index] = Some((n, end.magnitude));
+    }
+    let ((p, knots), (q, _)) = compatible(a, b);
+    let count = p.len();
+    let chords: Vec<occt::Vec3> = p.iter().zip(&q).map(|(a, b)| sub(*b, *a)).collect();
+    // The leaving derivative's poles at an end, the magnitude fitted as Onshape fits it.
+    let distinct: Vec<f64> = {
+        let mut k: Vec<f64> = Vec::new();
+        for &u in &knots {
+            if k.last().is_none_or(|l| (u - l).abs() > 1e-12) {
+                k.push(u);
+            }
+        }
+        k
+    };
+    let leaving = |index: usize| -> R<Option<Vec<occt::Vec3>>> {
+        let Some((n, magnitude)) = normals[index] else { return Ok(None) };
+        let plain: Vec<occt::Vec3> = chords.iter().map(|c| sub(*c, scale(n, dot(*c, n)))).collect();
+        if plain.iter().zip(&chords).any(|(d, c)| norm(*d) <= 1e-6 * norm(*c).max(1e-9)) {
+            return Err(regen_error("CANNOT_MAKE_BSPLINESURFACE"));
+        }
+        let mut out: Vec<occt::Vec3> = plain.iter().map(|d| scale(*d, magnitude)).collect();
+        let free: Vec<usize> = (2..count.saturating_sub(2)).collect();
+        if (magnitude - 1.0).abs() > 1e-12 && !free.is_empty() {
+            let fixed: Vec<usize> = (0..count).filter(|i| !free.contains(i)).collect();
+            let rows: Vec<(Vec<f64>, occt::Vec3)> = distinct
+                .iter()
+                .map(|&u| {
+                    let basis = basis_at(&knots, count, u);
+                    let target = (0..count).fold(occt::Vec3::new(0.0, 0.0, 0.0), |acc, i| add(acc, scale(plain[i], basis[i] * magnitude)));
+                    let rest = fixed.iter().fold(occt::Vec3::new(0.0, 0.0, 0.0), |acc, &i| add(acc, scale(out[i], basis[i])));
+                    (free.iter().map(|&i| basis[i]).collect(), sub(target, rest))
+                })
+                .collect();
+            let anchors: Vec<occt::Vec3> = free.iter().map(|&i| plain[i]).collect();
+            let solved = least_squares(&rows, &anchors, 0.04).ok_or_else(|| regen_error("BSURF_FAILED"))?;
+            for (k, &i) in free.iter().enumerate() {
+                out[i] = solved[k];
+            }
+        }
+        Ok(Some(out))
+    };
+    let (d0, d1) = (leaving(0)?, leaving(1)?);
+    // Each pole's place along the profiles (its Greville abscissa), for the correction blended from the ends.
+    let greville = |i: usize| (knots[i + 1] + knots[i + 2] + knots[i + 3]) / 3.0;
+    let last = count - 1;
+    let mut poles = Vec::with_capacity(count * 4);
+    for i in 0..count {
+        let (pi, qi, ci) = (p[i], q[i], chords[i]);
+        let t = greville(i);
+        let row = match (&d0, &d1) {
+            (Some(d0), Some(d1)) => [pi, add(pi, scale(d0[i], 1.0 / 3.0)), sub(qi, scale(d1[i], 1.0 / 3.0)), qi],
+            (Some(d0), None) => {
+                let side = |j: usize| scale(sub(chords[j], d0[j]), 1.0 / 3.0);
+                let blend = add(scale(side(0), 1.0 - t), scale(side(last), t));
+                let middle = add(add(sub(qi, scale(ci, 2.0 / 3.0)), scale(d0[i], 1.0 / 3.0)), blend);
+                [pi, add(pi, scale(d0[i], 1.0 / 3.0)), middle, qi]
+            }
+            (None, Some(d1)) => {
+                let side = |j: usize| scale(sub(d1[j], chords[j]), 1.0 / 3.0);
+                let blend = add(scale(side(0), 1.0 - t), scale(side(last), t));
+                let middle = add(add(add(pi, scale(ci, 2.0 / 3.0)), scale(d1[i], -1.0 / 3.0)), blend);
+                [pi, middle, sub(qi, scale(d1[i], 1.0 / 3.0)), qi]
+            }
+            (None, None) => return Ok(None),
+        };
+        poles.extend(row);
+    }
+    let face = occt::bspline_surface_face(&poles, (count, 4), &knots, &[0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0], (3, 3))
+        .map_err(|_| regen_error("BSURF_FAILED"))?;
+    // A flat one is a plane, as Onshape's is (batch 121 c001, c002).
+    let face = occt::nurbs_converted(&face).map_err(occt_error)?;
+    let facing = |s: &Shape| s.sub_shapes(ShapeKind::Face).first().and_then(|f| f.face_tangent_plane(0.5, 0.5).ok()).map(|t| t.normal);
+    Ok(Some(match (facing(&face), facing(ruled)) {
+        (Some(x), Some(y)) if dot(x, y) < 0.0 => face.reversed(),
+        _ => face,
+    }))
+}
+
 /// A boundary surface between two profiles with end conditions at one or both (batches 063 c010, c011, 117). Across,
 /// each curve runs from a profile's point to its partner's (by parameter fraction, as the ruled surface pairs them),
 /// leaving a conditioned profile with the chord between them less its part along one direction: normal to the
@@ -1554,6 +1853,9 @@ struct EndCondition {
 /// a derivative along a direction given, change the curves by rules not found (117 c002, c004, c006): refused. The
 /// surface is cubic along the profiles through 33 points on each row.
 fn conditioned_surface(profiles: &[Shape], ends: &[Option<EndCondition>; 2], ruled: &Shape) -> R<Shape> {
+    if let Some(face) = poled_surface(profiles, ends, ruled)? {
+        return Ok(face);
+    }
     use crate::values::{add, cross, dot, norm, normalize, scale, sub};
     let single = |w: &Shape| -> R<Shape> {
         match &w.sub_shapes(ShapeKind::Edge)[..] {
