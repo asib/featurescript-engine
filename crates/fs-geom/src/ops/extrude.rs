@@ -172,6 +172,22 @@ pub fn extrude(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
     let direction = values::normalize(values::vec3(field(definition, "direction"), "opExtrude direction")?)
         .ok_or_else(|| error("@opExtrude: zero direction"))?;
     let end = bound(model, definition, "end", &id)?.expect("an end bound");
+    // Up to next passes by parts the profile starts inside (batch 148 c002: a column on its own base, starting inside
+    // another case's plate, runs on up to its own roof); a part the profile only touches stops it (batch 004 c026).
+    let end = match end {
+        Bound::Bodies(solids, offset) if field(definition, "endBound").as_str() == Some("UP_TO_NEXT") => {
+            let inside: Vec<Vec3> = profiles
+                .iter()
+                .filter_map(|p| match solid {
+                    true => p.face_inner_point().ok(),
+                    false => p.edge_tangent(0.5, false).ok().map(|a| a.origin),
+                })
+                .collect();
+            let kept = solids.into_iter().filter(|s| !inside.iter().any(|&q| s.contains_point(q).unwrap_or(false)));
+            Bound::Bodies(kept.collect(), offset)
+        }
+        other => other,
+    };
     let start = bound(model, definition, "start", &id)?;
     let reach = reach(model, &profiles[0]);
 
