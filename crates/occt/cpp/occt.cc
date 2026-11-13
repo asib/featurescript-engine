@@ -686,6 +686,16 @@ std::unique_ptr<Operation> boolean_op(int32_t kind, const ShapeList &objects, co
 
 std::unique_ptr<Shape> operation_shape(const Operation &op) { return wrap(op.result); }
 
+// One operation after another: the second's result, and what the first's inputs became through both.
+std::unique_ptr<Operation> operation_then(const Operation &first, const Operation &second) {
+  auto op = std::make_unique<Operation>();
+  op->result = second.result;
+  op->history = new BRepTools_History();
+  if (!first.history.IsNull()) op->history->Merge(first.history);
+  if (!second.history.IsNull()) op->history->Merge(second.history);
+  return op;
+}
+
 std::unique_ptr<ShapeList> operation_modified(const Operation &op, const Shape &s) {
   return wrap_list(op.history->Modified(s.shape));
 }

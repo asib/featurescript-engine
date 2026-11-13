@@ -192,6 +192,7 @@ std::unique_ptr<Operation> replace_planar_face_op(const Shape &solid, const Shap
 std::unique_ptr<Operation> replace_face_with_surface_op(const Shape &solid, const Shape &face, const Shape &template_face, double offset);
 
 std::unique_ptr<Shape> operation_shape(const Operation &op);
+std::unique_ptr<Operation> operation_then(const Operation &first, const Operation &second);
 std::unique_ptr<ShapeList> operation_modified(const Operation &op, const Shape &s);
 std::unique_ptr<ShapeList> operation_generated(const Operation &op, const Shape &s);
 bool operation_is_deleted(const Operation &op, const Shape &s);

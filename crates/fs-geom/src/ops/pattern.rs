@@ -194,7 +194,20 @@ pub fn pattern(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
             (false, true) => (occt::BooleanKind::Union, bosses),
             (true, false) => (occt::BooleanKind::Subtraction, pockets),
             (false, false) => {
-                return Err(error("@opPattern: faces making both bosses and pockets aren't supported yet"));
+                // Bosses and pockets together: the bosses added, then the pockets taken away (batch 167 c001); a boss
+                // meeting a pocket fails, as Onshape's does (c002: a quarter turn stands the boss over the pocket).
+                let overlap = bosses
+                    .iter()
+                    .any(|boss| pockets.iter().any(|pocket| boss.distance(pocket).is_ok_and(|d| d.distance < 1e-7)));
+                if overlap {
+                    return Err(regen_error("PATTERN_FACE_FAILED"));
+                }
+                let added = occt::boolean(occt::BooleanKind::Union, std::slice::from_ref(&model.bodies[b].shape), &bosses, true)
+                    .map_err(|_| regen_error("PATTERN_FACE_FAILED"))?;
+                let cut = occt::boolean(occt::BooleanKind::Subtraction, std::slice::from_ref(&added.shape()), &pockets, true)
+                    .map_err(|_| regen_error("PATTERN_FACE_FAILED"))?;
+                results.push((b, added.then(&cut)));
+                continue;
             }
         };
         let op = occt::boolean(kind, std::slice::from_ref(&model.bodies[b].shape), &tools, true)

@@ -334,6 +334,7 @@ mod ffi {
         ) -> Result<UniquePtr<Operation>>;
 
         fn operation_shape(op: &Operation) -> UniquePtr<Shape>;
+        fn operation_then(first: &Operation, second: &Operation) -> UniquePtr<Operation>;
         fn operation_modified(op: &Operation, s: &Shape) -> Result<UniquePtr<ShapeList>>;
         fn operation_generated(op: &Operation, s: &Shape) -> Result<UniquePtr<ShapeList>>;
         fn operation_is_deleted(op: &Operation, s: &Shape) -> Result<bool>;
@@ -1185,6 +1186,11 @@ pub struct Operation(UniquePtr<ffi::Operation>);
 impl Operation {
     pub fn shape(&self) -> Shape {
         Shape::new(ffi::operation_shape(&self.0))
+    }
+
+    /// This operation followed by `next`: `next`'s result, and what this one's inputs became through both.
+    pub fn then(&self, next: &Operation) -> Operation {
+        Operation(ffi::operation_then(&self.0, &next.0))
     }
 
     /// What an input shape became, if the step changed it.
