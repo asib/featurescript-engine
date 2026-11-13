@@ -629,6 +629,12 @@ fn resolve(model: &Model, query: &Value) -> R<Vec<EntityRef>> {
         "LAMINAR_DEPENDENCY" => {
             let mut out = Vec::new();
             for r in sub(model, query, "subquery")? {
+                // A sheet's edge is its own laminar edge (std finds the faces next to a boundary surface's profile
+                // picked on a sheet so, batch 159).
+                if r.kind == EntityType::Edge && model.body(r).body_type == crate::model::BodyType::Sheet {
+                    out.push(r);
+                    continue;
+                }
                 let mut current = vec![r];
                 for _ in 0..8 {
                     let next: Vec<EntityRef> = current
