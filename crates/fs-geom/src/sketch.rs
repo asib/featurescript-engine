@@ -880,7 +880,11 @@ mod constraints {
         let mut x = Vec::new();
         let mut scale = Vec::new();
         let mut out = Vec::new();
-        let (mut stiff, mut place): (Vec<Vec<usize>>, Vec<Vec<usize>>) = (Vec::new(), Vec::new());
+        // Where lines sit holds before where circles, arcs and points do: a circle drawn off a line it's held
+        // tangent to (or a line's end held on it) moves its centre, whichever was drawn first (batch 150 c002–c004,
+        // c006).
+        let (mut stiff, mut place, mut line_place): (Vec<Vec<usize>>, Vec<Vec<usize>>, Vec<Vec<usize>>) =
+            (Vec::new(), Vec::new(), Vec::new());
         for e in entities {
             let i = x.len();
             let slot = match &e.geometry {
@@ -895,7 +899,7 @@ mod constraints {
                     x.extend([(a.0 + b.0) / 2.0, (a.1 + b.1) / 2.0, (b.1 - a.1).atan2(b.0 - a.0), length, length]);
                     scale.extend([1.0, 1.0, (length / 2.0).max(1e-9), 1.0, 1.0]);
                     stiff.push(vec![i + 2, i + 3]);
-                    place.push(vec![i, i + 1]);
+                    line_place.push(vec![i, i + 1]);
                     Some(Slot::Line(i))
                 }
                 // An arc's start and end run counterclockwise, whichever way it was given, as in Onshape (std's
@@ -928,6 +932,7 @@ mod constraints {
             };
             out.push(slot);
         }
+        stiff.extend(line_place);
         stiff.extend(place);
         (out, x, scale, stiff)
     }
