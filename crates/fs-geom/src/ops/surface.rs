@@ -281,7 +281,7 @@ pub fn fill_surface(model: &mut Model, id: FeatureId, definition: &Value) -> R<V
             edges.extend(model.body(r).edges.iter().map(|e| e.shape.clone()));
         }
     }
-    let face = match bilinear_fill(&edges) {
+    let face = match bilinear_fill(&edges).or_else(|| coons_fill(&edges)) {
         Some(face) => face,
         None => occt::fill_edges(&edges).map_err(|_| regen_error("FILL_SURFACE_FAILED"))?,
     };
@@ -289,10 +289,55 @@ pub fn fill_surface(model: &mut Model, id: FeatureId, definition: &Value) -> R<V
     Ok(Value::UNDEFINED)
 }
 
+/// Four edges round a loop that isn't flat, not all straight: the Coons patch of the four, as a boundary surface
+/// through two pairs of them is (batch 063 c009), the first edge and the one opposite it one pair, facing as the
+/// bilinear patch between its corners does.
+fn coons_fill(edges: &[Shape]) -> Option<Shape> {
+    if edges.len() != 4 || edges.iter().all(|e| e.curve_type().ok() == Some(occt::CurveType::Line)) {
+        return None;
+    }
+    let ends = |e: &Shape| -> Option<(occt::Vec3, occt::Vec3)> {
+        Some((e.edge_tangent(0.0, false).ok()?.origin, e.edge_tangent(1.0, false).ok()?.origin))
+    };
+    let close = |a: occt::Vec3, b: occt::Vec3| values::norm(values::sub(a, b)) < 1e-7;
+    let (a0, a1) = ends(&edges[0])?;
+    let touches = |e: &Shape, p: occt::Vec3| ends(e).is_some_and(|(x, y)| close(x, p) || close(y, p));
+    let opposite = edges[1..].iter().find(|e| !touches(e, a0) && !touches(e, a1))?;
+    let sides: Vec<Shape> = edges[1..].iter().filter(|e| !e.is_same(opposite)).cloned().collect();
+    let [c, d] = &sides[..] else { return None };
+    // A loop lying in one plane is filled flat, as Onshape's planar fills are.
+    let points: Vec<occt::Vec3> = edges
+        .iter()
+        .flat_map(|e| (0..=8).filter_map(|k| e.edge_tangent(k as f64 / 8.0, false).ok().map(|t| t.origin)).collect::<Vec<_>>())
+        .collect();
+    let normal = (0..points.len()).find_map(|i| {
+        (i + 1..points.len()).find_map(|j| {
+            (j + 1..points.len()).find_map(|k| {
+                let n = values::cross(values::sub(points[j], points[i]), values::sub(points[k], points[i]));
+                (values::norm(n) > 1e-9).then(|| values::normalize(n)).flatten()
+            })
+        })
+    })?;
+    if points.iter().all(|p| values::dot(values::sub(*p, points[0]), normal).abs() < 1e-9) {
+        return None;
+    }
+    // Facing as the bilinear patch between its corners, even where they lie in a plane (a pillow of arcs over a
+    // rectangle's sides, batch 153 c001; a saddle of arcs and lines, c002).
+    let reference = bilinear_patch(edges, false, true)?;
+    coons_surface(&[edges[0].clone(), opposite.clone()], &[c.clone(), d.clone()], &reference).ok()
+}
+
 /// Four straight edges round a loop that isn't flat: Onshape fills it with the bilinear patch between them (batch
 /// 062 c004), u running back along the first edge from where it meets the second, v along the second.
 fn bilinear_fill(edges: &[Shape]) -> Option<Shape> {
-    if edges.len() != 4 || edges.iter().any(|e| e.curve_type().ok() != Some(occt::CurveType::Line)) {
+    bilinear_patch(edges, true, false)
+}
+
+/// The bilinear patch between the corners of a loop of four edges (all straight, if `straight`), as
+/// [`bilinear_fill`] lays it out; `None` if the loop isn't four edges end to end, or its corners lie in a plane
+/// (unless `flat`).
+fn bilinear_patch(edges: &[Shape], straight: bool, flat: bool) -> Option<Shape> {
+    if edges.len() != 4 || (straight && edges.iter().any(|e| e.curve_type().ok() != Some(occt::CurveType::Line))) {
         return None;
     }
     let ends = |e: &Shape| -> Option<(occt::Vec3, occt::Vec3)> {
@@ -320,7 +365,7 @@ fn bilinear_fill(edges: &[Shape]) -> Option<Shape> {
         .flat_map(|(p, q)| [p, q])
         .find(|p| !corners.iter().any(|c| close(*c, *p)))?;
     let normal = values::normalize(values::cross(values::sub(u_end, origin), values::sub(v_end, origin)))?;
-    if values::dot(values::sub(opposite, origin), normal).abs() < 1e-9 {
+    if !flat && values::dot(values::sub(opposite, origin), normal).abs() < 1e-9 {
         return None;
     }
     occt::bspline_surface_face(&[origin, v_end, u_end, opposite], (2, 2), &[0.0, 0.0, 1.0, 1.0], &[0.0, 0.0, 1.0, 1.0], (1, 1))
