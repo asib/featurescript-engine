@@ -31,19 +31,16 @@ pub fn revolve(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
     // A start bound up to something: the revolve runs back from where the end's blind angle puts the profile, to
     // where the bound is first met going forward from the profile (batch 024). Its offset turns the bound forward,
     // as the end's does.
+    // (In the end's direction, `startOppositeDirection`, the same: a point 20° on with the end 60° on, the revolve runs
+    // from the point to the end, batch 164 c003.)
     let start_cut = if values::opt_bool(definition, "hasStartBound")?.unwrap_or(true) {
-        if values::opt_bool(definition, "startOppositeDirection")?.unwrap_or(false)
-            && !matches!(field(definition, "startBound").as_str(), None | Some("BLIND"))
-        {
-            return Err(error("@opRevolve: a start bound up to something in the end's direction isn't supported yet"));
-        }
         up_to_bound(model, definition, axis, "start")?
     } else {
         None
     };
-    if end_cut.is_some() && start_cut.is_some() {
-        return Err(error("@opRevolve: both bounds up to something isn't supported yet"));
-    }
+    // Both bounds up to something: each is where it's first met going forward from the profile, and the revolve runs
+    // forward from the start's to the end's (batch 164 c001, c002: up to planes either side, half the ring).
+    let both = end_cut.is_some() && start_cut.is_some();
     let (start, sweep) = if end_cut.is_some() {
         // Revolved nearly a whole turn, then cut where it meets the bound.
         (0.0, TAU - 1e-4)
@@ -56,8 +53,8 @@ pub fn revolve(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
     } else {
         sweep_angles(definition)?
     };
-    let up_to = end_cut.or(start_cut.clone());
-    let reversed = start_cut.is_some();
+    let up_to = end_cut.clone().or(start_cut.clone());
+    let reversed = start_cut.is_some() && !both;
     let full = sweep >= TAU - 1e-12;
 
     // Faces revolve into solids; edges, joined into wires, into sheets.
@@ -105,6 +102,40 @@ pub fn revolve(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
     let (kind, body_type) =
         if solid { (ShapeKind::Solid, BodyType::Solid) } else { (ShapeKind::Shell, BodyType::Sheet) };
     let pieces = match &up_to {
+        Some(end_cutter) if both => {
+            let start_cutter = start_cut.as_ref().expect("both bounds");
+            let fail = |_| regen_error("REVOLVE_FAILED");
+            // From the profile to where the end bound is first met.
+            let split = occt::split(std::slice::from_ref(&op.shape()), std::slice::from_ref(end_cutter)).map_err(fail)?;
+            let ahead = super::extrude::pieces_touching(&split.shape(), std::slice::from_ref(&profile), kind);
+            // The start bound met on the way there: from it to the end bound.
+            let cut = occt::split(&ahead, std::slice::from_ref(start_cutter)).map_err(fail)?.shape().sub_shapes(kind);
+            let kept = if cut.len() > ahead.len() {
+                let first = super::extrude::pieces_touching(&occt::compound(&cut), std::slice::from_ref(&profile), kind);
+                cut.into_iter().filter(|p| !first.iter().any(|f| f.is_same(p))).collect::<Vec<_>>()
+            } else {
+                // Otherwise from where it's first met going forward on round to the profile, as a start bound alone
+                // (run back from the profile, everything but the last piece), joined to the way to the end.
+                let back = occt::revolve(&profile, backward, TAU - 1e-4).map_err(|_| regen_error("REVOLVE_FAILED"))?;
+                let split = occt::split(std::slice::from_ref(&back.shape()), std::slice::from_ref(start_cutter)).map_err(fail)?;
+                let tail = super::extrude::pieces_touching(&split.shape(), &back.last(), kind);
+                let behind: Vec<Shape> =
+                    split.shape().sub_shapes(kind).into_iter().filter(|p| !tail.iter().any(|t| t.is_same(p))).collect();
+                let fused = occt::boolean(occt::BooleanKind::Union, &ahead, &behind, true).map_err(fail)?;
+                fused.shape().sub_shapes(kind)
+            };
+            for piece in &kept {
+                for f in piece.sub_shapes(ShapeKind::Face) {
+                    let on = |c: &Shape| f.distance(c).is_ok_and(|d| d.distance < 1e-7) && super::extrude::on_surface(&f, c);
+                    if on(end_cutter) {
+                        end_cap.insert_all(&f);
+                    } else if on(start_cutter) {
+                        start_cap.insert_all(&f);
+                    }
+                }
+            }
+            kept
+        }
         None => op.shape().sub_shapes(kind),
         Some(cutter) if reversed => {
             // Run back from the end nearly a turn and cut by the bound, everything but the last piece: back to the
