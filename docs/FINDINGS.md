@@ -1690,6 +1690,20 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   (159 c006–c008): as if sewn to the level sheet, its loop running that sheet's edge against the sheet's own loop,
   though both sheet edges run the same way (+y) and the rising sheet's face points down. The engine now faces a flat
   fill with sheets' edges in its loop as sewn to the oldest of those sheets, and batch 157's flat fills match.
+- **Boundary surfaces at magnitudes other than 1, found** (batches 162, 163): the extra term appears between
+  straight profiles too, wherever the knots across leave interior rows of poles; it is (magnitude − 1) times the
+  derivative times a fraction set by the knots alone (two even spans 25/29 at the middle row; three 0.933610; four
+  0.910689, 0.994839; five 0.917563, 0.973058), whichever way the profiles run or are listed. Onshape fits the
+  derivative leaving a conditioned profile, as poles across, to the magnitude times the magnitude-1 derivative at
+  every knot, in least squares with a pull of 0.04 toward the magnitude-1 derivative's poles, the first two and last
+  two held exact; this reproduces every fraction to 1e-6 and batch 161 c008's poles to 3e-6, and batch 117's arcs
+  along their normal exactly (their small parts along the profile 0.01 off, the targets there presumably the exact
+  projected chord at the knots). Only the conditioned end moves: with both ends conditioned the other's poles stay
+  (163 c008); with the other end free, its quadratic's middle pole moves with it. Onshape builds these surfaces pole by
+  pole on the knots across the profiles: a line raised to a cubic on the other's knots; an arc as its own cubic of
+  even spans over even angles (four for batch 159's 87°), a least-squares fit with its ends and end derivatives exact
+  (to 9e-6 of Onshape's poles). The engine builds them from sampled rows on its own knots, so its poles differ even at
+  magnitude 1, and refuses other magnitudes between curved profiles. Known gap, now with the rule to follow.
 - **Fills meeting curvature conditions and guides as planes** (batch 161 c005, c006): batch 157's gap filled with
   curvature continuity to the rising sheet (which the plane continues) is the plane, as is a rectangle filled with a
   guide point in its plane. The engine now lets curvature edges through where the flat fill continues their faces, as

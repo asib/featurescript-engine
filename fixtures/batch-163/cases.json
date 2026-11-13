@@ -1,0 +1,97 @@
+{
+  "batch": "163",
+  "title": "probes: the extra term in a boundary surface's derivative at magnitudes other than 1, by the knots across its profiles",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "boundary-surface",
+      "description": "to a straight spline of one span (through y = 0, 20), magnitude 2",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "boundary-surface",
+      "description": "to a straight spline of three even spans, magnitude 2",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "boundary-surface",
+      "description": "to a straight spline of four even spans, magnitude 2",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "boundary-surface",
+      "description": "to a straight spline of five even spans, magnitude 2",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "boundary-surface",
+      "description": "to a straight spline through y = 0, 2, 10, 20 (three uneven spans), magnitude 2",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "boundary-surface",
+      "description": "to a straight spline of two even spans, magnitude 0.5",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "boundary-surface",
+      "description": "from a sheet extruded from a two-span straight spline, magnitude 2, to a line",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c008",
+      "kind": "boundary-surface",
+      "description": "from the two-span sheet at magnitude 2 to a rising two-span sheet's edge, matching both",
+      "slotMeters": [
+        2.8000000000000003,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c009",
+      "kind": "boundary-surface",
+      "description": "from the two-span sheet at magnitude 1 to the rising sheet's edge, matching both",
+      "slotMeters": [
+        3.2,
+        0,
+        0
+      ]
+    }
+  ]
+}
