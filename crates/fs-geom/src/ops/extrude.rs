@@ -399,8 +399,12 @@ pub fn extrude(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
                 a.origin
             };
             let near = if far == b.origin { a.origin } else { b.origin };
-            // It runs from the far end back (batch 088).
-            let sense = crate::values::normalize(crate::values::sub(near, far)).map(|d| (far, d));
+            // A solid's runs from the far end back (batch 088), a sheet's out from the profile (batch 159 c012).
+            let sense = if solid {
+                crate::values::normalize(crate::values::sub(near, far)).map(|d| (far, d))
+            } else {
+                crate::values::normalize(crate::values::sub(far, near)).map(|d| (near, d))
+            };
             Some(Rc::new(Info {
                 created_by: created.created_by.clone(),
                 dependency: created.dependency.clone(),
