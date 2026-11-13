@@ -2271,8 +2271,11 @@ std::unique_ptr<Operation> replace_planar_face_op(const Shape &solid, const Shap
   ShapeUpgrade_UnifySameDomain unifier(current, Standard_True, Standard_True, Standard_False);
   unifier.Build();
   op->history->Merge(unifier.History());
-  TopExp_Explorer first(unifier.Shape(), TopAbs_SOLID);
-  op->result = count == 1 && first.More() ? first.Current() : unifier.Shape();
+  // An edge carried on through the column is one edge: the column's arcs round a revolved end can run the other
+  // way round their circle than the solid's, which the merge above leaves in two (a frame's mitre, batch 138 c005).
+  const TopoDS_Shape fused = edges_fused(unifier.Shape(), op->history);
+  TopExp_Explorer first(fused, TopAbs_SOLID);
+  op->result = count == 1 && first.More() ? first.Current() : fused;
   return op;
 }
 
