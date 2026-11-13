@@ -459,6 +459,130 @@ namespace {
 std::unique_ptr<Operation> fillet_by_sections(const TopoDS_Shape &solid, const TopTools_ListOfShape &edges, double r);
 }
 
+namespace {
+
+// A circular fillet of straight edges between planes, each edge's rounding a tool of its own: the region between its
+// two faces and the ball rolled along it (its cross section the corner between the faces' feet and the ball's arc),
+// carried along the edge and past its ends, then cut back by the planes of the other faces at each end, on the side
+// the edge is. The tools are cut from the solid (convex edges) or added to it (concave ones), so roundings meeting at
+// a corner meet along where they cross, as Onshape's do (batch 147 c004: a drafted pocket's floor, where OCCT patches
+// some corners). Null if an edge isn't straight between planes, three edges given meet at a vertex, or it fails.
+std::unique_ptr<Operation> fillet_by_tools(const TopoDS_Shape &solid, const TopTools_ListOfShape &edges, double r) {
+  try {
+    TopTools_IndexedDataMapOfShapeListOfShape edge_faces, vertex_faces;
+    TopExp::MapShapesAndUniqueAncestors(solid, TopAbs_EDGE, TopAbs_FACE, edge_faces);
+    TopExp::MapShapesAndUniqueAncestors(solid, TopAbs_VERTEX, TopAbs_FACE, vertex_faces);
+    {
+      TopTools_DataMapOfShapeInteger count;
+      for (const TopoDS_Shape &e : edges)
+        for (TopExp_Explorer v(e, TopAbs_VERTEX); v.More(); v.Next()) {
+          if (count.IsBound(v.Current())) count.ChangeFind(v.Current()) += 1;
+          else count.Bind(v.Current(), 1);
+          if (count.Find(v.Current()) > 2) return nullptr;
+        }
+    }
+    auto plane_of = [](const TopoDS_Shape &f, gp_Pln &out) {
+      BRepAdaptor_Surface surface(TopoDS::Face(f));
+      if (surface.GetType() != GeomAbs_Plane) return false;
+      out = surface.Plane();
+      return true;
+    };
+    TopTools_ListOfShape cuts, fills;
+    for (const TopoDS_Shape &e : edges) {
+      const TopoDS_Edge &edge = TopoDS::Edge(e);
+      BRepAdaptor_Curve curve(edge);
+      if (curve.GetType() != GeomAbs_Line) return nullptr;
+      const TopTools_ListOfShape *faces = edge_faces.Seek(edge);
+      if (faces == nullptr || faces->Size() != 2) return nullptr;
+      const TopoDS_Face f1 = TopoDS::Face(faces->First()), f2 = TopoDS::Face(faces->Last());
+      gp_Pln p1, p2;
+      if (!plane_of(f1, p1) || !plane_of(f2, p2)) return nullptr;
+      const gp_Pnt a = curve.Value(curve.FirstParameter()), b = curve.Value(curve.LastParameter());
+      const gp_Pnt m((a.XYZ() + b.XYZ()) / 2);
+      const gp_Vec d = gp_Vec(a, b).Normalized();
+      const gp_Vec n1(face_normal(f1)), n2(face_normal(f2));
+      const gp_Vec sum = n1 + n2;
+      if (sum.Magnitude() < 1e-9) return nullptr;
+      // Convex where just behind one face and in front of the other is outside the solid (the solid there is what's
+      // behind both faces; at a concave edge, what's behind either).
+      BRepClass3d_SolidClassifier classifier(solid, m.Translated((n2 - n1) * (1e-4 * r)), 1e-9);
+      const bool convex = classifier.State() == TopAbs_OUT;
+      const double half = n1.Angle(n2) / 2;
+      const gp_Vec towards = (convex ? -1.0 : 1.0) * sum.Normalized();
+      const gp_Pnt centre = m.Translated(towards * (r / std::cos(half)));
+      const double sign = convex ? 1.0 : -1.0;
+      const gp_Pnt foot1 = centre.Translated(n1 * (sign * r)), foot2 = centre.Translated(n2 * (sign * r));
+      // The cross section at the edge's middle, carried back past its start and on past its end.
+      const double margin = 4 * r + gp_Vec(a, b).Magnitude();
+      const gp_Trsf back = [&] { gp_Trsf t; t.SetTranslation(-d * margin); return t; }();
+      const gp_Pnt e0 = m.Transformed(back), g1 = foot1.Transformed(back), g2 = foot2.Transformed(back);
+      const gp_Pnt mid = centre.Translated(-towards * r).Transformed(back);
+      Handle(Geom_TrimmedCurve) arc = GC_MakeArcOfCircle(g1, mid, g2).Value();
+      BRepBuilderAPI_MakeWire wire;
+      wire.Add(BRepBuilderAPI_MakeEdge(e0, g1).Edge());
+      wire.Add(BRepBuilderAPI_MakeEdge(arc).Edge());
+      wire.Add(BRepBuilderAPI_MakeEdge(g2, e0).Edge());
+      if (!wire.IsDone()) return nullptr;
+      BRepBuilderAPI_MakeFace profile(wire.Wire(), Standard_True);
+      if (!profile.IsDone()) return nullptr;
+      TopoDS_Shape tool = BRepPrimAPI_MakePrism(profile.Face(), d * (2 * margin)).Shape();
+      // Cut back by the other faces' planes at each end, keeping the side the edge is on.
+      for (const gp_Pnt &end : {a, b}) {
+        TopoDS_Vertex vertex;
+        for (TopExp_Explorer v(edge, TopAbs_VERTEX); v.More(); v.Next())
+          if (BRep_Tool::Pnt(TopoDS::Vertex(v.Current())).Distance(end) < 1e-9) vertex = TopoDS::Vertex(v.Current());
+        const TopTools_ListOfShape *around = vertex.IsNull() ? nullptr : vertex_faces.Seek(vertex);
+        if (around == nullptr) return nullptr;
+        for (const TopoDS_Shape &g : *around) {
+          if (g.IsSame(f1) || g.IsSame(f2)) continue;
+          gp_Pln pg;
+          if (!plane_of(g, pg)) return nullptr;
+          TopoDS_Face big = BRepBuilderAPI_MakeFace(pg, -1e3 * margin, 1e3 * margin, -1e3 * margin, 1e3 * margin).Face();
+          BRepAlgoAPI_Common common(tool, BRepPrimAPI_MakeHalfSpace(big, m).Solid());
+          common.SetRunParallel(Standard_False);
+          common.Build();
+          if (!common.IsDone()) return nullptr;
+          tool = common.Shape();
+        }
+      }
+      (convex ? cuts : fills).Append(tool);
+    }
+    TopoDS_Shape current = solid;
+    auto op = std::make_unique<Operation>();
+    op->history = new BRepTools_History();
+    for (int pass = 0; pass < 2; ++pass) {
+      const TopTools_ListOfShape &tools = pass == 0 ? cuts : fills;
+      if (tools.IsEmpty()) continue;
+      std::unique_ptr<BRepAlgoAPI_BooleanOperation> boolean;
+      if (pass == 0) boolean = std::make_unique<BRepAlgoAPI_Cut>(); else boolean = std::make_unique<BRepAlgoAPI_Fuse>();
+      boolean->SetArguments(one(current));
+      boolean->SetTools(tools);
+      boolean->SetRunParallel(Standard_False);
+      boolean->Build();
+      if (!boolean->IsDone()) return nullptr;
+      TopTools_ListOfShape arguments = one(current);
+      for (const TopoDS_Shape &t : tools) arguments.Append(t);
+      op->history->Merge(arguments, *boolean);
+      current = boolean->Shape();
+    }
+    ShapeUpgrade_UnifySameDomain unify(current, Standard_True, Standard_True, Standard_False);
+    unify.Build();
+    op->history->Merge(unify.History());
+    // Where two roundings cross, one edge: the tools' cut-backs can leave it in pieces.
+    op->result = edges_fused(unify.Shape(), op->history);
+    TopExp_Explorer only(op->result, TopAbs_SOLID);
+    if (!only.More()) return nullptr;
+    op->result = only.Current();
+    only.Next();
+    if (only.More() || !BRepCheck_Analyzer(op->result).IsValid()) return nullptr;
+    return op;
+  } catch (const Standard_Failure &) {
+    return nullptr;
+  }
+}
+
+}  // namespace
+
 // Rounds edges of a solid with a constant radius. Where OCCT's fillet comes out with edges far out of tolerance
 // (round a cross hole's mouth, two lopsided faces with edges 0.7 mm out, batch 125 c008), closed edges are rounded
 // as part of the solid's morphological opening instead.
@@ -475,6 +599,26 @@ std::unique_ptr<Operation> fillet_op(const Shape &solid, const ShapeList &edges,
     for (const TopoDS_Shape &e : edges.shapes)
       for (const TopoDS_Shape &g : maker.Generated(e))
         if (g.ShapeType() == TopAbs_FACE) ++made;
+  // More faces than the solid had and one per edge: OCCT has patched corners where roundings meet; built from a
+  // tool per edge, they meet along where they cross instead.
+  if (maker.IsDone()) {
+    int before = 0, after = 0;
+    for (TopExp_Explorer f(solid.shape, TopAbs_FACE); f.More(); f.Next()) ++before;
+    for (TopExp_Explorer f(maker.Shape(), TopAbs_FACE); f.More(); f.Next()) ++after;
+    if (after > before + (int)edges.shapes.size()) {
+      TopTools_ListOfShape copied;
+      for (const TopoDS_Shape &e : edges.shapes) {
+        const TopTools_ListOfShape &images = copier.Modified(e);
+        copied.Append(images.IsEmpty() ? e : images.First());
+      }
+      if (std::unique_ptr<Operation> op = fillet_by_tools(copier.Shape(), copied, radius)) {
+        Handle(BRepTools_History) history = new BRepTools_History(one(solid.shape), copier);
+        history->Merge(op->history);
+        op->history = history;
+        return op;
+      }
+    }
+  }
   if (maker.IsDone() && (largest_tolerance(maker.Shape()) > 1e-5 || made > (int)edges.shapes.size())) {
     TopTools_ListOfShape copied;
     for (const TopoDS_Shape &e : edges.shapes) {
