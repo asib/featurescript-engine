@@ -345,22 +345,32 @@ pub fn split_face(model: &mut Model, id: FeatureId, definition: &Value, tags: &v
                 let Ok(point) = occt::vertex(mid.origin) else { continue };
                 let nearest = tool_edges
                     .iter()
-                    .filter_map(|t| point.distance(t).ok().map(|d| (d.distance, d.b, t)))
+                    .enumerate()
+                    .filter_map(|(k, t)| point.distance(t).ok().map(|d| (d.distance, d.b, t, k)))
                     .min_by(|a, b| a.0.total_cmp(&b.0));
-                let Some((_, at, tool)) = nearest else { continue };
+                let Some((_, at, tool, k)) = nearest else { continue };
                 let Ok(along) = tool.edge_fraction(at, false).and_then(|f| tool.edge_tangent(f, false)) else { continue };
                 let d = if values::dot(mid.direction, along.direction) < 0.0 {
                     values::scale(mid.direction, -1.0)
                 } else {
                     mid.direction
                 };
-                senses.push((edge.shape.clone(), (mid.origin, d)));
+                senses.push((edge.shape.clone(), (mid.origin, d), k));
             }
             model.update_body(b, |body| {
-                for (shape, sense) in &senses {
+                for (shape, sense, _) in &senses {
                     if let Some(e) = body.edges.iter_mut().find(|e| e.shape.is_same(shape)) {
                         e.info = std::rc::Rc::new(crate::model::Info { sense: Some(*sense), ..(*e.info).clone() });
                     }
+                }
+                // And they come in the order of the tool edges they came from (batch 150 c001: a rectangle's left,
+                // right, top and bottom sides, as `skRectangle` makes them), in the places they had among the body's.
+                let tool_of = |e: &crate::model::Entity| senses.iter().find(|(s, _, _)| s.is_same(&e.shape)).map(|(_, _, k)| *k);
+                let places: Vec<usize> = (0..body.edges.len()).filter(|&i| tool_of(&body.edges[i]).is_some()).collect();
+                let mut moved: Vec<crate::model::Entity> = places.iter().map(|&i| body.edges[i].clone()).collect();
+                moved.sort_by_key(|e| tool_of(e).unwrap_or(usize::MAX));
+                for (&i, e) in places.iter().zip(moved) {
+                    body.edges[i] = e;
                 }
             });
         }
