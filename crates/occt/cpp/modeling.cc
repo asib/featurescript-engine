@@ -2012,32 +2012,36 @@ std::unique_ptr<Operation> replace_planar_face_op(const Shape &solid, const Shap
   double size = gp_Pnt(x0, y0, z0).Distance(gp_Pnt(x1, y1, z1));
   gp_Pnt origin = pnt(target.origin);
   double reach = 10 * size + 10 * origin.Distance(gp_Pnt((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2)) + 1;
-  // Extend the solid past the target plane, however it's tilted: along the face's normal when the faces round it
-  // are square to it; otherwise, where leaning planes are round it, by the region inside all their planes and
-  // beyond the face's (batch 058 c003, a trapezoid prism's top).
-  TopoDS_Shape extension;
-  if (revolved) {
-    // Turned on round the axis, the way the face's normal points, a third of a turn.
-    GProp_GProps props;
-    BRepGProp::SurfaceProperties(f, props);
-    const gp_Vec radial(axis.Location(), props.CentreOfMass());
-    const double sign = gp_Vec(axis.Direction()).Crossed(radial).Dot(gp_Vec(n)) >= 0 ? 1 : -1;
-    TopoDS_Shape copy = BRepBuilderAPI_Copy(f).Shape();
-    extension = BRepPrimAPI_MakeRevol(copy, axis, sign * 2 * M_PI / 3, Standard_True).Shape();
-  } else if (square || neighbours.empty()) {
-    TopoDS_Shape copy = BRepBuilderAPI_Copy(f).Shape();
-    extension = BRepPrimAPI_MakePrism(copy, gp_Vec(n) * reach, Standard_True).Shape();
-  } else {
+  // The face's own column, beyond it (to grow into) and behind it (to cut back): along the face's normal when the
+  // faces round it are square to it; otherwise, where leaning planes are round it, the region inside all their
+  // planes on either side of the face's (batch 058 c003, a trapezoid prism's top); for a revolved end, turned on
+  // round the axis either way. Only that column changes: what stands on the face past the target plane stays
+  // (batch 144 c006, a boss on a block's top replaced by a plane below the boss's top).
+  auto column = [&](bool beyond) -> TopoDS_Shape {
+    if (revolved) {
+      // Turned round the axis the way the face's normal points (or against it), a third of a turn.
+      GProp_GProps props;
+      BRepGProp::SurfaceProperties(f, props);
+      const gp_Vec radial(axis.Location(), props.CentreOfMass());
+      double sign = gp_Vec(axis.Direction()).Crossed(radial).Dot(gp_Vec(n)) >= 0 ? 1 : -1;
+      if (!beyond) sign = -sign;
+      TopoDS_Shape copy = BRepBuilderAPI_Copy(f).Shape();
+      return BRepPrimAPI_MakeRevol(copy, axis, sign * 2 * M_PI / 3, Standard_True).Shape();
+    }
+    if (square || neighbours.empty()) {
+      TopoDS_Shape copy = BRepBuilderAPI_Copy(f).Shape();
+      return BRepPrimAPI_MakePrism(copy, gp_Vec(n) * (beyond ? reach : -reach), Standard_True).Shape();
+    }
     const gp_Pnt c((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
-    extension = BRepPrimAPI_MakeBox(gp_Pnt(c.X() - reach, c.Y() - reach, c.Z() - reach), 2 * reach, 2 * reach, 2 * reach).Shape();
+    TopoDS_Shape region = BRepPrimAPI_MakeBox(gp_Pnt(c.X() - reach, c.Y() - reach, c.Z() - reach), 2 * reach, 2 * reach, 2 * reach).Shape();
     auto keep_side = [&](const TopoDS_Face &plane_face, const gp_Pnt &inside) {
       BRepAdaptor_Surface surface(plane_face);
       TopoDS_Face big = BRepBuilderAPI_MakeFace(surface.Plane(), -4 * reach, 4 * reach, -4 * reach, 4 * reach).Face();
-      BRepAlgoAPI_Common common(extension, BRepPrimAPI_MakeHalfSpace(big, inside).Solid());
+      BRepAlgoAPI_Common common(region, BRepPrimAPI_MakeHalfSpace(big, inside).Solid());
       common.SetRunParallel(Standard_False);
       common.Build();
       if (!common.IsDone()) throw std::runtime_error("replace face: extending failed");
-      extension = common.Shape();
+      region = common.Shape();
     };
     for (const TopoDS_Face &g : neighbours) {
       // A point just inside the solid from the neighbour.
@@ -2048,43 +2052,53 @@ std::unique_ptr<Operation> replace_planar_face_op(const Shape &solid, const Shap
     }
     GProp_GProps props;
     BRepGProp::SurfaceProperties(f, props);
-    keep_side(f, props.CentreOfMass().Translated(gp_Vec(n) * (1e-3 * size)));
-  }
-  BRepAlgoAPI_Fuse fuse(solid.shape, extension);
-  fuse.SetRunParallel(Standard_False);
-  fuse.Build();
-  if (!fuse.IsDone()) throw std::runtime_error("replace face: extending failed");
-  // Cut with the target plane and keep what's behind it.
+    keep_side(f, props.CentreOfMass().Translated(gp_Vec(n) * ((beyond ? 1e-3 : -1e-3) * size)));
+    return region;
+  };
   gp_Dir tn = dir(target.normal);
   if (tn.Dot(n) < 0) tn.Reverse();
-  TopoDS_Face cutter = BRepBuilderAPI_MakeFace(gp_Pln(origin, tn), -reach * 2, reach * 2, -reach * 2, reach * 2).Face();
-  BRepAlgoAPI_Splitter splitter;
-  splitter.SetArguments(one(fuse.Shape()));
-  splitter.SetTools(one(cutter));
-  splitter.SetRunParallel(Standard_False);
-  splitter.Build();
-  if (splitter.HasErrors()) throw std::runtime_error("replace face: cutting failed");
-  BRep_Builder builder;
-  TopoDS_Compound kept;
-  builder.MakeCompound(kept);
-  int count = 0;
-  for (TopExp_Explorer it(splitter.Shape(), TopAbs_SOLID); it.More(); it.Next()) {
+  // A region's part behind the target plane (against its normal turned to agree with the face's), or beyond it.
+  auto clipped = [&](const TopoDS_Shape &region, bool behind) -> TopoDS_Shape {
+    TopoDS_Face big = BRepBuilderAPI_MakeFace(gp_Pln(origin, tn), -4 * reach, 4 * reach, -4 * reach, 4 * reach).Face();
+    const gp_Pnt inside = origin.Translated(gp_Vec(tn) * (behind ? -reach : reach));
+    BRepAlgoAPI_Common common(region, BRepPrimAPI_MakeHalfSpace(big, inside).Solid());
+    common.SetRunParallel(Standard_False);
+    common.Build();
+    if (!common.IsDone()) throw std::runtime_error("replace face: extending failed");
     GProp_GProps props;
-    BRepGProp::VolumeProperties(it.Current(), props);
-    if (gp_Vec(origin, props.CentreOfMass()).Dot(gp_Vec(tn)) < 0) {
-      builder.Add(kept, it.Current());
-      ++count;
-    }
-  }
-  if (count == 0) throw std::runtime_error("replace face: nothing left");
-  ShapeUpgrade_UnifySameDomain unifier(kept, Standard_True, Standard_True, Standard_False);
-  unifier.Build();
+    BRepGProp::VolumeProperties(common.Shape(), props);
+    return props.Mass() > 1e-18 ? common.Shape() : TopoDS_Shape();
+  };
+  const TopoDS_Shape grown = clipped(column(true), true);
+  const TopoDS_Shape cut_back = clipped(column(false), false);
   auto op = std::make_unique<Operation>();
-  // Keep the identities of faces that survive: track the fuse, the split and the merge.
-  TopTools_ListOfShape arguments = one(solid.shape);
-  arguments.Append(extension);
-  op->history = new BRepTools_History(arguments, fuse);
-  op->history->Merge(one(fuse.Shape()), splitter);
+  op->history = new BRepTools_History();
+  TopoDS_Shape current = solid.shape;
+  if (!grown.IsNull()) {
+    BRepAlgoAPI_Fuse fuse(current, grown);
+    fuse.SetRunParallel(Standard_False);
+    fuse.Build();
+    if (!fuse.IsDone()) throw std::runtime_error("replace face: extending failed");
+    TopTools_ListOfShape arguments = one(current);
+    arguments.Append(grown);
+    op->history->Merge(arguments, fuse);
+    current = fuse.Shape();
+  }
+  if (!cut_back.IsNull()) {
+    BRepAlgoAPI_Cut cut(current, cut_back);
+    cut.SetRunParallel(Standard_False);
+    cut.Build();
+    if (!cut.IsDone()) throw std::runtime_error("replace face: cutting failed");
+    TopTools_ListOfShape arguments = one(current);
+    arguments.Append(cut_back);
+    op->history->Merge(arguments, cut);
+    current = cut.Shape();
+  }
+  int count = 0;
+  for (TopExp_Explorer it(current, TopAbs_SOLID); it.More(); it.Next()) ++count;
+  if (count == 0) throw std::runtime_error("replace face: nothing left");
+  ShapeUpgrade_UnifySameDomain unifier(current, Standard_True, Standard_True, Standard_False);
+  unifier.Build();
   op->history->Merge(unifier.History());
   TopExp_Explorer first(unifier.Shape(), TopAbs_SOLID);
   op->result = count == 1 && first.More() ? first.Current() : unifier.Shape();

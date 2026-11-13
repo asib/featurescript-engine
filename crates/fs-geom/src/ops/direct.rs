@@ -634,12 +634,13 @@ pub fn replace_face(model: &mut Model, id: FeatureId, definition: &Value) -> R<V
         return Err(regen_error("DIRECT_EDIT_REPLACE_FACE_SELECT"));
     }
     let mut results = Vec::new();
-    // The faces replaced, by body: the face on the target plane takes over what they were.
-    let mut replaced: Vec<(crate::model::Tid, Entity)> = Vec::new();
+    // The faces replaced, by body: the face on the target plane takes over what they were, and its edges run as the
+    // old face's did.
+    let mut replaced: Vec<(crate::model::Tid, Entity, Vec<EdgeRun>)> = Vec::new();
     for (b, faces) in groups {
         let body = &model.bodies[b];
         if let Some(first) = body.faces.iter().find(|f| faces.iter().any(|g| g.is_same(&f.shape))) {
-            replaced.push((body.tid, first.clone()));
+            replaced.push((body.tid, first.clone(), edge_runs(model, b, &first.shape)));
         }
         let mut shape = body.shape.clone();
         let mut last = None;
@@ -656,7 +657,7 @@ pub fn replace_face(model: &mut Model, id: FeatureId, definition: &Value) -> R<V
     replace_bodies(model, &id, results);
     // The new face keeps the replaced face's info, attributes and identity, as Onshape's does (frame's mitres rely on
     // the cap faces' attributes surviving).
-    for (tid, old) in replaced {
+    for (tid, old, runs) in replaced {
         let Some(b) = model.bodies.iter().position(|body| body.tid == tid) else { continue };
         let on_target = model.bodies[b].faces.iter().position(|f| {
             f.shape.face_plane().is_ok_and(|p| {
@@ -674,8 +675,64 @@ pub fn replace_face(model: &mut Model, id: FeatureId, definition: &Value) -> R<V
             identity.extend(old.ancestry.identity.iter().copied());
             face.ancestry.identity = identity.into();
         });
+        let face = model.bodies[b].faces[index].shape.clone();
+        keep_edge_runs(model, b, &face, &runs);
     }
     Ok(Value::UNDEFINED)
+}
+
+/// How an edge of a face ran: the face next to it across the edge (its transient id), and whether Onshape's edge
+/// ran as the face's loop runs it.
+struct EdgeRun {
+    neighbour: crate::model::Tid,
+    with_loop: bool,
+}
+
+/// The neighbour of a face of body `b` across an edge, as an entity.
+fn neighbour_across<'a>(model: &'a Model, b: usize, face: &Shape, edge: &Shape) -> Option<&'a Entity> {
+    let body = &model.bodies[b];
+    let other = body.shape.ancestors(edge, ShapeKind::Face).into_iter().find(|g| !g.is_same(face))?;
+    body.faces.iter().find(|f| f.shape.is_same(&other))
+}
+
+/// How each edge of a face of body `b` runs ([`EdgeRun`]).
+fn edge_runs(model: &Model, b: usize, face: &Shape) -> Vec<EdgeRun> {
+    let body = &model.bodies[b];
+    let mut runs = Vec::new();
+    for used in face.sub_shapes(ShapeKind::Edge) {
+        let Some(k) = body.edges.iter().position(|e| e.shape.is_same(&used)) else { continue };
+        let Some(neighbour) = neighbour_across(model, b, face, &used) else { continue };
+        let onshape = super::onshape_edge(model, EntityRef { body: b, kind: EntityType::Edge, index: k });
+        let Ok(a) = used.edge_tangent(0.5, false) else { continue };
+        let Ok(o) = onshape.edge_fraction(a.origin, false).and_then(|t| onshape.edge_tangent(t, false)) else { continue };
+        runs.push(EdgeRun { neighbour: neighbour.tid, with_loop: values::dot(a.direction, o.direction) > 0.0 });
+    }
+    runs
+}
+
+/// Onshape replaces a face's surface keeping its edges, each running as it did, with the faces round it recut: so
+/// each edge of the new face runs as the old face's edge to the same neighbour did, along or against the face's loop
+/// (batch 021 c009: a frame's mitred corner, whose inner edge a gusset is offset along).
+fn keep_edge_runs(model: &mut Model, b: usize, face: &Shape, runs: &[EdgeRun]) {
+    let mut senses = Vec::new();
+    for used in face.sub_shapes(ShapeKind::Edge) {
+        let Some(neighbour) = neighbour_across(model, b, face, &used) else { continue };
+        let Some(run) =
+            runs.iter().find(|r| neighbour.tid == r.neighbour || neighbour.ancestry.identity.contains(&r.neighbour))
+        else {
+            continue;
+        };
+        let Ok(a) = used.edge_tangent(0.5, false) else { continue };
+        let d = if run.with_loop { a.direction } else { values::scale(a.direction, -1.0) };
+        senses.push((used, (a.origin, d)));
+    }
+    model.update_body(b, |body| {
+        for (used, sense) in &senses {
+            if let Some(e) = body.edges.iter_mut().find(|e| e.shape.is_same(used)) {
+                e.info = Rc::new(Info { sense: Some(*sense), ..(*e.info).clone() });
+            }
+        }
+    });
 }
 
 /// How far a cylindrical or spherical face moves along its normal to lie on a template coaxial or concentric with it,
