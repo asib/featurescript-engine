@@ -1577,7 +1577,20 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   circle (8 to 8.08) and moves both circles, leaving the whole symmetric about y = 0.05; the engine keeps both radii
   and the lines' lengths and turns the second line (no ordering of the engine's groups tried reproduces Onshape's).
   A drafted pocket's floor edges filleted: OCCT patches the two corners at one end (B-spline faces), where Onshape's
-  fillets meet without, as OCCT's do at the other end.
+  fillets meet along where they cross, as OCCT's do at the other end. Where OCCT's fillet comes out with more faces
+  than one per edge, straight edges between planes with no three meeting at a vertex are now rounded by a tool per
+  edge (the corner between the faces' feet and the ball's arc, carried along the edge and cut back by the planes at
+  its ends on the edge's side), cut from or added to the solid: Onshape's faces, edges and vertices, its area to
+  3e-5 mm².
+- **Probes of splits and sketches** (batch 150): a cylinder's side split by a rectangle projected normal to it has
+  edges running as the tool edges they came from (`skRectangle` draws all four sides rising: the arcs run round
+  and the lines up as those sides do), and the engine now runs them so. Sketches drawn a little off: a circle and a
+  line held tangent (either drawn first), a line's start held on a circle and a tilted line held tangent to one all
+  move the circle's centre and leave the line; of two circles held tangent the second moves; of two lines with ends
+  held together the second slides (keeping its length and direction). Where lines sit is now held before where
+  circles, arcs and points do in the engine's solver. Known gap: two dimensioned circles joined by lines held tangent
+  to both (c008, as batch 147's cam), where Onshape leaves the second line exactly where it was, turns the first
+  about its middle and moves both circles a little (0.05).
 - **Faces split normal to curved targets** (batch 133): a sketch projected normal to the target goes along the
   target's normal through each of its points onto the target's surface: a circle and a rectangle beside a cylinder, a
   circle above a sphere, a circle beside a cone frustum. The rectangle taller than the cylinder splits its side across
