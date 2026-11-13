@@ -1,0 +1,77 @@
+{
+  "batch": "164",
+  "title": "revolves bounded at both ends, extrudes up to curved faces in their second direction, sheet metal thickened with tangent propagation",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "revolve",
+      "description": "up to a face one way and up to a face the other",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "revolve",
+      "description": "up to a vertex one way and up to a face the other",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "revolve",
+      "description": "60 degrees one way, its start up to a point 20 degrees round the same way",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "extrude",
+      "description": "a circle 10 up, and down to a lying cylinder in its second direction",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "extrude",
+      "description": "a rectangle 10 up, and down to a curved sheet in its second direction",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "sheet-metal",
+      "description": "a flat running on into a tangent quarter turn, thickened from the flat with tangent propagation",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "sheet-metal",
+      "description": "the same thickened from the flat alone",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    }
+  ]
+}

@@ -1729,6 +1729,15 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   difference grid had seemed within 0.07). Across the middle of the gap Onshape's is near the cubic with chord-length
   tangents, and toward the side lines it dips less (96% as much a quarter of the way along): no Coons or Gordon
   blend of those tried gives that. Known gap.
+- **Revolves bounded at both ends, curved second-direction bounds, tangent propagation** (batch 164): with both
+  bounds up to something, each bound is where it's first met going forward from the profile (as batch 024 found for
+  a start bound alone), and the revolve runs forward from the start's to the end's: up to planes y = 5 and y = −5
+  either side of the profile, from 194.5° on round to 374.5°, half the ring. A start bound in the end's direction
+  (`startOppositeDirection`) behaves the same: a point 20° on with the end 60° on, the revolve runs from 20° to 60°.
+  An extrude's second direction up to a curved face or a curved sheet ends on it as an end bound does (Onshape's box
+  of the one to a cylinder stops 1.6e-3 mm short of its lowest point, its own bound on that curve). Sheet metal
+  thickened from a flat with tangent propagation takes in the tangent quarter turn as a rolled wall, the two parts
+  0.02 apart, as the engine's do once its surface extraction propagates.
 - **Which way an extruded sheet's edges run** (batch 159 c012): its profile's copy and the far edge run as the
   profile does; the side edges swept from the profile's ends run out from the profile along the extrude, where a
   solid's run back from the far end (batch 088). The engine now runs a sheet's so.
