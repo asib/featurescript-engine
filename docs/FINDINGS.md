@@ -1602,9 +1602,9 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   line held tangent (either drawn first), a line's start held on a circle and a tilted line held tangent to one all
   move the circle's centre and leave the line; of two circles held tangent the second moves; of two lines with ends
   held together the second slides (keeping its length and direction). Where lines sit is now held before where
-  circles, arcs and points do in the engine's solver. Known gap: two dimensioned circles joined by lines held tangent
-  to both (c008, as batch 147's cam), where Onshape leaves the second line exactly where it was, turns the first
-  about its middle and moves both circles a little (0.05).
+  circles, arcs and points do in the engine's solver. Two dimensioned circles joined by lines held tangent to both
+  (c008), where Onshape leaves one line exactly where it was, turns the other about its middle and moves both circles
+  a little (0.05), match since batch 155.
 - **A chamfer varying from run to run** (batch 129 c004, a cross hole's mouth chamfered): built from the fillet of
   its width, its face swapped for the surface ruled between the fillet's edges, the rulings taken from whichever edge
   OCCT listed first, which varied with memory layout (one run in ten or so, 0.54 mm² of area off Onshape's). It
@@ -1628,12 +1628,20 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   dimensioned circles stays where it was, before or after them, and each circle moves the shortest way onto it,
   along its normal (0.0514). The engine's least-norm step had divided by a rounding-sized eigenvalue of a rank-one
   Gram matrix (1e-17, above its absolute floor) and sent the circles sliding 0.24 along the line too; eigenvalues
-  under 1e-12 of the largest are now left out, and the one-line cases match. Known gap: with two lines held tangent
-  (two circles, one, with or without radius dimensions, the second line's constraints first, the lower line drawn
-  first), Onshape keeps the lower line where it was, moves the circles the shortest way onto it, and moves the other
-  line onto them: along its normal for one circle (0.1), turned about its middle for two. Batch 150's two lines with
-  their ends held together kept the lower one too. The engine keeps both lines and moves the circles to where both
-  touch them (0.22).
+  under 1e-12 of the largest are now left out, and the one-line cases match. With two lines held tangent Onshape keeps
+  one line where it was and moves the circles the shortest way onto it, then the other line onto them: along its
+  normal for one circle, turned about its middle for two (batch 155 shows which line: the one starting first).
+  Known gap: without radius dimensions (c005, batch 147's cam) Onshape keeps the first circle's radius and grows the
+  second's (8 to 8.08), sliding the other line straight up; the engine keeps both radii and turns the line.
+- **Which of two lines holds** (batch 155): Onshape keeps the line whose start comes first by x and then by y (the
+  lower of two level lines, the left of two turned a quarter turn), whatever its name, the order it was drawn or
+  constrained in, or how far off it was drawn; batch 150 c007's line through the origin is that one too. In a sketch
+  with nothing fixed the engine's solver now holds that line hardest (with something fixed, as std's tear-drop hem
+  and a mirror across a fixed axis are, lines' places still hold oldest first, batches 029, 135 c019, 149 c005); the other lines keep their lengths and give way after the circles and points,
+  turning about their middles only where sliding won't do, then sliding along their main axis and last across it
+  (a level line slides straight up, batch 154 c006; two lines' ends held together, the second slides, 150 c007).
+  Batch 150's dimensioned cam (c008) now matches. Known gap: one line drawn 0.2 further off than the other (c005,
+  c006), where Onshape moves the other along its normal as it turns it.
 - **Faces split normal to curved targets** (batch 133): a sketch projected normal to the target goes along the
   target's normal through each of its points onto the target's surface: a circle and a rectangle beside a cylinder, a
   circle above a sphere, a circle beside a cone frustum. The rectangle taller than the cylinder splits its side across

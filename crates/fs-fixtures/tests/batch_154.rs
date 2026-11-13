@@ -3,11 +3,10 @@
 
 use std::path::PathBuf;
 
-/// Cases that differ (see docs/FINDINGS.md): two lines held tangent to circles drawn a little off (c003–c007).
-/// Onshape keeps the lower line where it was, whichever was drawn or constrained first, moves the circles the
-/// shortest way to it, and moves the other line onto them (along its normal for one circle, turned about its middle
-/// for two); the engine keeps both lines and moves the circles to where both touch them.
-const KNOWN_GAPS: &[&str] = &["c003", "c004", "c005", "c006", "c007"];
+/// Cases that differ (see docs/FINDINGS.md): two circles without radius dimensions and two lines held tangent to
+/// both (c005, batch 147's cam): Onshape keeps the first circle's radius and grows the second's (8 to 8.08), sliding
+/// the other line straight up; the engine keeps both radii and turns the other line.
+const KNOWN_GAPS: &[&str] = &["c005"];
 
 #[test]
 fn batch_154_matches_onshape() {
@@ -17,6 +16,6 @@ fn batch_154_matches_onshape() {
         let unexpected: Vec<String> =
             report.problems().into_iter().filter(|p| !KNOWN_GAPS.iter().any(|case| p.starts_with(case))).collect();
         assert!(unexpected.is_empty(), "{report}");
-        assert_eq!(report.probes_matched, (3, 8), "{report}");
+        assert_eq!(report.probes_matched, (7, 8), "{report}");
     });
 }

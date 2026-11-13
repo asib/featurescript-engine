@@ -1,0 +1,77 @@
+{
+  "batch": "155",
+  "title": "probes: which of two tangent lines holds",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "sketch",
+      "description": "mirrored: the first line below, the second above",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "sketch",
+      "description": "shifted 40 up (both lines above the origin)",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "sketch",
+      "description": "shifted 40 down (both lines below the origin)",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "sketch",
+      "description": "turned a quarter turn (lines running up)",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "sketch",
+      "description": "the upper line drawn 0.2 further off than the lower",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "sketch",
+      "description": "the lower line drawn 0.2 further off than the upper",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "sketch",
+      "description": "shifted 40 right",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    }
+  ]
+}
