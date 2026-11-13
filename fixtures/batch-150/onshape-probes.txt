@@ -1,0 +1,9 @@
+probe c001 { bodies : [ { area : 2513.2741228718346 , bounds : [ -10 , -10 , 0 , 10 , 10 , 30 ] , edges : 6 , faces : 4 , name : c001.1 , type : SOLID , vertices : 4 , volume : 9424.777960769377 } ] , construction : [] , values : { edges : [ [ circle , [ 9.662349 , -2.576627 , 10 ] , [ 9.662349 , 2.576627 , 10 ] , [ 0.257663 , 0.966235 , 0 ] ] , [ circle , [ 9.662349 , -2.576627 , 20 ] , [ 9.662349 , 2.576627 , 20 ] , [ 0.257663 , 0.966235 , 0 ] ] , [ line , [ 9.662349 , -2.576627 , 10 ] , [ 9.662349 , -2.576627 , 20 ] , [ 0 , 0 , 1 ] ] , [ line , [ 9.662349 , 2.576627 , 10 ] , [ 9.662349 , 2.576627 , 20 ] , [ 0 , 0 , 1 ] ] ] } }
+probe c002 { bodies : [] , construction : [] , values : { curves : [ [ circle , 0 , 0.5 , 10 ] , [ line , -15 , 10.5 , 15 , 10.5 ] ] } }
+probe c003 { bodies : [] , construction : [] , values : { curves : [ [ circle , 0 , 0.5 , 10 ] , [ line , -15 , 10.5 , 15 , 10.5 ] ] } }
+probe c004 { bodies : [] , construction : [] , values : { curves : [ [ circle , 0.5 , 0 , 10 ] , [ line , 10.5 , 0 , 20 , 5 ] ] } }
+probe c005 { bodies : [] , construction : [] , values : { curves : [ [ circle , 0 , 0 , 10 ] , [ circle , 15 , 0 , 5 ] ] } }
+probe c006 { bodies : [] , construction : [] , values : { curves : [ [ circle , -0.008698 , 0.498325 , 10 ] , [ line , -15 , 10.238174 , 15 , 10.761826 ] ] } }
+probe c007 { bodies : [] , construction : [] , values : { curves : [ [ line , 0 , 0 , 10 , 0 ] , [ line , 10 , 0 , 14.5 , 7.7 ] ] } }
+probe c008 { bodies : [] , construction : [] , values : { curves : [ [ circle , -0.011814 , 0.050008 , 15 ] , [ circle , 30.011771 , -0.049824 , 8 ] , [ line , 3.7 , -14.486 , 31.667 , -7.879 ] , [ line , 3.722275 , 14.579088 , 31.644719 , 7.786249 ] ] } }
+batch-150 failed cases: []
