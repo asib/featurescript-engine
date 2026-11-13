@@ -1,0 +1,5 @@
+probe c001 { bodies : [ { bounds : [ 0 , 0 , 0 , 30 , 20.000000000000004 , 15 ] , edges : 5 , faces : 0 , length : 63.28318530717958 , name : c001.1 , type : WIRE , vertices : 6 } ] , construction : [] , values : { points : 4 } }
+probe c002 { bodies : [ { bounds : [ 400 , -10 , -1.2070697190749362 , 460 , 10.000437773537245 , 11.207069719074939 ] , edges : 1 , faces : 0 , length : 70.28879075184585 , name : c002.1 , type : WIRE , vertices : 2 } ] , construction : [] , values : { points : 4 } }
+probe c003 { bodies : [ { bounds : [ 800 , -1.0842021724855044e-16 , -1.0842021724855044e-16 , 820.0000000000001 , 15 , 10 ] , edges : 3 , faces : 0 , length : 37.59855270411486 , name : c003.1 , type : WIRE , vertices : 4 } ] , construction : [] , values : { points : 3 } }
+probe c004 failed ROUTING_CURVE_CSV_NOT_ENOUGH_COLUMNS
+batch-152 failed cases: [ c004 ]

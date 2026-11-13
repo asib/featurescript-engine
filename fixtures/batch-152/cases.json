@@ -1,0 +1,47 @@
+{
+  "batch": "152",
+  "title": "routing curves through points read from CSV data",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "routing-curve",
+      "description": "a polyline with 2 mm bends through four millimetre rows (0, 0, 0), (30, 0, 0), (30, 20, 0), (30, 20, 15)",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "routing-curve",
+      "description": "a spline through rows with a label column, in centimetres: (0, 0, 0), (2, 1, 0), (4, 0, 1), (6, -1, 1)",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "routing-curve",
+      "description": "a polyline through millimetre rows with the second repeated (it is read once)",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "routing-curve",
+      "description": "rows of two numbers each, too few for a point from column 0",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    }
+  ]
+}

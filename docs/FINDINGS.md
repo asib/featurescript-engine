@@ -1613,6 +1613,10 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   disc as faces, a pocket mirrored as faces, a boss up to another part with an offset, a block intersected with a
   cylinder, a cylinder's side thickened into a tube, a split with its top piece deleted and a draft carried round a
   filleted block by tangent propagation all match as built (to 1e-13).
+- **Routing curves from CSV data** (batch 152): std reads a routing curve's CSV rows into its points in its editing
+  logic, when its Process button is pressed (`routingCurveEditLogic`), each row's three columns from the start column
+  in the unit chosen, a row repeated whole read once, a row too short refused; run so and then built, a polyline with
+  bends, a spline through centimetre rows with a label column, and the rest match Onshape's.
 - **Faces split normal to curved targets** (batch 133): a sketch projected normal to the target goes along the
   target's normal through each of its points onto the target's surface: a circle and a rectangle beside a cylinder, a
   circle above a sphere, a circle beside a cone frustum. The rectangle taller than the cylinder splits its side across
