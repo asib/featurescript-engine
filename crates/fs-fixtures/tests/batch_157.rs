@@ -5,10 +5,9 @@ use std::path::PathBuf;
 
 /// Cases that differ (see docs/FINDINGS.md): fills tangent to the level sheet along its edge (c001, c002), which the
 /// engine doesn't build yet (Onshape's are its own fits: across the gap within 0.02 mm of the cubic with chord-length
-/// tangents, but varying along it and off centre by 3e-4 mm); the flat fill, tangent to the rising sheet it already
-/// continues (c003) or not (c004), facing the other way from Onshape's. The engine fails c001 and c002, which the
-/// failed cases' line shows.
-const KNOWN_GAPS: &[&str] = &["c001", "c002", "c003", "c004", "failed probe"];
+/// tangents, but varying along it and off centre by 3e-4 mm). The engine fails them, which the failed cases' line
+/// shows. The flat fill, tangent to the rising sheet it already continues (c003) or not (c004), matches.
+const KNOWN_GAPS: &[&str] = &["c001", "c002", "failed probe"];
 
 #[test]
 fn batch_157_matches_onshape() {
@@ -18,5 +17,6 @@ fn batch_157_matches_onshape() {
         let unexpected: Vec<String> =
             report.problems().into_iter().filter(|p| !KNOWN_GAPS.iter().any(|case| p.starts_with(case))).collect();
         assert!(unexpected.is_empty(), "{report}");
+        assert_eq!(report.probes_matched, (2, 5), "{report}");
     });
 }

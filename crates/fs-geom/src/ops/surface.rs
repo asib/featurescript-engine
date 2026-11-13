@@ -275,12 +275,16 @@ pub fn fill_surface(model: &mut Model, id: FeatureId, definition: &Value) -> R<V
             return Err(error(format!("@opFillSurface: {key} isn't supported yet")));
         }
     }
-    // Each edge as Onshape's runs: a flat fill faces as the loop of them runs, from the first (batch 158; a sheet's edge
-    // first, batch 157 c004).
+    // Each edge as Onshape's runs: a flat fill of sketch curves faces as the loop of them runs, from the first (batch
+    // 158; 159 c009–c011: drawn half each way round, whichever is listed first sets it).
     let mut edges = Vec::new();
+    let mut refs = Vec::new();
     for r in query::evaluate(model, field(definition, "edgesG0"))? {
         match r.kind {
-            EntityType::Edge => edges.push(super::onshape_edge(model, r)),
+            EntityType::Edge => {
+                refs.push(r);
+                edges.push(super::onshape_edge(model, r));
+            }
             EntityType::Body => edges.extend(model.body(r).edges.iter().map(|e| e.shape.clone())),
             _ => {}
         }
@@ -319,6 +323,31 @@ pub fn fill_surface(model: &mut Model, id: FeatureId, definition: &Value) -> R<V
         }
         // In the order std lists the edges: the G0 ones, then the G1 ones.
         edges = all;
+        refs.extend(tangent.iter().filter(|r| r.kind == EntityType::Edge));
+    }
+    // A flat loop with sheets' edges in it faces as if sewn to the oldest of those sheets: it runs that sheet's edge
+    // the other way from the sheet's own loop, whichever edge is listed first (batch 159 c004, c006–c008: a gap
+    // between a level sheet and a rising one faces as the level sheet, made first, whatever the order).
+    if loop_plane(&edges).is_some() {
+        let sheet_edge = refs
+            .iter()
+            .filter(|r| model.bodies[r.body].body_type == BodyType::Sheet)
+            .filter_map(|&r| {
+                let edge = model.shape(r).clone();
+                let mut runs = model.bodies[r.body]
+                    .faces
+                    .iter()
+                    .filter_map(|f| f.shape.sub_shapes(ShapeKind::Edge).into_iter().find(|e| e.is_same(&edge)));
+                match (runs.next(), runs.next()) {
+                    (Some(run), None) => Some((r.body, edge, run.reversed())),
+                    _ => None,
+                }
+            })
+            .min_by_key(|(body, _, _)| *body);
+        if let Some((_, edge, run)) = sheet_edge {
+            edges.retain(|e| !e.is_same(&edge));
+            edges.insert(0, run);
+        }
     }
     let face = match bilinear_fill(&edges).or_else(|| coons_fill(&edges)) {
         Some(face) => face,

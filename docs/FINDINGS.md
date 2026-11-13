@@ -1676,9 +1676,12 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   (`edgesG1`). Known gap.
 - **Which way flat fills face** (batch 158): a flat loop of sketch lines filled faces as the loop runs, anticlockwise
   about its normal, in the top plane, an upright one and a tilted one, drawn either way, and whatever order its edges
-  are listed in; the engine's faces so, its edges now taken as Onshape's run. Batch 157's flat fill, whose sheet edges
-  and lines run inconsistently round its loop (both sheet edges one way, both lines one way), faces up in Onshape and
-  down in the engine: which edge sets the way there isn't found (known gap).
+  are listed in; the engine's faces so, its edges now taken as Onshape's run. Batch 159: a rectangle drawn half each
+  way faces as the side listed first runs, even against three others (c009–c011). Batch 157's gap between a level
+  sheet and a rising one faces up however its edges are listed, the level sheet's, the rising one's or a line first
+  (159 c006–c008): as if sewn to the level sheet, its loop running that sheet's edge against the sheet's own loop,
+  though both sheet edges run the same way (+y) and the rising sheet's face points down. The engine now faces a flat
+  fill with sheets' edges in its loop as sewn to the oldest of those sheets, and batch 157's flat fills match.
 - **Which way an extruded sheet's edges run** (batch 159 c012): its profile's copy and the far edge run as the
   profile does; the side edges swept from the profile's ends run out from the profile along the extrude, where a
   solid's run back from the far end (batch 088). The engine now runs a sheet's so.
