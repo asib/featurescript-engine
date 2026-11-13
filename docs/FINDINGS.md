@@ -741,7 +741,11 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   1.5 shift both ends by 0.3845, half of magnitude 2's 0.7691); no rule found. From a level sheet's edge to an arc (batch 160 c006, c007), the
   curve across the middle at magnitudes 2 and 0.5 is as high as at 1 (its poles 0, 0, 4.667, 9 up), but its middle
   poles both shift along the derivative by 0.1107 times (1 − magnitude), so it leaves the sheet at 19.67 for 2, not
-  20. Row by row of poles it is linear in
+  20. Their poles (batch 161 c008, c009): the rows next to the surface's ends are the magnitude-scaled quadratic
+  plus the correction from the ends exactly, as at magnitude 1; the interior rows' middle poles both shift by a
+  further term, along x the same whether the arc rises 4 or 2 (−0.2977 at the third of seven rows, −0.0172 at the
+  middle), along y in proportion to the row's chord (−0.0351 of it). So the term comes from the sheet's edge and its
+  parametrization, not the arc; what it is isn't found. Row by row of poles it is linear in
   the magnitude: the leaving derivative is m times the magnitude-1 one plus (1 − m) times a small term of its own (at
   the third row (0.0043, 1.6778, −0.0024) from c002 and c006 alike, rows from the ends 0, 1.678, 0.438, 0.878, 0.716
   along y, oscillating as an interpolating fit's poles do), the far end's the same with the second profile's own
@@ -1691,6 +1695,11 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   guide point in its plane. The engine now lets curvature edges through where the flat fill continues their faces, as
   tangent ones, and guides that lie in the flat fill's plane; it takes std's `guideEntities` (it had read only
   `guideVertices`, which std's fill doesn't pass, so guides were ignored) and refuses other guides.
+- **Onshape's own fills** (batch 161 c001–c004): its three-sided fills and fills tangent to sheets they don't
+  continue are bicubic B-splines over a plane, their knots in metres across the loop's extent in that plane (batch
+  157's gap: ±10.0025 mm along it, ±5.59 across), refined unevenly (spacings halving toward some edges): adaptive fits.
+  A thin plate (least bending energy, positions on every edge, slopes on the tangent ones) solved over the gap comes
+  within 0.07 mm of Onshape's heights but isn't its surface. Known gap.
 - **Which way an extruded sheet's edges run** (batch 159 c012): its profile's copy and the far edge run as the
   profile does; the side edges swept from the profile's ends run out from the profile along the extrude, where a
   solid's run back from the far end (batch 088). The engine now runs a sheet's so.
