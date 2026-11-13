@@ -743,7 +743,9 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   the third row (0.0043, 1.6778, −0.0024) from c002 and c006 alike, rows from the ends 0, 1.678, 0.438, 0.878, 0.716
   along y, oscillating as an interpolating fit's poles do), the far end's the same with the second profile's own
   term; with the far end free (c002), its derivative is twice the chord less the leaving one, plus (m − 1) times the
-  chord's part along the normal. What the small term fits isn't found. Between two straight lines (batch
+  chord's part along the normal. What the small term fits isn't found: halfway along it comes to 0.770 along y,
+  20 sin²θ for the chord's angle θ off the normal there (0.769), but along the profile it wiggles (1.05 at an
+  eighth, 0.72 at a quarter) where 20 sin²θ climbs smoothly (0.15, 0.43). Between two straight lines (batch
   121) it is simple: each curve across is the cubic leaving a conditioned line with the magnitude times its
   projected chord (10 and 40 at 0.5 and 2, whatever the second line's height), along a direction given the same
   projection (onto the plane of the direction and the line), and reaching a free line along the chord itself, not
