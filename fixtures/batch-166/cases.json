@@ -1,0 +1,47 @@
+{
+  "batch": "166",
+  "title": "boundary surfaces with end conditions on profiles of more than one edge",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "boundary-surface",
+      "description": "from a level sheet's edge in two pieces, matching it, to a line 10 across and 5 up",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "boundary-surface",
+      "description": "from the edge in two pieces, matching it, to an arc rising 4 at its middle",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "boundary-surface",
+      "description": "from two sheets' edges in a row, one level and one dipping, matching both, to the line",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "boundary-surface",
+      "description": "from a level sheet's single edge, matching it, to a line in two pieces",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    }
+  ]
+}

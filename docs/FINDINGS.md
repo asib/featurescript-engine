@@ -1729,6 +1729,14 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   difference grid had seemed within 0.07). Across the middle of the gap Onshape's is near the cubic with chord-length
   tangents, and toward the side lines it dips less (96% as much a quarter of the way along): no Coons or Gordon
   blend of those tried gives that. Known gap.
+- **Boundary surfaces on profiles of several edges** (batch 166): edges in a row along one line are one line to
+  Onshape, the surface as from a single edge, both for the conditioned profile and the other (c001, c002, c004); a
+  sheet extruded from two such lines is one face too, as a region's collinear lines sweep one (the engine's had made
+  two). Along faces in different planes (a level sheet's edge then a dipping one's, c003) the surface gets a knot where
+  the planes change, and the derivative leaving the profile is a spline whose first two and last two poles are its
+  value and slope at the ends and the rest its values at their Greville points, the earlier face's at the junction
+  (there −2.5 along z, putting the curve level at the junction, the dipping face's slope beyond). On one plane that is
+  the pole-by-pole projection the engine used, so it builds every tangent condition so now.
 - **Variable fillets with radii at points** (batch 165): along the edge the radius runs through the ends' radii and
   the points' (at fractions of the edge's length along Onshape's way of it). Smooth, each stretch between two is the
   S curve 3s² − 2s³, level at both (2 to 4 halfway: 2.056 at a tenth, 2.208 at a fifth). "Straight" is level at each
