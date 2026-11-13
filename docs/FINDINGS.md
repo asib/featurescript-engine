@@ -1566,6 +1566,10 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   of tolerance; the opening fallback then rounded every convex edge its slivers ran along (the notches' corners and
   the bottom too, as the offsets happened to join them, run to run), and now gives way where a sliver runs along an
   edge not given.
+- **Everyday parts, a seventh round** (batch 146): an enclosure with rounded corners shelled and bossed, a pipe
+  elbow swept and shelled open at both ends, a flanged pipe with patterned bolt holes and a filleted joint, a lid
+  split off a filleted box, a box drafted from its bottom, a pocket mirrored as a feature, a gear-like disc of tooth
+  parts patterned and united, and a keyed, chamfered shaft all match as built (to 1e-7).
 - **Faces split normal to curved targets** (batch 133): a sketch projected normal to the target goes along the
   target's normal through each of its points onto the target's surface: a circle and a rectangle beside a cylinder, a
   circle above a sphere, a circle beside a cone frustum. The rectangle taller than the cylinder splits its side across
