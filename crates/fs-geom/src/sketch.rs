@@ -876,7 +876,7 @@ mod constraints {
     /// moving a point by one), and the order in which Onshape's solver lets them move (batch 136): the groups it
     /// holds hardest first, each entity's direction, length or radius, oldest entity first, then each entity's place,
     /// oldest first. A line's end moves when its length changes, its middle stays when it turns.
-    fn slots(entities: &[SketchEntity]) -> (Vec<Option<Slot>>, Vec<f64>, Vec<f64>, Vec<Vec<usize>>) {
+    fn slots(entities: &[SketchEntity], fixed: bool) -> (Vec<Option<Slot>>, Vec<f64>, Vec<f64>, Vec<Vec<usize>>) {
         let mut x = Vec::new();
         let mut scale = Vec::new();
         let mut out = Vec::new();
@@ -932,9 +932,55 @@ mod constraints {
             };
             out.push(slot);
         }
-        stiff.extend(line_place);
-        stiff.extend(place);
-        (out, x, scale, stiff)
+        // A sketch with something fixed holds its lines' places, oldest first, before its circles' and points' (std's
+        // tear-drop hem, batch 029; a mirror across a fixed axis, batch 135 c019).
+        if fixed {
+            stiff.extend(line_place);
+            stiff.extend(place);
+            return (out, x, scale, stiff);
+        }
+        // With nothing fixed, of the lines Onshape keeps where it was the one starting first, by x and then y (batch 155: the lower of
+        // two lines held tangent to circles, the left of two turned a quarter turn, whichever was drawn or constrained
+        // first or drawn further off; batch 150 c007's line through the origin): all of it holds hardest. The others
+        // keep their lengths, give way after the circles and points, turning (about their middles) only where sliding
+        // won't do, then sliding along their main axis, and last across it (a mostly level line moves straight up or
+        // down, batch 154 c006; two lines' ends held together, the second slides, batch 150 c007).
+        let lines: Vec<usize> =
+            out.iter().filter_map(|s| match s { Some(Slot::Line(i)) => Some(*i), _ => None }).collect();
+        let start = |i: usize| (x[i] - x[i + 4] / 2.0 * x[i + 2].cos(), x[i + 1] - x[i + 4] / 2.0 * x[i + 2].sin());
+        let anchor = lines.iter().copied().min_by(|&a, &b| {
+            let (pa, pb) = (start(a), start(b));
+            if (pa.0 - pb.0).abs() > 1e-9 { pa.0.total_cmp(&pb.0) } else { pa.1.total_cmp(&pb.1) }
+        });
+        let mut groups: Vec<Vec<usize>> = Vec::new();
+        if let Some(a) = anchor {
+            groups.push(vec![a, a + 1, a + 2, a + 3]);
+        }
+        let is_anchor = |g: &Vec<usize>| anchor.is_some_and(|a| g.contains(&a) || g.contains(&(a + 2)));
+        // (Two circles held tangent to the held line and to another: the circles move the shortest way onto the held
+        // line, the other turns about its middle onto them, batch 154 c003.)
+        let mut turns = Vec::new();
+        for g in stiff.into_iter().filter(|g| !is_anchor(g)) {
+            match lines.iter().find(|&&i| g.contains(&(i + 2))) {
+                Some(&i) => {
+                    groups.push(vec![i + 3]);
+                    turns.push(vec![i + 2]);
+                }
+                None => groups.push(g),
+            }
+        }
+        let (mut along, mut across) = (Vec::new(), Vec::new());
+        for g in line_place.into_iter().filter(|g| !is_anchor(g)) {
+            let i = g[0];
+            let level = x[i + 2].cos().abs() >= x[i + 2].sin().abs();
+            along.push(vec![if level { i } else { i + 1 }]);
+            across.push(vec![if level { i + 1 } else { i }]);
+        }
+        groups.extend(place);
+        groups.extend(turns);
+        groups.extend(along);
+        groups.extend(across);
+        (out, x, scale, groups)
     }
 
     /// A reference to part of the sketch: a whole entity, or one of its points.
@@ -1318,7 +1364,8 @@ mod constraints {
         if constraints.is_empty() {
             return Ok(());
         }
-        let (slots, x0, scale, groups) = slots(entities);
+        let fixed = constraints.iter().any(|c| field(c, "constraintType").as_str() == Some("FIX"));
+        let (slots, x0, scale, groups) = slots(entities, fixed);
         let norm = |r: &[f64]| r.iter().map(|v| v * v).sum::<f64>().sqrt();
         let mut x = x0.clone();
         let mut r = all(entities, &slots, constraints, &x, &x0);
