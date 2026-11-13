@@ -1583,7 +1583,24 @@ fn conditioned_surface(profiles: &[Shape], ends: &[Option<EndCondition>; 2], rul
         }
         Ok(scale(d, magnitude))
     };
-    let count = if straight || ends.iter().all(Option::is_some) { 4 } else { 3 };
+    // With one end free between curved profiles, each curve across is the quadratic's, raised to a cubic, plus a
+    // correction blended along the profiles from their ends: at each end of them, what the cubic reaching the free
+    // profile along the chord (as between straight ones) differs from the quadratic by (batch 159 c005: from a line
+    // matching a level sheet up to an arc whose ends are lower than its middle, 14v² − 5v³ high across the middle where
+    // the quadratic is 9v²; nothing where the curves across at the ends are the quadratic's, batch 063 c011).
+    let side = |f: f64| -> R<occt::Vec3> {
+        let (p, q) = (at(&first, f)?, at(&second, fraction(1, f))?);
+        let chord = sub(q, p);
+        Ok(match (ends[0].is_some(), ends[1].is_some()) {
+            (true, false) => scale(sub(chord, derivative(0, f, chord)?), 1.0 / 3.0),
+            (false, true) => scale(sub(derivative(1, f, chord)?, chord), 1.0 / 3.0),
+            _ => occt::Vec3::new(0.0, 0.0, 0.0),
+        })
+    };
+    let one_free = !straight && ends.iter().filter(|e| e.is_some()).count() == 1;
+    let zero = occt::Vec3::new(0.0, 0.0, 0.0);
+    let (e0, e1) = if one_free { (side(0.0)?, side(1.0)?) } else { (zero, zero) };
+    let count = 4;
     let rows = |f: f64| -> R<Vec<occt::Vec3>> {
         let (p, q) = (at(&first, f)?, at(&second, fraction(1, f))?);
         let chord = sub(q, p);
@@ -1597,8 +1614,18 @@ fn conditioned_surface(profiles: &[Shape], ends: &[Option<EndCondition>; 2], rul
                 let (d0, d1) = (derivative(0, f, chord)?, derivative(1, f, chord)?);
                 vec![p, add(p, scale(d0, 1.0 / 3.0)), sub(q, scale(d1, 1.0 / 3.0)), q]
             }
-            (true, false) => vec![p, add(p, scale(derivative(0, f, chord)?, 0.5)), q],
-            _ => vec![p, sub(q, scale(derivative(1, f, chord)?, 0.5)), q],
+            (true, false) => {
+                let d0 = derivative(0, f, chord)?;
+                let blend = add(scale(e0, 1.0 - f), scale(e1, f));
+                let middle = add(add(sub(q, scale(chord, 2.0 / 3.0)), scale(d0, 1.0 / 3.0)), blend);
+                vec![p, add(p, scale(d0, 1.0 / 3.0)), middle, q]
+            }
+            _ => {
+                let d1 = derivative(1, f, chord)?;
+                let blend = add(scale(e0, 1.0 - f), scale(e1, f));
+                let middle = add(add(add(p, scale(chord, 2.0 / 3.0)), scale(d1, -1.0 / 3.0)), blend);
+                vec![p, middle, sub(q, scale(d1, 1.0 / 3.0)), q]
+            }
         })
     };
     let curves = sampled_rows(count, rows)?;

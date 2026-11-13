@@ -1685,6 +1685,15 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
 - **Which way an extruded sheet's edges run** (batch 159 c012): its profile's copy and the far edge run as the
   profile does; the side edges swept from the profile's ends run out from the profile along the extrude, where a
   solid's run back from the far end (batch 088). The engine now runs a sheet's so.
+- **Boundary surfaces matching flat faces, and between a line and an arc** (batch 159): matching the tangency of a
+  flat face next to a profile is tangent to the face's plane, as tangent to a profile's own plane is (c001–c004, also
+  at magnitude 2 and both ends). From a level sheet's edge up to an arc whose ends are lower than its middle (c005),
+  one end free, Onshape's curve across the middle is 14v² − 5v³ high: the quadratic's 9v² plus 5v² − 5v³, the
+  cubic reaching the line through the arc's ends along the chord less the quadratic there. So its surface is the
+  quadratic's raised to a cubic plus a correction blended along the profiles from their ends, each end's what the
+  curve across there (as between straight profiles) differs from the quadratic by; where those agree, as between
+  batch 063 c011's arcs meeting at their ends, it is the quadratic, cubic across as Onshape's poles are. The engine
+  builds it so, to Onshape's arc fit (0.0015 mm²). Given as v profiles only (c013, c014), the same surfaces.
 - **Faces split normal to curved targets** (batch 133): a sketch projected normal to the target goes along the
   target's normal through each of its points onto the target's surface: a circle and a rectangle beside a cylinder, a
   circle above a sphere, a circle beside a cone frustum. The rectangle taller than the cylinder splits its side across
