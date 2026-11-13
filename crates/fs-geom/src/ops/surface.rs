@@ -1361,22 +1361,23 @@ pub fn boundary_surface(model: &mut Model, id: FeatureId, definition: &Value) ->
                         })
                         .then_some(n)
                 };
-                let normals: Vec<occt::Vec3> = shapes(model, field(info, "adjacentFaces"), EntityType::Face)?
+                let adjacent = shapes(model, field(info, "adjacentFaces"), EntityType::Face)?;
+                let normals: Vec<occt::Vec3> = adjacent
                     .iter()
                     .map(flat_normal)
                     .collect::<Option<_>>()
                     .ok_or_else(|| error("@opBoundarySurface: matching curved adjacent faces isn't supported yet"))?;
                 let Some(&normal) = normals.first() else { return Err(regen_error("BSURF_FAILED")) };
-                if normals.iter().any(|n| values::norm(values::cross(*n, normal)) > 1e-9) {
-                    return Err(error("@opBoundarySurface: matching adjacent faces in several planes isn't supported yet"));
-                }
-                ends[index] = Some(EndCondition { magnitude, tangent: true, vector: normal });
+                // Faces in several planes, each edge leaving tangent to its own (batch 166 c003).
+                let faces = adjacent.into_iter().zip(normals).collect();
+                ends[index] = Some(EndCondition { magnitude, tangent: true, vector: normal, faces });
                 continue;
             }
             ends[index] = Some(EndCondition {
                 magnitude,
                 tangent: values::opt_bool(info, "tangentToPlane")?.unwrap_or(false),
                 vector: values::vec3(field(info, "vector"), "@opBoundarySurface derivative vector")?,
+                faces: Vec::new(),
             });
         }
         let ruled = occt::loft(&u, false).map_err(|_| regen_error("BSURF_FAILED"))?.shape();
@@ -1543,11 +1544,13 @@ fn coons_surface(u: &[Shape], v: &[Shape], ruled: &Shape) -> R<Shape> {
 
 /// A boundary surface's end condition at a profile: a derivative along `vector` (normal to the profile's plane, or a
 /// direction given) or, `tangent`, in the plane square to it.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone)]
 struct EndCondition {
     magnitude: f64,
     tangent: bool,
     vector: occt::Vec3,
+    /// Matching flat faces next to the profile: each face with its plane's normal (empty otherwise).
+    faces: Vec<(Shape, occt::Vec3)>,
 }
 
 /// A profile edge as Onshape takes it into a boundary surface: a cubic B-spline over 0 to 1, running as the edge does
@@ -1747,12 +1750,33 @@ fn poled_surface(profiles: &[Shape], ends: &[Option<EndCondition>; 2], ruled: &S
     if profiles.len() != 2 || ends.iter().all(Option::is_none) || ends.iter().flatten().any(|e| !e.tangent) {
         return Ok(None);
     }
-    let single = |w: &Shape| match &w.sub_shapes(ShapeKind::Edge)[..] {
-        [e] => Some(e.clone()),
-        _ => None,
+    // A profile of several edges in a row along one line is that line (batch 166 c001, c004).
+    let joined = |w: &Shape| -> Option<(Vec<occt::Vec3>, Vec<f64>)> {
+        let edges = w.sub_shapes(ShapeKind::Edge);
+        match &edges[..] {
+            [e] => profile_spline(e),
+            [] => None,
+            _ => {
+                if edges.iter().any(|e| e.curve_type().ok() != Some(occt::CurveType::Line)) {
+                    return None;
+                }
+                let points: Vec<occt::Vec3> = edges
+                    .iter()
+                    .flat_map(|e| [0.0, 1.0].map(|t| e.edge_tangent(t, false).ok().map(|l| l.origin)))
+                    .collect::<Option<_>>()?;
+                let d = normalize(sub(points[1], points[0]))?;
+                let along = |p: occt::Vec3| dot(sub(p, points[0]), d);
+                if points.iter().any(|p| norm(sub(sub(*p, points[0]), scale(d, along(*p)))) > 1e-7) {
+                    return None;
+                }
+                let lo = points.iter().copied().min_by(|x, y| along(*x).total_cmp(&along(*y)))?;
+                let hi = points.iter().copied().max_by(|x, y| along(*x).total_cmp(&along(*y)))?;
+                let span = sub(hi, lo);
+                Some(((0..4).map(|k| add(lo, scale(span, k as f64 / 3.0))).collect(), vec![0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0]))
+            }
+        }
     };
-    let (Some(first), Some(second)) = (single(&profiles[0]), single(&profiles[1])) else { return Ok(None) };
-    let (Some(a), Some(b)) = (profile_spline(&first), profile_spline(&second)) else { return Ok(None) };
+    let (Some(a), Some(b)) = (joined(&profiles[0]), joined(&profiles[1])) else { return Ok(None) };
     // The partner runs the same way as the first profile.
     let (a0, a1) = (a.0[0], *a.0.last().expect("poles"));
     let (b0, b1) = (b.0[0], *b.0.last().expect("poles"));
@@ -1761,16 +1785,43 @@ fn poled_surface(profiles: &[Shape], ends: &[Option<EndCondition>; 2], ruled: &S
     } else {
         b
     };
-    // Each conditioned profile must lie square to its plane's normal.
+    // Each conditioned profile must lie square to its planes' normals; where its edges lie along faces in different
+    // planes, a knot where they change (batch 166 c003).
     let mut normals = [None, None];
+    let (mut a, mut b) = (a, b);
     for (index, end) in ends.iter().enumerate() {
         let Some(end) = end else { continue };
         let Some(n) = normalize(end.vector) else { return Ok(None) };
-        let poles = if index == 0 { &a.0 } else { &b.0 };
-        if poles.iter().any(|p| dot(sub(*p, poles[0]), n).abs() > 1e-7) {
+        let spline = if index == 0 { &mut a } else { &mut b };
+        let planes: Vec<occt::Vec3> = if end.faces.is_empty() { vec![n] } else { end.faces.iter().map(|f| f.1).collect() };
+        if planes.iter().any(|m| spline.0.iter().any(|p| dot(sub(*p, spline.0[0]), *m).abs() > 1e-7)) {
             return Ok(None);
         }
-        normals[index] = Some((n, end.magnitude));
+        // Where along the profile (0 to 1) each face's stretch begins, if the planes change.
+        let edges = profiles[index].sub_shapes(ShapeKind::Edge);
+        let (start, finish) = (spline.0[0], *spline.0.last().expect("poles"));
+        let length = norm(sub(finish, start));
+        let fraction = |p: occt::Vec3| if length > 0.0 { dot(sub(p, start), sub(finish, start)) / (length * length) } else { 0.0 };
+        let mut stretches: Vec<(f64, f64, occt::Vec3)> = Vec::new();
+        for e in &edges {
+            let ends_at = [0.0, 1.0].map(|t| e.edge_tangent(t, false).map(|l| fraction(l.origin)).unwrap_or(0.0));
+            // (The face the edge's middle lies on: the profile's edges are joined copies.)
+            let middle = e.edge_tangent(0.5, false).ok().and_then(|l| occt::vertex(l.origin).ok());
+            let normal = end
+                .faces
+                .iter()
+                .find(|(f, _)| middle.as_ref().is_some_and(|m| m.distance(f).is_ok_and(|d| d.distance < 1e-7)))
+                .map(|f| f.1)
+                .unwrap_or(n);
+            stretches.push((ends_at[0].min(ends_at[1]), ends_at[0].max(ends_at[1]), normal));
+        }
+        stretches.sort_by(|x, y| x.0.total_cmp(&y.0));
+        for w in stretches.windows(2) {
+            if norm(sub(w[0].2, w[1].2)) > 1e-9 && w[1].0 > 1e-9 && w[1].0 < 1.0 - 1e-9 {
+                *spline = insert_knot(&spline.0, &spline.1, w[1].0);
+            }
+        }
+        normals[index] = Some((stretches, end.magnitude));
     }
     let ((p, knots), (q, _)) = compatible(a, b);
     let count = p.len();
@@ -1779,8 +1830,45 @@ fn poled_surface(profiles: &[Shape], ends: &[Option<EndCondition>; 2], ruled: &S
     let greville = |i: usize| (knots[i + 1] + knots[i + 2] + knots[i + 3]) / 3.0;
     // The leaving derivative's poles at an end, the magnitude fitted as Onshape fits it.
     let leaving = |index: usize| -> R<Option<Vec<occt::Vec3>>> {
-        let Some((n, magnitude)) = normals[index] else { return Ok(None) };
-        let plain: Vec<occt::Vec3> = chords.iter().map(|c| sub(*c, scale(n, dot(*c, n)))).collect();
+        let Some((stretches, magnitude)) = &normals[index] else { return Ok(None) };
+        let magnitude = *magnitude;
+        // The chord less its part along the plane of the stretch holding `u` (the earlier one where two meet).
+        let normal_at = |u: f64| stretches.iter().find(|s| u <= s.1 + 1e-12).or(stretches.last()).map(|s| s.2).expect("a stretch");
+        let at = |poles: &[occt::Vec3], u: f64| {
+            let basis = basis_at(&knots, count, u);
+            poles.iter().zip(&basis).fold(occt::Vec3::new(0.0, 0.0, 0.0), |acc, (p, w)| add(acc, scale(*p, *w)))
+        };
+        let exact = |u: f64, side: f64| {
+            let c = at(&chords, u);
+            let n = normal_at(if side < 0.0 { u } else { (u + 1e-9).min(1.0) });
+            sub(c, scale(n, dot(c, n)))
+        };
+        // Its poles: the first two and last two from its value and slope at the ends, the rest through its values
+        // at their places (on one plane, the chords' poles less their parts along the normal).
+        let mut plain = vec![occt::Vec3::new(0.0, 0.0, 0.0); count];
+        let h = 1e-6;
+        let (k1, kn) = (knots[4], knots[knots.len() - 5]);
+        plain[0] = exact(0.0, 1.0);
+        plain[1] = add(plain[0], scale(sub(exact(h, 1.0), exact(0.0, 1.0)), k1 / (3.0 * h)));
+        plain[count - 1] = exact(1.0, -1.0);
+        plain[count - 2] = sub(plain[count - 1], scale(sub(exact(1.0, -1.0), exact(1.0 - h, -1.0)), (1.0 - kn) / (3.0 * h)));
+        let inner: Vec<usize> = (2..count.saturating_sub(2)).collect();
+        if !inner.is_empty() {
+            let fixed = [0, 1, count - 2, count - 1];
+            let rows: Vec<(Vec<f64>, occt::Vec3)> = inner
+                .iter()
+                .map(|&i| {
+                    let u = greville(i);
+                    let basis = basis_at(&knots, count, u);
+                    let rest = fixed.iter().fold(occt::Vec3::new(0.0, 0.0, 0.0), |acc, &j| add(acc, scale(plain[j], basis[j])));
+                    (inner.iter().map(|&j| basis[j]).collect(), sub(exact(u, -1.0), rest))
+                })
+                .collect();
+            let solved = least_squares(&rows, &[], 0.0).ok_or_else(|| regen_error("BSURF_FAILED"))?;
+            for (k, &i) in inner.iter().enumerate() {
+                plain[i] = solved[k];
+            }
+        }
         if plain.iter().zip(&chords).any(|(d, c)| norm(*d) <= 1e-6 * norm(*c).max(1e-9)) {
             return Err(regen_error("CANNOT_MAKE_BSPLINESURFACE"));
         }
