@@ -270,7 +270,7 @@ pub fn intersect_faces(model: &mut Model, id: FeatureId, definition: &Value) -> 
 }
 
 pub fn fill_surface(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
-    for key in ["edgesG1", "edgesG2", "guideVertices"] {
+    for key in ["edgesG2", "guideVertices"] {
         if !field(definition, key).is_undefined() && !query::evaluate(model, field(definition, key))?.is_empty() {
             return Err(error(format!("@opFillSurface: {key} isn't supported yet")));
         }
@@ -285,12 +285,64 @@ pub fn fill_surface(model: &mut Model, id: FeatureId, definition: &Value) -> R<V
             _ => {}
         }
     }
+    // Edges the fill is to be tangent along: where the loop is flat and the faces along them lie in its plane, the flat
+    // fill already is, and Onshape's is that plane (batch 157 c003: a gap whose far sheet rises as the gap does).
+    let tangent = if field(definition, "edgesG1").is_undefined() {
+        Vec::new()
+    } else {
+        query::evaluate(model, field(definition, "edgesG1"))?
+    };
+    if !tangent.is_empty() {
+        let mut all = edges.clone();
+        all.extend(tangent.iter().filter(|r| r.kind == EntityType::Edge).map(|&r| super::onshape_edge(model, r)));
+        let normal = loop_plane(&all);
+        let continued = tangent.iter().all(|&r| {
+            let edge = model.shape(r).clone();
+            let faces: Vec<&Shape> = model.bodies[r.body]
+                .faces
+                .iter()
+                .map(|f| &f.shape)
+                .filter(|f| f.sub_shapes(ShapeKind::Edge).iter().any(|e| e.is_same(&edge)))
+                .collect();
+            r.kind == EntityType::Edge
+                && !faces.is_empty()
+                && normal.is_some_and(|n| {
+                    faces.iter().all(|f| {
+                        // (Within 1e-5 of a radian: batch 157's rising sheet lies 4.5e-7 off the gap's plane, its
+                        // sketch plane's normal given to six places.)
+                        f.face_plane().is_ok_and(|p| values::norm(values::cross(p.normal, n)) < 1e-5)
+                    })
+                })
+        });
+        if !continued {
+            return Err(error("@opFillSurface: edgesG1 isn't supported yet"));
+        }
+        // In the order std lists the edges: the G0 ones, then the G1 ones.
+        edges = all;
+    }
     let face = match bilinear_fill(&edges).or_else(|| coons_fill(&edges)) {
         Some(face) => face,
         None => occt::fill_edges(&edges).map_err(|_| regen_error("FILL_SURFACE_FAILED"))?,
     };
     add(model, &id, face, BodyType::Sheet);
     Ok(Value::UNDEFINED)
+}
+
+/// The normal of the plane a loop of edges lies in, if it lies in one.
+fn loop_plane(edges: &[Shape]) -> Option<occt::Vec3> {
+    let points: Vec<occt::Vec3> = edges
+        .iter()
+        .flat_map(|e| (0..=8).filter_map(|k| e.edge_tangent(k as f64 / 8.0, false).ok().map(|t| t.origin)).collect::<Vec<_>>())
+        .collect();
+    let normal = (0..points.len()).find_map(|i| {
+        (i + 1..points.len()).find_map(|j| {
+            (j + 1..points.len()).find_map(|k| {
+                let n = values::cross(values::sub(points[j], points[i]), values::sub(points[k], points[i]));
+                (values::norm(n) > 1e-9).then(|| values::normalize(n)).flatten()
+            })
+        })
+    })?;
+    points.iter().all(|p| values::dot(values::sub(*p, points[0]), normal).abs() < 1e-7).then_some(normal)
 }
 
 /// Four edges round a loop that isn't flat, not all straight: the Coons patch of the four, as a boundary surface

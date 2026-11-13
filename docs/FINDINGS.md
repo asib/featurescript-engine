@@ -1660,7 +1660,9 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   circles, the other line and its turn found explains it. Known gap.
 - **Fills with tangency conditions** (batch 157): across a gap between a level sheet and one rising at 26.6° (lines
   along its sides), a fill tangent to the rising sheet only is the plane, as Onshape's plain fill is (that plane
-  already continues the sheet); Onshape faces it up (0, 0.894 up), the engine down. Tangent to both, Onshape's heights
+  already continues the sheet); Onshape faces it up (0, 0.894 up), the engine down. The engine now fills flat where a
+  fill's tangent edges lie along flat faces in the loop's plane, its edges listed as std lists them (those with no
+  tangency first), so c003 is c004 again. Tangent to both, Onshape's heights
   across the gap are within 0.02 mm of the cubic leaving each edge along its sheet with the chord's length (11.18),
   but they vary along the gap (0.509 at 5 along, 0.476 at 10, both 2.5 in), which the setup doesn't, and the middle of
   its parameters lies 3e-4 mm off centre: a surface of its own fitting. The engine doesn't build tangent fills yet
