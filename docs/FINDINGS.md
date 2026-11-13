@@ -1729,6 +1729,11 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   difference grid had seemed within 0.07). Across the middle of the gap Onshape's is near the cubic with chord-length
   tangents, and toward the side lines it dips less (96% as much a quarter of the way along): no Coons or Gordon
   blend of those tried gives that. Known gap.
+- **Face patterns of bosses and pockets together; sheets up to curved faces** (batch 167): a boss's and a pocket's
+  faces patterned together come out as the bosses added and the pockets taken away; where a boss's copy meets a
+  pocket (a quarter turn standing it over the pocket, their faces touching) Onshape fails (`PATTERN_FACE_FAILED`), as
+  the engine now does. A surface extruded from a line with its second direction up to a lying cylinder ends on the
+  cylinder, as a solid's does; the engine sweeps it from far behind and keeps the faces the profile lies on.
 - **Boundary surfaces on profiles of several edges** (batch 166): edges in a row along one line are one line to
   Onshape, the surface as from a single edge, both for the conditioned profile and the other (c001, c002, c004); a
   sheet extruded from two such lines is one face too, as a region's collinear lines sweep one (the engine's had made

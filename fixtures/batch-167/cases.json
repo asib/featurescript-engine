@@ -1,0 +1,47 @@
+{
+  "batch": "167",
+  "title": "face patterns of bosses and pockets together; surfaces extruded up to a curved face in their second direction",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "linear-pattern",
+      "description": "a boss and a pocket on a 60 × 20 × 10 block, their faces patterned three times 15 along x",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "circular-pattern",
+      "description": "a boss and a pocket on a disc (radius 25, 10 thick), their faces patterned four times round its axis",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "extrude",
+      "description": "a line across the lying cylinder extruded as a surface 10 up and down to it",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "extrude",
+      "description": "a line along the lying cylinder extruded as a surface 10 up and down to it",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    }
+  ]
+}
