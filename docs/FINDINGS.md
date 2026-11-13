@@ -1642,6 +1642,13 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   (a level line slides straight up, batch 154 c006; two lines' ends held together, the second slides, 150 c007).
   Batch 150's dimensioned cam (c008) now matches. Known gap: one line drawn 0.2 further off than the other (c005,
   c006), where Onshape moves the other along its normal as it turns it.
+- **Circles without radius dimensions settling** (batch 156): one circle between two lines and two circles under one
+  line settle as the engine's do (the circles' centres move, their radii hold). With two lines and two circles, an
+  undimensioned circle's radius gives way before the other line turns: only the first circle dimensioned, the second
+  grows (8 to 8.0799) and the other line slides straight up 0.1; only the second dimensioned, the first shrinks (15 to
+  14.9201) and the line slides down; neither, the second grows, whichever circle was drawn first. The changed
+  circle's centre lies on the lines' bisector, moved 0.1 at 30° to x: its split between moving and growing is no
+  plain least-norm one (that would move it 0.022 and grow it 0.095), nor a contact point held. Known gap.
 - **Faces split normal to curved targets** (batch 133): a sketch projected normal to the target goes along the
   target's normal through each of its points onto the target's surface: a circle and a rectangle beside a cylinder, a
   circle above a sphere, a circle beside a cone frustum. The rectangle taller than the cylinder splits its side across
