@@ -101,6 +101,21 @@ Onshape.
 | tables (`cutlistTable`, `routingCurveTable`) | match, called from a feature | 011 |
 | `holeTable`, computed properties (`computeMass`) | Onshape won't run them inside a feature (they read properties, or start their own feature), and neither does the engine: both refuse with "Execution error" as Onshape does (c009, c014). Their output outside a feature isn't checked | 011 |
 
+### Audit against std's exported features
+
+std 3112.0 exports 106 features (`export const <name> = define…Feature`). Each one with code of its own is built by
+the fixtures, directly or through the feature that calls it, and has a row above or is reached through one:
+
+- called from other features: `SMFlatOp` (an extrude in a sheet metal flat, 059, 061, 062, 070, 071, 080),
+  `SMEdgeBlendImpl` (`sheetMetalCornerBreak`, 017, 143), `sheetMetalCornerBreakAttributeBased` (a fillet or chamfer of
+  sheet metal corners, 017, 020), `sheetMetalGeometryPattern` (patterns of sheet metal parts and faces, 017, 141,
+  143), `sheetMetalTransform` (derived and mirrored sheet metal, see its row);
+- examples in std's documentation comments, not features: `fakeExtrude` (manipulator.fs), `myFeature` (context.fs),
+  `widget` (feature.fs).
+
+The list is made by `grep -ho 'export const [A-Za-z0-9_]* = define[A-Za-z]*Feature' std/*.fs` and each name checked
+for a row here and for a call in `fixtures/batch-*/cases.fs`.
+
 ## Builtins
 
 `tools/check-std.mjs` and the `missing builtins` line of a failed generator list builtins std calls that the
