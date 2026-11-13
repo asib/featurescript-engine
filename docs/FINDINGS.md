@@ -1707,7 +1707,10 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   c001, c004–c009). Known gap: uneven knots (162 c002, c003; 163 c005), where Onshape's interior fractions (0.858,
   0.855; 0.945, 0.919) aren't this fit's (0.843, 0.815; 0.916, 0.923), nor any tried with the knots, the sample points
   or the pull weighted otherwise. Normal-to-profile conditions keep the engine's sampled construction (batches 063,
-  117, loosely). A sheet extruded from a straight spline is a plane in Onshape, its edges splines still; the engine's
+  117, loosely): there Onshape's magnitude-1 derivative, pole by pole, has its first two and last two rows the exact
+  projected chord's value and slope at the ends (to 2e-6, batch 117 c001), and its interior within 5e-3 of a least-
+  squares fit of the exact projected chord at the knots pulled 0.04 toward the pole chords projected across the
+  control polygon; what exactly it is pulled toward isn't found. A sheet extruded from a straight spline is a plane in Onshape, its edges splines still; the engine's
   is now, and a flat face of any kind matched next to a profile counts as its plane (163 c007–c009).
 - **Fills meeting curvature conditions and guides as planes** (batch 161 c005, c006): batch 157's gap filled with
   curvature continuity to the rising sheet (which the plane continues) is the plane, as is a rectangle filled with a
