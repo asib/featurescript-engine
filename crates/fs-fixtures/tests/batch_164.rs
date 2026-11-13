@@ -12,8 +12,7 @@ const LOOSE: &[(&str, f64)] = &[("c004", 0.005)];
 fn batch_164_matches_onshape() {
     fs_interp::run_with_large_stack(|| {
         let batch = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/batch-164");
-        let step = batch.join("onshape.step");
-        let report = fs_fixtures::check_batch_with(&batch, Some(&step), LOOSE).unwrap();
+        let report = fs_fixtures::check_batch_with(&batch, None, LOOSE).unwrap();
         assert!(report.problems().is_empty(), "{report}");
         assert_eq!(report.probes_matched, (8, 8), "{report}");
     });
