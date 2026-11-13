@@ -1265,6 +1265,10 @@ pub fn boundary_surface(model: &mut Model, id: FeatureId, definition: &Value) ->
     let both = !u.is_empty() && !v.is_empty();
     let conditions = |key: &str| field(definition, key).as_array().map(|a| a.to_vec()).unwrap_or_default();
     let (u_conditions, v_conditions) = (conditions("uDerivativeInfo"), conditions("vDerivativeInfo"));
+    // Profiles one way only, given as v profiles: taken as u profiles, their end conditions with them, as without
+    // conditions (batch 159 c013, c014).
+    let (u, v, u_conditions, v_conditions) =
+        if u.is_empty() { (v, u, v_conditions, u_conditions) } else { (u, v, u_conditions, v_conditions) };
     if !u_conditions.is_empty() || !v_conditions.is_empty() {
         if !v_conditions.is_empty() || u_conditions.len() > 2 {
             return Err(error("@opBoundarySurface: end conditions on v profiles aren't supported yet"));

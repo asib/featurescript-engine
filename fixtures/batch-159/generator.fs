@@ -44,6 +44,12 @@ export const buildFixtureBatch159 = defineFeature(function(context is Context, i
         if (!runFixtureCase(context, id, "c012", vector(0.4, 0.4, 0) * meter,
                 function(context is Context, id is Id) { return c012(context, id); }))
             failed = append(failed, "c012");
+        if (!runFixtureCase(context, id, "c013", vector(0.8, 0.4, 0) * meter,
+                function(context is Context, id is Id) { return c013(context, id); }))
+            failed = append(failed, "c013");
+        if (!runFixtureCase(context, id, "c014", vector(1.2, 0.4, 0) * meter,
+                function(context is Context, id is Id) { return c014(context, id); }))
+            failed = append(failed, "c014");
         println("batch-159 failed cases: " ~ toString(failed));
     });
 

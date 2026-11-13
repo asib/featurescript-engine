@@ -122,6 +122,26 @@
         0.4,
         0
       ]
+    },
+    {
+      "name": "c013",
+      "kind": "boundary-surface",
+      "description": "v profiles only: from a level sheet's edge, matching its tangency, to a line 10 across and 5 up",
+      "slotMeters": [
+        0.8,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c014",
+      "kind": "boundary-surface",
+      "description": "v profiles only: from a level sheet's edge, matching its tangency, to the arc",
+      "slotMeters": [
+        1.2000000000000002,
+        0.4,
+        0
+      ]
     }
   ]
 }

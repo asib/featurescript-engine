@@ -260,3 +260,31 @@ export function c012(context is Context, id is Id)
     extrude(context, id + "b", { "bodyType" : ExtendedToolBodyType.SURFACE, "surfaceEntities" : qOwnedByBody(qBodyType(qCreatedBy(id + "bSketch", EntityType.BODY), BodyType.WIRE), EntityType.EDGE), "endBound" : BoundingType.BLIND, "depth" : 20 * millimeter });
     return { "level" : runs(context, qOwnedByBody(qBodyType(qCreatedBy(id + "a", EntityType.BODY), BodyType.SHEET), EntityType.EDGE), [vector(0, 10, 0), vector(-20, 10, 0), vector(-10, 0, 0), vector(-10, 20, 0)]), "rising" : runs(context, qOwnedByBody(qBodyType(qCreatedBy(id + "b", EntityType.BODY), BodyType.SHEET), EntityType.EDGE), [vector(10, 10, 5), vector(27.888544, 10, 13.944272), vector(18.944272, 0, 9.472136), vector(18.944272, 20, 9.472136)]) };
 }
+
+// boundary-surface: v profiles only: from a level sheet's edge, matching its tangency, to a line 10 across and 5 up
+export function c013(context is Context, id is Id)
+{
+    const aSketch = newSketchOnPlane(context, id + "aSketch", { "sketchPlane" : plane(vector(0, 0, 0) * millimeter, vector(-1, 0, 0), vector(0, 1, 0)) });
+    skLineSegment(aSketch, "l1", { "start" : vector(0, 0) * millimeter, "end" : vector(20, 0) * millimeter });
+    skSolve(aSketch);
+    extrude(context, id + "a", { "bodyType" : ExtendedToolBodyType.SURFACE, "surfaceEntities" : qOwnedByBody(qBodyType(qCreatedBy(id + "aSketch", EntityType.BODY), BodyType.WIRE), EntityType.EDGE), "endBound" : BoundingType.BLIND, "depth" : 20 * millimeter });
+    const t = newSketchOnPlane(context, id + "t", { "sketchPlane" : plane(vector(10, 0, 0) * millimeter, vector(1, 0, 0), vector(0, 1, 0)) });
+    skLineSegment(t, "l1", { "start" : vector(0, 5) * millimeter, "end" : vector(20, 5) * millimeter });
+    skSolve(t);
+    boundarySurface(context, id + "surface1", { "uProfilesArray" : [], "vProfilesArray" : [{ "vProfileEntities" : qContainsPoint(qOwnedByBody(qBodyType(qCreatedBy(id + "a", EntityType.BODY), BodyType.SHEET), EntityType.EDGE), vector(0, 10, 0) * millimeter), "vCondition" : BSurfEndDerivativeType.MATCH_TANGENT, "vMagnitude" : 1, "vReference" : qNothing(), "vDirection" : qNothing() }, { "vProfileEntities" : qOwnedByBody(qBodyType(qCreatedBy(id + "t", EntityType.BODY), BodyType.WIRE), EntityType.EDGE), "vCondition" : BSurfEndDerivativeType.DEFAULT, "vMagnitude" : 1, "vReference" : qNothing(), "vDirection" : qNothing() }] });
+    return { "faces" : surfaceProbe(context, qOwnedByBody(qBodyType(qCreatedBy(id + "surface1", EntityType.BODY), BodyType.SHEET), EntityType.FACE)) };
+}
+
+// boundary-surface: v profiles only: from a level sheet's edge, matching its tangency, to the arc
+export function c014(context is Context, id is Id)
+{
+    const aSketch = newSketchOnPlane(context, id + "aSketch", { "sketchPlane" : plane(vector(0, 0, 0) * millimeter, vector(-1, 0, 0), vector(0, 1, 0)) });
+    skLineSegment(aSketch, "l1", { "start" : vector(0, 0) * millimeter, "end" : vector(20, 0) * millimeter });
+    skSolve(aSketch);
+    extrude(context, id + "a", { "bodyType" : ExtendedToolBodyType.SURFACE, "surfaceEntities" : qOwnedByBody(qBodyType(qCreatedBy(id + "aSketch", EntityType.BODY), BodyType.WIRE), EntityType.EDGE), "endBound" : BoundingType.BLIND, "depth" : 20 * millimeter });
+    const t = newSketchOnPlane(context, id + "t", { "sketchPlane" : plane(vector(10, 0, 0) * millimeter, vector(1, 0, 0), vector(0, 1, 0)) });
+    skArc(t, "a1", { "start" : vector(0, 5) * millimeter, "mid" : vector(10, 9) * millimeter, "end" : vector(20, 5) * millimeter });
+    skSolve(t);
+    boundarySurface(context, id + "surface1", { "uProfilesArray" : [], "vProfilesArray" : [{ "vProfileEntities" : qContainsPoint(qOwnedByBody(qBodyType(qCreatedBy(id + "a", EntityType.BODY), BodyType.SHEET), EntityType.EDGE), vector(0, 10, 0) * millimeter), "vCondition" : BSurfEndDerivativeType.MATCH_TANGENT, "vMagnitude" : 1, "vReference" : qNothing(), "vDirection" : qNothing() }, { "vProfileEntities" : qOwnedByBody(qBodyType(qCreatedBy(id + "t", EntityType.BODY), BodyType.WIRE), EntityType.EDGE), "vCondition" : BSurfEndDerivativeType.DEFAULT, "vMagnitude" : 1, "vReference" : qNothing(), "vDirection" : qNothing() }] });
+    return { "faces" : surfaceProbe(context, qOwnedByBody(qBodyType(qCreatedBy(id + "surface1", EntityType.BODY), BodyType.SHEET), EntityType.FACE)) };
+}

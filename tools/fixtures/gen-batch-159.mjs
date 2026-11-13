@@ -3,7 +3,8 @@
 // both ends matching two sheets, and with a magnitude of 2. Then probes of which way a flat fill faces when its edges
 // run inconsistently round its loop (batch 157 c004 faced up where the engine faced down): batch 157's gap between a
 // level sheet and a rising one filled with its edges listed in other orders, a rectangle of lines drawn half each way
-// listed from different sides, and which way the sheets' edges run.
+// listed from different sides, and which way the sheets' edges run. Last, two of the boundary surfaces given as v
+// profiles only.
 //
 // Usage: node tools/fixtures/gen-batch-159.mjs
 //
@@ -146,6 +147,18 @@ const along = (t, y) => vec3(10 + 20 * u[0] * t, y, 5 + 20 * u[2] * t).replace(/
 batch.add('extrude', 'which way the edges of a sheet extruded from a line run: a level sheet and a rising one', [
   ...level, ...rising,
   `return { "level" : runs(context, ${sheetEdges('a')}, [vector(0, 10, 0), vector(-20, 10, 0), vector(-10, 0, 0), vector(-10, 20, 0)]), "rising" : runs(context, ${sheetEdges('b')}, [${along(0, 10)}, ${along(1, 10)}, ${along(0.5, 0)}, ${along(0.5, 20)}]) };`,
+]);
+
+// Boundary surfaces given as v profiles only, with end conditions on them: the first and last cases again.
+const vProfile = (entities, condition) =>
+  `{ "vProfileEntities" : ${entities}, "vCondition" : BSurfEndDerivativeType.${condition}, "vMagnitude" : 1, "vReference" : qNothing(), "vDirection" : qNothing() }`;
+const vSurface = (first, second) => call('boundarySurface', 'surface1', { uProfilesArray: '[]', vProfilesArray: `[${first}, ${second}]` });
+batch.add('boundary-surface', 'v profiles only: from a level sheet\'s edge, matching its tangency, to a line 10 across and 5 up', [
+  ...level, ...target, vSurface(vProfile(sheetEdge('a', [0, 10, 0]), 'MATCH_TANGENT'), vProfile(wires('t'), 'DEFAULT')), probe,
+]);
+batch.add('boundary-surface', 'v profiles only: from a level sheet\'s edge, matching its tangency, to the arc', [
+  ...level, sketch('t', planeAt([10, 0, 0], [1, 0, 0], [0, 1, 0])), arc('t', 'a1', [0, 5], [10, 9], [20, 5]), solve('t'),
+  vSurface(vProfile(sheetEdge('a', [0, 10, 0]), 'MATCH_TANGENT'), vProfile(wires('t'), 'DEFAULT')), probe,
 ]);
 
 batch.write('tools/fixtures/gen-batch-159.mjs');
