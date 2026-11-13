@@ -1245,9 +1245,13 @@ mod constraints {
             (0..k).map(|i| (0..k).map(|j| cols[i].iter().zip(&cols[j]).map(|(a, b)| a * b).sum()).collect()).collect();
         let atb: Vec<f64> = cols.iter().map(|c| c.iter().zip(b).map(|(a, b)| a * b).sum()).collect();
         let (values, vectors) = eigen(gram);
+        // Directions the columns all but miss are left out: a rank-one Gram matrix's other eigenvalue comes out of
+        // rounding a little above nothing, and dividing by it would send the step off along it (a circle held
+        // tangent to a line, sent sliding along it, batch 154 c001).
+        let top = values.iter().fold(0.0f64, |acc, v| acc.max(*v));
         let mut x = vec![0.0; k];
         for (j, &l) in values.iter().enumerate() {
-            if l <= floor || l <= 1e-300 {
+            if l <= floor || l <= 1e-12 * top || l <= 1e-300 {
                 continue;
             }
             let coefficient = (0..k).map(|i| vectors[i][j] * atb[i]).sum::<f64>() / l;
