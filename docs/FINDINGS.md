@@ -1556,6 +1556,16 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   their sketches' normals) it faces their centres, so thickening goes in towards them. Replacing a planar face
   changes only the face's own column, growing it up to the plane or cutting it back: a boss on a block's top outlasts
   the top replaced by a plane below the boss's top (the engine had cut away everything past the plane).
+- **Everyday parts, a sixth round** (batch 145): a hex nut chamfered by a revolved cone, a bolt, a spoked wheel, a
+  bottle (a loft through three circles with a neck, shelled), a ribbed L bracket, a lipped box and a notched knob
+  match as built. A hinge leaf's knuckle patterned as a feature fails in Onshape too (`PATTERN_SWITCH_TO_PER_INSTANCE`):
+  the knuckle's end and the plate's merge into one face the knuckle made. A face pattern of a notch cut down a
+  cylinder's side, whose open boundary isn't planar, is the region between the body and the body healed of the
+  notch. OCCT won't offset a loft's sides through three profiles built as Hermite spans (taken for C0) until their
+  knots come down to multiplicity two (they're C1). OCCT's fillet of the knob's top edges is right but 1.3e-5 out
+  of tolerance; the opening fallback then rounded every convex edge its slivers ran along (the notches' corners and
+  the bottom too, as the offsets happened to join them, run to run), and now gives way where a sliver runs along an
+  edge not given.
 - **Faces split normal to curved targets** (batch 133): a sketch projected normal to the target goes along the
   target's normal through each of its points onto the target's surface: a circle and a rectangle beside a cylinder, a
   circle above a sphere, a circle beside a cone frustum. The rectangle taller than the cylinder splits its side across
