@@ -1,0 +1,57 @@
+{
+  "batch": "159",
+  "title": "boundary surfaces matching the tangency of flat faces next to their profiles",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "boundary-surface",
+      "description": "from a level sheet's edge, matching its tangency, to a line 10 across and 5 up",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "boundary-surface",
+      "description": "from a level sheet's edge, matching its tangency with magnitude 2, to the line",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "boundary-surface",
+      "description": "from a level sheet's edge to a rising sheet's edge, matching both",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "boundary-surface",
+      "description": "from the line to a rising sheet's edge, matching its tangency",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "boundary-surface",
+      "description": "from a level sheet's edge, matching its tangency, to an arc over x = 10 rising 4 at its middle",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    }
+  ]
+}
