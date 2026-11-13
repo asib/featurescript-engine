@@ -1656,6 +1656,11 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   but they vary along the gap (0.509 at 5 along, 0.476 at 10, both 2.5 in), which the setup doesn't, and the middle of
   its parameters lies 3e-4 mm off centre: a surface of its own fitting. The engine doesn't build tangent fills yet
   (`edgesG1`). Known gap.
+- **Which way flat fills face** (batch 158): a flat loop of sketch lines filled faces as the loop runs, anticlockwise
+  about its normal, in the top plane, an upright one and a tilted one, drawn either way, and whatever order its edges
+  are listed in; the engine's faces so, its edges now taken as Onshape's run. Batch 157's flat fill, whose sheet edges
+  and lines run inconsistently round its loop (both sheet edges one way, both lines one way), faces up in Onshape and
+  down in the engine: which edge sets the way there isn't found (known gap).
 - **Faces split normal to curved targets** (batch 133): a sketch projected normal to the target goes along the
   target's normal through each of its points onto the target's surface: a circle and a rectangle beside a cylinder, a
   circle above a sphere, a circle beside a cone frustum. The rectangle taller than the cylinder splits its side across
