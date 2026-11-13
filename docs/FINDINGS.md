@@ -738,7 +738,10 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   (`BSURF_INCONSISTENT_CONDITIONS_ERROR`, c005). Magnitudes other than 1 aren't the chord's parts scaled: where
   the chord lies along the normal the derivative is the magnitude times it, but elsewhere it falls short (magnitude
   2: 39.2309 where twice the chord's part is 40) and the other end moves to make up for it (c002, c006: 0.5 and
-  1.5 shift both ends by 0.3845, half of magnitude 2's 0.7691); no rule found. Row by row of poles it is linear in
+  1.5 shift both ends by 0.3845, half of magnitude 2's 0.7691); no rule found. From a level sheet's edge to an arc (batch 160 c006, c007), the
+  curve across the middle at magnitudes 2 and 0.5 is as high as at 1 (its poles 0, 0, 4.667, 9 up), but its middle
+  poles both shift along the derivative by 0.1107 times (1 − magnitude), so it leaves the sheet at 19.67 for 2, not
+  20. Row by row of poles it is linear in
   the magnitude: the leaving derivative is m times the magnitude-1 one plus (1 − m) times a small term of its own (at
   the third row (0.0043, 1.6778, −0.0024) from c002 and c006 alike, rows from the ends 0, 1.678, 0.438, 0.878, 0.716
   along y, oscillating as an interpolating fit's poles do), the far end's the same with the second profile's own
