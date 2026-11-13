@@ -171,11 +171,19 @@ pub fn pattern(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
         }
         let (mut pockets, mut bosses) = (Vec::new(), Vec::new());
         for faces in &components {
-            let tool = occt::face_feature_solid(faces).map_err(|_| regen_error("PATTERN_FACE_FAILED"))?;
-            // Just outside the first face is inside the tool only for a pocket's void.
-            let plane = faces[0].face_tangent_plane(0.5, 0.5).map_err(occt_error)?;
-            let pocket =
-                tool.contains_point(values::add(plane.origin, values::scale(plane.normal, 1e-6))).map_err(occt_error)?;
+            let (tool, pocket) = match occt::face_feature_solid(faces) {
+                Ok(tool) => {
+                    // Just outside the first face is inside the tool only for a pocket's void.
+                    let plane = faces[0].face_tangent_plane(0.5, 0.5).map_err(occt_error)?;
+                    let outside = values::add(plane.origin, values::scale(plane.normal, 1e-6));
+                    let pocket = tool.contains_point(outside).map_err(occt_error)?;
+                    (tool, pocket)
+                }
+                // Faces whose open boundary isn't planar (a notch cut down a cylinder's side, batch 145 c008): the
+                // region between the body and the body healed of them, as Onshape's neighbouring faces close it.
+                Err(_) => healed_feature_solid(&model.bodies[b].shape, faces)
+                    .map_err(|_| regen_error("PATTERN_FACE_FAILED"))?,
+            };
             for t in transforms.iter() {
                 let moved = occt::transform(&tool, &transform(t)?).map_err(occt_error)?.shape();
                 if pocket { pockets.push(moved) } else { bosses.push(moved) }
@@ -298,4 +306,14 @@ pub fn booleaned_pattern(model: &mut Model, id: FeatureId, definition: &Value) -
         .map_err(|_| regen_error("BOOLEAN_INVALID"))?;
     replace_bodies(model, &id, vec![(target, op)]);
     Ok(Value::UNDEFINED)
+}
+
+/// The material of a boss, or the void of a pocket, that faces of a solid make, with whether it's a pocket: what
+/// lies between the solid and the solid with the faces deleted (its neighbouring faces grown on to close the gap).
+fn healed_feature_solid(solid: &occt::Shape, faces: &[occt::Shape]) -> occt::Result<(occt::Shape, bool)> {
+    let healed = occt::delete_faces(solid, faces)?.shape();
+    let pocket = healed.volume()? > solid.volume()?;
+    let (a, b) = if pocket { (&healed, solid) } else { (solid, &healed) };
+    let region = occt::boolean(occt::BooleanKind::Subtraction, std::slice::from_ref(a), std::slice::from_ref(b), true)?;
+    Ok((region.shape(), pocket))
 }
