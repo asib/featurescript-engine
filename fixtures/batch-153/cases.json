@@ -1,0 +1,47 @@
+{
+  "batch": "153",
+  "title": "fills of non-planar loops: a pillow, a saddle of arcs and lines, a twisted loop, a triangle of splines",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "fill",
+      "description": "a pillow: arcs rising 5 over each side of a 30 × 20 rectangle",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "fill",
+      "description": "a saddle: an arc rising 5 along y = 0, an arc dipping 5 along y = 20, lines along x = 0 and x = 30",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "fill",
+      "description": "a twisted loop: corners at heights 0, 6, 0, 6 round a 30 × 20 rectangle, arcs along y = 0 and y = 20, lines along the ends",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "fill",
+      "description": "a triangle of fit splines through (0, 0, 0), (30, 0, 0), (15, 25, 0), each bulging 4 up at its middle",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    }
+  ]
+}

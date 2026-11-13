@@ -1617,6 +1617,13 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   logic, when its Process button is pressed (`routingCurveEditLogic`), each row's three columns from the start column
   in the unit chosen, a row repeated whole read once, a row too short refused; run so and then built, a polyline with
   bends, a spline through centimetre rows with a label column, and the rest match Onshape's.
+- **Fills of non-planar loops** (batch 153): Onshape fills a loop of four edges with the bilinearly blended Coons
+  patch of the four, each arc taken evenly by angle: arcs rising 5 over a rectangle's sides meet 10 up in the middle
+  (734.18900 mm² by hand, Onshape's 734.18917), an arc up and one down with lines between give 653.9672 (653.9666);
+  it faces as the bilinear patch between the corners (u back along the first edge from the second, v along the
+  second). The engine fills so now, the patch from its fits of the edges (0.0033 mm² off for the arcs); it had used
+  OCCT's filling wherever the corners lay in a plane. A three-sided loop is filled by a rule not found: no Coons
+  patch with a side collapsed to a corner (405 mm² to Onshape's 389.91); the engine's is OCCT's (393.17).
 - **Faces split normal to curved targets** (batch 133): a sketch projected normal to the target goes along the
   target's normal through each of its points onto the target's surface: a circle and a rectangle beside a cylinder, a
   circle above a sphere, a circle beside a cone frustum. The rectangle taller than the cylinder splits its side across
