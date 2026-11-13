@@ -1729,9 +1729,9 @@ fn compatible(
 /// A boundary surface between two profiles, conditioned tangent to planes, built as Onshape builds it, pole by pole
 /// on the knots across its profiles (batches 161–163): each conditioned profile leaves along its chord to the other,
 /// the part along the plane's normal taken out, pole by pole; at a magnitude other than 1 the leaving derivative's
-/// poles are a least-squares fit at every knot to the magnitude times the magnitude-1 derivative, pulled toward the
-/// magnitude-1 poles with weight 0.04, the first two and last two the magnitude times them (to 1e-6 of Onshape's,
-/// batch 163); a free profile is reached as the quadratic's, raised to a cubic, plus at each pole the correction
+/// interior poles are a least-squares fit, at their own places along the profiles (Greville abscissae), to the
+/// magnitude times the magnitude-1 derivative, pulled toward the magnitude-1 poles with weight 0.04, the first two and
+/// last two the magnitude times them (to 1e-6 of Onshape's, batches 162, 163); a free profile is reached as the quadratic's, raised to a cubic, plus at each pole the correction
 /// blended from the profiles' ends (batch 159 c005). `None` where it doesn't apply (other conditions or curves).
 fn poled_surface(profiles: &[Shape], ends: &[Option<EndCondition>; 2], ruled: &Shape) -> R<Option<Shape>> {
     use crate::values::{add, dot, norm, normalize, scale, sub};
@@ -1766,16 +1766,9 @@ fn poled_surface(profiles: &[Shape], ends: &[Option<EndCondition>; 2], ruled: &S
     let ((p, knots), (q, _)) = compatible(a, b);
     let count = p.len();
     let chords: Vec<occt::Vec3> = p.iter().zip(&q).map(|(a, b)| sub(*b, *a)).collect();
+    // Each pole's place along the profiles (its Greville abscissa).
+    let greville = |i: usize| (knots[i + 1] + knots[i + 2] + knots[i + 3]) / 3.0;
     // The leaving derivative's poles at an end, the magnitude fitted as Onshape fits it.
-    let distinct: Vec<f64> = {
-        let mut k: Vec<f64> = Vec::new();
-        for &u in &knots {
-            if k.last().is_none_or(|l| (u - l).abs() > 1e-12) {
-                k.push(u);
-            }
-        }
-        k
-    };
     let leaving = |index: usize| -> R<Option<Vec<occt::Vec3>>> {
         let Some((n, magnitude)) = normals[index] else { return Ok(None) };
         let plain: Vec<occt::Vec3> = chords.iter().map(|c| sub(*c, scale(n, dot(*c, n)))).collect();
@@ -1786,9 +1779,12 @@ fn poled_surface(profiles: &[Shape], ends: &[Option<EndCondition>; 2], ruled: &S
         let free: Vec<usize> = (2..count.saturating_sub(2)).collect();
         if (magnitude - 1.0).abs() > 1e-12 && !free.is_empty() {
             let fixed: Vec<usize> = (0..count).filter(|i| !free.contains(i)).collect();
-            let rows: Vec<(Vec<f64>, occt::Vec3)> = distinct
+            // Sampled at the fitted poles' places (on even knots, the interior knots; batch 163 c005, 162 c002,
+            // c003 on uneven ones).
+            let rows: Vec<(Vec<f64>, occt::Vec3)> = free
                 .iter()
-                .map(|&u| {
+                .map(|&i| greville(i))
+                .map(|u| {
                     let basis = basis_at(&knots, count, u);
                     let target = (0..count).fold(occt::Vec3::new(0.0, 0.0, 0.0), |acc, i| add(acc, scale(plain[i], basis[i] * magnitude)));
                     let rest = fixed.iter().fold(occt::Vec3::new(0.0, 0.0, 0.0), |acc, &i| add(acc, scale(out[i], basis[i])));
@@ -1804,8 +1800,6 @@ fn poled_surface(profiles: &[Shape], ends: &[Option<EndCondition>; 2], ruled: &S
         Ok(Some(out))
     };
     let (d0, d1) = (leaving(0)?, leaving(1)?);
-    // Each pole's place along the profiles (its Greville abscissa), for the correction blended from the ends.
-    let greville = |i: usize| (knots[i + 1] + knots[i + 2] + knots[i + 3]) / 3.0;
     let last = count - 1;
     let mut poles = Vec::with_capacity(count * 4);
     for i in 0..count {

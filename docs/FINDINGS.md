@@ -1704,9 +1704,10 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   even spans over even angles (four for batch 159's 87°), a least-squares fit with its ends and end derivatives exact
   (to 9e-6 of Onshape's poles). The engine now builds boundary surfaces conditioned tangent to planes so, between
   lines, arcs and cubic splines, and batches 159 and 160 match exactly (163 c001–c004, c006–c009; 161 c007–c009; 162
-  c001, c004–c009). Known gap: uneven knots (162 c002, c003; 163 c005), where Onshape's interior fractions (0.858,
-  0.855; 0.945, 0.919) aren't this fit's (0.843, 0.815; 0.916, 0.923), nor any tried with the knots, the sample points
-  or the pull weighted otherwise. Normal-to-profile conditions keep the engine's sampled construction (batches 063,
+  c001, c004–c009). On uneven knots (162 c002, c003; 163 c005) the fit is sampled not at the knots but at the fitted
+  poles' Greville abscissae (the same points on even knots): with one free pole the fraction is S/(S + 0.04), S the
+  square of its basis function there, which gives 0.858215 and 0.854636 as Onshape's; every case of 162 and 163 now
+  matches. Normal-to-profile conditions keep the engine's sampled construction (batches 063,
   117, loosely): there Onshape's magnitude-1 derivative, pole by pole, has its first two and last two rows the exact
   projected chord's value and slope at the ends (to 2e-6, batch 117 c001), and its interior within 5e-3 of a least-
   squares fit of the exact projected chord at the knots pulled 0.04 toward the pole chords projected across the
