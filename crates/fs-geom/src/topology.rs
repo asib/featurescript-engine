@@ -69,6 +69,21 @@ pub fn adjacent(model: &Model, seeds: &[EntityRef], via: EntityType, kind: Optio
 /// An edge's end vertices, its start first, as Onshape's edge runs (`Info::sense`, else as its shape runs).
 pub fn end_vertices(model: &Model, r: EntityRef) -> Vec<occt::Shape> {
     let edge = crate::ops::onshape_edge(model, r);
+    // An edge OCCT split at a seam ends where its last piece does: the body's vertices at the whole edge's ends (an
+    // arc a split left across a cylinder's seam, which a frame chains to the lines at its ends, batch 138 c005).
+    let whole = crate::ops::whole_edge(model, r);
+    if !whole.is_same(&edge)
+        && let (Ok(a), Ok(b)) = (whole.edge_tangent(0.0, false), whole.edge_tangent(1.0, false))
+    {
+        let at = |p: occt::Vec3| {
+            model.bodies[r.body].vertices.iter().map(|v| &v.shape).find(|v| {
+                v.vertex_point().is_ok_and(|q| crate::values::norm(crate::values::sub(q, p)) < 1e-7)
+            })
+        };
+        if let (Some(first), Some(last)) = (at(a.origin), at(b.origin)) {
+            return vec![first.clone(), last.clone()];
+        }
+    }
     let mut ends = edge.edge_end_vertices().unwrap_or_default();
     if let (Ok(start), [first, last]) = (edge.edge_tangent(0.0, false), &ends[..]) {
         let gap = |v: &occt::Shape| {
