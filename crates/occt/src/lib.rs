@@ -297,6 +297,13 @@ mod ffi {
             r1: &[f64],
             smooth: bool,
         ) -> Result<UniquePtr<Operation>>;
+        fn sampled_fillet_op(
+            solid: &Shape,
+            edges: &ShapeList,
+            p0: &[Vec3],
+            radii: &[f64],
+            count: usize,
+        ) -> Result<UniquePtr<Operation>>;
         fn shell_op(solid: &Shape, faces: &ShapeList, thickness: f64) -> Result<UniquePtr<Operation>>;
         fn offset_shape(s: &Shape, distance: f64) -> Result<UniquePtr<Shape>>;
         fn draft_angles_op(
@@ -1282,6 +1289,12 @@ pub fn variable_fillet(
     smooth: bool,
 ) -> Result<Operation> {
     Ok(Operation(ffi::variable_fillet_op(&solid.0, &to_list(edges), p0, r0, r1, smooth)?))
+}
+
+/// Rounds edges with radii sampled along each: edge i's `count` radii at even relative parameters from its end
+/// nearest `p0[i]` to the other.
+pub fn sampled_fillet(solid: &Shape, edges: &[Shape], p0: &[Vec3], radii: &[f64], count: usize) -> Result<Operation> {
+    Ok(Operation(ffi::sampled_fillet_op(&solid.0, &to_list(edges), p0, radii, count)?))
 }
 
 pub fn fillet(solid: &Shape, edges: &[Shape], radius: f64) -> Result<Operation> {

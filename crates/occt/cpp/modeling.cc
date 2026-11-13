@@ -662,6 +662,27 @@ std::unique_ptr<Operation> variable_fillet_op(const Shape &solid, const ShapeLis
   return finish(one(solid.shape), maker, "variable fillet");
 }
 
+// Rounds edges with radii sampled along each: edge i's `count` radii `radii[i * count ..]` at even relative
+// parameters from its end nearest `p0[i]` to the other, which OCCT interpolates.
+std::unique_ptr<Operation> sampled_fillet_op(const Shape &solid, const ShapeList &edges, rust::Slice<const Vec3> p0,
+                                             rust::Slice<const double> radii, size_t count) {
+  BRepFilletAPI_MakeFillet maker(solid.shape);
+  for (size_t i = 0; i < edges.shapes.size(); ++i) {
+    const TopoDS_Edge &edge = TopoDS::Edge(edges.shapes[i]);
+    TopoDS_Vertex first = TopExp::FirstVertex(edge, Standard_True);
+    bool from_first = BRep_Tool::Pnt(first).Distance(pnt(p0[i])) < 1e-9;
+    TColgp_Array1OfPnt2d law(1, (int)count);
+    for (size_t k = 0; k < count; ++k) {
+      double t = double(k) / (count - 1);
+      double r = radii[i * count + (from_first ? k : count - 1 - k)];
+      law.SetValue((int)k + 1, gp_Pnt2d(t, r));
+    }
+    maker.Add(law, edge);
+  }
+  maker.Build();
+  return finish(one(solid.shape), maker, "variable fillet");
+}
+
 // Chamfers edges: kind 0 equal distances `d1`; kind 1 distances `d1` on `faces[i]` and `d2` on the other face;
 // kind 2 distance `d1` on `faces[i]` and angle `d2`. `faces` has a face next to each edge (unused for kind 0).
 // An equal chamfer as Onshape makes one along an intersection curve (its "offset" method): its edges where a ball

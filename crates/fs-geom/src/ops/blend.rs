@@ -1895,7 +1895,13 @@ fn conic_edge(p0: occt::Vec3, p1: occt::Vec3, p2: occt::Vec3, w: f64) -> R<Shape
 /// radius elsewhere, and goes from one to the other smoothly (level at both ends) or linearly.
 fn variable_fillet(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
     if field(definition, "pointOnEdgeSettings").as_array().is_some_and(|a| !a.is_empty()) {
-        return Err(error("@opFillet: radii at points on edges aren't supported yet"));
+        // Exactly, as a variable section fillet, along straight edges between planes; otherwise from the law sampled.
+        let before = model.clone();
+        match variable_section_fillet(model, id.clone(), definition, Section::Circular) {
+            Ok(v) => return Ok(v),
+            Err(_) => *model = before,
+        }
+        return pointed_fillet(model, id, definition);
     }
     let radius = values::length(field(definition, "radius"), "opFillet radius")?;
     let smooth = values::opt_bool(definition, "smoothTransition")?.unwrap_or(false);
@@ -1938,6 +1944,87 @@ fn variable_fillet(model: &mut Model, id: FeatureId, definition: &Value) -> R<Va
     Ok(Value::UNDEFINED)
 }
 
+/// A variable fillet with radii at points along its edges too (batch 165): along each edge the radius goes through
+/// its ends' radii and its points' (at fractions of its length along Onshape's way of it), smoothly: each stretch
+/// between two the S curve 3s² − 2s³, level at both; or "straight": level at each point, bending nowhere at the
+/// edge's ends (from an end 1.5s − 0.5s³, to an end 1.5s² − 0.5s³, between two points the S curve; with no points
+/// a straight line, as without).
+fn pointed_fillet(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
+    let radius = values::length(field(definition, "radius"), "opFillet radius")?;
+    let smooth = values::opt_bool(definition, "smoothTransition")?.unwrap_or(false);
+    let mut at_vertex: Vec<(occt::Vec3, f64)> = Vec::new();
+    for setting in field(definition, "vertexSettings").as_array().map(|a| a.to_vec()).unwrap_or_default() {
+        let r = values::length(field(&setting, "vertexRadius"), "opFillet vertexRadius")?;
+        for v in query::evaluate(model, field(&setting, "vertex"))? {
+            if let Ok(p) = model.shape(v).vertex_point() {
+                at_vertex.push((p, r));
+            }
+        }
+    }
+    let radius_at = |p: occt::Vec3| {
+        at_vertex.iter().find(|(q, _)| values::norm(values::sub(*q, p)) < 1e-9).map(|(_, r)| *r).unwrap_or(radius)
+    };
+    // Each point: its edge as Onshape runs it, the fraction along that, and the radius.
+    let mut points: Vec<(Shape, f64, f64)> = Vec::new();
+    for setting in field(definition, "pointOnEdgeSettings").as_array().map(|a| a.to_vec()).unwrap_or_default() {
+        let t = field(&setting, "edgeParameter").as_number().ok_or_else(|| error("@opFillet: edgeParameter must be a number"))?;
+        let r = values::length(field(&setting, "pointOnEdgeRadius"), "opFillet pointOnEdgeRadius")?;
+        for e in query::evaluate(model, field(&setting, "edge"))? {
+            if e.kind == EntityType::Edge {
+                points.push((super::onshape_edge(model, e), t, r));
+            }
+        }
+    }
+    const COUNT: usize = 129;
+    let law = |marks: &[(f64, f64)], t: f64| -> f64 {
+        let k = marks.windows(2).position(|w| t <= w[1].0).unwrap_or(marks.len() - 2);
+        let ((t0, r0), (t1, r1)) = (marks[k], marks[k + 1]);
+        let s = if t1 > t0 { ((t - t0) / (t1 - t0)).clamp(0.0, 1.0) } else { 1.0 };
+        let (first, last) = (k == 0, k + 2 == marks.len());
+        let f = if smooth || (!first && !last) {
+            s * s * (3.0 - 2.0 * s)
+        } else if first && last {
+            s
+        } else if first {
+            1.5 * s - 0.5 * s * s * s
+        } else {
+            1.5 * s * s - 0.5 * s * s * s
+        };
+        r0 + (r1 - r0) * f
+    };
+    let groups = blend_edges(model, definition)?;
+    if groups.is_empty() {
+        return Err(regen_error("FILLET_SELECT_EDGES"));
+    }
+    let mut results = Vec::new();
+    for (b, edges) in groups {
+        let (mut p0, mut radii) = (Vec::new(), Vec::new());
+        for edge in &edges {
+            let ends = edge.edge_end_vertices().unwrap_or_default();
+            let ends: Vec<occt::Vec3> = ends.iter().filter_map(|v| v.vertex_point().ok()).collect();
+            let (a, z) = match ends.as_slice() {
+                [a, z, ..] => (*a, *z),
+                [a] => (*a, *a),
+                [] => return Err(regen_error("FILLET_FAILED")),
+            };
+            let mut marks = vec![(0.0, radius_at(a)), (1.0, radius_at(z))];
+            for (shape, t, r) in points.iter().filter(|(s, _, _)| s.is_same(edge)) {
+                // Fractions along Onshape's way of the edge, turned to run from `a`.
+                let starts_at_a = shape.edge_tangent(0.0, false).is_ok_and(|s| values::norm(values::sub(s.origin, a)) < 1e-7);
+                marks.push((if starts_at_a { *t } else { 1.0 - t }, *r));
+            }
+            marks.sort_by(|x, y| x.0.total_cmp(&y.0));
+            p0.push(a);
+            radii.extend((0..COUNT).map(|k| law(&marks, k as f64 / (COUNT - 1) as f64)));
+        }
+        let op = occt::sampled_fillet(&model.bodies[b].shape, &edges, &p0, &radii, COUNT)
+            .map_err(|_| regen_error("FILLET_FAILED"))?;
+        results.push((b, op));
+    }
+    replace_bodies(model, &id, results);
+    Ok(Value::UNDEFINED)
+}
+
 /// A variable conic, curvature or asymmetric fillet of a straight edge between two planes (batches 072 c009, 073
 /// c006–c009): the radii run from one end's to the other's, smoothly (3s² − 2s³) or straight, and each section is
 /// the conic (or curvature section, or for asymmetric circular radii the conic of weight sin(θ/2)) between the
@@ -1948,9 +2035,6 @@ fn variable_fillet(model: &mut Model, id: FeatureId, definition: &Value) -> R<Va
 fn variable_section_fillet(model: &mut Model, id: FeatureId, definition: &Value, section: Section) -> R<Value> {
     use crate::values::{add, cross, dot, norm, normalize, scale, sub};
     let failed = || regen_error("FILLET_FAILED");
-    if field(definition, "pointOnEdgeSettings").as_array().is_some_and(|a| !a.is_empty()) {
-        return Err(error("@opFillet: radii at points on edges aren't supported yet"));
-    }
     match section {
         Section::Conic(v) | Section::Curvature(v) if !(v > 0.0 && v < 1.0) => return Err(failed()),
         _ => {}
@@ -1983,6 +2067,63 @@ fn variable_section_fillet(model: &mut Model, id: FeatureId, definition: &Value,
         if flip { (o, r) } else { (r, o) }
     };
     let law = |a: f64, b: f64| if smooth { [a, a, b, b] } else { [a, a + (b - a) / 3.0, a + 2.0 * (b - a) / 3.0, b] };
+    // Radii at points along the edges (batch 165): each point's edge as Onshape runs it, its fraction along that, and
+    // its radii.
+    let mut points: Vec<(Shape, f64, f64, f64)> = Vec::new();
+    for setting in field(definition, "pointOnEdgeSettings").as_array().map(|a| a.to_vec()).unwrap_or_default() {
+        let t = field(&setting, "edgeParameter").as_number().ok_or_else(|| error("@opFillet: edgeParameter must be a number"))?;
+        let r = values::length(field(&setting, "pointOnEdgeRadius"), "opFillet pointOnEdgeRadius")?;
+        let o = if asymmetric {
+            values::length(field(&setting, "pointOnEdgeOtherRadius"), "opFillet pointOnEdgeOtherRadius").unwrap_or(r)
+        } else {
+            r
+        };
+        let (r, o) = if field(&setting, "pointOnEdgeFlipAsymmetric").as_bool() == Some(true) { (o, r) } else { (r, o) };
+        let (r, o) = if flip { (o, r) } else { (r, o) };
+        for e in query::evaluate(model, field(&setting, "edge"))? {
+            if e.kind == EntityType::Edge {
+                points.push((super::onshape_edge(model, e), t, r, o));
+            }
+        }
+    }
+    // The radii along an edge from `a` to `z` as Bézier ordinates span by span, and the spans' ends: through its ends'
+    // radii and its points', smoothly (each span the S curve) or "straight" (level at the points, bending nowhere at
+    // the ends: from an end 1.5s − 0.5s³, to one 1.5s² − 0.5s³, between points the S curve; alone, a line).
+    let laws = |edge: &Shape, a: occt::Vec3, z: occt::Vec3| -> (Vec<f64>, Vec<f64>, Vec<f64>) {
+        let ((ra, oa), (rz, oz)) = (radii_at(a), radii_at(z));
+        let mut marks = vec![(0.0, ra, oa), (1.0, rz, oz)];
+        for (shape, t, r, o) in points.iter().filter(|(s, ..)| s.is_same(edge)) {
+            let starts_at_a = shape.edge_tangent(0.0, false).is_ok_and(|s| norm(sub(s.origin, a)) < 1e-7);
+            marks.push((if starts_at_a { *t } else { 1.0 - t }, *r, *o));
+        }
+        marks.sort_by(|x, y| x.0.total_cmp(&y.0));
+        let spans = marks.len() - 1;
+        let shape = |k: usize| -> [f64; 4] {
+            let (first, last) = (k == 0, k + 1 == spans);
+            if smooth || (!first && !last) {
+                [0.0, 0.0, 1.0, 1.0]
+            } else if first && last {
+                [0.0, 1.0 / 3.0, 2.0 / 3.0, 1.0]
+            } else if first {
+                [0.0, 0.5, 1.0, 1.0]
+            } else {
+                [0.0, 0.0, 0.5, 1.0]
+            }
+        };
+        let (mut r_law, mut o_law, mut ts) = (Vec::new(), Vec::new(), vec![0.0]);
+        for k in 0..spans {
+            let ((t0, r0, o0), (t1, r1, o1)) = (marks[k], marks[k + 1]);
+            let f = shape(k);
+            for (j, fj) in f.iter().enumerate().skip(if k == 0 { 0 } else { 1 }) {
+                r_law.push(r0 + (r1 - r0) * fj);
+                o_law.push(o0 + (o1 - o0) * fj);
+                let _ = j;
+            }
+            ts.push(t1);
+            let _ = t0;
+        }
+        (r_law, o_law, ts)
+    };
     let groups = blend_edges(model, definition)?;
     if groups.is_empty() {
         return Err(regen_error("FILLET_SELECT_EDGES"));
@@ -2013,6 +2154,9 @@ fn variable_section_fillet(model: &mut Model, id: FeatureId, definition: &Value,
                 faces.swap(0, 1);
             }
             if edge.curve_type().ok() == Some(occt::CurveType::Circle) {
+                if points.iter().any(|(s, ..)| s.is_same(edge)) {
+                    return Err(error("@opFillet: radii at points on curved edges aren't supported yet"));
+                }
                 let start = edge.edge_tangent(0.0, false).map_err(crate::occt_error)?.origin;
                 let end = edge.edge_tangent(1.0, false).map_err(crate::occt_error)?.origin;
                 let ((ra, oa), (rz, oz)) = (radii_at(start), radii_at(end));
@@ -2057,15 +2201,30 @@ fn variable_section_fillet(model: &mut Model, id: FeatureId, definition: &Value,
                 body.contains_point(add(mid, scale(add(u1, u2), ra.min(oa).min(rz).min(oz) * 0.05))).unwrap_or(true);
             // Varying, the radii go the other way round from a constant asymmetric fillet's: `radius` at the leading
             // face (batch 073 c007: a block's front set back 2 to 4, its top 3 to 5).
-            let (d1, d2) = if asymmetric { (law(oa, oz), law(ra, rz)) } else { (law(ra, rz), law(oa, oz)) };
+            let (r_law, o_law, ts) = laws(edge, a, z);
+            let _ = (law, ra, oa, rz, oz);
+            let (d1, d2) = if asymmetric { (o_law, r_law) } else { (r_law, o_law) };
+            let rows = d1.len();
             let (sin, cos) = (angle.sin(), angle.cos());
             // Setbacks on the leading face and the other, at each Bézier point.
-            let s1: Vec<f64> = (0..4).map(|i| (d2[i] + d1[i] * cos) / sin).collect();
-            let s2: Vec<f64> = (0..4).map(|i| (d1[i] + d2[i] * cos) / sin).collect();
+            let s1: Vec<f64> = (0..rows).map(|i| (d2[i] + d1[i] * cos) / sin).collect();
+            let s2: Vec<f64> = (0..rows).map(|i| (d1[i] + d2[i] * cos) / sin).collect();
             if s1.iter().chain(&s2).any(|x| !(*x > 1e-9)) {
                 return Err(failed());
             }
-            let base = |i: usize| add(a, scale(sub(z, a), i as f64 / 3.0));
+            // Each row's place along the edge: span k's Bézier points at thirds of it.
+            let place = |i: usize| -> f64 {
+                let k = (i / 3).min(ts.len() - 2);
+                let j = i - 3 * k;
+                ts[k] + (ts[k + 1] - ts[k]) * j as f64 / 3.0
+            };
+            let base = |i: usize| add(a, scale(sub(z, a), place(i)));
+            // Spans joined at triple knots (each a Bézier piece).
+            let mut knots_u = vec![0.0; 4];
+            for &t in &ts[1..ts.len() - 1] {
+                knots_u.extend([t; 3]);
+            }
+            knots_u.extend([1.0; 4]);
             // The section's poles as (along u1, along u2) multiples of the setbacks, and weights.
             let (coefficients, weights, knots_v, degree_v): (Vec<(f64, f64)>, Vec<f64>, Vec<f64>, i32) = match section {
                 Section::Curvature(m) => (
@@ -2092,17 +2251,16 @@ fn variable_section_fillet(model: &mut Model, id: FeatureId, definition: &Value,
             let nv = coefficients.len();
             let mut poles = Vec::new();
             let mut grid_weights = Vec::new();
-            for i in 0..4 {
+            for i in 0..rows {
                 for &c in &coefficients {
                     poles.push(section_pole(i, c));
                 }
                 grid_weights.extend(weights.iter().copied());
             }
-            let knots_u = [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0];
             let fillet = if weights.is_empty() {
-                occt::bspline_surface_face(&poles, (4, nv), &knots_u, &knots_v, (3, degree_v))
+                occt::bspline_surface_face(&poles, (rows, nv), &knots_u, &knots_v, (3, degree_v))
             } else {
-                occt::rational_bspline_surface_face(&poles, &grid_weights, (4, nv), &knots_u, &knots_v, (3, degree_v))
+                occt::rational_bspline_surface_face(&poles, &grid_weights, (rows, nv), &knots_u, &knots_v, (3, degree_v))
             }
             .map_err(|_| failed())?;
             let cubic = |points: Vec<occt::Vec3>| -> R<Shape> {
@@ -2113,24 +2271,25 @@ fn variable_section_fillet(model: &mut Model, id: FeatureId, definition: &Value,
                 occt::bspline_edge(&points, &weights, &knots_v, degree_v, false).map_err(crate::occt_error)
             };
             let line = |p: occt::Vec3, q: occt::Vec3| occt::line_edge(p, q).map_err(crate::occt_error);
-            let (f1a, f1z) = (section_pole(0, (1.0, 0.0)), section_pole(3, (1.0, 0.0)));
-            let (f2a, f2z) = (section_pole(0, (0.0, 1.0)), section_pole(3, (0.0, 1.0)));
+            let last = rows - 1;
+            let (f1a, f1z) = (section_pole(0, (1.0, 0.0)), section_pole(last, (1.0, 0.0)));
+            let (f2a, f2z) = (section_pole(0, (0.0, 1.0)), section_pole(last, (0.0, 1.0)));
             let strip1 = occt::fill_edges(&[
                 line(a, z)?,
                 line(z, f1z)?,
-                cubic((0..4).map(|i| section_pole(i, (1.0, 0.0))).collect())?,
+                cubic((0..rows).map(|i| section_pole(i, (1.0, 0.0))).collect())?,
                 line(f1a, a)?,
             ])
             .map_err(|_| failed())?;
             let strip2 = occt::fill_edges(&[
                 line(a, z)?,
                 line(z, f2z)?,
-                cubic((0..4).map(|i| section_pole(i, (0.0, 1.0))).collect())?,
+                cubic((0..rows).map(|i| section_pole(i, (0.0, 1.0))).collect())?,
                 line(f2a, a)?,
             ])
             .map_err(|_| failed())?;
             let cap0 = occt::fill_edges(&[line(a, f1a)?, end_section(0)?, line(f2a, a)?]).map_err(|_| failed())?;
-            let cap1 = occt::fill_edges(&[line(z, f1z)?, end_section(3)?, line(f2z, z)?]).map_err(|_| failed())?;
+            let cap1 = occt::fill_edges(&[line(z, f1z)?, end_section(last)?, line(f2z, z)?]).map_err(|_| failed())?;
             let shell = occt::sew_faces(&[fillet, strip1, strip2, cap0, cap1], 1e-7).map_err(|_| failed())?;
             let mut wedge = occt::solid_from(&shell).map_err(|_| failed())?;
             if wedge.volume().map_err(crate::occt_error)? < 0.0 {

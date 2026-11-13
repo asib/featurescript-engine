@@ -165,6 +165,8 @@ std::unique_ptr<Shape> make_sphere(Vec3 center, double radius);
 std::unique_ptr<Operation> split_op(const ShapeList &objects, const ShapeList &tools);
 std::unique_ptr<Operation> variable_fillet_op(const Shape &solid, const ShapeList &edges, rust::Slice<const Vec3> p0,
                                               rust::Slice<const double> r0, rust::Slice<const double> r1, bool smooth);
+std::unique_ptr<Operation> sampled_fillet_op(const Shape &solid, const ShapeList &edges, rust::Slice<const Vec3> p0,
+                                             rust::Slice<const double> radii, size_t count);
 std::unique_ptr<Operation> fillet_op(const Shape &solid, const ShapeList &edges, double radius);
 std::unique_ptr<Operation> chamfer_by_ball_op(const Shape &solid, const ShapeList &edges, double width);
 std::unique_ptr<Operation> chamfer_by_offsets_op(const Shape &solid, const ShapeList &edges, const ShapeList &firsts,
