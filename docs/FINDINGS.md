@@ -1649,6 +1649,13 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   14.9201) and the line slides down; neither, the second grows, whichever circle was drawn first. The changed
   circle's centre lies on the lines' bisector, moved 0.1 at 30° to x: its split between moving and growing is no
   plain least-norm one (that would move it 0.022 and grow it 0.095), nor a contact point held. Known gap.
+- **Fills with tangency conditions** (batch 157): across a gap between a level sheet and one rising at 26.6° (lines
+  along its sides), a fill tangent to the rising sheet only is the plane, as Onshape's plain fill is (that plane
+  already continues the sheet); Onshape faces it up (0, 0.894 up), the engine down. Tangent to both, Onshape's heights
+  across the gap are within 0.02 mm of the cubic leaving each edge along its sheet with the chord's length (11.18),
+  but they vary along the gap (0.509 at 5 along, 0.476 at 10, both 2.5 in), which the setup doesn't, and the middle of
+  its parameters lies 3e-4 mm off centre: a surface of its own fitting. The engine doesn't build tangent fills yet
+  (`edgesG1`). Known gap.
 - **Faces split normal to curved targets** (batch 133): a sketch projected normal to the target goes along the
   target's normal through each of its points onto the target's surface: a circle and a rectangle beside a cylinder, a
   circle above a sphere, a circle beside a cone frustum. The rectangle taller than the cylinder splits its side across

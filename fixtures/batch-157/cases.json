@@ -1,0 +1,47 @@
+{
+  "batch": "157",
+  "title": "probes: fills with tangency conditions across a gap between sheets",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "fill",
+      "description": "a gap between a level sheet and a rising one bridged by a fill tangent to both",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "fill",
+      "description": "the gap bridged by a fill tangent to the level sheet only",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "fill",
+      "description": "the gap bridged by a fill tangent to the rising sheet only",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "fill",
+      "description": "the gap bridged by a fill with no tangency",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    }
+  ]
+}
