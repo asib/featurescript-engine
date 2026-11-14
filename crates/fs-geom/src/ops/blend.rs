@@ -1154,8 +1154,8 @@ pub fn full_round(model: &mut Model, id: FeatureId, definition: &Value) -> R<Val
 /// `@opFaceBlend`: a rolling ball blend of constant radius between two sets of faces meeting along edges, trimming
 /// them to it; the sides' sheets become one. Each side's normal, flipped if asked, points towards the blend.
 pub fn face_blend(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
-    if field(definition, "crossSection").as_str().is_some_and(|c| c != "ROLLING_BALL") {
-        return Err(error("@opFaceBlend: only rolling ball blends are supported yet"));
+    if field(definition, "crossSection").as_str().is_some_and(|c| c != "ROLLING_BALL" && c != "SWEPT_PROFILE") {
+        return Err(error("@opFaceBlend: only rolling ball and swept profile blends are supported yet"));
     }
     // Each side's faces must belong to one body (batch 082 c004, c005: two upright sheets on a floor).
     for (key, error_name) in
@@ -1177,8 +1177,20 @@ pub fn face_blend(model: &mut Model, id: FeatureId, definition: &Value) -> R<Val
         && !values::opt_bool(definition, "hasCaps")?.unwrap_or(false)
         && !values::opt_bool(definition, "asymmetric")?.unwrap_or(false)
         && field(definition, "trim").as_str().is_none_or(|t| t == "WALLS")
+        && field(definition, "crossSectionShape").as_str() != Some("CHAMFER")
+        && field(definition, "crossSection").as_str() != Some("SWEPT_PROFILE")
         && !values::opt_bool(definition, "detach")?.unwrap_or(false);
     if !plain {
+        let side = |key: &str| -> R<Vec<EntityRef>> {
+            Ok(query::evaluate(model, field(definition, key))?.into_iter().filter(|r| r.kind == EntityType::Face).collect())
+        };
+        let (side1, side2) = (side("side1")?, side("side2")?);
+        if !side1.is_empty()
+            && !side2.is_empty()
+            && let Some(done) = floor_and_walls(model, id.clone(), definition, &side1, &side2)?
+        {
+            return Ok(done);
+        }
         return planar_face_blend(model, id, definition);
     }
     let section = match field(definition, "crossSectionShape").as_str() {
@@ -1238,37 +1250,12 @@ pub fn face_blend(model: &mut Model, id: FeatureId, definition: &Value) -> R<Val
     if let (Some((plane1, face1)), Some((plane2, face2))) = (one_plane(&shapes(&side1)), one_plane(&shapes(&side2))) {
         side_senses(definition, (&plane1, &face1), (&plane2, &face2))?;
     }
+    if let Some(done) = floor_and_walls(model, id.clone(), definition, &side1, &side2)? {
+        return Ok(done);
+    }
+    let shapes = |refs: &[EntityRef]| -> Vec<Shape> { refs.iter().map(|r| model.shape(*r).clone()).collect() };
     let reverse1 = !values::opt_bool(definition, "flipSide1Normal")?.unwrap_or(false);
     let reverse2 = !values::opt_bool(definition, "flipSide2Normal")?.unwrap_or(false);
-    if let Some(sheet) = floor_wall_blend(&shapes(&side1), reverse1, &shapes(&side2), reverse2, radius, section)? {
-        let first = model.bodies[side1[0].body].clone();
-        let mut bodies: Vec<usize> = side1.iter().chain(&side2).map(|r| r.body).collect();
-        bodies.sort_unstable();
-        bodies.dedup();
-        // The sides' bodies' other faces stay, joined to it (batch 083 c002: the roof between two walls).
-        let sides: Vec<Shape> = shapes(&side1).into_iter().chain(shapes(&side2)).collect();
-        let others: Vec<Shape> = bodies
-            .iter()
-            .flat_map(|&b| model.bodies[b].faces.iter().map(|f| f.shape.clone()))
-            .filter(|f| !sides.iter().any(|s| s.is_same(f)))
-            .collect();
-        let sheet = if others.is_empty() {
-            sheet
-        } else {
-            let mut faces = sheet.sub_shapes(ShapeKind::Face);
-            faces.extend(others);
-            occt::sew_faces(&faces, 1e-6).map_err(|_| regen_error("FACE_BLEND_FAILED"))?
-        };
-        let info = crate::model::Info::new(id);
-        model.remove_bodies(&bodies);
-        let new = crate::model::NewBody {
-            tid: Some(first.tid),
-            body_type: crate::model::BodyType::Sheet,
-            ..crate::model::NewBody::replacing(&first, sheet)
-        };
-        model.add_body(new, &crate::model::Origins::default(), &info, &|_| None);
-        return Ok(Value::UNDEFINED);
-    }
     if !matches!(section, Section::Circular) {
         return planar_face_blend(model, id, definition);
     }
@@ -1357,15 +1344,16 @@ fn side_senses(definition: &Value, side1: (&occt::Frame, &Shape), side2: (&occt:
 /// along each line and a quarter torus round each arc. The floor keeps what lies beyond the offset curves (the
 /// pieces not touching the walls), the walls what lies more than the radius above the floor, all sewn into one
 /// sheet. Each side's normal, reversed if asked, points away from the blend. `None` if the sides aren't so. A conic
-/// or curvature section takes the quarter circle's place, its surface a B-spline as Onshape's is (batch 084 c007).
+/// or curvature section takes the quarter circle's place, its surface a B-spline as Onshape's is (batch 084 c007);
+/// with two radii or a width the section reaches over the floor and up the wall by different amounts, a quarter
+/// ellipse (batch 172 c002, c006); a chamfer's is a straight line, a cone round a cylinder (172 c008).
 fn floor_wall_blend(
     side1: &[Shape],
     reverse1: bool,
     side2: &[Shape],
     reverse2: bool,
-    r: f64,
-    section: Section,
-) -> R<Option<Shape>> {
+    section: FloorSection,
+) -> R<Option<FloorBlend>> {
     use crate::values::{add, cross, dot, norm, normalize, scale, sub};
     let failed = || regen_error("FACE_BLEND_FAILED");
     let [floor] = side1 else { return Ok(None) };
@@ -1380,26 +1368,32 @@ fn floor_wall_blend(
     // Towards the blend.
     let up = scale(n_floor, -1.0);
     let height = |p: occt::Vec3| dot(sub(p, plane.origin), up);
+    let FloorSection { floor: r, wall: rw, shape, bspline } = section;
+    let round = (r - rw).abs() < 1e-12;
     // The section at a point of a wall's base, the wall towards the blend along `w`: a quarter circle from the floor
     // round to the wall, or the section's conic or curvature curve with the base its middle control point.
     let profile = |at: occt::Vec3, w: occt::Vec3| -> R<Shape> {
-        let (on_floor, on_wall) = (add(at, scale(w, r)), add(at, scale(up, r)));
-        match section {
-            Section::Circular => {
+        let (on_floor, on_wall) = (add(at, scale(w, r)), add(at, scale(up, rw)));
+        match shape {
+            FloorShape::Section(Section::Circular) if round => {
                 let centre = add(at, add(scale(w, r), scale(up, r)));
                 let frame =
                     occt::Frame { origin: centre, normal: cross(scale(up, -1.0), scale(w, -1.0)), x: scale(up, -1.0) };
                 occt::arc_edge(frame, r, 0.0, std::f64::consts::FRAC_PI_2).map_err(|_| failed())
             }
-            Section::Conic(rho) => conic_edge(on_floor, at, on_wall, rho / (1.0 - rho)),
-            Section::Curvature(m) => curvature_section(on_floor, at, on_wall, m),
+            FloorShape::Section(Section::Circular) => {
+                conic_edge(on_floor, at, on_wall, std::f64::consts::FRAC_1_SQRT_2)
+            }
+            FloorShape::Section(Section::Conic(rho)) => conic_edge(on_floor, at, on_wall, rho / (1.0 - rho)),
+            FloorShape::Section(Section::Curvature(m)) => curvature_section(on_floor, at, on_wall, m),
+            FloorShape::Chamfer => occt::line_edge(on_floor, on_wall).map_err(|_| failed()),
         }
     };
     let finish = |piece: Shape| -> R<Shape> {
-        if matches!(section, Section::Circular) {
-            Ok(piece)
-        } else {
-            occt::nurbs_converted(&piece).map_err(crate::occt_error)
+        match shape {
+            FloorShape::Section(Section::Circular) if round && !bspline => Ok(piece),
+            FloorShape::Chamfer => Ok(piece),
+            _ => occt::nurbs_converted(&piece).map_err(crate::occt_error),
         }
     };
     let mut pieces = Vec::new();
@@ -1421,7 +1415,7 @@ fn floor_wall_blend(
         let Some(base) = base.filter(|b| floor.distance(b).is_ok_and(|d| d.distance < 1e-9)) else { return Ok(None) };
         let a = base.edge_tangent(0.0, false).map_err(crate::occt_error)?;
         let b = base.edge_tangent(1.0, false).map_err(crate::occt_error)?;
-        let Some(w) = towards(add(a.origin, scale(up, r))) else { return Ok(None) };
+        let Some(w) = towards(add(a.origin, scale(up, rw))) else { return Ok(None) };
         match s.kind {
             0 if dot(s.frame.normal, up).abs() < 1e-9 && base.curve_type().ok() == Some(occt::CurveType::Line) => {
                 let w = scale(s.frame.normal, if dot(s.frame.normal, w) >= 0.0 { 1.0 } else { -1.0 });
@@ -1481,21 +1475,194 @@ fn floor_wall_blend(
     for wall in side2 {
         let bounds = wall.bounding_box(false).map_err(crate::occt_error)?;
         let size = norm(sub(bounds.max, bounds.min)) * 2.0 + 1e-3;
-        let level = occt::Frame { origin: add(plane.origin, scale(up, r)), normal: up, x: plane.x };
+        let level = occt::Frame { origin: add(plane.origin, scale(up, rw)), normal: up, x: plane.x };
         let cutter = occt::plane_face(level, -size, size, -size, size).map_err(crate::occt_error)?;
         let split = occt::split(std::slice::from_ref(wall), &[cutter]).map_err(|_| failed())?.shape();
         kept_walls.extend(
             split
                 .sub_shapes(ShapeKind::Face)
                 .into_iter()
-                .filter(|p| p.face_inner_point().is_ok_and(|q| height(q) > r)),
+                .filter(|p| p.face_inner_point().is_ok_and(|q| height(q) > rw)),
         );
     }
-    let mut all = kept_floor;
-    all.extend(pieces);
-    all.extend(kept_walls);
+    // The bases close up when every end meets another's.
+    let ends: Vec<occt::Vec3> = bases
+        .iter()
+        .flat_map(|b| [0.0, 1.0].map(|t| b.edge_tangent(t, false).map(|a| a.origin)))
+        .collect::<Result<_, _>>()
+        .map_err(crate::occt_error)?;
+    let closed = ends.iter().all(|p| ends.iter().filter(|q| norm(sub(*p, **q)) < 1e-7).count() % 2 == 0);
+    Ok(Some(FloorBlend { blend: pieces, floor: kept_floor, walls: kept_walls, closed }))
+}
+
+/// A floor-and-wall blend's section ([`floor_wall_blend`]): how far it reaches over the floor and up the wall, and
+/// its shape.
+#[derive(Clone, Copy, Debug)]
+struct FloorSection {
+    floor: f64,
+    wall: f64,
+    shape: FloorShape,
+    /// Its surface a B-spline even where it is a torus or cylinder (a swept profile's, batch 173 c005).
+    bspline: bool,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum FloorShape {
+    Section(Section),
+    Chamfer,
+}
+
+/// A floor-and-wall blend's faces: the blend's, and what the floor and walls keep; and whether the walls' bases close
+/// up (so that the blend has no ends).
+struct FloorBlend {
+    blend: Vec<Shape>,
+    floor: Vec<Shape>,
+    walls: Vec<Shape>,
+    closed: bool,
+}
+
+/// Whether a circle lies about an axis: its centre on the axis, its plane square to it.
+fn spine_on_axis(circle: &Shape, axis: &occt::Axis) -> bool {
+    use crate::values::{cross, dot, norm, normalize, scale, sub};
+    let points: Vec<occt::Vec3> =
+        [0.0, 0.25, 0.5].iter().filter_map(|t| circle.edge_tangent(*t, false).ok().map(|a| a.origin)).collect();
+    let [a, b, c] = points[..] else { return false };
+    let Some(n) = normalize(cross(sub(b, a), sub(c, a))) else { return false };
+    let Some(d) = normalize(axis.direction) else { return false };
+    if norm(cross(n, d)) > 1e-9 {
+        return false;
+    }
+    // Every point as far from the axis as the others, at the same height along it.
+    let off = |p: occt::Vec3| {
+        let v = sub(p, axis.origin);
+        norm(sub(v, scale(d, dot(v, d))))
+    };
+    (off(a) - off(b)).abs() < 1e-7 && (off(a) - off(c)).abs() < 1e-7
+}
+
+/// Where a blend between sides square to each other meets them, from the corner along side 1 and along side 2: with
+/// a radius, the ball's centre `radius` from side 1 and `secondRadius` (if asymmetric) from side 2, so it touches
+/// side 1 that second radius out; with a width, the chord between the two, `widthRatio` (if asymmetric) the second's
+/// to the first's.
+fn square_setbacks(definition: &Value) -> R<(f64, f64)> {
+    let asymmetric = values::opt_bool(definition, "asymmetric")?.unwrap_or(false);
+    if field(definition, "blendControlType").as_str() == Some("WIDTH") {
+        let width = values::length(field(definition, "width"), "opFaceBlend width")?;
+        let ratio = if asymmetric { field(definition, "widthRatio").as_number().unwrap_or(1.0) } else { 1.0 };
+        let chord = (1.0 + ratio * ratio).sqrt();
+        return Ok((width / chord, width * ratio / chord));
+    }
+    let radius = values::length(field(definition, "radius"), "opFaceBlend radius")?;
+    let second =
+        if asymmetric { values::length(field(definition, "secondRadius"), "opFaceBlend secondRadius")? } else { radius };
+    Ok((second, radius))
+}
+
+/// A face blend between a planar floor (side 1) and walls standing square on it ([`floor_wall_blend`]), with its
+/// options: detached, the blend is a sheet of its own and the sides stay as they are (batch 172 c001); round walls
+/// that close up give the blend no ends to trim, so every trim is the same (172 c004); limited, Onshape can't
+/// attach it to a closed wall (172 c005: a plane through the cylinder's axis). `None` if the sides aren't so, or
+/// for options it leaves to others (hold lines, cliff edges and caps).
+fn floor_and_walls(
+    model: &mut Model,
+    id: FeatureId,
+    definition: &Value,
+    side1: &[EntityRef],
+    side2: &[EntityRef],
+) -> R<Option<Value>> {
+    let flag = |key: &str| -> R<bool> { Ok(values::opt_bool(definition, key)?.unwrap_or(false)) };
+    if flag("tangentHoldLines")? || flag("conicHoldLines")? || flag("hasCliffEdges")? || flag("hasCaps")? {
+        return Ok(None);
+    }
+    let failed = || regen_error("FACE_BLEND_FAILED");
+    let shape = match field(definition, "crossSectionShape").as_str() {
+        Some("CONIC") => FloorShape::Section(Section::Conic(field(definition, "rho").as_number().ok_or_else(failed)?)),
+        Some("CURVATURE") => {
+            FloorShape::Section(Section::Curvature(field(definition, "magnitude").as_number().ok_or_else(failed)?))
+        }
+        Some("CHAMFER") => FloorShape::Chamfer,
+        _ => FloorShape::Section(Section::Circular),
+    };
+    let (floor, wall) = square_setbacks(definition)?;
+    let shapes = |refs: &[EntityRef]| -> Vec<Shape> { refs.iter().map(|r| model.shape(*r).clone()).collect() };
+    let reverse1 = !flag("flipSide1Normal")?;
+    let reverse2 = !flag("flipSide2Normal")?;
+    // A swept profile along a circle about the walls' common axis takes its sections in the planes through the axis,
+    // as the rolling ball does: the same blend, its surface a B-spline (batch 173 c005: along the cylinder's base).
+    let swept = field(definition, "crossSection").as_str() == Some("SWEPT_PROFILE");
+    if swept {
+        let Some(spine) = query::evaluate(model, field(definition, "spine"))?.into_iter().next() else {
+            return Err(regen_error("FACE_BLEND_SELECT_SPINE"));
+        };
+        let spine = model.shape(spine).clone();
+        let walls = shapes(side2);
+        let coaxial = spine.curve_type().ok() == Some(occt::CurveType::Circle)
+            && walls.iter().all(|w| {
+                w.surface_definition().is_ok_and(|d| {
+                    d.kind == 1 && spine_on_axis(&spine, &occt::Axis { origin: d.frame.origin, direction: d.frame.normal })
+                })
+            });
+        if !coaxial {
+            return Ok(None);
+        }
+    }
+    let section = FloorSection { floor, wall, shape, bspline: swept };
+    let Some(blend) = floor_wall_blend(&shapes(side1), reverse1, &shapes(side2), reverse2, section)? else {
+        return Ok(None);
+    };
+    let detach = flag("detach")?;
+    let limited = flag("hasLimits")?
+        && (["limitPlane1", "limitPlane2", "faceLimits"]
+            .iter()
+            .map(|key| query::evaluate(model, field(definition, key)).map(|r| !r.is_empty()))
+            .collect::<R<Vec<bool>>>()?
+            .contains(&true)
+            || field(definition, "edgeLimits").as_array().is_some_and(|a| !a.is_empty()));
+    if limited {
+        if detach || !blend.closed {
+            return Err(error("@opFaceBlend: limits on blends round curved walls aren't supported yet"));
+        }
+        return Err(regen_error("FACE_BLEND_CANNOT_ATTACH"));
+    }
+    if field(definition, "trim").as_str().is_some_and(|t| t != "WALLS") && !blend.closed {
+        return Err(error("@opFaceBlend: trims other than to walls round curved walls aren't supported yet"));
+    }
+    let info = crate::model::Info::new(id);
+    if detach {
+        let sheet = occt::sew_faces(&blend.blend, 1e-7).map_err(|_| failed())?;
+        super::add_simple(model, sheet, crate::model::BodyType::Sheet, &info, false);
+        return Ok(Some(Value::UNDEFINED));
+    }
+    let mut all = blend.floor;
+    all.extend(blend.blend);
+    all.extend(blend.walls);
     let sheet = occt::sew_faces(&all, 1e-7).map_err(|_| failed())?;
-    Ok(Some(sheet))
+    let first = model.bodies[side1[0].body].clone();
+    let mut bodies: Vec<usize> = side1.iter().chain(side2).map(|r| r.body).collect();
+    bodies.sort_unstable();
+    bodies.dedup();
+    // The sides' bodies' other faces stay, joined to it (batch 083 c002: the roof between two walls).
+    let sides: Vec<Shape> = shapes(side1).into_iter().chain(shapes(side2)).collect();
+    let others: Vec<Shape> = bodies
+        .iter()
+        .flat_map(|&b| model.bodies[b].faces.iter().map(|f| f.shape.clone()))
+        .filter(|f| !sides.iter().any(|s| s.is_same(f)))
+        .collect();
+    let sheet = if others.is_empty() {
+        sheet
+    } else {
+        let mut faces = sheet.sub_shapes(ShapeKind::Face);
+        faces.extend(others);
+        occt::sew_faces(&faces, 1e-6).map_err(|_| failed())?
+    };
+    model.remove_bodies(&bodies);
+    let new = crate::model::NewBody {
+        tid: Some(first.tid),
+        body_type: crate::model::BodyType::Sheet,
+        ..crate::model::NewBody::replacing(&first, sheet)
+    };
+    model.add_body(new, &crate::model::Origins::default(), &info, &|_| None);
+    Ok(Some(Value::UNDEFINED))
 }
 
 /// A face blend between two planar sides, meeting or not: the section runs round the line where their planes meet,
@@ -1584,6 +1751,43 @@ fn planar_face_blend(model: &mut Model, id: FeatureId, definition: &Value) -> R<
     if !(s1 > 1e-9 && s2 > 1e-9) {
         return Err(failed());
     }
+    let chamfer = field(definition, "crossSectionShape").as_str() == Some("CHAMFER");
+    // A swept profile (batch 172 c010, c011; 173 c006, c007): the rolling ball's circle taken in the plane square to
+    // the spine, where each side meets it along a line, and carried straight along the corner: along a spine
+    // slanting across the corner, the blend seen along the corner is that circle squashed, a quarter ellipse,
+    // setting each side back where it touches it (172 c011: 4.6944 over the level sheet, 5 up the upright, the
+    // spine 20.1° across). Onshape's surface is a B-spline.
+    let swept_profile = field(definition, "crossSection").as_str() == Some("SWEPT_PROFILE");
+    let mut weight = (angle / 2.0).sin();
+    let (s1, s2) = if swept_profile {
+        if asymmetric || chamfer || field(definition, "blendControlType").as_str() == Some("WIDTH") {
+            return Err(error("@opFaceBlend: swept profiles other than of one radius aren't supported yet"));
+        }
+        let Some(spine) = query::evaluate(model, field(definition, "spine"))?.into_iter().next() else {
+            return Err(regen_error("FACE_BLEND_SELECT_SPINE"));
+        };
+        let spine = model.shape(spine).clone();
+        if spine.curve_type().ok() != Some(occt::CurveType::Line) {
+            return Err(error("@opFaceBlend: swept profiles along spines other than lines aren't supported yet"));
+        }
+        let s = normalize(spine.edge_tangent(0.0, false).map_err(crate::occt_error)?.direction).ok_or_else(failed)?;
+        if dot(s, t).abs() < 1e-9 {
+            return Err(failed());
+        }
+        // Each side's line in the spine's plane, into it.
+        let into = |n: occt::Vec3, u: occt::Vec3| -> R<occt::Vec3> {
+            let d = normalize(cross(n, s)).ok_or_else(failed)?;
+            Ok(if dot(d, u) >= 0.0 { d } else { scale(d, -1.0) })
+        };
+        let (d1, d2) = (into(n1, u1)?, into(n2, u2)?);
+        let between = dot(d1, d2).clamp(-1.0, 1.0).acos();
+        let radius = values::length(field(definition, "radius"), "opFaceBlend radius")?;
+        let back = radius / (between / 2.0).tan();
+        weight = (between / 2.0).sin();
+        (back * dot(d1, u1), back * dot(d2, u2))
+    } else {
+        (s1, s2)
+    };
     // A straight edge of either side along the line: which side it lies on and how far from the line.
     // Only an edge on a side's boundary holds the blend; one between two of its faces is passed over (batch 084
     // c001–c004: a split 4 mm up an upright, the plain blend consuming it).
@@ -1723,6 +1927,8 @@ fn planar_face_blend(model: &mut Model, id: FeatureId, definition: &Value) -> R<
     let (p1, p2) = (add(corner, scale(u1, s1)), add(corner, scale(u2, s2)));
     // How fast the section runs at its ends (p2's, p1's), in its own parameter.
     let (speed2, speed1) = match section {
+        _ if chamfer => (1.0, 1.0),
+        Section::Circular if swept_profile => (2.0 * weight * s2, 2.0 * weight * s1),
         Section::Circular if (s1 - s2).abs() < 1e-12 => (s1 * (angle / 2.0).tan(), s1 * (angle / 2.0).tan()),
         Section::Circular => (2.0 * (angle / 2.0).sin() * s2, 2.0 * (angle / 2.0).sin() * s1),
         Section::Conic(rho) => (2.0 * rho / (1.0 - rho) * s2, 2.0 * rho / (1.0 - rho) * s1),
@@ -1754,7 +1960,9 @@ fn planar_face_blend(model: &mut Model, id: FeatureId, definition: &Value) -> R<
             let mid = add(centre, scale(normalize(sub(scale(add(p1, p2), 0.5), centre)).ok_or_else(failed)?, radius));
             occt::arc_through(p2, mid, p1).map_err(crate::occt_error)?
         }
-        Section::Circular if held.is_some() => conic_edge(p2, corner, p1, (angle / 2.0).sin())?,
+        // A chamfer's section is straight (batch 172 c009: 5 mm, a plane 5√2 wide).
+        _ if chamfer => occt::line_edge(p2, p1).map_err(crate::occt_error)?,
+        Section::Circular if held.is_some() || swept_profile => conic_edge(p2, corner, p1, weight)?,
         Section::Circular if (s1 - s2).abs() < 1e-12 => {
             let bisector = normalize(add(u1, u2)).ok_or_else(failed)?;
             let radius = s1 * (angle / 2.0).tan();
@@ -1770,7 +1978,26 @@ fn planar_face_blend(model: &mut Model, id: FeatureId, definition: &Value) -> R<
     let swept = occt::prism(&curve, scale(t, hi - lo)).map_err(crate::occt_error)?.shape();
     let mut blend_faces = swept.sub_shapes(ShapeKind::Face);
     // A hold line's blend is a B-spline surface in Onshape: the section's conic, carried straight along the line.
-    if held.is_some() && cliff.is_none() && matches!(section, Section::Circular) {
+    if swept_profile && cliff.is_none() && matches!(section, Section::Circular) {
+        // As Onshape's: the section across (u, from side 2 to side 1), a cubic straight along.
+        let shift = scale(t, hi - lo);
+        let poles: Vec<occt::Vec3> = [p2, corner, p1]
+            .iter()
+            .flat_map(|p| (0..4).map(move |k| add(*p, scale(shift, k as f64 / 3.0))))
+            .collect();
+        let weights: Vec<f64> = [1.0, weight, 1.0].iter().flat_map(|w| [*w; 4]).collect();
+        blend_faces = vec![
+            occt::rational_bspline_surface_face(
+                &poles,
+                &weights,
+                (3, 4),
+                &[0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+                &[0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0],
+                (2, 3),
+            )
+            .map_err(|_| failed())?,
+        ];
+    } else if held.is_some() && cliff.is_none() && matches!(section, Section::Circular) && !chamfer {
         let w = (angle / 2.0).sin();
         let shift = scale(t, hi - lo);
         let poles = [p2, corner, p1, add(p2, shift), add(corner, shift), add(p1, shift)];
