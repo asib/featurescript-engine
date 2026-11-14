@@ -1729,6 +1729,14 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   difference grid had seemed within 0.07). Across the middle of the gap Onshape's is near the cubic with chord-length
   tangents, and toward the side lines it dips less (96% as much a quarter of the way along): no Coons or Gordon
   blend of those tried gives that. Known gap.
+- **Boundary surfaces leaving short arcs normal to their planes** (batch 171): on a 45° arc (two spans, one row free
+  inside) the derivative leaving the arc is the chord less its part across the arc at the ends, to 1e-6, and lies in
+  the plane of the plane's normal and the arc's tangent throughout; but its part along the tangent runs 18 to 60%
+  larger in between than the chord's own (a quarter along c001's arc, 1.395 against 0.955), so it is neither the exact
+  projection interpolated at the Greville points (as tangent conditions are), nor fitted to it by least squares with
+  or without the ends' values and slopes held. Not linear or cosine in u between the ends either. Known gap: the
+  engine's sampled construction stays (its areas within 0.04 mm² of Onshape's), and magnitudes other than 1 on normal
+  conditions stay refused.
 - **Lofts from profiles of several faces** (batch 169): a region split by a line across it, both faces taken as one
   profile, lofts as the whole region: the faces merged and their boundary's collinear edges made one each (a split
   rectangle to a rectangle, or to another split one, is the plain six-faced loft). The engine now merges them so. A

@@ -1,0 +1,47 @@
+{
+  "batch": "171",
+  "title": "probes: boundary surfaces leaving short arcs normal to their planes",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "boundary-surface",
+      "description": "a 45° arc (radius 20) normal to its plane, to a line 5 above it at y = 20",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "boundary-surface",
+      "description": "the 45° arc normal to its plane, to a 45° arc of radius 15 at y = 20",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "boundary-surface",
+      "description": "a 90° arc (radius 20) normal to its plane, to a line at y = 20",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "boundary-surface",
+      "description": "the 45° arc to the line, at magnitude 2",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    }
+  ]
+}
