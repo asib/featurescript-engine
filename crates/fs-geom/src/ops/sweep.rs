@@ -663,8 +663,10 @@ fn twisted_along_curve(
     Ok(Value::UNDEFINED)
 }
 
-/// A circle lofted to a profile with corners is split where the rays from its centre through those corners meet it,
-/// one arc to each edge, as Onshape splits it (batch 004 c039: a square's corners at 45°, 135°, 225° and 315°).
+/// A circle lofted to a profile with corners is split into as many arcs as there are corners, each as long as the
+/// others, from where the ray through the corner first round anticlockwise from its start meets it: one arc to each
+/// edge, as Onshape splits it (batch 004 c039: a square's corners at 45°, 135°, 225° and 315°; batch 170: a 20 × 10
+/// rectangle's from 26.57°).
 fn match_circles_to_corners(wires: &mut [Shape]) -> R<()> {
     use values::{cross, dot, sub};
     let corners: Vec<Vec<Vec3>> = wires
@@ -698,6 +700,12 @@ fn match_circles_to_corners(wires: &mut [Shape]) -> R<()> {
         if angles.len() < 2 {
             continue;
         }
+        // In arcs as long as each other, from the corner first round anticlockwise from the circle's start: a 20 × 10
+        // rectangle's sides each take a quarter of it, from 26.57° (batch 170); a square's corners are at its quarters
+        // anyway (batch 004 c039).
+        let n = angles.len();
+        let first = angles[0];
+        angles = (0..n).map(|k| first + std::f64::consts::TAU * k as f64 / n as f64).collect();
         let mut arcs = Vec::new();
         for (k, &start) in angles.iter().enumerate() {
             let end = if k + 1 < angles.len() { angles[k + 1] } else { angles[0] + 2.0 * std::f64::consts::PI };
