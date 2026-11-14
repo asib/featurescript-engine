@@ -848,10 +848,23 @@ pub fn loft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
         let found = query::evaluate(model, q)?;
         let faces: Vec<&_> = found.iter().filter(|r| r.kind == EntityType::Face).collect();
         if let Some(face) = faces.first() {
-            if faces.len() > 1 {
-                return Err(error("@opLoft: profiles of several faces aren't supported yet"));
-            }
-            wires.push(occt::outer_wire(model.shape(**face)).map_err(occt_error)?);
+            // Several faces, a region split by lines across it: merged into one, its boundary's collinear edges one
+            // edge each, as Onshape's profile is (batch 169: a rectangle split in two lofts as the rectangle).
+            let face = if faces.len() > 1 {
+                let shapes: Vec<Shape> = faces.iter().map(|r| model.shape(**r).clone()).collect();
+                let merged = occt::merge_faces(&shapes).map_err(occt_error)?.shape();
+                let [one] = &merged.sub_shapes(ShapeKind::Face)[..] else {
+                    return Err(error("@opLoft: profiles of several faces that don't make one aren't supported yet"));
+                };
+                let count = |s: &Shape| s.sub_shapes(ShapeKind::Edge).len();
+                match occt::merge_edges(one) {
+                    Ok(op) if count(&op.shape()) < count(one) => op.shape().sub_shapes(ShapeKind::Face).into_iter().next().unwrap_or(one.clone()),
+                    _ => one.clone(),
+                }
+            } else {
+                model.shape(**face).clone()
+            };
+            wires.push(occt::outer_wire(&face).map_err(occt_error)?);
             continue;
         }
         let edges: Vec<Shape> =
