@@ -422,10 +422,9 @@ pub fn register(m: &mut GeomBuiltins) {
         Ok(ids(&id, &[("startId", "start"), ("endId", "end")]))
     });
     m.insert("skConicSegment", |_, args| {
+        // (`lowParameter` and `highParameter` change nothing: Onshape's conic runs from its start to its end whatever
+        // they are, batch 168.)
         let id = add(&args, "skConicSegment", |v| {
-            if !field(v, "lowParameter").is_undefined() || !field(v, "highParameter").is_undefined() {
-                return Err(error("@skConicSegment: trimmed conics aren't supported yet"));
-            }
             Ok(Geometry::Conic {
                 start: point(v, "start", "skConicSegment start")?,
                 control: point(v, "controlPoint", "skConicSegment controlPoint")?,
@@ -693,6 +692,7 @@ fn solve(model: &mut Model, sketch: &Sketch) -> R<()> {
     let mut points: Vec<(Rc<str>, occt::Vec3, bool)> = Vec::new();
     // Curves Onshape flags periodic though OCCT's can't be (`Info::flagged_periodic`).
     let mut flagged: Vec<Rc<str>> = Vec::new();
+    let mut conics: Vec<Rc<str>> = Vec::new();
     for entity in sketch.entities.borrow().iter() {
         let edge = match &entity.geometry {
             Geometry::Point(p) => {
@@ -758,6 +758,7 @@ fn solve(model: &mut Model, sketch: &Sketch) -> R<()> {
                 return Err(error(format!("@skSolve: sketch entity {:?} ({kind:?}) has no geometry and no initial guess", entity.id)));
             }
             Geometry::Conic { start, control, end, rho } => {
+                conics.push(entity.id.clone());
                 let w = rho / (1.0 - rho);
                 occt::conic_edge(world(*start), world(*control), world(*end), w).map_err(occt_error)?
             }
@@ -786,6 +787,7 @@ fn solve(model: &mut Model, sketch: &Sketch) -> R<()> {
             construction,
             line_origin,
             flagged_periodic: flagged.contains(&id),
+            conic: conics.contains(&id),
             ..Default::default()
         });
         let new = NewBody {

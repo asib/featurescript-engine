@@ -765,7 +765,7 @@ pub fn register(m: &mut GeomBuiltins) {
                         let flagged = model.info(*r).flagged_periodic;
                         // A sketch's conic (one rational quadratic span) isn't a B-spline to std in Onshape: only
                         // the map (batch 070 c003).
-                        if data.rational && data.degree == 2 && data.poles.len() == 3 {
+                        if (data.rational && data.degree == 2 && data.poles.len() == 3) || model.info(*r).conic {
                             return Ok(map(vec![("curveType", Value::string("OTHER"))]));
                         }
                         // Flagged periodic, its knots clamped: reported so, its poles as they are.
