@@ -1732,10 +1732,11 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
 - **Lofts from profiles of several faces** (batch 169): a region split by a line across it, both faces taken as one
   profile, lofts as the whole region: the faces merged and their boundary's collinear edges made one each (a split
   rectangle to a rectangle, or to another split one, is the plain six-faced loft). The engine now merges them so. A
-  20 × 10 rectangle lofted to a circle is 0.23% of the volume off Onshape's (3119.4 to 3112.3 mm³), split or not:
-  splitting the circle at the corners' angles, as a square's matches (batch 004 c039), comes nearest of the splits
-  tried (by perimeter, centred on the sides or from a corner, 3130.9 and 3129.0; even quarters, 3167.7 and 2851.3),
-  so Onshape's correspondence there is its own. Known gap.
+  20 × 10 rectangle lofted to a circle had been 0.23% of the volume off Onshape's, split or not; batch 170's poles
+  show why: Onshape splits the circle into arcs as long as each other, from where the ray through the corner first
+  round anticlockwise from the circle's start meets it, each side ruled to one (the rectangle's corners (10, 5) and
+  (−10, −5) keep their angles, 26.57° and 206.57°; the other two go to 116.57° and 296.57°, not their own 153.43° and
+  333.43°). A square's corners are at its quarters anyway (batch 004 c039). The engine now splits so, and matches.
 - **Trimmed conic segments; sheets up to curved sheets** (batch 168): a sketch conic's `lowParameter` and
   `highParameter` change nothing in Onshape: the conic runs from its start to its end, peaking at rho times the control
   point's height (5, 3 and 8 for rho 0.5, 0.3, 0.8), and std gets no B-spline for it, a parabola (weight 1, which OCCT

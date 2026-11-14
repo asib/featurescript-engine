@@ -1,0 +1,37 @@
+{
+  "batch": "170",
+  "title": "probes: the poles of lofts from rectangles to circles",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "loft",
+      "description": "a 20 × 10 rectangle lofted to a circle (radius 6) 20 up: the faces' poles",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "loft",
+      "description": "a 30 × 10 rectangle lofted to the circle: the faces' poles",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "loft",
+      "description": "a 20 × 20 square lofted to the circle: the faces' poles",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    }
+  ]
+}
