@@ -257,9 +257,7 @@ pub fn extrude(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
         // Up to a plane: swept from far behind, then cut at the plane (a hem's step, batch 021); up to a curved face or
         // bodies, of a solid, the same (batch 164 c004, c005).
         Some(Bound::Surface(face, _)) if face.face_plane().is_ok() => -reach,
-        Some(Bound::Surface(..)) => -reach,
-        Some(Bound::Bodies(..)) if solid => -reach,
-        Some(_) => return Err(error("@opExtrude: up-to start bounds of sheets on bodies aren't supported yet")),
+        Some(Bound::Surface(..) | Bound::Bodies(..)) => -reach,
     };
     let end_at = match &end {
         Bound::Blind(d) => *d,
@@ -465,7 +463,24 @@ pub fn extrude(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
                         .map_err(occt_error)?
                 };
                 let split = occt::split(&result, &bodies).map_err(|_| regen_error("EXTRUDE_FAILED"))?;
-                let kept = pieces_touching(&split.shape(), std::slice::from_ref(profile), kind);
+                let kept = if solid {
+                    pieces_touching(&split.shape(), std::slice::from_ref(profile), kind)
+                } else {
+                    // A sheet's faces the profile lies on, sewn again (batch 168 c004).
+                    let faces: Vec<Shape> = split
+                        .shape()
+                        .sub_shapes(ShapeKind::Face)
+                        .into_iter()
+                        .filter(|f| f.distance(profile).is_ok_and(|d| d.distance < 1e-7))
+                        .collect();
+                    if faces.is_empty() {
+                        Vec::new()
+                    } else {
+                        let sewn = occt::sew_faces(&faces, 1e-7).map_err(occt_error)?;
+                        let shells = sewn.sub_shapes(ShapeKind::Shell);
+                        if shells.is_empty() { vec![sewn] } else { shells }
+                    }
+                };
                 for piece in &kept {
                     for f in piece.sub_shapes(ShapeKind::Face) {
                         if bodies.iter().any(|b| on_surface(&f, b)) {
