@@ -1,0 +1,4 @@
+probe c001 { bodies : [ { area : 1277.66721319384 , bounds : [ -10 , -6 , 0 , 10 , 6 , 20 ] , edges : 12 , faces : 6 , name : c001.1 , type : SOLID , vertices : 8 , volume : 3112.2536821054146 } ] , construction : [] }
+probe c002 { bodies : [ { area : 1300.000000000001 , bounds : [ 390 , -5 , 0 , 410.00000000000006 , 5 , 15 ] , edges : 12 , faces : 6 , name : c002.1 , type : SOLID , vertices : 8 , volume : 3000.000000000002 } ] , construction : [] }
+probe c003 { bodies : [ { area : 1300.000000000001 , bounds : [ 790 , -5 , 0 , 810 , 5 , 15 ] , edges : 12 , faces : 6 , name : c003.1 , type : SOLID , vertices : 8 , volume : 3000.000000000002 } ] , construction : [] }
+batch-169 failed cases: []

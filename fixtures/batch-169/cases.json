@@ -1,0 +1,37 @@
+{
+  "batch": "169",
+  "title": "lofts whose profiles are more than one face",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "loft",
+      "description": "a rectangle split in two, both regions one profile, lofted to a circle (radius 6) 20 up",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "loft",
+      "description": "the split rectangle lofted to a 20 × 10 rectangle 15 up",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "loft",
+      "description": "the split rectangle lofted to one split at x = 3, 15 up",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    }
+  ]
+}
