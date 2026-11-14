@@ -1,0 +1,5 @@
+probe c001 { bodies : [] , construction : [] , values : { curves : [ { points : [ [ 0 , 0 , 0 ] , [ 10 , 5 , 0 ] , [ 20 , 0 , 0 ] ] } ] } }
+probe c002 { bodies : [] , construction : [] , values : { curves : [ { points : [ [ 0 , 0 , 0 ] , [ 10 , 3 , 0 ] , [ 20 , 0 , 0 ] ] } ] } }
+probe c003 { bodies : [] , construction : [] , values : { curves : [ { points : [ [ 0 , 0 , 0 ] , [ 10 , 8 , 0 ] , [ 20 , 0 , 0 ] ] } ] } }
+probe c004 { bodies : [ { area : 965.2516631899265 , bounds : [ 1188 , -15 , -14.999999999999998 , 1212 , 15 , -6 ] , edges : 4 , faces : 1 , name : c004.1 , type : SHEET , vertices : 4 } , { area : 294.02243541160095 , bounds : [ 1194 , 2 , -14.999999999999998 , 1206 , 2.0000000000000018 , 9.999999999999998 ] , edges : 4 , faces : 1 , name : c004.2 , plane : [ [ 1200 , 2 , -2.5749999999999993 ] , [ 0 , -1 , 0 ] , [ 1 , 0 , 0 ] ] , type : SHEET , vertices : 4 } ] , construction : [] }
+batch-168 failed cases: []

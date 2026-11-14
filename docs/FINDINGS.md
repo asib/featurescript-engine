@@ -1729,6 +1729,11 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   difference grid had seemed within 0.07). Across the middle of the gap Onshape's is near the cubic with chord-length
   tangents, and toward the side lines it dips less (96% as much a quarter of the way along): no Coons or Gordon
   blend of those tried gives that. Known gap.
+- **Trimmed conic segments; sheets up to curved sheets** (batch 168): a sketch conic's `lowParameter` and
+  `highParameter` change nothing in Onshape: the conic runs from its start to its end, peaking at rho times the control
+  point's height (5, 3 and 8 for rho 0.5, 0.3, 0.8), and std gets no B-spline for it, a parabola (weight 1, which OCCT
+  keeps non-rational) included. The engine now ignores them (it refused them) and reports every sketch conic so. A
+  surface's second direction up to a curved sheet ends on it, as up to a face.
 - **Face patterns of bosses and pockets together; sheets up to curved faces** (batch 167): a boss's and a pocket's
   faces patterned together come out as the bosses added and the pockets taken away; where a boss's copy meets a
   pocket (a quarter turn standing it over the pocket, their faces touching) Onshape fails (`PATTERN_FACE_FAILED`), as

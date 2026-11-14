@@ -1,0 +1,47 @@
+{
+  "batch": "168",
+  "title": "trimmed conic segments; a surface extruded up to a curved sheet in its second direction",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "sketch",
+      "description": "a parabolic conic (rho 0.5, from (0, 0) by (10, 10) to (20, 0)) trimmed to parameters 0.2 to 0.7",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "sketch",
+      "description": "an elliptical conic (rho 0.3) trimmed to parameters 0 to 0.5",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "sketch",
+      "description": "a hyperbolic conic (rho 0.8) trimmed to parameters 0.25 to 1",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "extrude",
+      "description": "a line extruded as a surface 10 up and down to a curved sheet in its second direction",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    }
+  ]
+}
