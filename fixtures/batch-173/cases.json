@@ -1,0 +1,77 @@
+{
+  "batch": "173",
+  "title": "probes: the poles of B-spline face blends between a floor and a cylinder, and of swept profile blends",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "face-blend",
+      "description": "a floor and an upright cylinder (radius 10) blended with radii 3 and 5 (batch 172 c002): its poles",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "face-blend",
+      "description": "the same, switched (batch 172 c006): its poles",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "face-blend",
+      "description": "the same blended 3 mm, curvature section, magnitude 0.5 (batch 172 c007): its poles",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "face-blend",
+      "description": "the same blended 3 mm, conic section, rho 0.7 (batch 084 c007): its poles",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "face-blend",
+      "description": "the same blended 3 mm, a swept profile along the circle at the cylinder's base",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "face-blend",
+      "description": "two sheets at right angles, a swept profile 5 mm along a spine parallel to their corner (batch 172 c010): its poles",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "face-blend",
+      "description": "the same along a spine slanting across their corner (batch 172 c011): its poles",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    }
+  ]
+}

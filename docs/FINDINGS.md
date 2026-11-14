@@ -1800,6 +1800,25 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
 - **Everyday parts** (batch 134): a flange with patterned bolt holes, a ribbed bracket, a keyed shaft, a slotted plate
   chamfered round its slot, a pocket filleted at its corners and floor, and a cup shelled open match exactly.
 
+- **Face blend options round a cylinder; chamfers; swept profiles** (batches 172, 173). Between a floor and an
+  upright cylinder: detached, the blend (the torus) is a sheet of its own and both sides stay whole (172 c001); two
+  radii set the ball's centre `radius` above the floor and `secondRadius` out from the wall, so it touches the wall
+  `radius` up and the floor `secondRadius` out, a quarter ellipse swept round (c002, c006, switched); a width is the
+  chord across, 2√2 up and out for 4 (c003); untrimmed, the blend round a closed wall has no ends and is the trimmed
+  one (c004); limited by a plane through the axis Onshape can't attach it (`FACE_BLEND_CANNOT_ATTACH`, c005); a
+  chamfer section is the straight line across, a cone round the cylinder (c008) and a plane between planar sheets
+  (c009, 5√2 wide for 5 mm). Onshape's B-spline blends round the cylinder (two radii, conic, curvature, swept) are
+  its own: round the axis a cubic through the circle every 22.5° from 45°, matching its tangent there (knots the
+  angles in radians, doubled) for the rational sections and interpolating it C2 (uniform knots) for curvature ones,
+  0.02–0.03 mm² under the exact surface; and the floor's edge along them is a curve 1e-4 longer than its circle
+  (`OTHER`), the floor 0.11–0.14 mm² smaller than with the exact circle, so these cases are compared to 0.15. A swept
+  profile takes the rolling ball's circle in the plane square to the spine and carries it straight along the
+  corner: along a spine parallel to the corner the blend is the rolling ball's (c010; a B-spline, the section exact
+  and a cubic along running a tenth past each end), along a spine slanting across it (by 20.1°) that circle seen
+  along the corner, a quarter ellipse touching the level sheet 4.6944 out and the upright 5 up (c011); along the
+  cylinder's base circle the rolling ball's again (173 c005). The engine builds all of these, its blends round the
+  cylinder exact, those along lines with Onshape's poles.
+
 ## STEP export
 
 - **Part names** are written on each `MANIFOLD_SOLID_BREP` (`MANIFOLD_SOLID_BREP('c030.1', ...)`), as well as on
