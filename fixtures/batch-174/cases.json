@@ -1,0 +1,87 @@
+{
+  "batch": "174",
+  "title": "lofts with guides on several sides, off a side's middle, along a corner, with end conditions, between circles and through three profiles",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "loft",
+      "description": "the squares with guides bulging out across opposite sides, through (13, 0, 10) and (-13, 0, 10)",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "loft",
+      "description": "the squares with guides bulging out across neighbouring sides, through (13, 0, 10) and (0, 13, 10)",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "loft",
+      "description": "the squares with a guide bulging out across a side off its middle, in the plane y = -2.5, through (13, -2.5, 10)",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "loft",
+      "description": "the squares with a guide from a quarter along a side's bottom edge to a quarter along its top, a fit spline bulging out through (13, -3.75, 10)",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "loft",
+      "description": "the squares with a guide along a corner, bulging out diagonally through (12, 12, 10)",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "loft",
+      "description": "the squares with a guide bulging out across a side's middle (batch 075 c005), normal to the first profile",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "loft",
+      "description": "circles of radius 10 at z = 0 and 5 at z = 20 with a guide bulging out through (12, 0, 10)",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c008",
+      "kind": "loft",
+      "description": "squares of 20, 25 and 10 mm at z = 0, 10 and 20 with a guide across their sides at y = 0 through (12.5, 0, 10)",
+      "slotMeters": [
+        2.8000000000000003,
+        0,
+        0
+      ]
+    }
+  ]
+}

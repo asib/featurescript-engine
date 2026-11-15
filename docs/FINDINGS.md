@@ -1819,6 +1819,26 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   cylinder's base circle the rolling ball's again (173 c005). The engine builds all of these, its blends round the
   cylinder exact, those along lines with Onshape's poles.
 
+- **Lofts with guides elsewhere** (batch 174; batch 112's poles again). Between a 20 mm square and a 10 mm one 20
+  above: guides crossing two sides (opposite or neighbouring) bend each alone, as one does (c001, c002). A guide
+  crossing a side off its middle (c003: in the plane y = −2.5, a fraction 0.375 along the bottom edge and 0.25 along
+  the top; c004: a quarter along both) puts the knot across at the mean of its two fractions, doubled; the bottom
+  and top edges are each their straight line with that knot at the guide's end, each part keeping its own speed and
+  the knot the geometric mean of the two (to 1e-6); the poles across are ruled between theirs, the two about the knot
+  moved by the guide's offset from its chord, so that the surface passes through the guide at its own parameter and
+  keeps the ruled side's slope across it. Only through both edges' middles is the knot single (C2 there: the
+  middle pole moved by the offset over its basis function, batch 112's rule). Along a corner (c005), both sides
+  there are one cubic span across, run as their bottom edges run, the two poles at the guide's end moved by the
+  offset; Onshape's edge along the guide is no B-spline to std. Along an arc guide each row is a C1 cubic through
+  even stations, the fewest spans (a power of two, at least 2) of at most 22.5° each: 8, 4 and 2 along batch 112's
+  arcs of 111°, 73° and 22°, 8 along the corner's 121°; along a fit spline Onshape places its own knots (0.4375,
+  0.5 for c004's). Between coaxial circles a guide in a plane through their axis is revolved (c007): an arc gives a
+  torus, here a spindle torus (its circle's centre 2.06 mm across the axis, `DEGENERATE_TOROIDAL_SURFACE` in
+  Onshape's STEP), the circles starting at the guide. With the loft normal to its first profile, Onshape refits every
+  side's knots across (c006: sixteenths across the bent side); through three squares it fits the guide in pieces
+  between them, at the middle profile's knot (c008). The engine builds c001–c005 and c007 to Onshape's poles (c004
+  to 0.007 mm³), and batch 075 c005 and 112 c001–c003 now exactly.
+
 ## STEP export
 
 - **Part names** are written on each `MANIFOLD_SOLID_BREP` (`MANIFOLD_SOLID_BREP('c030.1', ...)`), as well as on

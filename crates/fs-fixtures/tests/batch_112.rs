@@ -10,18 +10,18 @@ use std::path::PathBuf;
 /// fit, with two planar slivers).
 const KNOWN_GAPS: &[&str] = &["c004", "c005", "c006", "c007", "c008", "c009"];
 
-/// Lofts with a guide crossing a side: Onshape's surface is the engine's to within its own fit of the guide's arc
-/// (1e-4 to 5e-4 mm), the volumes within 1.8e-6, 7.8e-6 (c002, its fit the coarsest) and 3.2e-6 (c001–c003).
-const LOOSE: &[(&str, f64)] = &[("c001", 0.02), ("c002", 0.05), ("c003", 0.02)];
+/// The probes return Onshape's poles, its own fits, which the engine's match for lofts with a guide crossing a side
+/// (c001–c003: rows through 8, 4 and 2 spans along the arc, batch 174); elsewhere only the bodies are compared.
+const BODIES_ONLY: &[&str] = &["c004", "c005", "c006", "c007", "c008", "c009"];
 
-/// The probes return Onshape's poles, its own fits: only the bodies are compared.
-const BODIES_ONLY: &[&str] = &["c001", "c002", "c003", "c004", "c005", "c006", "c007", "c008", "c009"];
+/// The guided lofts' faces come in an order of Onshape's own (the bent side sewn in last).
+const UNORDERED: &[&str] = &["c001", "c002", "c003"];
 
 #[test]
 fn batch_112_matches_onshape() {
     fs_interp::run_with_large_stack(|| {
         let batch = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/batch-112");
-        let report = fs_fixtures::check_batch_bodies(&batch, None, LOOSE, BODIES_ONLY).unwrap();
+        let report = fs_fixtures::check_batch_unordered(&batch, None, &[], BODIES_ONLY, UNORDERED).unwrap();
         let unexpected: Vec<String> =
             report.problems().into_iter().filter(|p| !KNOWN_GAPS.iter().any(|case| p.starts_with(case))).collect();
         assert!(unexpected.is_empty(), "{report}");
