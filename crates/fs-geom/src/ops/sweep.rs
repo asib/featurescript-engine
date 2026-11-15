@@ -1151,7 +1151,7 @@ fn cubic_basis(knots: &[f64], u: f64) -> Vec<f64> {
 /// A guide along a corner (from a corner of one polygon to the corner the loft's side edge joins it to) moves both
 /// sides there the same way: across each (as its bottom edge runs), one cubic span, its two poles at the guide's end
 /// moved by the offset. Along the sides,
-/// each row is a C1 cubic through even stations, as Onshape's along an arc guide. The new sides are sewn in
+/// each row is a C1 cubic through even stations, as many as Onshape fits the guide with ([`guide_spans`]). The new sides are sewn in
 /// place of the old. The loft's shape and its caps, or `None` where the guides don't cross sides so.
 fn guided_loft(
     op: &occt::Operation,
@@ -1160,6 +1160,9 @@ fn guided_loft(
     solid: bool,
 ) -> R<Option<(Shape, Vec<Shape>, Vec<Shape>)>> {
     use values::{add, dot, norm, scale, sub};
+    if wires.len() > 2 {
+        return threaded_guided_loft(op, wires, guides, solid);
+    }
     if wires.len() != 2 {
         return Ok(None);
     }
@@ -1301,40 +1304,46 @@ fn guided_loft(
             }
             _ => return Ok(None),
         }
-        // Along an arc guide, the fewest spans (a power of two, at least 2) of at most 22.5° each, as Onshape's
-        // (batch 112: 8, 4 and 2 along arcs of 111°, 73° and 22°); along other guides, 8.
-        let spans = match guide.curve_definition() {
-            Ok(c) if guide.curve_type().ok() == Some(occt::CurveType::Circle) && c.radius1 > 0.0 => {
-                let sweep = guide.length().map_err(occt_error)? / c.radius1;
-                let mut n = 2;
-                while sweep / n as f64 > std::f64::consts::PI / 8.0 + 1e-9 {
-                    n *= 2;
-                }
-                n
-            }
-            _ => 8,
-        };
+        let spans = guide_spans(guide, 0.0, 1.0)?;
         for (face, rows, knots_u) in built {
             if replaced.iter().any(|(old, _)| old.is_same(&face)) {
                 return Ok(None);
             }
-            let count = knots_u.len() - 4;
-            let curves = super::surface::sampled_rows_in(count, spans + 1, rows)?;
-            let nv = curves[0].poles.len();
-            let poles: Vec<Vec3> = curves.iter().flat_map(|c| c.poles.iter().copied()).collect();
-            let bent = occt::bspline_surface_face(&poles, (count, nv), &knots_u, &curves[0].knots, (3, curves[0].degree))
-                .map_err(|_| regen_error("LOFT_FAILED"))?;
-            // Facing as the side it replaces, compared near its middle where the two nearly agree.
-            let normal = |f: &Shape, u: f64, v: f64| f.face_tangent_plane(u, v).ok().map(|p| p.normal);
-            let old = face.face_inner_point().ok().and_then(|p| face.face_fraction(p).ok()).and_then(|(u, v)| normal(&face, u, v));
-            let new = normal(&bent, 0.5, 0.02);
-            let bent = match (old, new) {
-                (Some(x), Some(y)) if dot(x, y) < 0.0 => bent.reversed(),
-                _ => bent,
-            };
+            let params: Vec<f64> = (0..=spans).map(|k| k as f64 / spans as f64).collect();
+            let bent = bent_side(&face, &knots_u, &params, rows)?;
             replaced.push((face, bent));
         }
     }
+    sew_replaced(&shape, &first, &last, &replaced, solid).map(Some)
+}
+
+/// A side's new surface from its rows across (at fractions along, through `params`), facing as the side it replaces.
+fn bent_side(face: &Shape, knots_u: &[f64], params: &[f64], rows: impl Fn(f64) -> R<Vec<Vec3>>) -> R<Shape> {
+    let count = knots_u.len() - 4;
+    let curves = super::surface::sampled_rows_at(count, params, rows)?;
+    let nv = curves[0].poles.len();
+    let poles: Vec<Vec3> = curves.iter().flat_map(|c| c.poles.iter().copied()).collect();
+    let bent = occt::bspline_surface_face(&poles, (count, nv), knots_u, &curves[0].knots, (3, curves[0].degree))
+        .map_err(|_| regen_error("LOFT_FAILED"))?;
+    // Facing as the side it replaces, compared near its start where the two nearly agree.
+    let normal = |f: &Shape, u: f64, v: f64| f.face_tangent_plane(u, v).ok().map(|p| p.normal);
+    let old = face.face_inner_point().ok().and_then(|p| face.face_fraction(p).ok()).and_then(|(u, v)| normal(face, u, v));
+    let new = normal(&bent, 0.5, 0.02);
+    Ok(match (old, new) {
+        (Some(x), Some(y)) if values::dot(x, y) < 0.0 => bent.reversed(),
+        _ => bent,
+    })
+}
+
+/// A loft's faces with some sides replaced, sewn (into a solid if `solid`): its shape and its caps, found again.
+fn sew_replaced(
+    shape: &Shape,
+    first: &[Shape],
+    last: &[Shape],
+    replaced: &[(Shape, Shape)],
+    solid: bool,
+) -> R<(Shape, Vec<Shape>, Vec<Shape>)> {
+    let on = |s: &Shape, p: Vec3| occt::vertex(p).ok().and_then(|v| v.distance(s).ok()).is_some_and(|d| d.distance < 1e-7);
     let faces: Vec<Shape> = shape
         .sub_shapes(ShapeKind::Face)
         .into_iter()
@@ -1352,7 +1361,161 @@ fn guided_loft(
     let find = |caps: &[Shape]| -> Vec<Shape> {
         result.sub_shapes(ShapeKind::Face).into_iter().filter(|f| caps.iter().any(|c| same_place(c, f))).collect()
     };
-    Ok(Some((result.clone(), find(&first), find(&last))))
+    Ok((result.clone(), find(first), find(last)))
+}
+
+/// How many even spans Onshape fits a guide's stretch (from fraction `g0` to `g1` of its parameter) with along a
+/// loft: the fewest, a power of two, whose C1 cubic through the guide's points and tangents at their ends keeps
+/// within 1e-3 mm of it (batches 112, 174: 8, 4 and 2 along arcs of 111°, 73° and 22°, 1.1e-4 to 4.7e-4 mm off,
+/// where half as many would be 1.8e-3 to 7.5e-3 off; 2 and 4 along a 102° arc's stretches of 46° and 56° between
+/// three profiles, 8.7e-4 and 1.2e-4 off).
+fn guide_spans(guide: &Shape, g0: f64, g1: f64) -> R<usize> {
+    use values::{add, norm, scale, sub};
+    let at = |f: f64| -> R<Vec3> { Ok(guide.edge_tangent(f.clamp(0.0, 1.0), false).map_err(occt_error)?.origin) };
+    let slope = |f: f64| -> R<Vec3> {
+        let h = 1e-6;
+        let (lo, hi) = ((f - h).max(0.0), (f + h).min(1.0));
+        Ok(scale(sub(at(hi)?, at(lo)?), 1.0 / (hi - lo)))
+    };
+    const TOLERANCE: f64 = 1e-6;
+    let mut n = 1;
+    while n < 64 {
+        let mut worst: f64 = 0.0;
+        for k in 0..n {
+            let (a, b) = (g0 + (g1 - g0) * k as f64 / n as f64, g0 + (g1 - g0) * (k + 1) as f64 / n as f64);
+            let span = b - a;
+            let (pa, pb) = (at(a)?, at(b)?);
+            let poles = [pa, add(pa, scale(slope(a)?, span / 3.0)), sub(pb, scale(slope(b)?, span / 3.0)), pb];
+            for s in [0.25_f64, 0.5, 0.75] {
+                let w = [(1.0 - s).powi(3), 3.0 * (1.0 - s).powi(2) * s, 3.0 * (1.0 - s) * s * s, s.powi(3)];
+                let h = (1..4).fold(scale(poles[0], w[0]), |acc, i| add(acc, scale(poles[i], w[i])));
+                worst = worst.max(norm(sub(h, at(a + s * span)?)));
+            }
+        }
+        if worst <= TOLERANCE {
+            break;
+        }
+        n *= 2;
+    }
+    Ok(n)
+}
+
+/// A loft through more than two polygons with guides each crossing a side through the middles of all the profiles'
+/// edges there (batch 174 c008: squares of 20, 25 and 10 mm): as between two ([`guided_loft`]'s single knot), over
+/// the plain loft's side, straight across between its side edges, the guide's parameter carried along the loft
+/// evenly between where it meets each profile (Onshape's surface passes through the guide's middle-profile point at
+/// the loft's knot there); the rows fitted along each stretch between profiles apart ([`guide_spans`]).
+fn threaded_guided_loft(
+    op: &occt::Operation,
+    wires: &[Shape],
+    guides: &[Shape],
+    solid: bool,
+) -> R<Option<(Shape, Vec<Shape>, Vec<Shape>)>> {
+    use values::{add, dot, norm, scale, sub};
+    let shape = op.shape();
+    let (first, last) = (op.first(), op.last());
+    let caps: Vec<Shape> = first.iter().chain(&last).cloned().collect();
+    let (bottom_wire, top_wire) = (&wires[0], &wires[wires.len() - 1]);
+    let near = |a: Vec3, b: Vec3| norm(sub(a, b)) < 1e-7;
+    let on = |s: &Shape, p: Vec3| occt::vertex(p).ok().and_then(|v| v.distance(s).ok()).is_some_and(|d| d.distance < 1e-7);
+    let at = |e: &Shape, f: f64| -> R<Vec3> { Ok(e.edge_tangent(f, false).map_err(occt_error)?.origin) };
+    let lerp = |a: Vec3, b: Vec3, t: f64| add(a, scale(sub(b, a), t));
+    // Where an edge meets a profile: the point, and the fraction along the edge.
+    let meets = |e: &Shape, w: &Shape| -> R<Option<(Vec3, f64)>> {
+        let Ok(d) = e.distance(w) else { return Ok(None) };
+        if d.distance > 1e-7 {
+            return Ok(None);
+        }
+        Ok(Some((d.a, e.edge_fraction(d.a, false).map_err(occt_error)?)))
+    };
+    let sides: Vec<Shape> = shape.sub_shapes(ShapeKind::Face).into_iter().filter(|f| !caps.iter().any(|c| c.is_same(f))).collect();
+    let mut replaced: Vec<(Shape, Shape)> = Vec::new();
+    for guide in guides {
+        let (g0, g1) = (at(guide, 0.0)?, at(guide, 1.0)?);
+        let reversed = if on(bottom_wire, g0) && on(top_wire, g1) {
+            false
+        } else if on(top_wire, g0) && on(bottom_wire, g1) {
+            true
+        } else {
+            return Ok(None);
+        };
+        let (bottom_point, top_point) = if reversed { (g1, g0) } else { (g0, g1) };
+        let faces: Vec<&Shape> = sides.iter().filter(|f| on(f, bottom_point) && on(f, top_point)).collect();
+        let [face] = faces[..] else { return Ok(None) };
+        // Its bottom and top edges, and its side edges, each run from bottom to top.
+        let (mut bottom, mut top, mut rails) = (None, None, Vec::new());
+        for e in face.sub_shapes(ShapeKind::Edge) {
+            let m = at(&e, 0.5)?;
+            if on(bottom_wire, m) {
+                bottom = Some(e);
+            } else if on(top_wire, m) {
+                top = Some(e);
+            } else {
+                rails.push(e);
+            }
+        }
+        let (Some(bottom), Some(_top), [r0, r1]) = (bottom, top, &rails[..]) else { return Ok(None) };
+        let (a, b) = (at(&bottom, 0.0)?, at(&bottom, 1.0)?);
+        let upward = |r: &Shape| -> R<Option<(Shape, bool)>> {
+            Ok(if on(bottom_wire, at(r, 0.0)?) { Some((r.clone(), false)) } else if on(bottom_wire, at(r, 1.0)?) { Some((r.clone(), true)) } else { None })
+        };
+        let (Some(left), Some(right)) = (upward(r0)?, upward(r1)?) else { return Ok(None) };
+        let rail = |r: &(Shape, bool), v: f64| -> R<Vec3> { at(&r.0, if r.1 { 1.0 - v } else { v }) };
+        let (left, right) = if near(rail(&left, 0.0)?, a) && near(rail(&right, 0.0)?, b) {
+            (left, right)
+        } else if near(rail(&left, 0.0)?, b) && near(rail(&right, 0.0)?, a) {
+            (right, left)
+        } else {
+            return Ok(None);
+        };
+        let plain = |u: f64, v: f64| -> R<Vec3> { Ok(lerp(rail(&left, v)?, rail(&right, v)?, u)) };
+        // Through every profile at the middle of the side's edge there: the loft's knot (along the side edge) and
+        // the guide's fraction where they meet it.
+        let mut marks = vec![(0.0, 0.0)];
+        for w in &wires[1..wires.len() - 1] {
+            let (Some((corner, v)), Some((point, g))) = (meets(&left.0, w)?, meets(guide, w)?) else { return Ok(None) };
+            let v = if left.1 { 1.0 - v } else { v };
+            let g = if reversed { 1.0 - g } else { g };
+            let (other, _) = meets(&right.0, w)?.ok_or_else(|| regen_error("LOFT_FAILED"))?;
+            if norm(sub(lerp(corner, other, 0.5), point)) > 1e-7 || near(rail(&left, v)?, corner).then_some(()).is_none() {
+                return Ok(None);
+            }
+            marks.push((v, g));
+        }
+        marks.push((1.0, 1.0));
+        let fraction = |p: Vec3, from: Vec3, to: Vec3| dot(sub(p, from), sub(to, from)) / dot(sub(to, from), sub(to, from));
+        if (fraction(bottom_point, a, b) - 0.5).abs() > 1e-9
+            || (fraction(top_point, rail(&left, 1.0)?, rail(&right, 1.0)?) - 0.5).abs() > 1e-9
+        {
+            return Ok(None);
+        }
+        let carried = |v: f64| -> f64 {
+            let k = marks.windows(2).position(|m| v <= m[1].0).unwrap_or(marks.len() - 2);
+            let ((v0, g0), (v1, g1)) = (marks[k], marks[k + 1]);
+            g0 + (v - v0) / (v1 - v0) * (g1 - g0)
+        };
+        let guide_at = |v: f64| -> R<Vec3> { let g = carried(v); at(guide, if reversed { 1.0 - g } else { g }) };
+        let t = 0.5;
+        let knots_u = [0.0, 0.0, 0.0, 0.0, t, 1.0, 1.0, 1.0, 1.0];
+        let greville = [0.0, t / 3.0, (1.0 + t) / 3.0, (2.0 + t) / 3.0, 1.0];
+        let middle = cubic_basis(&knots_u, t)[2];
+        let rows = |v: f64| -> R<Vec<Vec3>> {
+            let bend = scale(sub(guide_at(v)?, plain(t, v)?), 1.0 / middle);
+            greville.iter().enumerate().map(|(i, &u)| Ok(if i == 2 { add(plain(u, v)?, bend) } else { plain(u, v)? })).collect()
+        };
+        let mut params = vec![0.0];
+        for m in marks.windows(2) {
+            let ((v0, g0), (v1, g1)) = (m[0], m[1]);
+            let (ga, gb) = if reversed { (1.0 - g1, 1.0 - g0) } else { (g0, g1) };
+            let n = guide_spans(guide, ga, gb)?;
+            params.extend((1..=n).map(|k| v0 + (v1 - v0) * k as f64 / n as f64));
+        }
+        if replaced.iter().any(|(old, _)| old.is_same(face)) {
+            return Ok(None);
+        }
+        replaced.push((face.clone(), bent_side(face, &knots_u, &params, rows)?));
+    }
+    sew_replaced(&shape, &first, &last, &replaced, solid).map(Some)
 }
 
 /// A loft between two coaxial circles (in parallel planes square to the line through their centres) with one guide

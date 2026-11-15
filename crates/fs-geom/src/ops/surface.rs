@@ -1434,8 +1434,18 @@ pub(crate) fn sampled_rows_in(
     stations: usize,
     rows: impl Fn(f64) -> R<Vec<occt::Vec3>>,
 ) -> R<Vec<occt::BSplineData>> {
-    use crate::values::{add, scale, sub};
     let params: Vec<f64> = (0..stations).map(|i| i as f64 / (stations - 1) as f64).collect();
+    sampled_rows_at(count, &params, rows)
+}
+
+/// [`sampled_rows`] through points at the given fractions (increasing, from 0 to 1), the knots there.
+pub(crate) fn sampled_rows_at(
+    count: usize,
+    params: &[f64],
+    rows: impl Fn(f64) -> R<Vec<occt::Vec3>>,
+) -> R<Vec<occt::BSplineData>> {
+    use crate::values::{add, scale, sub};
+    let stations = params.len();
     let samples: Vec<Vec<occt::Vec3>> = params.iter().map(|&f| rows(f)).collect::<R<_>>()?;
     if samples.iter().any(|s| s.len() != count) {
         return Err(error("sampled rows came out uneven"));
