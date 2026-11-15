@@ -3,8 +3,9 @@
 
 use std::path::PathBuf;
 
-/// With the loft normal to its first profile, Onshape refits every side's knots across to its own (c006); through
-/// three profiles, it fits the guide in pieces between them (c008): the engine refuses both.
+/// With the loft normal to its first profile, Onshape refits every side's knots across to its own (c006), which the
+/// engine refuses; through three profiles (c008) the engine bends the side as Onshape does, but its plain loft puts
+/// the middle profile at 0.4393 where Onshape's is at 0.4511, 0.14% of the volume off.
 const KNOWN_GAPS: &[&str] = &["c006", "c008", "failed probe"];
 
 /// The fit spline's guide: Onshape fits the rows along it with knots where it bends most (0.4375 and 0.5), the
