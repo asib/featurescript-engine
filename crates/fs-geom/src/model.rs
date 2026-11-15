@@ -126,8 +126,9 @@ pub struct Info {
     /// For a B-spline edge, flagged periodic though its knots are clamped, which OCCT's curve can't be: std raises
     /// a closed spline's degree so, and Onshape keeps the flag (batch 027 c005).
     pub flagged_periodic: bool,
-    /// For a sketch's conic: not a B-spline to std, whatever its weight (a parabola's is 1, batch 168 c001).
-    pub conic: bool,
+    /// An edge whose curve std doesn't see as a B-spline: a sketch's conic, whatever its weight (a parabola's is 1,
+    /// batch 168 c001); a guided loft's corner along its guide (batch 174 c005).
+    pub other_curve: bool,
     /// For a curved face a loft made through arcs: a rational B-spline in Onshape (its STEP export simplifies one
     /// between equal arcs to a cylinder), which it won't replace a face up to, though the engine's between equal
     /// arcs is a cylinder (batches 108, 111). An extension of the sheet keeps it (108 c011).

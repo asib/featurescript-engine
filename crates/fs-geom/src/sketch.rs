@@ -787,7 +787,7 @@ fn solve(model: &mut Model, sketch: &Sketch) -> R<()> {
             construction,
             line_origin,
             flagged_periodic: flagged.contains(&id),
-            conic: conics.contains(&id),
+            other_curve: conics.contains(&id),
             ..Default::default()
         });
         let new = NewBody {

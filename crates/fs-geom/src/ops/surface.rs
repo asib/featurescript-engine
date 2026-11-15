@@ -1421,13 +1421,21 @@ pub fn boundary_surface(model: &mut Model, id: FeatureId, definition: &Value) ->
     Ok(Value::UNDEFINED)
 }
 
-/// Curves through `STATIONS` points each at even fractions of 0 to 1 (`rows(f)` gives each curve's point at `f`), as
+/// Curves through 33 points each at even fractions of 0 to 1 (`rows(f)` gives each curve's point at `f`), as
 /// non-rational cubic B-splines on one knot vector: each span the cubic Hermite segment its ends' points and
 /// derivatives (by central differences) fix, the interior knots doubled (C1).
 pub(crate) fn sampled_rows(count: usize, rows: impl Fn(f64) -> R<Vec<occt::Vec3>>) -> R<Vec<occt::BSplineData>> {
+    sampled_rows_in(count, 33, rows)
+}
+
+/// [`sampled_rows`] through `stations` points each (`stations - 1` spans).
+pub(crate) fn sampled_rows_in(
+    count: usize,
+    stations: usize,
+    rows: impl Fn(f64) -> R<Vec<occt::Vec3>>,
+) -> R<Vec<occt::BSplineData>> {
     use crate::values::{add, scale, sub};
-    const STATIONS: usize = 33;
-    let params: Vec<f64> = (0..STATIONS).map(|i| i as f64 / (STATIONS - 1) as f64).collect();
+    let params: Vec<f64> = (0..stations).map(|i| i as f64 / (stations - 1) as f64).collect();
     let samples: Vec<Vec<occt::Vec3>> = params.iter().map(|&f| rows(f)).collect::<R<_>>()?;
     if samples.iter().any(|s| s.len() != count) {
         return Err(error("sampled rows came out uneven"));
@@ -1442,19 +1450,19 @@ pub(crate) fn sampled_rows(count: usize, rows: impl Fn(f64) -> R<Vec<occt::Vec3>
         })
         .collect::<R<_>>()?;
     let mut knots = vec![0.0; 4];
-    for &f in &params[1..STATIONS - 1] {
+    for &f in &params[1..stations - 1] {
         knots.extend([f, f]);
     }
     knots.extend([1.0; 4]);
     Ok((0..count)
         .map(|row| {
             let mut poles = vec![samples[0][row]];
-            for k in 0..STATIONS - 1 {
+            for k in 0..stations - 1 {
                 let span = params[k + 1] - params[k];
                 poles.push(add(samples[k][row], scale(slopes[k][row], span / 3.0)));
                 poles.push(sub(samples[k + 1][row], scale(slopes[k + 1][row], span / 3.0)));
             }
-            poles.push(samples[STATIONS - 1][row]);
+            poles.push(samples[stations - 1][row]);
             occt::BSplineData { degree: 3, periodic: false, rational: false, poles, weights: Vec::new(), knots: knots.clone() }
         })
         .collect())
