@@ -27,6 +27,7 @@
 #include <Geom2dConvert.hxx>
 #include <ElSLib.hxx>
 #include <Geom_CylindricalSurface.hxx>
+#include <Geom_ToroidalSurface.hxx>
 #include <Geom_ConicalSurface.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
 #include <gp_Cylinder.hxx>
@@ -1011,6 +1012,16 @@ std::unique_ptr<Shape> cylinder_face(Frame frame, double radius, double half_hei
   Handle(Geom_CylindricalSurface) surface = new Geom_CylindricalSurface(position, radius);
   BRepBuilderAPI_MakeFace maker(surface, 0, 2 * M_PI, -half_height, half_height, Precision::Confusion());
   if (!maker.IsDone()) throw std::runtime_error("cylinder face failed");
+  return wrap(maker.Face());
+}
+
+// A face on a torus about `frame`'s normal (major radius along its x at u = 0, either radius larger), bounded by the
+// parameter rectangle [u0, u1] x [v0, v1].
+std::unique_ptr<Shape> torus_face(Frame frame, double major, double minor, double u0, double u1, double v0, double v1) {
+  gp_Ax3 position(pnt(frame.origin), dir(frame.normal), dir(frame.x));
+  Handle(Geom_ToroidalSurface) surface = new Geom_ToroidalSurface(position, major, minor);
+  BRepBuilderAPI_MakeFace maker(surface, u0, u1, v0, v1, Precision::Confusion());
+  if (!maker.IsDone()) throw std::runtime_error("torus face failed");
   return wrap(maker.Face());
 }
 

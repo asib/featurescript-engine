@@ -226,6 +226,7 @@ mod ffi {
         fn extend_planar_face(sheet: &Shape, edges: &ShapeList, distances: &[f64]) -> Result<UniquePtr<Shape>>;
         fn sew_faces(faces: &ShapeList, tolerance: f64) -> Result<UniquePtr<Shape>>;
         fn cylinder_face(frame: Frame, radius: f64, half_height: f64) -> Result<UniquePtr<Shape>>;
+        fn torus_face(frame: Frame, major: f64, minor: f64, u0: f64, u1: f64, v0: f64, v1: f64) -> Result<UniquePtr<Shape>>;
         fn surface_patch(face: &Shape, u0: f64, u1: f64, v0: f64, v1: f64) -> Result<UniquePtr<Shape>>;
         fn face_corners_2d(face: &Shape, vertices: &ShapeList, size: f64, chamfer: bool) -> Result<UniquePtr<Shape>>;
         fn face_corner_2d(
@@ -1056,6 +1057,12 @@ pub fn surface_patch(face: &Shape, u: (f64, f64), v: (f64, f64)) -> Result<Shape
 
 pub fn cylinder_face(frame: Frame, radius: f64, half_height: f64) -> Result<Shape> {
     Ok(Shape::new(ffi::cylinder_face(frame, radius, half_height)?))
+}
+
+/// A face on a torus about `frame`'s normal, its major radius along `frame.x` at u = 0 (either radius may be the
+/// larger: a spindle torus), over u (round the axis) from `u.0` to `u.1` and v (round the tube) from `v.0` to `v.1`.
+pub fn torus_face(frame: Frame, major: f64, minor: f64, u: (f64, f64), v: (f64, f64)) -> Result<Shape> {
+    Ok(Shape::new(ffi::torus_face(frame, major, minor, u.0, u.1, v.0, v.1)?))
 }
 
 /// A planar face with corners at some vertices rounded to `size`, or (`chamfer`) cut back `size` along both edges.

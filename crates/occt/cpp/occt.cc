@@ -738,6 +738,17 @@ bool has_free_form_faces(const TopoDS_Shape &shape) {
   return false;
 }
 
+// Whether a face lies on a spindle torus (its tube wider than its distance from the axis), whose analytic box OCCT
+// gets wrong (the guided loft's torus, batch 174 c007, boxed as if it bulged out only at its seam).
+bool has_spindle_torus(const TopoDS_Shape &shape) {
+  for (TopExp_Explorer it(shape, TopAbs_FACE); it.More(); it.Next()) {
+    BRepAdaptor_Surface surface(TopoDS::Face(it.Current()), Standard_False);
+    if (surface.GetType() == GeomAbs_Torus && surface.Torus().MinorRadius() > surface.Torus().MajorRadius())
+      return true;
+  }
+  return false;
+}
+
 }  // namespace
 
 Box3 bounding_box(const Shape &s, bool precise) {
@@ -746,7 +757,7 @@ Box3 bounding_box(const Shape &s, bool precise) {
   if (box.IsVoid()) return Box3{Vec3{0, 0, 0}, Vec3{0, 0, 0}, true};
   double lo[3], hi[3];
   box.Get(lo[0], lo[1], lo[2], hi[0], hi[1], hi[2]);
-  if (has_free_form_faces(s.shape)) {
+  if (has_free_form_faces(s.shape) || has_spindle_torus(s.shape)) {
     // OCCT's boxes of B-spline faces can miss part of the face (a scaled sphere moved away from the origin loses
     // a sliver), even loose ones, so measure each side exactly: the distance from a plane just outside the box to
     // the shape.
