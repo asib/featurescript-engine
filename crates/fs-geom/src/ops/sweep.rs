@@ -915,17 +915,18 @@ fn polygon_circle_connected(
     Ok(Some((shape, first, last)))
 }
 
-/// Two polygons with different numbers of corners, matched as Onshape lofts them (batches 180 c007, 181 c001–c006):
-/// from the first one's first corner (or a connection's corners), to the corner of the other nearest it, both run
-/// anticlockwise along the way from the first to the second and measured by the fraction of their perimeters from
-/// there; each corner of the polygon with fewer goes to the other's corner nearest it so measured, and each of the
-/// other's corners left over to the middle of the edge it falls in (several in one edge, evenly along it). The two
-/// polygons rebuilt from those corners, the one with fewer with points added; `None` for other profiles.
-fn unequal_polygons(wires: &[Shape], forced: Option<(Vec3, Vec3)>) -> R<Option<Vec<Shape>>> {
+/// Two polygons with different numbers of corners, matched as Onshape lofts them (batches 180 c007, 181 c001–c006,
+/// 182 c001, c002): from the first one's first corner to the corner of the other nearest it (of two as near, the
+/// later round), or from each connection's corners to the next's, both run anticlockwise along the way from the
+/// first to the second and measured by the fraction of each stretch from there; in each stretch each corner of the
+/// polygon with fewer goes to the other's corner nearest it so measured, and each of the other's corners left over
+/// to the middle of the edge it falls in (several in one edge, evenly along it). The two polygons rebuilt from those
+/// corners, points added; `None` for other profiles.
+fn unequal_polygons(wires: &[Shape], forced: &[(Vec3, Vec3)]) -> R<Option<Vec<Shape>>> {
     use values::{add, cross, dot, norm, normalize, scale, sub};
     let [first, second] = wires else { return Ok(None) };
     let (Some(mut p), Some(mut q)) = (polygon_corners(first), polygon_corners(second)) else { return Ok(None) };
-    if p.len() == q.len() {
+    if p.len() == q.len() && forced.len() < 2 {
         return Ok(None);
     }
     let centre = |c: &[Vec3]| scale(c.iter().fold(Vec3::new(0.0, 0.0, 0.0), |a, &x| add(a, x)), 1.0 / c.len() as f64);
@@ -947,55 +948,96 @@ fn unequal_polygons(wires: &[Shape], forced: Option<(Vec3, Vec3)>) -> R<Option<V
         let least = d.iter().copied().fold(f64::INFINITY, f64::min);
         (0..c.len()).rev().find(|&i| d[i] - least < 1e-9).unwrap_or(0)
     };
-    let (ip, iq) = match forced {
-        Some((a, b)) => (nearest(&p, a), nearest(&q, b)),
-        None => {
-            let ip = nearest(&p, start);
-            (ip, nearest(&q, p[ip]))
-        }
+    let mut anchors: Vec<(usize, usize)> = if forced.is_empty() {
+        let ip = nearest(&p, start);
+        vec![(ip, nearest(&q, p[ip]))]
+    } else {
+        forced.iter().map(|&(a, b)| (nearest(&p, a), nearest(&q, b))).collect()
     };
-    let p: Vec<Vec3> = (0..p.len()).map(|i| p[(i + ip) % p.len()]).collect();
-    let q: Vec<Vec3> = (0..q.len()).map(|i| q[(i + iq) % q.len()]).collect();
+    // Round from the first.
+    let (p0, q0) = anchors[0];
+    let (np, nq) = (p.len(), q.len());
+    let p: Vec<Vec3> = (0..np).map(|i| p[(i + p0) % np]).collect();
+    let q: Vec<Vec3> = (0..nq).map(|i| q[(i + q0) % nq]).collect();
+    for a in anchors.iter_mut() {
+        *a = ((a.0 + np - p0) % np, (a.1 + nq - q0) % nq);
+    }
+    anchors.sort_by_key(|a| a.0);
+    // The connections must run round both the same way.
+    if anchors.windows(2).any(|w| w[1].1 <= w[0].1) {
+        return Ok(None);
+    }
+    // One stretch: corners a..=b of one and c..=d of the other (indices round), matched by fraction.
+    let stretch = |c: &[Vec3], from: usize, to: usize| -> Vec<Vec3> { (from..=to).map(|k| c[k % c.len()]).collect() };
+    // Fractions of the whole perimeter from the first anchor, summed edge by edge (Onshape's ties fall as these do in
+    // floating point: batch 182 c001, a square to a hexagon, earlier in one stretch and later in the other).
     let fractions = |c: &[Vec3]| -> Vec<f64> {
-        let lengths: Vec<f64> = (0..c.len()).map(|i| norm(sub(c[(i + 1) % c.len()], c[i]))).collect();
+        let n = c.len();
+        let lengths: Vec<f64> = (0..n).map(|i| norm(sub(c[(i + 1) % n], c[i]))).collect();
         let total: f64 = lengths.iter().sum();
         let mut at = vec![0.0];
-        for l in &lengths[..lengths.len() - 1] {
+        for l in &lengths[..n - 1] {
             at.push(at.last().copied().unwrap_or(0.0) + l / total);
         }
+        at.push(1.0);
         at
     };
-    let small_first = p.len() < q.len();
-    let (small, large) = if small_first { (&p, &q) } else { (&q, &p) };
-    let (fs, fl) = (fractions(small), fractions(large));
-    // Each corner of the smaller to the larger's nearest by fraction, in order (ties to the earlier).
-    let mut partner = vec![0usize; small.len()];
-    for i in 1..small.len() {
-        let lo = partner[i - 1] + 1;
-        let hi = large.len() - (small.len() - i);
-        let Some(k) = (lo..=hi).min_by(|&a, &b| (fl[a] - fs[i]).abs().total_cmp(&(fl[b] - fs[i]).abs())) else {
-            return Ok(None);
+    let (fp, fq) = (fractions(&p), fractions(&q));
+    let mut grown_p = Vec::new();
+    let mut grown_q = Vec::new();
+    for k in 0..anchors.len() {
+        let (a, c) = anchors[k];
+        // The last stretch runs on round to the first anchor (its indices a turn on).
+        let (b, d) = if k + 1 < anchors.len() { anchors[k + 1] } else { (np, nq) };
+        let (sp, sq) = (stretch(&p, a, b), stretch(&q, c, d));
+        let small_is_p = sp.len() <= sq.len();
+        let (small, large) = if small_is_p { (&sp, &sq) } else { (&sq, &sp) };
+        let (fs, fl): (Vec<f64>, Vec<f64>) = if small_is_p {
+            ((a..=b).map(|i| fp[i]).collect(), (c..=d).map(|i| fq[i]).collect())
+        } else {
+            ((c..=d).map(|i| fq[i]).collect(), (a..=b).map(|i| fp[i]).collect())
         };
-        partner[i] = k;
-    }
-    // The smaller rebuilt with the larger's corners left over: in the middle of the edge each falls in.
-    let mut grown = Vec::new();
-    for i in 0..small.len() {
-        let (a, b) = (small[i], small[(i + 1) % small.len()]);
-        let next = if i + 1 < small.len() { partner[i + 1] } else { large.len() };
-        let extra = next - partner[i] - 1;
-        grown.push(a);
-        for k in 1..=extra {
-            grown.push(add(a, scale(sub(b, a), k as f64 / (extra + 1) as f64)));
+        // Each corner of the smaller to the larger's nearest by fraction, in order (ties to the earlier).
+        let mut partner = vec![0usize; small.len()];
+        let last = small.len() - 1;
+        partner[last] = large.len() - 1;
+        for i in 1..last {
+            let lo = partner[i - 1] + 1;
+            let hi = large.len() - 1 - (last - i);
+            let Some(m) = (lo..=hi).min_by(|&x, &y| (fl[x] - fs[i]).abs().total_cmp(&(fl[y] - fs[i]).abs())) else {
+                return Ok(None);
+            };
+            partner[i] = m;
         }
+        // The smaller with the larger's corners left over in the middle of the edge each falls in (the stretch's last
+        // corner is the next stretch's first, so left out).
+        let mut grown = Vec::new();
+        for i in 0..last {
+            let (x, y) = (small[i], small[i + 1]);
+            let extra = partner[i + 1] - partner[i] - 1;
+            grown.push(x);
+            for e in 1..=extra {
+                grown.push(add(x, scale(sub(y, x), e as f64 / (extra + 1) as f64)));
+            }
+        }
+        let rest: Vec<Vec3> = large[..large.len() - 1].to_vec();
+        if small_is_p {
+            grown_p.extend(grown);
+            grown_q.extend(rest);
+        } else {
+            grown_q.extend(grown);
+            grown_p.extend(rest);
+        }
+    }
+    if grown_p.len() != grown_q.len() {
+        return Ok(None);
     }
     let rebuild = |c: &[Vec3]| -> R<Shape> {
         let edges: Vec<Shape> =
             (0..c.len()).map(|i| occt::line_edge(c[i], c[(i + 1) % c.len()])).collect::<Result<_, _>>().map_err(occt_error)?;
         occt::ordered_wire(&edges).map_err(occt_error)
     };
-    let (a, b) = if small_first { (rebuild(&grown)?, rebuild(large)?) } else { (rebuild(large)?, rebuild(&grown)?) };
-    Ok(Some(vec![a, b]))
+    Ok(Some(vec![rebuild(&grown_p)?, rebuild(&grown_q)?]))
 }
 
 /// The corners of a closed wire of straight edges, in order round it.
@@ -1236,35 +1278,69 @@ pub fn loft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
                 _ => None,
             })
             .collect();
-        let parameters: Vec<f64> = field(&first, "connectionEdgeParameters")
-            .as_array()
-            .map(|a| a.iter().filter_map(Value::as_number).collect())
-            .unwrap_or_default();
-        let connection_edges: Vec<Shape> = query::evaluate(model, field(&first, "connectionEdgeQueries"))?
-            .into_iter()
-            .filter(|r| r.kind == EntityType::Edge)
-            .map(|r| model.shape(r).clone())
-            .collect();
-        if circles.len() == 2 && wires.len() == 2 && connection_edges.len() == 2 && parameters.len() == 2 {
-            use crate::values::{cross, normalize, sub};
+        // Two circles connected once (batch 082 c006): each started at the connection's point, running as its own
+        // circle does, lofted start to start (a quarter along one and half along the other, a quarter turn's twist).
+        if circles.len() == 2 && wires.len() == 2 {
+            use crate::values::{cross, dot, normalize, sub};
+            if ends.iter().any(Option::is_some) {
+                return Err(error("@opLoft: connections with end conditions aren't supported yet"));
+            }
+            // Each connection's point round each circle.
+            let mut points: Vec<Vec<Vec3>> = vec![Vec::new(), Vec::new()];
+            for connection in field(definition, "connections").as_array().map(|a| a.to_vec()).unwrap_or_default() {
+                let params: Vec<f64> = field(&connection, "connectionEdgeParameters")
+                    .as_array()
+                    .map(|a| a.iter().filter_map(Value::as_number).collect())
+                    .unwrap_or_default();
+                let edges: Vec<Shape> = query::evaluate(model, field(&connection, "connectionEdgeQueries"))?
+                    .into_iter()
+                    .filter(|r| r.kind == EntityType::Edge)
+                    .map(|r| model.shape(r).clone())
+                    .collect();
+                for (c, (_, edge)) in circles.iter().enumerate() {
+                    let k = edges.iter().position(|e| touches(e, edge)).ok_or_else(|| regen_error("LOFT_CONNECTION_MATCHING"))?;
+                    let t = *params.get(k).ok_or_else(|| regen_error("LOFT_CONNECTION_MATCHING"))?;
+                    points[c].push(edges[k].edge_tangent(t, true).map_err(occt_error)?.origin);
+                }
+            }
             let mut started = Vec::new();
-            for (conic, edge) in &circles {
-                let k = connection_edges
-                    .iter()
-                    .position(|e| touches(e, edge))
-                    .ok_or_else(|| regen_error("LOFT_CONNECTION_MATCHING"))?;
-                let at = connection_edges[k].edge_tangent(parameters[k], true).map_err(occt_error)?.origin;
+            for (c, (conic, edge)) in circles.iter().enumerate() {
                 // Running as the profile's own circle does.
                 let start = edge.edge_tangent(0.0, false).map_err(occt_error)?;
                 let normal = normalize(cross(sub(start.origin, conic.frame.origin), start.direction))
                     .ok_or_else(|| regen_error("LOFT_FAILED"))?;
-                let x = normalize(sub(at, conic.frame.origin)).ok_or_else(|| regen_error("LOFT_FAILED"))?;
-                let circle = occt::circle_edge(occt::Frame { origin: conic.frame.origin, normal, x }, conic.radius1)
+                let x = normalize(sub(points[c][0], conic.frame.origin)).ok_or_else(|| regen_error("LOFT_FAILED"))?;
+                let frame = occt::Frame { origin: conic.frame.origin, normal, x };
+                // Connected more than once, Onshape's side is one periodic face whose correspondence between the
+                // circles isn't even along each arc (batch 182 c004: 0.7% of the volume less than arc to arc).
+                if points[c].len() > 1 {
+                    return Err(error("@opLoft: circles connected more than once aren't supported yet"));
+                }
+                if points[c].len() == 1 {
+                    let circle = occt::circle_edge(frame, conic.radius1).map_err(occt_error)?;
+                    started.push(occt::ordered_wire(&[circle]).map_err(occt_error)?);
+                    continue;
+                }
+                let y = cross(normal, x);
+                let tau = std::f64::consts::TAU;
+                let mut angles: Vec<f64> = points[c]
+                    .iter()
+                    .map(|&p| {
+                        let d = sub(p, conic.frame.origin);
+                        dot(d, y).atan2(dot(d, x)).rem_euclid(tau)
+                    })
+                    .collect();
+                // The connections in the order given must run round each circle the same way.
+                if angles.windows(2).any(|w| w[1] <= w[0]) {
+                    return Err(regen_error("LOFT_CONNECTION_MATCHING"));
+                }
+                angles.push(tau);
+                let arcs: Vec<Shape> = angles
+                    .windows(2)
+                    .map(|w| occt::arc_edge(frame, conic.radius1, w[0], w[1]))
+                    .collect::<Result<_, _>>()
                     .map_err(occt_error)?;
-                started.push(occt::ordered_wire(&[circle]).map_err(occt_error)?);
-            }
-            if ends.iter().any(Option::is_some) {
-                return Err(error("@opLoft: connections with end conditions aren't supported yet"));
+                started.push(occt::ordered_wire(&arcs).map_err(occt_error)?);
             }
             let op = occt::loft_as_given(&started, solid).map_err(|_| regen_error("LOFT_FAILED"))?;
             add_lofted(model, &id, &op, solid, &wires)?;
@@ -1321,8 +1397,21 @@ pub fn loft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
         }
         let matched = match forced.map(|f| matched_polygons_with(&wires, Some(f))).transpose()?.flatten() {
             Some(m) => Some(m),
-            None if field(definition, "connections").as_array().is_some_and(|a| a.len() == 1) => {
-                unequal_polygons(&wires, forced)?
+            None if wires.len() == 2 => {
+                // Each connection's points on the two profiles: corners, or points along edges.
+                let mut pairs = Vec::new();
+                for connection in field(definition, "connections").as_array().map(|a| a.to_vec()).unwrap_or_default() {
+                    let entities: Vec<Shape> = query::evaluate(model, field(&connection, "connectionEntities"))?
+                        .into_iter()
+                        .map(|r| model.shape(r).clone())
+                        .collect();
+                    let at = |w: &Shape| entities.iter().find(|e| touches(e, w)).and_then(|e| e.vertex_point().ok());
+                    match (at(&wires[0]), at(&wires[1])) {
+                        (Some(a), Some(b)) => pairs.push((a, b)),
+                        _ => return Err(error("@opLoft: connections other than between corners aren't supported yet")),
+                    }
+                }
+                unequal_polygons(&wires, &pairs)?
             }
             None => None,
         };
@@ -1377,7 +1466,7 @@ pub fn loft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
         op
     } else if let Some(matched) = matched_polygons(&wires)? {
         occt::loft_as_given(&matched, solid).map_err(|_| regen_error("LOFT_FAILED"))?
-    } else if let Some(matched) = unequal_polygons(&wires, None)? {
+    } else if let Some(matched) = unequal_polygons(&wires, &[])? {
         occt::loft_as_given(&matched, solid).map_err(|_| regen_error("LOFT_FAILED"))?
     } else {
         occt::loft(&wires, solid).map_err(|_| regen_error("LOFT_FAILED"))?
