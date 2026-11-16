@@ -1835,14 +1835,24 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   1.8e-3 to 7.5e-3), 8 along the corner's 121°; along a fit spline Onshape places its own knots (0.4375, 0.5 for
   c004's). Between coaxial circles a guide in a plane through their axis is revolved (c007): an arc gives a
   torus, here a spindle torus (its circle's centre 2.06 mm across the axis, `DEGENERATE_TOROIDAL_SURFACE` in
-  Onshape's STEP), the circles starting at the guide. With the loft normal to its first profile, Onshape refits every
-  side's knots across (c006: sixteenths across the bent side). Through three squares (c008) the bent side is the
+  Onshape's STEP), the circles starting at the guide. With the loft normal to its first profile (c006), Onshape refits
+  every side's knots across (sixteenths across the bent side), but under the fit the bent side is exact: its
+  sections along the loft, each the cubic from the bottom edge's point with the first profile's derivative D(u)
+  there and a free (natural) end at the top, plus the guide's offset from the middle section blended across as
+  without conditions, S = P(u, v) + N₂(u)(G(v) − P(t, v))/N₂(t), to 1e-5 mm. D(u) is the condition's at the
+  corners ((0, 0, 20.12), the plain loft's) and the guide's own tangent where it meets the profile ((15.99, 0,
+  18.18): 24.21 mm, its arc's length), and between them neither a blend of those two vectors (its x and z parts
+  go apart: 0.196 and 0.207 of the way an eighth along) nor a polynomial; it runs on smoothly round the profile's
+  corners onto the neighbouring sides (along them, out of their planes not at all: their poles move within them,
+  their shapes as without the guide) and leaves the far side alone. The engine builds the bent side so on its own
+  plain loft's sides, D constant along each, 0.14% of the volume under Onshape's (6006.09 mm³ to 6014.34): Onshape's
+  D is its plain loft's rule, not yet found (batch 056 c001's). Through three squares (c008) the bent side is the
   plain loft's with the same single-knot bend, the guide's parameter carried evenly between where it meets each
   profile (its middle-profile point at the loft's knot there, to 4e-8), each stretch fitted apart (2 and 4 spans
   along its 46° and 56°, within 1e-3 mm as above). The engine builds it so, but its plain loft through three
   polygons puts the middle profile at 0.4393 where Onshape's is at 0.4511 (and batch 062 c008's at 0.4083), by a
   rule not yet found (the chords at the edges' middles come nearest, 0.4519 and 0.4083), so c008 is 0.14% off. The engine builds c001–c005 and c007 to Onshape's poles (c004
-  to 0.007 mm³), and batch 075 c005 and 112 c001–c003 now exactly.
+  to 0.007 mm³), and batch 075 c005 and 112 c001–c003 now exactly; c006 and c008 as above.
 
 ## STEP export
 

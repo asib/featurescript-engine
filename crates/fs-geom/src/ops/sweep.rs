@@ -1053,11 +1053,13 @@ pub fn loft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
             }
         }
         if !off.is_empty() {
-            if ends.iter().any(Option::is_some) {
-                return Err(error("@opLoft: guides that change a loft with end conditions aren't supported yet"));
-            }
-            let Some((shape, first, last)) = guided_loft(&op, &wires, &off, solid)? else {
-                return Err(error("@opLoft: guides that change the loft this way aren't supported yet"));
+            let clamped = ends.iter().any(Option::is_some);
+            let Some((shape, first, last)) = guided_loft(&op, &wires, &off, solid, clamped)? else {
+                return Err(error(if clamped {
+                    "@opLoft: guides that change a loft with end conditions this way aren't supported yet"
+                } else {
+                    "@opLoft: guides that change the loft this way aren't supported yet"
+                }));
             };
             let before = model.bodies.len();
             add_lofted_shape(model, &id, &shape, &first, &last, solid, &wires)?;
@@ -1152,21 +1154,25 @@ fn cubic_basis(knots: &[f64], u: f64) -> Vec<f64> {
 /// sides there the same way: across each (as its bottom edge runs), one cubic span, its two poles at the guide's end
 /// moved by the offset. Along the sides,
 /// each row is a C1 cubic through even stations, as many as Onshape fits the guide with ([`guide_spans`]). The new sides are sewn in
-/// place of the old. The loft's shape and its caps, or `None` where the guides don't cross sides so.
+/// place of the old. With conditions at the ends (`clamped`: the loft's sides bulge along it), a guide crossing a side
+/// through the middles of its edges or along a corner bends the side's own surface the same way (174 c006: Onshape's
+/// surface is its own fit, the guide overriding the condition where it meets the profile). The loft's shape and its
+/// caps, or `None` where the guides don't cross sides so.
 fn guided_loft(
     op: &occt::Operation,
     wires: &[Shape],
     guides: &[Shape],
     solid: bool,
+    clamped: bool,
 ) -> R<Option<(Shape, Vec<Shape>, Vec<Shape>)>> {
     use values::{add, dot, norm, scale, sub};
     if wires.len() > 2 {
-        return threaded_guided_loft(op, wires, guides, solid);
+        return if clamped { Ok(None) } else { threaded_guided_loft(op, wires, guides, solid) };
     }
     if wires.len() != 2 {
         return Ok(None);
     }
-    if let Some(revolved) = revolved_guide_loft(wires, guides, solid)? {
+    if !clamped && let Some(revolved) = revolved_guide_loft(wires, guides, solid)? {
         return Ok(Some(revolved));
     }
     let shape = op.shape();
@@ -1185,7 +1191,9 @@ fn guided_loft(
     // b's partners along its side edges) on the second.
     let corners = |face: &Shape| -> R<Option<[Vec3; 4]>> {
         let edges = face.sub_shapes(ShapeKind::Edge);
-        if edges.len() != 4 || !edges.iter().all(straight) {
+        // With end conditions the side edges bulge; the profiles' edges stay straight.
+        let profile_edge = |e: &Shape| at(e, 0.5).is_ok_and(|m| on(&wires[0], m) || on(&wires[1], m));
+        if edges.len() != 4 || !edges.iter().all(|e| straight(e) || (clamped && !profile_edge(e))) {
             return Ok(None);
         }
         let (mut bottom, mut top, mut sides) = (None, None, Vec::new());
@@ -1219,6 +1227,35 @@ fn guided_loft(
         }
         Ok(Some([a, b, a2, b2]))
     };
+    // The side as it is, at fractions across (from `a` to `b`) and along (from the first profile): bilinear between
+    // its corners, or with end conditions its own surface, whichever way its parameters run.
+    type Plain = Rc<dyn Fn(f64, f64) -> R<Vec3>>;
+    let plain_side = |face: &Shape, [a, b, a2, b2]: [Vec3; 4]| -> R<Option<Plain>> {
+        if !clamped {
+            return Ok(Some(Rc::new(move |u: f64, v: f64| Ok(lerp(lerp(a, b, u), lerp(a2, b2, u), v)))));
+        }
+        let point = |fu: f64, fv: f64| -> R<Vec3> { Ok(face.face_tangent_plane(fu, fv).map_err(occt_error)?.origin) };
+        for swap in [false, true] {
+            for (flip_u, flip_v) in [(false, false), (true, false), (false, true), (true, true)] {
+                let map = move |u: f64, v: f64| {
+                    let (x, y) = if swap { (v, u) } else { (u, v) };
+                    (if flip_u { 1.0 - x } else { x }, if flip_v { 1.0 - y } else { y })
+                };
+                let fits = |u: f64, v: f64, p: Vec3| -> R<bool> {
+                    let (fu, fv) = map(u, v);
+                    Ok(near(point(fu, fv)?, p))
+                };
+                if fits(0.0, 0.0, a)? && fits(1.0, 0.0, b)? && fits(0.0, 1.0, a2)? {
+                    let face = face.clone();
+                    return Ok(Some(Rc::new(move |u: f64, v: f64| {
+                        let (fu, fv) = map(u, v);
+                        Ok(face.face_tangent_plane(fu, fv).map_err(occt_error)?.origin)
+                    })));
+                }
+            }
+        }
+        Ok(None)
+    };
     let sides: Vec<Shape> = shape.sub_shapes(ShapeKind::Face).into_iter().filter(|f| !caps.iter().any(|c| c.is_same(f))).collect();
     let mut replaced: Vec<(Shape, Shape)> = Vec::new();
     for guide in guides {
@@ -1237,23 +1274,29 @@ fn guided_loft(
         let mut built: Vec<(Shape, Box<dyn Fn(f64) -> R<Vec<Vec3>> + '_>, Vec<f64>)> = Vec::new();
         match faces[..] {
             [face] => {
-                let Some([a, b, a2, b2]) = corners(face)? else { return Ok(None) };
+                let Some(corner_points @ [a, b, a2, b2]) = corners(face)? else { return Ok(None) };
                 let fraction = |p: Vec3, from: Vec3, to: Vec3| dot(sub(p, from), sub(to, from)) / dot(sub(to, from), sub(to, from));
                 let (tb, tt) = (fraction(bottom_point, a, b), fraction(top_point, a2, b2));
                 if [tb, tt].iter().any(|&f| f <= 1e-6 || f >= 1.0 - 1e-6) {
                     return Ok(None);
                 }
-                let plain = move |u: f64, v: f64| lerp(lerp(a, b, u), lerp(a2, b2, u), v);
+                let Some(plain) = plain_side(face, corner_points)? else { return Ok(None) };
                 if (tb - 0.5).abs() < 1e-9 && (tt - 0.5).abs() < 1e-9 {
                     let t = 0.5;
                     let knots = vec![0.0, 0.0, 0.0, 0.0, t, 1.0, 1.0, 1.0, 1.0];
                     let greville = [0.0, t / 3.0, (1.0 + t) / 3.0, (2.0 + t) / 3.0, 1.0];
                     let middle = cubic_basis(&knots, t)[2];
                     let rows = move |v: f64| -> R<Vec<Vec3>> {
-                        let bend = scale(sub(guide_at(v)?, plain(t, v)), 1.0 / middle);
-                        Ok(greville.iter().enumerate().map(|(i, &u)| if i == 2 { add(plain(u, v), bend) } else { plain(u, v) }).collect())
+                        let bend = scale(sub(guide_at(v)?, plain(t, v)?), 1.0 / middle);
+                        greville
+                            .iter()
+                            .enumerate()
+                            .map(|(i, &u)| Ok(if i == 2 { add(plain(u, v)?, bend) } else { plain(u, v)? }))
+                            .collect()
                     };
                     built.push((face.clone(), Box::new(rows), knots));
+                } else if clamped {
+                    return Ok(None);
                 } else {
                     let t = (tb + tt) / 2.0;
                     let knots = vec![0.0, 0.0, 0.0, 0.0, t, t, 1.0, 1.0, 1.0, 1.0];
@@ -1281,7 +1324,7 @@ fn guided_loft(
             [f0, f1] => {
                 // Along a corner: both sides meeting at the side edge from one end of the guide to the other.
                 for face in [f0, f1] {
-                    let Some([a, b, a2, b2]) = corners(face)? else { return Ok(None) };
+                    let Some(corner_points @ [a, b, a2, b2]) = corners(face)? else { return Ok(None) };
                     // Across as the bottom edge runs, the guide at its start or its end (174 c005: both).
                     let at_start = if near(a, bottom_point) && near(a2, top_point) {
                         true
@@ -1290,14 +1333,14 @@ fn guided_loft(
                     } else {
                         return Ok(None);
                     };
-                    let plain = move |u: f64, v: f64| lerp(lerp(a, b, u), lerp(a2, b2, u), v);
+                    let Some(plain) = plain_side(face, corner_points)? else { return Ok(None) };
                     let rows = move |v: f64| -> R<Vec<Vec3>> {
-                        let offset = sub(guide_at(v)?, plain(if at_start { 0.0 } else { 1.0 }, v));
-                        Ok([0.0, 1.0 / 3.0, 2.0 / 3.0, 1.0]
+                        let offset = sub(guide_at(v)?, plain(if at_start { 0.0 } else { 1.0 }, v)?);
+                        [0.0, 1.0 / 3.0, 2.0 / 3.0, 1.0]
                             .iter()
                             .enumerate()
-                            .map(|(i, &u)| if (i < 2) == at_start { add(plain(u, v), offset) } else { plain(u, v) })
-                            .collect())
+                            .map(|(i, &u)| Ok(if (i < 2) == at_start { add(plain(u, v)?, offset) } else { plain(u, v)? }))
+                            .collect()
                     };
                     built.push((face.clone(), Box::new(rows), vec![0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0]));
                 }
