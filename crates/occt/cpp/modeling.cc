@@ -4058,8 +4058,19 @@ std::unique_ptr<Operation> loft_clamped_op(const ShapeList &wires, bool solid, V
     // shelled, batch 145 c005).
     for (int j = s->NbUKnots() - 1; j >= 2; --j)
       if (s->UMultiplicity(j) > s->UDegree() - 1) s->RemoveUKnot(j, s->UDegree() - 1, 1e-9);
+    // Along a straight edge every row is a line, and Onshape's side is a single cubic along it (its poles at thirds,
+    // batch 175 c004 and c006): the spans' knots all come out; along a curved edge none do.
+    for (int j = s->NbUKnots() - 1; j >= 2; --j) s->RemoveUKnot(j, 0, 1e-9);
+    double fu1 = side.u1, fu2 = side.u2;
+    if (s->NbUKnots() == 2) {
+      // That single cubic runs from 0 to 1 along the edge, as Onshape's does.
+      TColStd_Array1OfReal unit(1, 2);
+      unit(1) = 0, unit(2) = 1;
+      s->SetUKnots(unit);
+      fu1 = 0, fu2 = 1;
+    }
     // A side ending at a point has a degenerate row there: the face's edge there is degenerate.
-    ShapeFix_Face fix(BRepBuilderAPI_MakeFace(s, side.u1, side.u2, 0, 1, 1e-7).Face());
+    ShapeFix_Face fix(BRepBuilderAPI_MakeFace(s, fu1, fu2, 0, 1, 1e-7).Face());
     fix.Perform();
     sewing.Add(fix.Face());
   }
