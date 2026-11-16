@@ -4,10 +4,10 @@
 use std::path::PathBuf;
 
 /// Cases the engine doesn't build yet (see docs/FINDINGS.md): a square connected to a circle at two corners at once
-/// (c003: Onshape's sides take eight spans round each quarter, its circle exact), and a triangle connected to a square
-/// (c007: one side a planar fan from a corner to an edge). The engine refuses them, which the failed cases' line
-/// shows.
-const KNOWN_GAPS: &[&str] = &["c003", "c007", "failed probe"];
+/// (c003: Onshape's sides take eight spans round each quarter, its circle exact). The engine refuses it, which the
+/// failed cases' line shows. The triangle connected to a square (c007) matches: the triangle's edge opposite the
+/// connected corner split at its middle (batch 181).
+const KNOWN_GAPS: &[&str] = &["c003", "failed probe"];
 
 /// A polygon connected to a circle once: the engine's sides are Onshape's pole for pole (within 1.7e-4 mm), but
 /// Onshape's circular end is bounded by other approximations of the arcs than its sides' (314.1631 mm² where theirs
@@ -25,6 +25,6 @@ fn batch_180_matches_onshape() {
         let unexpected: Vec<String> =
             report.problems().into_iter().filter(|p| !KNOWN_GAPS.iter().any(|case| p.starts_with(case))).collect();
         assert!(unexpected.is_empty(), "{report}");
-        assert_eq!(report.probes_matched, (5, 8), "{report}");
+        assert_eq!(report.probes_matched, (6, 8), "{report}");
     });
 }
