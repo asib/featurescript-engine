@@ -1943,8 +1943,24 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
 - **Two connections** (c003, the square's opposite corners to an eighth and five eighths round): Onshape's sides take
   eight spans round each quarter and its circular end is the exact circle's (314.1595 mm²), 0.12 mm³ more than c001
   for the same corners; not modelled.
-- **A triangle to a square**, corner to corner (c007): three ruled sides of one cubic span and one planar side, a fan
-  from a corner to an edge (295.42 mm²); not modelled.
+- **A triangle to a square**, corner to corner (c007): the triangle's edge opposite the connected corner split at its
+  middle, a vertex there, the square's fourth corner taken to it; as polygons with different numbers of corners
+  below.
+
+## Lofts between polygons with different numbers of corners (batch 181, 180 c007)
+
+- From the first profile's first corner (Onshape's: where the engine's loop's first edge ends) to the nearest corner of
+  the other, of two as near the later round (c001: a triangle's at 90° to a square's at 45°, not 135°; c003: to a
+  hexagon's at 120°, not 60°), both polygons run anticlockwise along the way from the first to the second and are
+  measured by the fraction of their perimeters from there. Each corner of the polygon with fewer goes to the other's
+  corner nearest it so measured (in order; of two as near the earlier), and each of the other's corners left over to
+  the middle of the edge of the fewer it falls in, a vertex there (c001 and c002 differ: a triangle to a square splits
+  the triangle's edge opposite its first corner, a square to a triangle the one after; a triangle to a hexagon every
+  edge; a square to a pentagon its top edge, at its middle though the fraction would put it 2 mm off). A connection
+  fixes the first pair (c006, 180 c007). The sides between straight edges are ruled; twisted ones Onshape writes cubic
+  along the edges (poles at thirds), linear across, both from 0 to 1. The engine builds these exactly.
+- **A polygon connected to a circle twice** (c007, c008, 180 c003): Onshape's sides take eight spans round each quarter
+  (twice as many as with one connection) and its circular end is the exact circle's; not modelled.
 
 ## STEP export
 
