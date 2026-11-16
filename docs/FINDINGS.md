@@ -1963,6 +1963,19 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   along the edges (poles at thirds), linear across, both from 0 to 1. The engine builds these exactly.
 - **A polygon connected to a circle twice** (c007, c008, 180 c003): as in batch 180's section above; the engine builds
   them so.
+- **Several connections between polygons** (batch 182 c001–c003): each stretch from one connection to the next is
+  matched as a whole loft is above, by fractions of the whole perimeter from the first connection, summed edge by edge
+  (c002: a triangle to a square, the square's corner between the connections taken to the middle of the triangle's
+  edge; c003: two squares a quarter turn round). Where a stretch's corner falls exactly between two of the other's
+  (c001: a square to a hexagon, connected at opposite corners), Onshape's rounding picks the earlier in one stretch and
+  the later in the other: the same sums in Python's floating point do, the engine's (its hexagon's corners from its
+  sketch) the earlier in both.
+- **Circles connected twice** (182 c004, from their starts and from half round the first to a third round the
+  second): Onshape's side is one periodic face (48 uneven spans), each circle split at the connection points, its
+  correspondence between them not even along each arc (0.7% of the volume less than arc to arc); not modelled.
+- **More connections to a circle** (182 c005, a pentagon three times; c006, a square at a corner and along an edge):
+  the arcs as above, but Onshape lays out its spans round them otherwise (four for one arc and eight for the rest; an
+  uneven fourteen), so the engine's sides match only their bodies (to 0.16 mm³).
 
 ## STEP export
 
