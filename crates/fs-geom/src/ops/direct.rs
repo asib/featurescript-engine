@@ -17,7 +17,11 @@ pub fn shell(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
     // Faces to remove, by body; bodies selected whole are hollowed.
     let faces = by_body(model, entities, EntityType::Face)?;
     for (b, faces) in &faces {
-        let op = occt::shell(&model.bodies[*b].shape, faces, thickness).map_err(|_| regen_error("SHELL_FAILED"))?;
+        let solid = &model.bodies[*b].shape;
+        let op = match occt::shell(solid, faces, thickness) {
+            Ok(op) => op,
+            Err(_) => tube_shell(solid, faces, thickness)?.ok_or_else(|| regen_error("SHELL_FAILED"))?,
+        };
         results.push((*b, op));
     }
     let hollow: Vec<usize> = query::evaluate(model, entities)?
@@ -1385,4 +1389,256 @@ fn parting_plane(model: &Model, definition: &Value) -> R<Option<occt::Frame>> {
         }
     }
     Ok(None)
+}
+
+/// A tube's shell, open at both ends: a solid whose two removed faces are parallel planes and whose kept faces run
+/// round between them in a ring, each meeting its two neighbours along an edge from one end to the other (batch 141
+/// c003: a square lofted to a circle, its sides meeting at the square's corners and running on tangent at the
+/// circle, where OCCT's offsets fail). The cavity is built from the kept faces' offsets a thickness in (their
+/// surfaces carried on past their edges, as Onshape's walls are): each pair of neighbours' offsets meet along a
+/// curve, found point by point at even heights along the ends' normal by damped least squares (steady where they
+/// run on tangent), and each wall is fitted through rows at those heights from one such curve to the other, a
+/// little past each end, where planes close it. The solid less that cavity, or `None` where it isn't such a tube.
+fn tube_shell(solid: &Shape, removed: &[Shape], thickness: f64) -> R<Option<occt::Operation>> {
+    use std::cell::RefCell;
+    use std::collections::BTreeMap;
+    use values::{dot, scale, sub};
+    let depth = -thickness;
+    if depth <= 0.0 {
+        return Ok(None);
+    }
+    let [end0, end1] = removed else { return Ok(None) };
+    let (Ok(p0), Ok(p1)) = (end0.face_plane(), end1.face_plane()) else { return Ok(None) };
+    let Some(axis) = values::normalize(p0.normal) else { return Ok(None) };
+    if values::norm(values::cross(axis, p1.normal)) > 1e-9 {
+        return Ok(None);
+    }
+    let (h0, h1) = (dot(p0.origin, axis), dot(p1.origin, axis));
+    let (lo, hi) = (h0.min(h1), h0.max(h1));
+    let sides: Vec<Shape> =
+        solid.sub_shapes(ShapeKind::Face).into_iter().filter(|f| !removed.iter().any(|r| r.is_same(f))).collect();
+    if sides.len() < 2 {
+        return Ok(None);
+    }
+    // The ring: each side's two neighbours, each across an edge running from one end to the other.
+    let shared = |a: &Shape, b: &Shape| -> Option<Shape> {
+        let theirs = b.sub_shapes(ShapeKind::Edge);
+        a.sub_shapes(ShapeKind::Edge).into_iter().find(|e| theirs.iter().any(|f| f.is_same(e)))
+    };
+    let mut ring = vec![0usize];
+    let mut corners: Vec<Shape> = Vec::new();
+    loop {
+        let current = *ring.last().unwrap_or(&0);
+        let next = (0..sides.len())
+            .filter(|&j| j != current && (ring.len() < 2 || j != ring[ring.len() - 2]))
+            .find_map(|j| shared(&sides[current], &sides[j]).map(|edge| (j, edge)));
+        let Some((next, edge)) = next else { return Ok(None) };
+        corners.push(edge);
+        if next == ring[0] {
+            break;
+        }
+        if ring.contains(&next) || ring.len() > sides.len() {
+            return Ok(None);
+        }
+        ring.push(next);
+    }
+    if ring.len() != sides.len() {
+        return Ok(None);
+    }
+    let n = ring.len();
+    let walls: Vec<&Shape> = ring.iter().map(|&i| &sides[i]).collect();
+    // Each corner edge runs from one end to the other.
+    let height = |p: Vec3| dot(p, axis);
+    for e in &corners {
+        let (Ok(a), Ok(b)) = (e.edge_tangent(0.0, false), e.edge_tangent(1.0, false)) else { return Ok(None) };
+        let (ha, hb) = (height(a.origin), height(b.origin));
+        if (ha.min(hb) - lo).abs() > 1e-7 || (ha.max(hb) - hi).abs() > 1e-7 {
+            return Ok(None);
+        }
+    }
+    // A wall's offset point at fractions of its face's parameter box (past them, its surface carried on).
+    let offset = |w: usize, (fu, fv): (f64, f64)| -> R<Vec3> {
+        let plane = walls[w].face_tangent_plane(fu, fv).map_err(occt_error)?;
+        Ok(sub(plane.origin, scale(plane.normal, depth)))
+    };
+    let margin = depth.max((hi - lo) * 0.01) * 0.5;
+    let (z_lo, z_hi) = (lo - margin, hi + margin);
+    let z_at = |s: f64| z_lo + s * (z_hi - z_lo);
+    // Where corner `k`'s two walls' offsets meet at height z: each wall's fractions there.
+    type Meeting = ((f64, f64), (f64, f64));
+    let solved: RefCell<Vec<BTreeMap<i64, Meeting>>> = RefCell::new(vec![BTreeMap::new(); n]);
+    let key = |z: f64| (z * 1e12).round() as i64;
+    let meeting = |k: usize, z: f64| -> R<Meeting> {
+        if let Some(m) = solved.borrow()[k].get(&key(z)) {
+            return Ok(*m);
+        }
+        let (a, b) = (k, (k + 1) % n);
+        // From the nearest meeting found, or from the corner edge's point at that height.
+        let nearest = {
+            let map = &solved.borrow()[k];
+            let below = map.range(..key(z)).next_back().map(|(kk, m)| (key(z) - kk, *m));
+            let above = map.range(key(z)..).next().map(|(kk, m)| (kk - key(z), *m));
+            match (below, above) {
+                (Some(x), Some(y)) => Some(if x.0 <= y.0 { x.1 } else { y.1 }),
+                (x, y) => x.or(y).map(|m| m.1),
+            }
+        };
+        let start = match nearest {
+            Some(m) => m,
+            None => {
+                let edge = &corners[k];
+                let (mut f0, mut f1) = (0.0, 1.0);
+                let h = |f: f64| -> R<f64> { Ok(height(edge.edge_tangent(f, false).map_err(occt_error)?.origin)) };
+                let rising = h(1.0)? > h(0.0)?;
+                for _ in 0..60 {
+                    let m = 0.5 * (f0 + f1);
+                    if (h(m)? < z) == rising { f0 = m } else { f1 = m }
+                }
+                let p = edge.edge_tangent(0.5 * (f0 + f1), false).map_err(occt_error)?.origin;
+                (walls[a].face_fraction(p).map_err(occt_error)?, walls[b].face_fraction(p).map_err(occt_error)?)
+            }
+        };
+        let residual = |x: [f64; 4]| -> R<[f64; 4]> {
+            let (pa, pb) = (offset(a, (x[0], x[1]))?, offset(b, (x[2], x[3]))?);
+            let d = sub(pa, pb);
+            Ok([d.x, d.y, d.z, height(pa) - z])
+        };
+        let mut x = [start.0 .0, start.0 .1, start.1 .0, start.1 .1];
+        let mut r = residual(x)?;
+        let size = |r: &[f64; 4]| r.iter().map(|v| v * v).sum::<f64>();
+        let mut mu = 1e-12;
+        for _ in 0..200 {
+            if size(&r).sqrt() < 1e-16 {
+                break;
+            }
+            let h = 1e-7;
+            let mut jac = [[0.0; 4]; 4];
+            for c in 0..4 {
+                let mut y = x;
+                y[c] += h;
+                let ry = residual(y)?;
+                for row in 0..4 {
+                    jac[row][c] = (ry[row] - r[row]) / h;
+                }
+            }
+            // Damped normal equations: (JᵀJ + μ diag) δ = −Jᵀr.
+            let mut improved = false;
+            for _ in 0..30 {
+                let mut m = [[0.0; 5]; 4];
+                for i in 0..4 {
+                    for j in 0..4 {
+                        m[i][j] = (0..4).map(|row| jac[row][i] * jac[row][j]).sum::<f64>();
+                    }
+                    m[i][i] += mu * (1.0 + m[i][i]);
+                    m[i][4] = -(0..4).map(|row| jac[row][i] * r[row]).sum::<f64>();
+                }
+                let Some(delta) = solve4(m) else {
+                    mu *= 10.0;
+                    continue;
+                };
+                let y = [x[0] + delta[0], x[1] + delta[1], x[2] + delta[2], x[3] + delta[3]];
+                let ry = residual(y)?;
+                if size(&ry) < size(&r) {
+                    x = y;
+                    r = ry;
+                    mu = (mu * 0.1).max(1e-15);
+                    improved = true;
+                    break;
+                }
+                mu *= 10.0;
+            }
+            if !improved {
+                break;
+            }
+        }
+        if size(&r).sqrt() > 1e-11 {
+            return Err(regen_error("SHELL_FAILED"));
+        }
+        let m = ((x[0], x[1]), (x[2], x[3]));
+        solved.borrow_mut()[k].insert(key(z), m);
+        Ok(m)
+    };
+    // Wall w's point at height z, a fraction f of the way from its meeting with the wall before it to the next.
+    let point = |w: usize, z: f64, f: f64| -> R<Vec3> {
+        let left = meeting((w + n - 1) % n, z)?.1;
+        let right = meeting(w, z)?.0;
+        if f <= 0.0 {
+            return offset(w, left);
+        }
+        if f >= 1.0 {
+            return offset(w, right);
+        }
+        let mut uv = (left.0 + f * (right.0 - left.0), left.1 + f * (right.1 - left.1));
+        for _ in 0..60 {
+            let p = offset(w, uv)?;
+            let miss = z - height(p);
+            if miss.abs() < 1e-16 {
+                break;
+            }
+            let h = 1e-7;
+            let gu = (height(offset(w, (uv.0 + h, uv.1))?) - height(p)) / h;
+            let gv = (height(offset(w, (uv.0, uv.1 + h))?) - height(p)) / h;
+            let g2 = gu * gu + gv * gv;
+            if g2 < 1e-30 {
+                return Err(regen_error("SHELL_FAILED"));
+            }
+            uv = (uv.0 + gu * miss / g2, uv.1 + gv * miss / g2);
+        }
+        offset(w, uv)
+    };
+    const ACROSS: usize = 17;
+    const ALONG: usize = 33;
+    let across: Vec<f64> = (0..ACROSS).map(|i| i as f64 / (ACROSS - 1) as f64).collect();
+    let along: Vec<f64> = (0..ALONG).map(|i| i as f64 / (ALONG - 1) as f64).collect();
+    let row = |w: usize, s: f64| -> R<Vec<Vec3>> {
+        let z = z_at(s);
+        let mut curves = super::surface::sampled_rows_at(1, &across, |f| Ok(vec![point(w, z, f)?]))?;
+        Ok(curves.remove(0).poles)
+    };
+    let mut faces = Vec::new();
+    let mut bottoms = Vec::new();
+    let mut tops = Vec::new();
+    let knots_across = super::surface::sampled_rows_at(1, &across, |f| Ok(vec![Vec3::new(f, 0.0, 0.0)]))?.remove(0).knots;
+    for w in 0..n {
+        let count = row(w, 0.0)?.len();
+        let curves = super::surface::sampled_rows_at(count, &along, |s| row(w, s))?;
+        let nv = curves[0].poles.len();
+        let poles: Vec<Vec3> = curves.iter().flat_map(|c| c.poles.iter().copied()).collect();
+        let face = occt::bspline_surface_face(&poles, (count, nv), &knots_across, &curves[0].knots, (3, 3))
+            .map_err(|_| regen_error("SHELL_FAILED"))?;
+        faces.push(face);
+        let edge = |poles: Vec<Vec3>| occt::bspline_edge(&poles, &[], &knots_across, 3, false).map_err(|_| regen_error("SHELL_FAILED"));
+        bottoms.push(edge(curves.iter().map(|c| c.poles[0]).collect())?);
+        tops.push(edge(curves.iter().map(|c| c.poles[nv - 1]).collect())?);
+    }
+    for ends in [&bottoms, &tops] {
+        faces.push(occt::fill_edges(ends).map_err(|_| regen_error("SHELL_FAILED"))?);
+    }
+    let sewn = occt::sew_faces(&faces, 1e-6).map_err(|_| regen_error("SHELL_FAILED"))?;
+    let cavity = occt::solid_from(&sewn).map_err(|_| regen_error("SHELL_FAILED"))?;
+    // Turned outward where the walls' rows ran the other way round.
+    let cavity = if cavity.volume().map_err(occt_error)? < 0.0 { cavity.reversed() } else { cavity };
+    let op = occt::boolean(occt::BooleanKind::Subtraction, std::slice::from_ref(solid), &[cavity], false)
+        .map_err(|_| regen_error("SHELL_FAILED"))?;
+    Ok(Some(op))
+}
+
+/// The solution of four linear equations (an augmented 4 × 5 matrix), by elimination with partial pivoting.
+fn solve4(mut m: [[f64; 5]; 4]) -> Option<[f64; 4]> {
+    for c in 0..4 {
+        let p = (c..4).max_by(|&i, &j| m[i][c].abs().total_cmp(&m[j][c].abs()))?;
+        if m[p][c].abs() < 1e-300 {
+            return None;
+        }
+        m.swap(c, p);
+        for r in 0..4 {
+            if r != c {
+                let k = m[r][c] / m[c][c];
+                for j in c..5 {
+                    m[r][j] -= k * m[c][j];
+                }
+            }
+        }
+    }
+    Some([m[0][4] / m[0][0], m[1][4] / m[1][1], m[2][4] / m[2][2], m[3][4] / m[3][3]])
 }

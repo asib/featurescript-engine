@@ -1553,10 +1553,19 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   it (a face pattern of the hole, which std re-cuts in the definition sheet as an edge pattern): the definition
   sheet, which the extrude had made by turning OCCT's shell over as a whole, came back from the boolean with its
   faces the shell's own way, and the part was rebuilt with its material inside the channel; the engine keeps the
-  sheet facing as it did. Known gap: a square lofted to a circle and shelled open at both ends, its sides meeting at
-  the square's corners and running on tangent at the circle: OCCT's thick solid fails (its offsets joined by
-  intersection or by arcs, all intersected or not), and so does a cavity of the sides' offset surfaces, which meet
-  tangentially there; Onshape's inner sides are its own fits (510.93 to 511.00 mm² for four equal sides).
+  sheet facing as it did. A square lofted to a circle and shelled open at both ends (c003), its sides meeting at the
+  square's corners and running on tangent at the circle: OCCT's thick solid fails (its offsets joined by
+  intersection or by arcs, all intersected or not), and so does a cavity cut from the sides' offset surfaces split
+  against each other (where they meet tangent, the split's edges take tolerances of a millimetre or more). The
+  engine now builds the cavity itself: each pair of neighbouring sides' offsets (their surfaces carried on past
+  their edges, as Onshape's walls are: their knots run from −0.009 to 1.009 across and up to 1.031 along) meet along
+  a curve found point by point at 33 even heights by damped least squares, which holds steady where they run on
+  tangent; each wall is fitted through rows at those heights from one curve to the other, the cavity runs a little
+  past each end, where planes close it, and the solid less it is the shell: 24 edges, 10 faces and 16 vertices as
+  Onshape's, 3278.5712 mm³ where the exact shell, its sections' areas integrated apart, is 3278.5696, its end rings
+  to 1e-7 of the exact ones. Onshape's measures are its own fits': its volume 3279.0920 (0.52 mm³, 1.6e-4 over),
+  its STEP's 3277.37, its inner sides there 510.93 to 511.00 mm² for four equal sides (0.27 mm² short at the
+  bottom ring), so the case is compared loosely.
 - **Everyday parts, a fifth round** (batch 142): a pulley, a grooved shaft with a cross hole, a sheet metal bracket
   with holes patterned along its flange, a slotted disc, a mirrored and united block, a snap box and a pocket
   filleted along tangent chains match as built; a loft through a square, a circle and a square to Onshape's fits
