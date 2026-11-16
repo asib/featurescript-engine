@@ -1835,7 +1835,13 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   and a cubic along running a tenth past each end), along a spine slanting across it (by 20.1°) that circle seen
   along the corner, a quarter ellipse touching the level sheet 4.6944 out and the upright 5 up (c011); along the
   cylinder's base circle the rolling ball's again (173 c005). The engine builds all of these, its blends round the
-  cylinder exact, those along lines with Onshape's poles.
+  cylinder exact, those along lines with Onshape's poles. Checked further (batch 173 c001): Onshape's blend face is
+  the rational section across times, round the axis, the C1 cubic through the circle every 22.5° from 45° with its
+  exact tangent (r per radian), each section pole carried round so: 484.07038 mm² against Onshape's 484.070338 (the
+  exact revolve 484.0978). Its floor edge is not that surface's floor row, though: the row is 3.3e-5 shorter than
+  the circle and the edge 1.0e-4 longer at floor radii 15 and 13 (enclosing 2.0e-4 more), as a circle 1e-4 of its
+  radius out, by a rule not found; so the engine keeps its exact blends and these cases stay loose. (173's probe
+  lines stop in its faces' weights, Onshape's output cut short, so their poles can't be compared whole.)
 
 - **Lofts with guides elsewhere** (batch 174; batch 112's poles again). Between a 20 mm square and a 10 mm one 20
   above: guides crossing two sides (opposite or neighbouring) bend each alone, as one does (c001, c002). A guide
@@ -1869,7 +1875,11 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   profile (its middle-profile point at the loft's knot there, to 4e-8), each stretch fitted apart (2 and 4 spans
   along its 46° and 56°, within 1e-3 mm as above). The engine builds it so, but its plain loft through three
   polygons puts the middle profile at 0.4393 where Onshape's is at 0.4511 (and batch 062 c008's at 0.4083), by a
-  rule not yet found (the chords at the edges' middles come nearest, 0.4519 and 0.4083), so c008 is 0.14% off. The engine builds c001–c005 and c007 to Onshape's poles (c004
+  rule not yet found (the chords at the edges' middles come nearest, 0.4519 and 0.4083), so c008 is 0.14% off.
+  Ruled out on these two (0.451083927 and 062 c008's 0.408306989, which has an end condition): the chords at the
+  corners, chords averaged along the edges (at their ends, middles, 2 to 8 even points, by mean, RMS or mean of
+  fractions), the chords raised to a power (no one power fits both), and arc lengths of the natural spline through
+  the edges' middles, chord-spaced or iterated; batch 175 (eight plain lofts through three squares) is to settle it. The engine builds c001–c005 and c007 to Onshape's poles (c004
   to 0.007 mm³), and batch 075 c005 and 112 c001–c003 now exactly; c006 and c008 as above.
 
 ## STEP export
