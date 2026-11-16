@@ -1791,8 +1791,10 @@ fn add_lofted_shape(
 /// c004–c006): Onshape adds `sections` between the profiles at even steps along the loft, each the plain loft's
 /// circle there as a cubic through it every 45° from the circles' starts, matching its tangent (so dipping 9.8e-4 of
 /// the radius between), and runs a natural cubic spline along the loft through the profiles and those sections at
-/// even parameters (its radius every 22.5° between them to 4e-7 of Onshape's, for 3, 5 and 9 sections). The solid's
-/// shape and its caps, or `None` where the profiles aren't two such circles started alike, or are equal (a cylinder).
+/// even parameters (its radius every 22.5° between them to 4e-7 of Onshape's, for 3, 5 and 9 sections), its side
+/// pole for pole Onshape's: 64 cubic Hermite spans round, periodic, a single knot at each section, its ends the
+/// profiles' own circles. The solid's shape and its caps, or `None` where the profiles aren't two such circles
+/// started alike, or are equal (a cylinder).
 fn sectioned_circle_loft(wires: &[Shape], sections: usize, solid: bool) -> R<Option<(Shape, Vec<Shape>, Vec<Shape>)>> {
     use values::{add, cross, dot, norm, normalize, scale, sub};
     let [w0, w1] = wires else { return Ok(None) };
@@ -1895,18 +1897,48 @@ fn sectioned_circle_loft(wires: &[Shape], sections: usize, solid: bool) -> R<Opt
     }
     knots_along.extend([1.0; 4]);
     let rows = column(0.0).len();
-    let round: Vec<f64> = (0..=128).map(|i| i as f64 / 128.0).collect();
+    // Round the circles, as Onshape's: 64 cubic Hermite spans, periodic, the slopes the columns' own (each a
+    // function of the angle all the way round), u round and v along.
     let tau = 2.0 * std::f64::consts::PI;
-    let curves = super::surface::sampled_rows_at(rows, &round, |f| Ok(column(tau * f)))?;
-    let nv = curves[0].poles.len();
-    let poles: Vec<Vec3> = curves.iter().flat_map(|c| c.poles.iter().copied()).collect();
-    let side = occt::bspline_surface_face(&poles, (rows, nv), &knots_along, &curves[0].knots, (3, 3))
-        .map_err(|_| regen_error("LOFT_FAILED"))?;
-    let cap = |c: &occt::BSplineData| -> R<Shape> {
-        let edge = occt::bspline_edge(&c.poles, &[], &c.knots, 3, false).map_err(occt_error)?;
-        occt::fill_edges(&[edge]).map_err(|_| regen_error("LOFT_FAILED"))
+    let spans = 64;
+    let step = 1e-6;
+    let mut grid: Vec<Vec<Vec3>> = Vec::with_capacity(2 * spans + 2);
+    let mut values_at = Vec::with_capacity(spans + 1);
+    for k in 0..spans {
+        let f = k as f64 / spans as f64;
+        let (p, a, b) = (column(tau * f), column(tau * (f - step)), column(tau * (f + step)));
+        let slope: Vec<Vec3> = a.iter().zip(&b).map(|(&a, &b)| scale(sub(b, a), 1.0 / (2.0 * step))).collect();
+        values_at.push((p, slope));
+    }
+    // All the way round, exactly where it started.
+    values_at.push(values_at[0].clone());
+    // Each station's value lies midway between the poles either side of its double knot.
+    let third = 1.0 / (3.0 * spans as f64);
+    let offset = |k: usize, sign: f64| -> Vec<Vec3> {
+        let (p, d) = &values_at[k];
+        p.iter().zip(d).map(|(&p, &d)| add(p, scale(d, sign * third))).collect()
     };
-    let (first, last) = (cap(&curves[0])?, cap(&curves[rows - 1])?);
+    grid.push(values_at[0].0.clone());
+    grid.push(offset(0, 1.0));
+    for k in 1..spans {
+        grid.push(offset(k, -1.0));
+        grid.push(offset(k, 1.0));
+    }
+    grid.push(offset(spans, -1.0));
+    grid.push(values_at[spans].0.clone());
+    let mut knots_round = vec![0.0; 4];
+    for k in 1..spans {
+        knots_round.extend([k as f64 / spans as f64; 2]);
+    }
+    knots_round.extend([1.0; 4]);
+    let poles: Vec<Vec3> = grid.iter().flat_map(|row| row.iter().copied()).collect();
+    let side = occt::u_periodic_bspline_surface_face(&poles, (grid.len(), rows), &knots_round, &knots_along, (3, 3))
+        .map_err(|_| regen_error("LOFT_FAILED"))?;
+    // The ends: the profiles' own circles, as Onshape's edges are.
+    let cap = |w: &Shape| -> R<Shape> {
+        occt::fill_edges(&w.sub_shapes(ShapeKind::Edge)).map_err(|_| regen_error("LOFT_FAILED"))
+    };
+    let (first, last) = (cap(w0)?, cap(w1)?);
     let sewn = occt::sew_faces(&[side, first.clone(), last.clone()], 1e-6).map_err(|_| regen_error("LOFT_FAILED"))?;
     let shape = occt::solid_from(&sewn).map_err(|_| regen_error("LOFT_FAILED"))?;
     let shape = if shape.volume().map_err(occt_error)? < 0.0 { shape.reversed() } else { shape };

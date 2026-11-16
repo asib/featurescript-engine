@@ -104,6 +104,9 @@ std::unique_ptr<Shape> thicken_sheet(const Shape &input, double t1, double t2);
 std::unique_ptr<Shape> make_bspline_surface_face(rust::Slice<const Vec3> poles, int32_t nu, int32_t nv,
                                                  rust::Slice<const double> knots_u, rust::Slice<const double> knots_v,
                                                  int32_t degree_u, int32_t degree_v);
+std::unique_ptr<Shape> make_u_periodic_bspline_surface_face(rust::Slice<const Vec3> poles, int32_t nu, int32_t nv,
+                                                 rust::Slice<const double> knots_u, rust::Slice<const double> knots_v,
+                                                 int32_t degree_u, int32_t degree_v);
 std::unique_ptr<Shape> make_rational_bspline_surface_face(rust::Slice<const Vec3> poles, rust::Slice<const double> weights,
                                                           int32_t nu, int32_t nv, rust::Slice<const double> knots_u,
                                                           rust::Slice<const double> knots_v, int32_t degree_u,

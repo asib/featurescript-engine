@@ -166,6 +166,15 @@ mod ffi {
             degree_u: i32,
             degree_v: i32,
         ) -> Result<UniquePtr<Shape>>;
+        fn make_u_periodic_bspline_surface_face(
+            poles: &[Vec3],
+            nu: i32,
+            nv: i32,
+            knots_u: &[f64],
+            knots_v: &[f64],
+            degree_u: i32,
+            degree_v: i32,
+        ) -> Result<UniquePtr<Shape>>;
         #[allow(clippy::too_many_arguments)]
         fn make_rational_bspline_surface_face(
             poles: &[Vec3],
@@ -867,6 +876,20 @@ pub fn bspline_surface_face(
     (degree_u, degree_v): (i32, i32),
 ) -> Result<Shape> {
     Ok(Shape::new(ffi::make_bspline_surface_face(poles, nu as i32, nv as i32, knots_u, knots_v, degree_u, degree_v)?))
+}
+
+/// A face on a B-spline surface periodic along u, as [`bspline_surface_face`] with its first and last rows of poles the
+/// same and C1 there: its seam's knot double, its period from 0 to 1 (as Onshape's lofts round circles are).
+pub fn u_periodic_bspline_surface_face(
+    poles: &[Vec3],
+    (nu, nv): (usize, usize),
+    knots_u: &[f64],
+    knots_v: &[f64],
+    (degree_u, degree_v): (i32, i32),
+) -> Result<Shape> {
+    Ok(Shape::new(ffi::make_u_periodic_bspline_surface_face(
+        poles, nu as i32, nv as i32, knots_u, knots_v, degree_u, degree_v,
+    )?))
 }
 
 /// A face on a rational B-spline surface over its whole domain: as [`bspline_surface_face`], with a weight for each

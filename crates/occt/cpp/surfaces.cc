@@ -968,6 +968,29 @@ std::unique_ptr<Shape> make_bspline_surface_face(rust::Slice<const Vec3> poles, 
   return wrap(BRepBuilderAPI_MakeFace(surface, Precision::Confusion()).Face());
 }
 
+// The same, periodic along u (its first and last rows of poles the same, C1 there): its seam's knot double as cubic
+// Hermite spans' are, its period from 0 to 1, as Onshape's lofts round circles are.
+std::unique_ptr<Shape> make_u_periodic_bspline_surface_face(rust::Slice<const Vec3> poles, int32_t nu, int32_t nv,
+                                                            rust::Slice<const double> knots_u,
+                                                            rust::Slice<const double> knots_v, int32_t degree_u,
+                                                            int32_t degree_v) {
+  std::unique_ptr<Shape> face = make_bspline_surface_face(poles, nu, nv, knots_u, knots_v, degree_u, degree_v);
+  Handle(Geom_BSplineSurface) surface =
+      Handle(Geom_BSplineSurface)::DownCast(BRep_Tool::Surface(TopoDS::Face(face->shape))->Copy());
+  surface->SetUPeriodic();
+  if (surface->UMultiplicity(1) > surface->UDegree() - 1) surface->RemoveUKnot(1, surface->UDegree() - 1, 1e-9);
+  TColStd_Array1OfReal knots(1, surface->NbUKnots());
+  surface->UKnots(knots);
+  const double k0 = knots(1), span = knots(knots.Upper()) - k0;
+  for (int j = knots.Lower(); j <= knots.Upper(); ++j) knots(j) = (knots(j) - k0) / span;
+  surface->SetUKnots(knots);
+  // Along v its knots as single as the surface allows exactly (a natural spline through sections: C2, single).
+  for (int j = surface->NbVKnots() - 1; j >= 2; --j) surface->RemoveVKnot(j, 1, 1e-9);
+  double u1, u2, v1, v2;
+  surface->Bounds(u1, u2, v1, v2);
+  return wrap(BRepBuilderAPI_MakeFace(surface, 0, 1, v1, v2, Precision::Confusion()).Face());
+}
+
 // The same, rational: a weight for each pole.
 std::unique_ptr<Shape> make_rational_bspline_surface_face(rust::Slice<const Vec3> poles, rust::Slice<const double> weights,
                                                           int32_t nu, int32_t nv, rust::Slice<const double> knots_u,
