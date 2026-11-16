@@ -719,6 +719,172 @@ fn match_circles_to_corners(wires: &mut [Shape]) -> R<()> {
     Ok(())
 }
 
+/// A polygon lofted to a circle with one connection, a point of each (a corner or a point along an edge of the
+/// polygon, a point round the circle), as Onshape lofts it (batch 180 c001, c002, c004–c006): the polygon's corners
+/// and its connection point (where that's along an edge) divide the circle into as many equal arcs, from the
+/// connected point round the same way, each taken to the next in turn; each side ruled between its edge and its
+/// arcs, both as cubic Hermite spans, four for each arc (the arc's from its own tangent, as long as the span's angle
+/// times the radius over three; the edge evenly), and the circle's end bounded by those arcs. The solid and its caps
+/// (first and last profile), or `None` for other profiles.
+fn polygon_circle_connected(
+    wires: &[Shape],
+    polygon: usize,
+    circle: &occt::Conic,
+    at_circle: Vec3,
+    at_polygon: Vec3,
+    solid: bool,
+) -> R<Option<(Shape, Vec<Shape>, Vec<Shape>)>> {
+    use values::{add, cross, dot, norm, normalize, scale, sub};
+    if !solid {
+        return Ok(None);
+    }
+    let Some(mut corners) = polygon_corners(&wires[polygon]) else { return Ok(None) };
+    let centroid = scale(corners.iter().fold(Vec3::new(0.0, 0.0, 0.0), |a, &c| add(a, c)), 1.0 / corners.len() as f64);
+    let centre = circle.frame.origin;
+    // Round the way from the first profile to the second, anticlockwise (whichever the circle is).
+    let travel = if polygon == 0 { sub(centre, centroid) } else { sub(centroid, centre) };
+    let Some(axis) = normalize(travel) else { return Ok(None) };
+    let turning = |a: Vec3, b: Vec3, o: Vec3| dot(cross(sub(a, o), sub(b, o)), axis);
+    if turning(corners[0], corners[1], centroid) < 0.0 {
+        corners.reverse();
+    }
+    let close = |a: Vec3, b: Vec3| norm(sub(a, b)) < 1e-7;
+    // The polygon's points from the connected one round: its corners, and the connection where it's along an edge.
+    let n = corners.len();
+    let mut points: Vec<(Vec3, bool)> = Vec::new();
+    let start = match corners.iter().position(|&c| close(c, at_polygon)) {
+        Some(k) => {
+            for i in 0..n {
+                points.push((corners[(k + i) % n], true));
+            }
+            k
+        }
+        None => {
+            let Some(k) = (0..n).find(|&k| {
+                let (a, b) = (corners[k], corners[(k + 1) % n]);
+                let (d, e) = (sub(at_polygon, a), sub(b, a));
+                norm(cross(d, e)) < 1e-7 * norm(e) && dot(d, e) > 0.0 && dot(d, e) < dot(e, e)
+            }) else {
+                return Ok(None);
+            };
+            points.push((at_polygon, false));
+            for i in 1..=n {
+                points.push((corners[(k + i) % n], true));
+            }
+            k + 1
+        }
+    };
+    let _ = start;
+    let count = points.len();
+    let radius = circle.radius1;
+    let Some(x) = normalize(sub(at_circle, centre)) else { return Ok(None) };
+    let y = cross(axis, x);
+    let tau = std::f64::consts::TAU;
+    let on_circle = |theta: f64| add(centre, add(scale(x, radius * theta.cos()), scale(y, radius * theta.sin())));
+    let tangent = |theta: f64| add(scale(x, -radius * theta.sin()), scale(y, radius * theta.cos()));
+    // Each edge: from a corner to the next, over the points between.
+    let mut sides = Vec::new();
+    let mut arc_edges = Vec::new();
+    let mut i = points.iter().position(|p| p.1).unwrap_or(0);
+    for _ in 0..n {
+        let mut j = (i + 1) % count;
+        while !points[j].1 {
+            j = (j + 1) % count;
+        }
+        let segments = (j + count - i) % count;
+        let spans = 4 * segments;
+        let (a, b) = (points[i].0, points[j].0);
+        let (t0, t1) = (tau * i as f64 / count as f64, tau * (i + segments) as f64 / count as f64);
+        let mut edge_row = vec![a];
+        let mut arc_row = vec![on_circle(t0)];
+        let step = (t1 - t0) / spans as f64;
+        let along = scale(sub(b, a), 1.0 / spans as f64);
+        for k in 0..=spans {
+            let theta = t0 + step * k as f64;
+            let (p, d) = (on_circle(theta), scale(tangent(theta), step / 3.0));
+            let q = add(a, scale(along, k as f64));
+            let e = scale(along, 1.0 / 3.0);
+            if k > 0 {
+                arc_row.push(sub(p, d));
+                edge_row.push(sub(q, e));
+            }
+            if k < spans {
+                arc_row.push(add(p, d));
+                edge_row.push(add(q, e));
+            }
+        }
+        arc_row.push(on_circle(t1));
+        edge_row.push(b);
+        let mut knots = vec![0.0; 4];
+        for k in 1..spans {
+            knots.extend([k as f64 / spans as f64; 2]);
+        }
+        knots.extend([1.0; 4]);
+        // v from the first profile to the second.
+        let rows = if polygon == 0 { [&edge_row, &arc_row] } else { [&arc_row, &edge_row] };
+        let poles: Vec<Vec3> = (0..edge_row.len()).flat_map(|u| [rows[0][u], rows[1][u]]).collect();
+        let side = occt::bspline_surface_face(&poles, (edge_row.len(), 2), &knots, &[0.0, 0.0, 1.0, 1.0], (3, 1))
+            .map_err(|_| regen_error("LOFT_FAILED"))?;
+        // Its boundary along the circle in as many edges as it takes segments.
+        let side = if segments > 1 {
+            let c = if polygon == 0 { 1.0 } else { 0.0 };
+            let e = 1.0 - c;
+            let mut loop_uv: Vec<Vec<(f64, f64)>> = vec![vec![(0.0, e), (1.0, e)], vec![(1.0, e), (1.0, c)]];
+            for g in (0..segments).rev() {
+                loop_uv.push(vec![((g + 1) as f64 / segments as f64, c), (g as f64 / segments as f64, c)]);
+            }
+            loop_uv.push(vec![(0.0, c), (0.0, e)]);
+            occt::face_from_uv(&side, &loop_uv).map_err(|_| regen_error("LOFT_FAILED"))?
+        } else {
+            side
+        };
+        sides.push(side);
+        // The circle's edges end at each of the points, the connection's too (batch 180 c006: its long arc two edges).
+        // Each a segment's four spans: its ends the values at the double knots (midway between the poles there).
+        let value_at = |k: usize| -> Vec3 {
+            if k == 0 {
+                arc_row[0]
+            } else if k == spans {
+                arc_row[arc_row.len() - 1]
+            } else {
+                scale(add(arc_row[2 * k], arc_row[2 * k + 1]), 0.5)
+            }
+        };
+        for g in 0..segments {
+            let mut piece = vec![value_at(4 * g)];
+            piece.extend_from_slice(&arc_row[8 * g + 1..8 * g + 9]);
+            piece.push(value_at(4 * g + 4));
+            let mut piece_knots = vec![0.0; 4];
+            for k in 1..4 {
+                piece_knots.extend([k as f64 / 4.0; 2]);
+            }
+            piece_knots.extend([1.0; 4]);
+            arc_edges.push(occt::bspline_edge(&piece, &[], &piece_knots, 3, false).map_err(occt_error)?);
+        }
+        i = j;
+    }
+    let polygon_cap = occt::fill_edges(&wires[polygon].sub_shapes(ShapeKind::Edge)).map_err(|_| regen_error("LOFT_FAILED"))?;
+    let circle_cap = occt::fill_edges(&arc_edges).map_err(|_| regen_error("LOFT_FAILED"))?;
+    let mut faces = sides.clone();
+    faces.push(polygon_cap.clone());
+    faces.push(circle_cap.clone());
+    let sewn = occt::sew_faces(&faces, 1e-6).map_err(|_| regen_error("LOFT_FAILED"))?;
+    let shape = occt::solid_from(&sewn).map_err(|_| regen_error("LOFT_FAILED"))?;
+    let shape = if shape.volume().map_err(occt_error)? < 0.0 { shape.reversed() } else { shape };
+    // The caps, found again: sewing makes new faces of them.
+    let find = |c: &Shape| -> Vec<Shape> {
+        let Ok(p) = c.face_inner_point() else { return Vec::new() };
+        shape
+            .sub_shapes(ShapeKind::Face)
+            .into_iter()
+            .filter(|f| f.surface_type().ok() == Some(occt::SurfaceType::Plane))
+            .filter(|f| occt::vertex(p).ok().and_then(|v| v.distance(f).ok()).is_some_and(|d| d.distance < 1e-7))
+            .collect()
+    };
+    let (first, last) = if polygon == 0 { (find(&polygon_cap), find(&circle_cap)) } else { (find(&circle_cap), find(&polygon_cap)) };
+    Ok(Some((shape, first, last)))
+}
+
 /// The corners of a closed wire of straight edges, in order round it.
 fn polygon_corners(wire: &Shape) -> Option<Vec<Vec3>> {
     let edges = wire.sub_shapes(ShapeKind::Edge);
@@ -990,6 +1156,36 @@ pub fn loft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
             let op = occt::loft_as_given(&started, solid).map_err(|_| regen_error("LOFT_FAILED"))?;
             add_lofted(model, &id, &op, solid, &wires)?;
             return Ok(Value::UNDEFINED);
+        }
+        // A polygon and a circle joined by one connection (batch 180).
+        if wires.len() == 2 && circles.len() == 1 && field(definition, "connections").as_array().is_some_and(|a| a.len() == 1) {
+            if ends.iter().any(Option::is_some) {
+                return Err(error("@opLoft: connections with end conditions aren't supported yet"));
+            }
+            let at_circle = connection_edges
+                .iter()
+                .zip(&parameters)
+                .find(|(e, _)| touches(e, &circles[0].1))
+                .map(|(e, &t)| e.edge_tangent(t, true).map(|a| a.origin))
+                .transpose()
+                .map_err(occt_error)?;
+            let polygon = if touches(&wires[0], &circles[0].1) { 1 } else { 0 };
+            let at_polygon = match point(&wires[polygon]) {
+                Some(p) if entities.iter().any(|e| e.kind() == Some(ShapeKind::Vertex) && touches(e, &wires[polygon])) => Some(p),
+                _ => connection_edges
+                    .iter()
+                    .zip(&parameters)
+                    .find(|(e, _)| touches(e, &wires[polygon]))
+                    .map(|(e, &t)| e.edge_tangent(t, true).map(|a| a.origin))
+                    .transpose()
+                    .map_err(occt_error)?,
+            };
+            if let (Some(c), Some(p)) = (at_circle, at_polygon)
+                && let Some((shape, first, last)) = polygon_circle_connected(&wires, polygon, &circles[0].0, c, p, solid)?
+            {
+                add_lofted_shape(model, &id, &shape, &first, &last, solid, &wires)?;
+                return Ok(Value::UNDEFINED);
+            }
         }
         let Some(matched) = forced.map(|f| matched_polygons_with(&wires, Some(f))).transpose()?.flatten() else {
             return Err(error("@opLoft: connections other than between two polygons aren't supported yet"));
