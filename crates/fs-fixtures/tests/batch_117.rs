@@ -9,13 +9,15 @@ use std::path::PathBuf;
 /// whose interior is 5e-3 off Onshape's: 0.0056 mm² apart (magnitude 2 at the first alone, c002, within 1e-3). Along
 /// a direction (c004), its free end reached as with a condition normal to a plane (batch 159 c005's blend), 0.058 mm²
 /// off Onshape's adaptive fit.
-const LOOSE: &[(&str, f64)] = &[("c001", 0.005), ("c003", 0.005), ("c004", 0.1), ("c006", 0.01)];
+const LOOSE: &[(&str, f64)] =
+    &[("c001", 0.005), ("c002", 0.01), ("c003", 0.005), ("c004", 0.1), ("c006", 0.01)];
 
-/// The probes return Onshape's poles, its own fits: only the bodies are compared, but for c005, which fails in both.
-const BODIES_ONLY: &[&str] = &["c001", "c002", "c003", "c004", "c006"];
+/// The probes return Onshape's poles, its own fits: only the bodies are compared, but for c005, which fails in both,
+/// and the magnitudes other than 1 (c002, c006), whose poles are within 0.0055 mm of Onshape's.
+const BODIES_ONLY: &[&str] = &["c001", "c003", "c004"];
 
 /// Compared in full, faces in any order.
-const UNORDERED: &[&str] = &["c005"];
+const UNORDERED: &[&str] = &["c002", "c005", "c006"];
 
 #[test]
 fn batch_117_matches_onshape() {

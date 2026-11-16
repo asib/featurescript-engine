@@ -6,16 +6,17 @@ use std::path::PathBuf;
 /// Cases the engine can't build as Onshape does yet (see docs/std-coverage.md): none.
 const KNOWN_GAPS: &[&str] = &[];
 
-/// Onshape's offset of a circle across a plane is an approximation, 0.0015 mm shorter than the exact circle (c003).
+/// Onshape's intersection curve is an approximation, its middle 0.002 mm off the exact one's (c001); its offset of a
+/// circle across a plane too, 0.0015 mm shorter than the exact circle (c003).
 /// The curvature fillets' areas and volumes stray from Onshape's quintics as in batch 053 (c010–c012).
-const LOOSE: &[(&str, f64)] = &[("c003", 0.002), ("c010", 0.05), ("c011", 0.05), ("c012", 0.05)];
+const LOOSE: &[(&str, f64)] = &[("c001", 0.005), ("c003", 0.002), ("c010", 0.05), ("c011", 0.05), ("c012", 0.05)];
 
 /// The values cases return (edges' ends, faces' surfaces) are there to study. These are compared on their bodies
 /// only; the rest match in full, in any order.
-const CASES: &[&str] = &["c001", "c002", "c003", "c010", "c011", "c012"];
+const CASES: &[&str] = &["c002", "c003", "c010", "c011", "c012"];
 
 /// Compared in full, faces in any order.
-const UNORDERED: &[&str] = &["c004", "c005", "c006", "c007", "c008", "c009"];
+const UNORDERED: &[&str] = &["c001", "c004", "c005", "c006", "c007", "c008", "c009"];
 
 #[test]
 fn batch_059_matches_onshape() {
