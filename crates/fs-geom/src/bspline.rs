@@ -36,12 +36,16 @@ pub fn bspline_value(tags: &Tags, data: &BSplineData) -> R<Value> {
 }
 
 /// A B-spline surface as std's `BSplineSurface`: rows of control points along u, each across v; a periodic
-/// direction's control points overlap by its degree.
+/// direction's control points wrap round as far as its unwrapped knots need (by its degree where the seam's knot is
+/// single, one less where it's double, as a loft's sides round a circle are).
 pub fn bspline_surface_value(tags: &Tags, data: &occt::BSplineSurfaceData) -> R<Value> {
     let (nu, nv) = (data.nu as usize, data.nv as usize);
     let at = |i: usize, j: usize| i % nu * nv + j % nv;
-    let rows = nu + if data.u_periodic { data.u_degree as usize } else { 0 };
-    let columns = nv + if data.v_periodic { data.v_degree as usize } else { 0 };
+    let unwrapped = |n: usize, periodic: bool, knots: &[f64], degree: i32| {
+        if periodic { knots.len().saturating_sub(degree as usize + 1).max(n) } else { n }
+    };
+    let rows = unwrapped(nu, data.u_periodic, &data.u_knots, data.u_degree);
+    let columns = unwrapped(nv, data.v_periodic, &data.v_knots, data.v_degree);
     let grid = |f: &dyn Fn(usize) -> Value| {
         Value::array((0..rows).map(|i| Value::array((0..columns).map(|j| f(at(i, j))).collect())).collect())
     };
