@@ -4085,6 +4085,15 @@ std::unique_ptr<Operation> loft_clamped_op(const ShapeList &wires, bool solid, V
       try {
         s->SetUPeriodic();
         if (s->UMultiplicity(1) > s->UDegree() - 1) s->RemoveUKnot(1, s->UDegree() - 1, 1e-9);
+        // Its period runs from 0 to 1, as Onshape's does, however the edge is parameterised (batch 056 c002).
+        TColStd_Array1OfReal knots(1, s->NbUKnots());
+        s->UKnots(knots);
+        const double k0 = knots(1), span = knots(knots.Upper()) - k0;
+        if (span > 0) {
+          for (int j = knots.Lower(); j <= knots.Upper(); ++j) knots(j) = (knots(j) - k0) / span;
+          s->SetUKnots(knots);
+          fu1 = 0, fu2 = 1;
+        }
       } catch (const Standard_Failure &) {
       }
     }
