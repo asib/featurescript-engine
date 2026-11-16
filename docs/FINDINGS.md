@@ -1890,8 +1890,43 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   Ruled out on these two (0.451083927 and 062 c008's 0.408306989, which has an end condition): the chords at the
   corners, chords averaged along the edges (at their ends, middles, 2 to 8 even points, by mean, RMS or mean of
   fractions), the chords raised to a power (no one power fits both), and arc lengths of the natural spline through
-  the edges' middles, chord-spaced or iterated; batch 175 (eight plain lofts through three squares) is to settle it. The engine builds c001–c005 and c007 to Onshape's poles (c004
-  to 0.007 mm³), and batch 075 c005 and 112 c001–c003 now exactly; c006 and c008 as above.
+  the edges' middles, chord-spaced or iterated; batches 175–179 below narrow it. The engine builds c001–c005 and
+  c007 to Onshape's poles (c004 to 0.007 mm³), and batch 075 c005 and 112 c001–c003 now exactly; c006 and c008 as
+  above.
+
+## Lofts through three or more profiles: where the middle profiles go (batches 175–179)
+
+- **The surface** across the profiles is the natural cubic spline through them (second derivative 0 at both ends, to
+  1e-5), one knot at each middle profile, which the surface passes through at that knot (to 4e-7). End conditions
+  don't move the knots: batch 175 c002 (free) has 062 c008's knot (tangent to its first profile) to 1e-9.
+- **Each stretch between two profiles has a length F of its own,** and the knots are the running sums of the F's,
+  normalised: batch 176's stretches alone predict 175 c008's four-square knots, 0.324054909, to 4e-8. F depends only on
+  how the points move between the two profiles, not on the profiles' size (a 20 mm square growing 2.5 mm each side
+  over a 10 mm rise as a 40 mm one, 176 c001 and c006, to 1e-9), not on the order (c009), and a shrink as the same
+  growth (c005).
+- **F is the chord when every point moves alike:** a square moved across (176 c007, F = √125 exactly), coaxial circles
+  growing (177 c007), and 175 c006, whose two stretches' chords are 1:3 at every point (knot 0.25 exactly).
+- **Otherwise F sits just above the smallest chord** between corresponding points (the edges' middles for growing
+  squares), by an amount growing as the fourth power of the spread: squares growing Δh each side over a rise of 10
+  (176) give F = 10.308978 (Δh 2.5), 11.194486 (5), 12.547485 (7.5, from 175 c001), 14.239562 (10), 18.247850 (15,
+  from 175 c007), 22.710443 (20); Δh 2.5 over 20 gives 20.155811. With m the smallest chord and c the corner's,
+  (F − m)·m/(c − m)² runs from 0.1405 to 0.1340.
+- **It isn't a function of the chords' lengths alone.** No weighting of the corresponding chords (any positive weights
+  along the edges, power means, a one- or two-point rule, the chords at Chebyshev, Gauss or Lobatto points fitted by
+  a polynomial and minimised), no arc length (of the natural spline through the edges' middles, iterated, or along
+  Onshape's own surface at any column), no surface area share and no bending or stretching energy fits. Sheets
+  through three straight lines (single faces, 178 and 179: the first stretch moving the line 5 across, the second
+  rising 10 while each point moves along the line by a + w·x, x from −1 to 1) give, for a line growing evenly,
+  F = 10.000151 (w 1.25), 10.002343 (2.5), 10.033441 (5), 10.143541 (7.5), 10.373700 (10), 11.247854 (15),
+  12.624814 (20), 16.434734 (30): (F² − m²)/m² is (w/m)⁴/8 to leading order. Growing from one end (a = w = 2.5,
+  178 c003) gives 10.019309 against 10.002343 evenly, though its chords span the same lengths; growing while moving
+  along (a 1.25, 5, 10 at w 2.5) gives 10.005113, 10.393572, 12.703054, the last two each the chord about 0.8666 of
+  the way from the middle to the nearer end (√3/2 is 0.8660).
+- **A closed polygon whose faces are all alike is the single face with w scaled by √3/2:** the squares above to
+  1.5e-7 at Δh/rise 1/8, 7e-7 at 1/4, drifting to 4e-4 at 2; triangles growing (177 c008) to 3e-6. Rectangles don't
+  follow it: one growing one way (177 c004, F = 10.004390; 177 c005, 10.061360) or both ways (176 c008, 10.352939)
+  sit further above their smallest chord than either rule gives, and a square growing from a fixed corner (177 c006)
+  gives 10.004769. The rule behind all this isn't found.
 
 ## STEP export
 
