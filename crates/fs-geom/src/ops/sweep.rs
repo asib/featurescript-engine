@@ -885,6 +885,89 @@ fn polygon_circle_connected(
     Ok(Some((shape, first, last)))
 }
 
+/// Two polygons with different numbers of corners, matched as Onshape lofts them (batches 180 c007, 181 c001–c006):
+/// from the first one's first corner (or a connection's corners), to the corner of the other nearest it, both run
+/// anticlockwise along the way from the first to the second and measured by the fraction of their perimeters from
+/// there; each corner of the polygon with fewer goes to the other's corner nearest it so measured, and each of the
+/// other's corners left over to the middle of the edge it falls in (several in one edge, evenly along it). The two
+/// polygons rebuilt from those corners, the one with fewer with points added; `None` for other profiles.
+fn unequal_polygons(wires: &[Shape], forced: Option<(Vec3, Vec3)>) -> R<Option<Vec<Shape>>> {
+    use values::{add, cross, dot, norm, normalize, scale, sub};
+    let [first, second] = wires else { return Ok(None) };
+    let (Some(mut p), Some(mut q)) = (polygon_corners(first), polygon_corners(second)) else { return Ok(None) };
+    if p.len() == q.len() {
+        return Ok(None);
+    }
+    let centre = |c: &[Vec3]| scale(c.iter().fold(Vec3::new(0.0, 0.0, 0.0), |a, &x| add(a, x)), 1.0 / c.len() as f64);
+    let (cp, cq) = (centre(&p), centre(&q));
+    let Some(axis) = normalize(sub(cq, cp)) else { return Ok(None) };
+    // Onshape's first corner is where the region's first edge, as the engine's loop runs, ends.
+    let start = p[1];
+    let anticlockwise = |c: &mut Vec<Vec3>, o: Vec3| {
+        if dot(cross(sub(c[0], o), sub(c[1], o)), axis) < 0.0 {
+            c.reverse();
+        }
+    };
+    anticlockwise(&mut p, cp);
+    anticlockwise(&mut q, cq);
+    // Of corners as near, the later round (batch 181 c001, c003: the square's at 45° to the triangle's at 90°, the
+    // hexagon's at 120°).
+    let nearest = |c: &[Vec3], x: Vec3| -> usize {
+        let d: Vec<f64> = c.iter().map(|&v| norm(sub(v, x))).collect();
+        let least = d.iter().copied().fold(f64::INFINITY, f64::min);
+        (0..c.len()).rev().find(|&i| d[i] - least < 1e-9).unwrap_or(0)
+    };
+    let (ip, iq) = match forced {
+        Some((a, b)) => (nearest(&p, a), nearest(&q, b)),
+        None => {
+            let ip = nearest(&p, start);
+            (ip, nearest(&q, p[ip]))
+        }
+    };
+    let p: Vec<Vec3> = (0..p.len()).map(|i| p[(i + ip) % p.len()]).collect();
+    let q: Vec<Vec3> = (0..q.len()).map(|i| q[(i + iq) % q.len()]).collect();
+    let fractions = |c: &[Vec3]| -> Vec<f64> {
+        let lengths: Vec<f64> = (0..c.len()).map(|i| norm(sub(c[(i + 1) % c.len()], c[i]))).collect();
+        let total: f64 = lengths.iter().sum();
+        let mut at = vec![0.0];
+        for l in &lengths[..lengths.len() - 1] {
+            at.push(at.last().copied().unwrap_or(0.0) + l / total);
+        }
+        at
+    };
+    let small_first = p.len() < q.len();
+    let (small, large) = if small_first { (&p, &q) } else { (&q, &p) };
+    let (fs, fl) = (fractions(small), fractions(large));
+    // Each corner of the smaller to the larger's nearest by fraction, in order (ties to the earlier).
+    let mut partner = vec![0usize; small.len()];
+    for i in 1..small.len() {
+        let lo = partner[i - 1] + 1;
+        let hi = large.len() - (small.len() - i);
+        let Some(k) = (lo..=hi).min_by(|&a, &b| (fl[a] - fs[i]).abs().total_cmp(&(fl[b] - fs[i]).abs())) else {
+            return Ok(None);
+        };
+        partner[i] = k;
+    }
+    // The smaller rebuilt with the larger's corners left over: in the middle of the edge each falls in.
+    let mut grown = Vec::new();
+    for i in 0..small.len() {
+        let (a, b) = (small[i], small[(i + 1) % small.len()]);
+        let next = if i + 1 < small.len() { partner[i + 1] } else { large.len() };
+        let extra = next - partner[i] - 1;
+        grown.push(a);
+        for k in 1..=extra {
+            grown.push(add(a, scale(sub(b, a), k as f64 / (extra + 1) as f64)));
+        }
+    }
+    let rebuild = |c: &[Vec3]| -> R<Shape> {
+        let edges: Vec<Shape> =
+            (0..c.len()).map(|i| occt::line_edge(c[i], c[(i + 1) % c.len()])).collect::<Result<_, _>>().map_err(occt_error)?;
+        occt::ordered_wire(&edges).map_err(occt_error)
+    };
+    let (a, b) = if small_first { (rebuild(&grown)?, rebuild(large)?) } else { (rebuild(large)?, rebuild(&grown)?) };
+    Ok(Some(vec![a, b]))
+}
+
 /// The corners of a closed wire of straight edges, in order round it.
 fn polygon_corners(wire: &Shape) -> Option<Vec<Vec3>> {
     let edges = wire.sub_shapes(ShapeKind::Edge);
@@ -1187,7 +1270,14 @@ pub fn loft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
                 return Ok(Value::UNDEFINED);
             }
         }
-        let Some(matched) = forced.map(|f| matched_polygons_with(&wires, Some(f))).transpose()?.flatten() else {
+        let matched = match forced.map(|f| matched_polygons_with(&wires, Some(f))).transpose()?.flatten() {
+            Some(m) => Some(m),
+            None if field(definition, "connections").as_array().is_some_and(|a| a.len() == 1) => {
+                unequal_polygons(&wires, forced)?
+            }
+            None => None,
+        };
+        let Some(matched) = matched else {
             return Err(error("@opLoft: connections other than between two polygons aren't supported yet"));
         };
         if ends.iter().any(Option::is_some) {
@@ -1237,6 +1327,8 @@ pub fn loft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
         }
         op
     } else if let Some(matched) = matched_polygons(&wires)? {
+        occt::loft_as_given(&matched, solid).map_err(|_| regen_error("LOFT_FAILED"))?
+    } else if let Some(matched) = unequal_polygons(&wires, None)? {
         occt::loft_as_given(&matched, solid).map_err(|_| regen_error("LOFT_FAILED"))?
     } else {
         occt::loft(&wires, solid).map_err(|_| regen_error("LOFT_FAILED"))?
