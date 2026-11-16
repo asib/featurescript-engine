@@ -194,8 +194,12 @@ What fixtures show Onshape doing that the engine can't yet:
   c020–c022: 45°, 75°, 135°); magnitudes from 0.9975 at a right angle, whose section lies within micrometres of
   the corner, too thin for the engine's booleans to cut (064 c006, 113 c009), and 0.99875 at 60°, where the cut
   leaves two edges more than Onshape's (114 c019).
-- **Fills of curves** (batch 063 c008): Onshape's own fits. Boundary surfaces with end conditions at both
-  profiles, at v profiles, or matching adjacent faces aren't modelled (the engine refuses them).
+- **Fills of curves** (batch 063 c008): Onshape's own fits. Boundary surfaces with end conditions on profiles both
+  ways, or matching curved adjacent faces or their curvature, aren't modelled (the engine refuses them).
+- **Lofts through three or more profiles that change unevenly** (batches 174 c008, 175–179): each stretch between
+  profiles has a length of its own, the chord where every point moves alike (the engine's then exactly), otherwise
+  just above the smallest chord by a rule not found (docs/FINDINGS.md); the engine averages the chords, its knots
+  1e-4 to 1e-2 off, up to 5% of the volume where squares treble (176 c004).
 - **A circle across a bend cut in the flat** (batch 062 c006): Onshape wraps it onto the bend; the engine's
   definition cut across the sharp edge fails to rebuild.
 - **Flat patterns of parts with curved walls** (`qCorrespondingInFlat`): the engine models a sheet metal model's
