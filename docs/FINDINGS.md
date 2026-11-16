@@ -1928,6 +1928,24 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   sit further above their smallest chord than either rule gives, and a square growing from a fixed corner (177 c006)
   gives 10.004769. The rule behind all this isn't found.
 
+## Loft connections between a polygon and a circle (batch 180)
+
+- **One connection**, a polygon's corner or a point along its edge to a point round a circle: the polygon's corners
+  and the connection point (where it's along an edge) divide the circle into as many equal arcs, from the connected
+  point round the same way (anticlockwise along the way from the first profile to the second), each taken to the
+  next in turn (c001, c002 twisted a quarter, c004 the circle first, c005 a hexagon, c006 an edge's middle: five arcs
+  of 72°, the edge taking two). Each side is ruled (degree 1 across) between its edge and its arcs, both as cubic
+  Hermite spans, four for each arc: the arc's from its own tangent, as long as the span's angle times the radius over
+  three (not the best fit's (4/3)·tan(θ/4)·r), the edge's evenly, the knots doubled. The circle gets a vertex at each
+  point, the connection's too (c006: 13 edges). The engine builds this pole for pole (to 1.7e-4 mm); Onshape's
+  circular end, though, measures 314.1631 mm² where its sides' arcs bound 314.1386 (and the exact circle 314.1593),
+  so the areas are 0.025 mm² and the volumes up to 0.09 mm³ apart.
+- **Two connections** (c003, the square's opposite corners to an eighth and five eighths round): Onshape's sides take
+  eight spans round each quarter and its circular end is the exact circle's (314.1595 mm²), 0.12 mm³ more than c001
+  for the same corners; not modelled.
+- **A triangle to a square**, corner to corner (c007): three ruled sides of one cubic span and one planar side, a fan
+  from a corner to an edge (295.42 mm²); not modelled.
+
 ## STEP export
 
 - **Part names** are written on each `MANIFOLD_SOLID_BREP` (`MANIFOLD_SOLID_BREP('c030.1', ...)`), as well as on
