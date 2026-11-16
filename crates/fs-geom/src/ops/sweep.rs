@@ -158,10 +158,10 @@ fn locked_to_revolution(model: &mut Model, id: &FeatureId, definition: &Value) -
     Ok(Some(Value::UNDEFINED))
 }
 
-/// A profile of straight edges swept along a ruling of a cylinder or a cone it is locked to: carried along the line,
-/// each edge making a face Onshape gives as a B-spline, linear across the edge and a cubic of evenly spaced poles
-/// along the line (batch 070 c008), between the profile and its copy at the far end. `None` if the line isn't a
-/// ruling (in a plane through the axis) or the profile has curved edges.
+/// A profile swept along a ruling of a cylinder or a cone it is locked to: carried along the line, each edge (of every
+/// loop) making a face Onshape gives as a B-spline, the edge's own across it (linear for a straight edge) and a cubic
+/// of evenly spaced poles along the line (batch 070 c008, 183 c004), between the profile and its copy at the far end.
+/// `None` if the line isn't a ruling (in a plane through the axis).
 fn along_ruling(model: &mut Model, id: &FeatureId, definition: &Value, edge: &Shape, axis: occt::Frame) -> R<Option<Value>> {
     use values::{add, cross, dot, norm, scale, sub};
     let a = edge.edge_tangent(0.0, false).map_err(occt_error)?;
@@ -175,10 +175,12 @@ fn along_ruling(model: &mut Model, id: &FeatureId, definition: &Value, edge: &Sh
     let faces: Vec<Shape> =
         found.iter().filter(|r| r.kind == EntityType::Face).map(|r| model.shape(*r).clone()).collect();
     let [profile] = faces.as_slice() else { return Ok(None) };
+    // Every loop's edges, holes' too (batch 183 c004: a square with a round hole). A profile of straight edges in
+    // several loops (a frame's square tube, batch 138 c005) is swept as before: the frame's mitres, cut by replacing
+    // its ends, trim its planar sides but not these.
     let loops = profile.sub_shapes(ShapeKind::Wire);
-    let [outer] = loops.as_slice() else { return Ok(None) };
-    let profile_edges = outer.sub_shapes(ShapeKind::Edge);
-    if profile_edges.iter().any(|e| e.curve_type().ok() != Some(occt::CurveType::Line)) {
+    let profile_edges = profile.sub_shapes(ShapeKind::Edge);
+    if loops.len() > 1 && profile_edges.iter().all(|e| e.curve_type().ok() == Some(occt::CurveType::Line)) {
         return Ok(None);
     }
     // From the end of the path the profile is at.
@@ -192,19 +194,43 @@ fn along_ruling(model: &mut Model, id: &FeatureId, definition: &Value, edge: &Sh
     };
     let travel = sub(end, start);
     let mut sides = Vec::new();
+    let along = [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0];
     for e in &profile_edges {
-        let ends = e.edge_tangent(0.0, false).map_err(occt_error)?.origin;
-        let ende = e.edge_tangent(1.0, false).map_err(occt_error)?.origin;
+        if e.curve_type().ok() == Some(occt::CurveType::Line) {
+            let ends = e.edge_tangent(0.0, false).map_err(occt_error)?.origin;
+            let ende = e.edge_tangent(1.0, false).map_err(occt_error)?.origin;
+            let mut poles = Vec::new();
+            for p in [ends, ende] {
+                for k in 0..4 {
+                    poles.push(add(p, scale(travel, k as f64 / 3.0)));
+                }
+            }
+            sides.push(
+                occt::bspline_surface_face(&poles, (2, 4), &[0.0, 0.0, 1.0, 1.0], &along, (1, 3)).map_err(occt_error)?,
+            );
+            continue;
+        }
+        // A curved edge (a hole's circle): its own B-spline across, as along a straight edge along the line.
+        let curve = e.edge_bspline(1e-9, false, false).map_err(occt_error)?;
+        let weights = if curve.rational { curve.weights.clone() } else { vec![1.0; curve.poles.len()] };
         let mut poles = Vec::new();
-        for p in [ends, ende] {
+        let mut all_weights = Vec::new();
+        for (p, w) in curve.poles.iter().zip(&weights) {
             for k in 0..4 {
-                poles.push(add(p, scale(travel, k as f64 / 3.0)));
+                poles.push(add(*p, scale(travel, k as f64 / 3.0)));
+                all_weights.push(*w);
             }
         }
-        sides.push(
-            occt::bspline_surface_face(&poles, (2, 4), &[0.0, 0.0, 1.0, 1.0], &[0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0], (1, 3))
-                .map_err(occt_error)?,
-        );
+        let side = occt::rational_bspline_surface_face(
+            &poles,
+            &all_weights,
+            (curve.poles.len(), 4),
+            &curve.knots,
+            &along,
+            (curve.degree, 3),
+        )
+        .map_err(occt_error)?;
+        sides.push(side);
     }
     let far = occt::transform(profile, &super::translation(travel)).map_err(occt_error)?.shape();
     let mut all = vec![profile.clone()];
@@ -319,7 +345,25 @@ pub fn sweep(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
     }
     let solid = !faces.is_empty();
     let profiles: Vec<Shape> = if solid {
-        if faces.len() == 1 { faces } else { vec![occt::merge_faces(&faces).map_err(occt_error)?.shape()] }
+        // Faces sharing edges merged into one profile; apart, each swept on its own (batch 183 c003: two squares side
+        // by side, two solids).
+        let mut groups: Vec<Vec<Shape>> = Vec::new();
+        for f in &faces {
+            let edges = f.sub_shapes(ShapeKind::Edge);
+            let touching: Vec<usize> = (0..groups.len())
+                .filter(|&g| groups[g].iter().any(|h| h.sub_shapes(ShapeKind::Edge).iter().any(|e| edges.iter().any(|x| x.is_same(e)))))
+                .collect();
+            let mut merged = vec![f.clone()];
+            for &g in touching.iter().rev() {
+                merged.extend(groups.remove(g));
+            }
+            groups.push(merged);
+        }
+        let mut out = Vec::new();
+        for g in groups {
+            out.push(if g.len() == 1 { g[0].clone() } else { occt::merge_faces(&g).map_err(occt_error)?.shape() });
+        }
+        out
     } else {
         occt::connect_edges(&edges).map_err(occt_error)?
     };
