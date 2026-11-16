@@ -15,18 +15,21 @@ const LOOSE: &[(&str, f64)] =
     &[("c016", 0.05), ("c017", 0.05), ("c018", 0.05), ("c019", 0.05), ("c020", 0.05), ("c021", 0.15), ("c022", 0.15)];
 
 /// Every case returns its faces' surfaces or points along its edges, to study: Onshape's B-spline approximations,
-/// its faces in its own order. Only the bodies are compared, but for the lofts between circles (c024–c026: periodic
-/// round them, as Onshape's sides are), compared in any order.
+/// its faces in its own order. These are compared on their bodies only; the rest match in full, in any order (the
+/// lofts between circles, c024–c026, periodic round them as Onshape's sides are, among them).
 const CASES: &[&str] = &[
-    "c001", "c002", "c003", "c004", "c005", "c006", "c007", "c008", "c009", "c010", "c011", "c012", "c013", "c014",
-    "c015", "c016", "c017", "c018", "c019", "c020", "c021", "c022", "c023", "c027",
+    "c004", "c008", "c009", "c011", "c012", "c013", "c014", "c015", "c016", "c017", "c018", "c019", "c020", "c021",
+    "c022", "c023",
 ];
+
+/// Compared in full, faces in any order.
+const UNORDERED: &[&str] = &["c001", "c002", "c003", "c005", "c006", "c007", "c010", "c024", "c025", "c026", "c027"];
 
 #[test]
 fn batch_055_matches_onshape() {
     fs_interp::run_with_large_stack(|| {
         let batch = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/batch-055");
-        let report = fs_fixtures::check_batch_unordered(&batch, None, LOOSE, CASES, &["c024", "c025", "c026"]).unwrap();
+        let report = fs_fixtures::check_batch_unordered(&batch, None, LOOSE, CASES, UNORDERED).unwrap();
         let unexpected: Vec<String> = report
             .problems()
             .into_iter()

@@ -12,14 +12,18 @@ const KNOWN_GAPS: &[&str] = &["c002.1: faces", "c003"];
 /// c012).
 const LOOSE: &[(&str, f64)] = &[("c002", 0.02)];
 
-/// The probes return Onshape's surfaces and curves to study: only the bodies are compared.
-const BODIES_ONLY: &[&str] = &["c001", "c002", "c003"];
+/// The probes return Onshape's surfaces and curves to study: these are compared on their bodies only; c001 matches
+/// in full.
+const BODIES_ONLY: &[&str] = &["c002", "c003"];
+
+/// Compared in full, faces in any order.
+const UNORDERED: &[&str] = &["c001"];
 
 #[test]
 fn batch_115_matches_onshape() {
     fs_interp::run_with_large_stack(|| {
         let batch = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/batch-115");
-        let report = fs_fixtures::check_batch_bodies(&batch, None, LOOSE, BODIES_ONLY).unwrap();
+        let report = fs_fixtures::check_batch_unordered(&batch, None, LOOSE, BODIES_ONLY, UNORDERED).unwrap();
         let unexpected: Vec<String> =
             report.problems().into_iter().filter(|p| !KNOWN_GAPS.iter().any(|case| p.starts_with(case))).collect();
         assert!(unexpected.is_empty(), "{report}");

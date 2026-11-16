@@ -10,15 +10,18 @@ const KNOWN_GAPS: &[&str] = &[];
 /// The curvature fillets' areas and volumes stray from Onshape's quintics as in batch 053 (c010–c012).
 const LOOSE: &[(&str, f64)] = &[("c003", 0.002), ("c010", 0.05), ("c011", 0.05), ("c012", 0.05)];
 
-/// The values cases return (edges' ends, faces' surfaces) are there to study. Only the bodies are compared.
-const CASES: &[&str] =
-    &["c001", "c002", "c003", "c004", "c005", "c006", "c007", "c008", "c009", "c010", "c011", "c012"];
+/// The values cases return (edges' ends, faces' surfaces) are there to study. These are compared on their bodies
+/// only; the rest match in full, in any order.
+const CASES: &[&str] = &["c001", "c002", "c003", "c010", "c011", "c012"];
+
+/// Compared in full, faces in any order.
+const UNORDERED: &[&str] = &["c004", "c005", "c006", "c007", "c008", "c009"];
 
 #[test]
 fn batch_059_matches_onshape() {
     fs_interp::run_with_large_stack(|| {
         let batch = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/batch-059");
-        let report = fs_fixtures::check_batch_bodies(&batch, None, LOOSE, CASES).unwrap();
+        let report = fs_fixtures::check_batch_unordered(&batch, None, LOOSE, CASES, UNORDERED).unwrap();
         let unexpected: Vec<String> =
             report.problems().into_iter().filter(|p| !KNOWN_GAPS.iter().any(|case| p.starts_with(case))).collect();
         assert!(unexpected.is_empty(), "{report}");

@@ -14,17 +14,20 @@ use std::path::PathBuf;
 const LOOSE: &[(&str, f64)] =
     &[("c004", 0.3), ("c005", 0.5), ("c006", 0.3), ("c007", 2.1), ("c009", 0.5), ("c010", 0.5)];
 
-/// Every case returns its faces' surfaces or points along its edges, to study. Only the bodies are compared, but for
-/// the loft between circles (c008: periodic round them, as Onshape's sides are), compared in any order. Through a
-/// circle between two points (c003) Onshape's seam is half a turn round from the engine's.
-const CASES: &[&str] =
-    &["c001", "c002", "c003", "c004", "c005", "c006", "c007", "c009", "c010", "c011", "c012", "c013"];
+/// Every case returns its faces' surfaces or points along its edges, to study. These are compared on their bodies
+/// only; the rest match in full, in any order (the loft between circles, c008, periodic round them as Onshape's
+/// sides are, among them). Through a circle between two points (c003) Onshape's seam is half a turn round from the
+/// engine's.
+const CASES: &[&str] = &["c003", "c004", "c005", "c006", "c007", "c009", "c010"];
+
+/// Compared in full, faces in any order.
+const UNORDERED: &[&str] = &["c001", "c002", "c008", "c011", "c012", "c013"];
 
 #[test]
 fn batch_057_matches_onshape() {
     fs_interp::run_with_large_stack(|| {
         let batch = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/batch-057");
-        let report = fs_fixtures::check_batch_unordered(&batch, None, LOOSE, CASES, &["c008"]).unwrap();
+        let report = fs_fixtures::check_batch_unordered(&batch, None, LOOSE, CASES, UNORDERED).unwrap();
         assert!(report.problems().is_empty(), "{report}");
         assert_eq!(report.probes_matched, (14, 14), "{report}");
     });
