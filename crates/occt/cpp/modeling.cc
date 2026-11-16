@@ -1537,6 +1537,20 @@ std::unique_ptr<Operation> shell_op(const Shape &solid, const ShapeList &faces, 
   // changed in place), and the fallbacks below need it whole (batch 125 c007).
   BRepBuilderAPI_Copy copier(solid.shape, Standard_True);
   const TopoDS_Shape copy = copier.Shape();
+  // The thick solid is made from the copy's periodic B-splines (a loft's sides round circles) unwrapped and clamped
+  // to their ranges, as the measures take them (batch 145 c005).
+  for (TopExp_Explorer f(copy, TopAbs_FACE); f.More(); f.Next()) {
+    Handle(Geom_Surface) g = BRep_Tool::Surface(TopoDS::Face(f.Current()));
+    Handle(Geom_RectangularTrimmedSurface) trimmed = Handle(Geom_RectangularTrimmedSurface)::DownCast(g);
+    if (!trimmed.IsNull()) g = trimmed->BasisSurface();
+    Handle(Geom_BSplineSurface) s = Handle(Geom_BSplineSurface)::DownCast(g);
+    if (s.IsNull() || !(s->IsUPeriodic() || s->IsVPeriodic())) continue;
+    double u1, u2, v1, v2;
+    s->Bounds(u1, u2, v1, v2);
+    if (s->IsUPeriodic()) s->SetUNotPeriodic();
+    if (s->IsVPeriodic()) s->SetVNotPeriodic();
+    s->Segment(u1, u2, v1, v2);
+  }
   TopTools_ListOfShape copied_faces;
   for (const TopoDS_Shape &f : faces.shapes) {
     const TopTools_ListOfShape &images = copier.Modified(f);
@@ -4062,6 +4076,18 @@ std::unique_ptr<Operation> loft_clamped_op(const ShapeList &wires, bool solid, V
     // batch 175 c004 and c006): the spans' knots all come out; along a curved edge none do.
     for (int j = s->NbUKnots() - 1; j >= 2; --j) s->RemoveUKnot(j, 0, 1e-9);
     double fu1 = side.u1, fu2 = side.u2;
+    // Round a closed edge (a circle) Onshape's side is periodic along it, its seam's knot double as the others are
+    // (batch 177 c007).
+    bool closed_u = s->NbUKnots() > 2;
+    for (int j = 1; j <= s->NbVPoles() && closed_u; ++j)
+      closed_u = s->Pole(1, j).Distance(s->Pole(s->NbUPoles(), j)) < 1e-12;
+    if (closed_u) {
+      try {
+        s->SetUPeriodic();
+        if (s->UMultiplicity(1) > s->UDegree() - 1) s->RemoveUKnot(1, s->UDegree() - 1, 1e-9);
+      } catch (const Standard_Failure &) {
+      }
+    }
     if (s->NbUKnots() == 2) {
       // That single cubic runs from 0 to 1 along the edge, as Onshape's does.
       TColStd_Array1OfReal unit(1, 2);
