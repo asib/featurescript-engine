@@ -1764,8 +1764,17 @@ fn compatible(
 /// last two the magnitude times them (to 1e-6 of Onshape's, batches 162, 163); a free profile is reached as the quadratic's, raised to a cubic, plus at each pole the correction
 /// blended from the profiles' ends (batch 159 c005). `None` where it doesn't apply (other conditions or curves).
 fn poled_surface(profiles: &[Shape], ends: &[Option<EndCondition>; 2], ruled: &Shape) -> R<Option<Shape>> {
-    use crate::values::{add, dot, norm, normalize, scale, sub};
-    if profiles.len() != 2 || ends.iter().all(Option::is_none) || ends.iter().flatten().any(|e| !e.tangent) {
+    use crate::values::{add, cross, dot, norm, normalize, scale, sub};
+    if profiles.len() != 2 || ends.iter().all(Option::is_none) {
+        return Ok(None);
+    }
+    // Normal to a curved profile's plane at a magnitude other than 1, built the same way, the chord's part across
+    // the profile within its plane taken out (batch 117 c002, c006); at magnitude 1 the sampled construction
+    // ([`conditioned_surface`]) comes nearer Onshape's.
+    let curved = profiles.iter().any(|w| w.sub_shapes(ShapeKind::Edge).iter().any(|e| e.curve_type().ok() != Some(occt::CurveType::Line)));
+    let normal_ends = ends.iter().flatten().any(|e| !e.tangent);
+    let other_magnitude = ends.iter().flatten().any(|e| (e.magnitude - 1.0).abs() > 1e-12);
+    if normal_ends && !(curved && other_magnitude && ends.iter().flatten().all(|e| e.faces.is_empty())) {
         return Ok(None);
     }
     // A profile of several edges in a row along one line is that line (batch 166 c001, c004).
@@ -1839,7 +1848,7 @@ fn poled_surface(profiles: &[Shape], ends: &[Option<EndCondition>; 2], ruled: &S
                 *spline = insert_knot(&spline.0, &spline.1, w[1].0);
             }
         }
-        normals[index] = Some((stretches, end.magnitude));
+        normals[index] = Some((stretches, end.magnitude, end.tangent));
     }
     let ((p, knots), (q, _)) = compatible(a, b);
     let count = p.len();
@@ -1848,18 +1857,27 @@ fn poled_surface(profiles: &[Shape], ends: &[Option<EndCondition>; 2], ruled: &S
     let greville = |i: usize| (knots[i + 1] + knots[i + 2] + knots[i + 3]) / 3.0;
     // The leaving derivative's poles at an end, the magnitude fitted as Onshape fits it.
     let leaving = |index: usize| -> R<Option<Vec<occt::Vec3>>> {
-        let Some((stretches, magnitude)) = &normals[index] else { return Ok(None) };
-        let magnitude = *magnitude;
+        let Some((stretches, magnitude, tangent)) = &normals[index] else { return Ok(None) };
+        let (magnitude, tangent) = (*magnitude, *tangent);
         // The chord less its part along the plane of the stretch holding `u` (the earlier one where two meet).
         let normal_at = |u: f64| stretches.iter().find(|s| u <= s.1 + 1e-12).or(stretches.last()).map(|s| s.2).expect("a stretch");
         let at = |poles: &[occt::Vec3], u: f64| {
             let basis = basis_at(&knots, count, u);
             poles.iter().zip(&basis).fold(occt::Vec3::new(0.0, 0.0, 0.0), |acc, (p, w)| add(acc, scale(*p, *w)))
         };
+        let profile = if index == 0 { &p } else { &q };
         let exact = |u: f64, side: f64| {
             let c = at(&chords, u);
             let n = normal_at(if side < 0.0 { u } else { (u + 1e-9).min(1.0) });
-            sub(c, scale(n, dot(c, n)))
+            // Normal to the plane: the part across the profile within it.
+            let across = if tangent {
+                n
+            } else {
+                let h = 1e-7;
+                let (lo, hi) = ((u - h).max(0.0), (u + h).min(1.0));
+                normalize(cross(n, sub(at(profile, hi), at(profile, lo)))).unwrap_or(n)
+            };
+            sub(c, scale(across, dot(c, across)))
         };
         // Its poles: the first two and last two from its value and slope at the ends, the rest through its values
         // at their places (on one plane, the chords' poles less their parts along the normal).
@@ -1958,9 +1976,10 @@ fn poled_surface(profiles: &[Shape], ends: &[Option<EndCondition>; 2], ruled: &S
 /// with both (117 c001). So it is in Onshape, within its fits (the derivative's part along the normal is the
 /// chord's; along the profile, within 0.01 of it). Where the derivative comes to nothing, as at the ends of two arcs
 /// over each other tangent to their planes, Onshape fails (`CANNOT_MAKE_BSPLINESURFACE`, 063 c010); square to a
-/// direction the profile doesn't lie square to, it fails as inconsistent (117 c005). Magnitudes other than 1, and
-/// a derivative along a direction given, change the curves by rules not found (117 c002, c004, c006): refused. The
-/// surface is cubic along the profiles through 33 points on each row.
+/// direction the profile doesn't lie square to, it fails as inconsistent (117 c005). Magnitudes other than 1 between
+/// curved profiles are built pole by pole ([`poled_surface`]); a derivative along a direction given changes the
+/// curves by a rule not found (117 c004): refused. The surface is cubic along the profiles through 33 points on each
+/// row.
 fn conditioned_surface(profiles: &[Shape], ends: &[Option<EndCondition>; 2], ruled: &Shape) -> R<Shape> {
     if let Some(face) = poled_surface(profiles, ends, ruled)? {
         return Ok(face);

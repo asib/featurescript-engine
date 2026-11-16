@@ -1720,7 +1720,11 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   117, loosely): there Onshape's magnitude-1 derivative, pole by pole, has its first two and last two rows the exact
   projected chord's value and slope at the ends (to 2e-6, batch 117 c001), and its interior within 5e-3 of a least-
   squares fit of the exact projected chord at the knots pulled 0.04 toward the pole chords projected across the
-  control polygon; what exactly it is pulled toward isn't found. Taking its fit as the magnitude's (Greville points,
+  control polygon; what exactly it is pulled toward isn't found. At magnitudes other than 1 the engine now builds
+  normal-to-profile conditions between curved profiles pole by pole too, the magnitude-1 derivative there the chord
+  less its part across the profile within its plane, fitted as above and then fitted to the magnitude as between
+  lines: batch 117 c002 (magnitude 2) matches Onshape's body to 1e-3 (its poles 5e-3 apart), c006 (0.5 and 1.5) to
+  0.0056 mm² of its area, and batch 171 c004 (magnitude 2) to 0.035 mm², as near as its magnitude-1 cases. Taking its fit as the magnitude's (Greville points,
   pull 0.04), the anchor Onshape's poles imply is no projection of the pole chords (its third row (0.016, 20, −0.001)
   against the chord's (0.907, 20, 1.567)), and no direction projects the third pole chord onto Onshape's row: its
   interior comes from a fit of another kind. A sheet extruded from a straight spline is a plane in Onshape, its edges splines still; the engine's
