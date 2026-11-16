@@ -1,0 +1,87 @@
+{
+  "batch": "175",
+  "title": "probes: plain lofts through three or four polygons, their knots at the middle profiles",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "loft",
+      "description": "squares of 20, 25 and 10 mm at z = 0, 10 and 20 (batch 174 c008 without its guide)",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "loft",
+      "description": "squares of 20, 14 and 10 mm at z = 0, 10 and 25 (batch 062 c008, free)",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "loft",
+      "description": "squares of 20 mm at z = 0, 10 and 30",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "loft",
+      "description": "squares of 20 mm at z = 0, 10 and 20, the middle one moved 10 along x",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "loft",
+      "description": "a 30 x 10 rectangle, a 20 mm square and a 10 x 30 rectangle at z = 0, 10 and 20",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "loft",
+      "description": "squares of 20, 25 and 10 mm at z = 0, 5 and 20",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "loft",
+      "description": "squares of 20, 40 and 10 mm at z = 0, 10 and 20",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c008",
+      "kind": "loft",
+      "description": "squares of 20, 25, 15 and 10 mm at z = 0, 10, 20 and 30",
+      "slotMeters": [
+        2.8000000000000003,
+        0,
+        0
+      ]
+    }
+  ]
+}

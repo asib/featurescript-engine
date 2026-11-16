@@ -1,0 +1,67 @@
+{
+  "batch": "178",
+  "title": "probes: sheets lofted through three lines, moved across then changed",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "loft",
+      "description": "a sheet through lines from x = -10 to 10 at y = 0, z = 0 and y = 5, z = 10, and from -12.5 to 12.5 at y = 5, z = 20",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "loft",
+      "description": "a sheet through lines from x = -10 to 10 at y = 0, z = 0 and y = 5, z = 10, and from -15 to 15 at y = 5, z = 20",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "loft",
+      "description": "a sheet through lines from x = 0 to 20 at y = 0, z = 0 and y = 5, z = 10, and from 0 to 25 at y = 5, z = 20",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "loft",
+      "description": "a sheet through lines from x = -10 to 10 at y = 0, z = 0 and y = 5, z = 10, and from -12.5 to 12.5 at y = 7.5, z = 20",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "loft",
+      "description": "a sheet through lines from x = -10 to 10 at y = 0, z = 0 and y = 5, z = 10, and from -15 to 15 at y = 10, z = 20",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "loft",
+      "description": "a sheet through lines from x = -10 to 10 at y = 0, z = 0 and 10, and from -12.5 to 12.5 at y = 2.5, z = 20",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    }
+  ]
+}
