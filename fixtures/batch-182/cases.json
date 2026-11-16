@@ -1,0 +1,67 @@
+{
+  "batch": "182",
+  "title": "probes: lofts with several connections",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "loft",
+      "description": "a 20 mm square at z = 0 to a hexagon, corners 10 from the middle, at z = 20, its corners at (10, 10) and (-10, -10) connected to the hexagon's at (10, 0) and (-10, 0)",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "loft",
+      "description": "an equilateral triangle, corners 10 from the middle, at z = 0 to the square at z = 20, its corners at (0, 10) and (-8.660254, -5) connected to the corners at (10, 10) and (-10, -10)",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "loft",
+      "description": "the square at z = 0 to one at z = 20, its corners at (10, 10) and (-10, -10) connected to the other's at (-10, 10) and (10, -10)",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "loft",
+      "description": "circles of radius 10 at z = 0 and 20, connected from their starts and from half round the first to a third round the second",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "loft",
+      "description": "a pentagon, corners 10 from the middle, one at (0, 10), at z = 0 to a circle of radius 10 at z = 20, its corners at 90°, 162° and 306° connected to the circle a quarter, two fifths and four fifths round",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "loft",
+      "description": "the square to the circle, its corner at (10, 10) connected to the circle an eighth round and the middle of its edge along y = -10 three quarters round",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    }
+  ]
+}
