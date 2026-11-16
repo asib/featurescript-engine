@@ -11,5 +11,5 @@ batch has no STEP.
 
 Findings (docs/FINDINGS.md): at the second profile alone the surface is batch 063 c011's mirror image; at both, the
 cubic leaving each profile with its own projected chord. Along a direction the derivative is projected the same way
-but the free end isn't the quadratic's; square to a direction the profile doesn't lie square to, Onshape refuses
+and the free end is batch 159 c005's blend, not the quadratic's; square to a direction the profile doesn't lie square to, Onshape refuses
 it. Magnitudes other than 1 follow batches 162 and 163's fit (the engine builds c002 and c006 so, within 0.006 mm²).

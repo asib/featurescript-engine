@@ -1977,9 +1977,10 @@ fn poled_surface(profiles: &[Shape], ends: &[Option<EndCondition>; 2], ruled: &S
 /// chord's; along the profile, within 0.01 of it). Where the derivative comes to nothing, as at the ends of two arcs
 /// over each other tangent to their planes, Onshape fails (`CANNOT_MAKE_BSPLINESURFACE`, 063 c010); square to a
 /// direction the profile doesn't lie square to, it fails as inconsistent (117 c005). Magnitudes other than 1 between
-/// curved profiles are built pole by pole ([`poled_surface`]); a derivative along a direction given changes the
-/// curves by a rule not found (117 c004): refused. The surface is cubic along the profiles through 33 points on each
-/// row.
+/// curved profiles are built pole by pole ([`poled_surface`]). Along a direction given, the derivative is the chord
+/// less its part across the profile within the plane of the direction and the profile's tangent, and a free other
+/// end is reached as with conditions normal to a plane (117 c004). The surface is cubic along the profiles through
+/// 33 points on each row.
 fn conditioned_surface(profiles: &[Shape], ends: &[Option<EndCondition>; 2], ruled: &Shape) -> R<Shape> {
     if let Some(face) = poled_surface(profiles, ends, ruled)? {
         return Ok(face);
@@ -2012,10 +2013,10 @@ fn conditioned_surface(profiles: &[Shape], ends: &[Option<EndCondition>; 2], rul
         let samples: Vec<f64> = (0..=16).map(|k| k as f64 / 16.0).collect();
         let points: Vec<occt::Vec3> = samples.iter().map(|&f| at(edge(index), f)).collect::<R<_>>()?;
         let in_plane = points.iter().all(|&p| dot(sub(p, points[0]), n).abs() < 1e-9);
-        if !in_plane && !straight {
-            if !end.tangent {
-                return Err(error("@opBoundarySurface: end conditions along a direction aren't supported yet"));
-            }
+        // Along a direction the profile doesn't lie square to, the chord less its part across the profile within the
+        // plane of the direction and the profile's tangent, as normal to a profile's plane, the free end as with one
+        // (batch 117 c004: within 0.06 mm² of Onshape's own fit).
+        if !in_plane && !straight && end.tangent {
             let square = samples.iter().all(|&f| {
                 edge(index).edge_tangent(f, false).is_ok_and(|t| dot(t.direction, n).abs() < 1e-9)
             });

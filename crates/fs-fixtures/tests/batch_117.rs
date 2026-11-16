@@ -3,15 +3,13 @@
 
 use std::path::PathBuf;
 
-/// Cases the engine doesn't build as Onshape does yet (see docs/std-coverage.md): an end condition along a direction
-/// given (c004), whose free end isn't the quadratic's; the engine refuses it, so the failed-cases line differs too.
-const KNOWN_GAPS: &[&str] = &["c004", "failed probe"];
-
 /// Normal to both profiles' planes (c001) and to the second's (c003): Onshape's surfaces are built on its own fits
 /// of the arcs, 0.0002 and 0.0015 mm² off the engine's exact ones. At magnitudes 0.5 and 1.5 (c006) the engine fits
 /// the leaving derivatives as Onshape fits other magnitudes (batches 162, 163) on its own magnitude-1 derivative,
-/// whose interior is 5e-3 off Onshape's: 0.0056 mm² apart (magnitude 2 at the first alone, c002, within 1e-3).
-const LOOSE: &[(&str, f64)] = &[("c001", 0.005), ("c003", 0.005), ("c006", 0.01)];
+/// whose interior is 5e-3 off Onshape's: 0.0056 mm² apart (magnitude 2 at the first alone, c002, within 1e-3). Along
+/// a direction (c004), its free end reached as with a condition normal to a plane (batch 159 c005's blend), 0.058 mm²
+/// off Onshape's adaptive fit.
+const LOOSE: &[(&str, f64)] = &[("c001", 0.005), ("c003", 0.005), ("c004", 0.1), ("c006", 0.01)];
 
 /// The probes return Onshape's poles, its own fits: only the bodies are compared.
 const BODIES_ONLY: &[&str] = &["c001", "c002", "c003", "c004", "c005", "c006"];
@@ -21,10 +19,8 @@ fn batch_117_matches_onshape() {
     fs_interp::run_with_large_stack(|| {
         let batch = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/batch-117");
         let report = fs_fixtures::check_batch_bodies(&batch, None, LOOSE, BODIES_ONLY).unwrap();
-        let unexpected: Vec<String> =
-            report.problems().into_iter().filter(|p| !KNOWN_GAPS.iter().any(|case| p.starts_with(case))).collect();
-        assert!(unexpected.is_empty(), "{report}");
-        // c001–c003, c006 and c005 (failing in both, BSURF_INCONSISTENT_CONDITIONS_ERROR).
-        assert_eq!(report.probes_matched, (5, 7), "{report}");
+        assert!(report.problems().is_empty(), "{report}");
+        // c005 fails in both (BSURF_INCONSISTENT_CONDITIONS_ERROR).
+        assert_eq!(report.probes_matched, (7, 7), "{report}");
     });
 }
