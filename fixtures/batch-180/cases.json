@@ -1,0 +1,77 @@
+{
+  "batch": "180",
+  "title": "probes: lofts with connections between profiles other than two polygons",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "loft",
+      "description": "a 20 mm square at z = 0 to a circle of radius 10 at z = 20, its corner at (10, 10) connected to the circle an eighth round",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "loft",
+      "description": "the square to the circle, its corner at (10, 10) connected to the circle at its start",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "loft",
+      "description": "the square to the circle, its corners at (10, 10) and (-10, -10) connected to the circle an eighth and five eighths round",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "loft",
+      "description": "a circle of radius 10 at z = 0 to a 20 mm square at z = 20, the circle three eighths round connected to the corner at (-10, 10)",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "loft",
+      "description": "a hexagon, corners 10 from the middle, at z = 0 to a circle of radius 10 at z = 20, its corner at (10, 0) connected to the circle at its start",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "loft",
+      "description": "the square to the circle, the middle of its edge along x = 10 connected to the circle at its start",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "loft",
+      "description": "an equilateral triangle, corners 10 from the middle, at z = 0 to a 20 mm square at z = 20, its corner at (0, 10) connected to the corner at (10, 10)",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    }
+  ]
+}
