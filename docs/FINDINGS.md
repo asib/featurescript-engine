@@ -1843,6 +1843,17 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   radius out, by a rule not found; so the engine keeps its exact blends and these cases stay loose. (173's probe
   lines stop in its faces' weights, Onshape's output cut short, so their poles can't be compared whole.)
 
+- **Lofts along a straight path through sections, found** (batches 075 c006, 112 c004–c006). Onshape adds the
+  sections at even steps along the loft, k/(N + 1) for N sections (its surface has N + 1 spans along: 4, 6 and 10
+  for 3, 5 and 9), each the plain loft's circle there as a cubic through it every 45° from the circles' starts with
+  its exact tangent (r per radian), which dips 9.8019e-4 of the radius between: at every height that is a section
+  Onshape's radius every 22.5° is 9.81e-4 short. Along the loft it runs a natural cubic spline through the profiles
+  (exact circles) and those sections at even parameters: between sections its radius there is the spline's to 4e-7
+  (0.9989356 of the cone's at a third of the way for 3 sections, the spline's 0.9989360; not-a-knot 0.9989684,
+  clamped to the cone's slope 0.9988823). Between equal circles Onshape's loft stays a cylinder (089 c009), its
+  sections presumably cut from the plain loft's surface, which is a cylinder there and a B-spline otherwise. The
+  engine now builds it so (round the axis fitted C1 through 129 points, along it the spline exact), and these cases
+  match on their bodies.
 - **Lofts with guides elsewhere** (batch 174; batch 112's poles again). Between a 20 mm square and a 10 mm one 20
   above: guides crossing two sides (opposite or neighbouring) bend each alone, as one does (c001, c002). A guide
   crossing a side off its middle (c003: in the plane y = −2.5, a fraction 0.375 along the bottom edge and 0.25 along

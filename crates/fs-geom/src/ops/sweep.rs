@@ -1011,6 +1011,18 @@ pub fn loft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
             }
         }
     }
+    // Sections added along a straight spine between two circles bend the loft between them (batch 112 c004–c006).
+    if values::opt_bool(definition, "addSections")?.unwrap_or(false)
+        && !field(definition, "spine").is_undefined()
+        && !has_guides
+        && ends.iter().all(Option::is_none)
+    {
+        let sections = field(definition, "sectionCount").as_number().unwrap_or(0.0).max(0.0) as usize;
+        if let Some((shape, first, last)) = sectioned_circle_loft(&wires, sections, solid)? {
+            add_lofted_shape(model, &id, &shape, &first, &last, solid, &wires)?;
+            return Ok(Value::UNDEFINED);
+        }
+    }
     match_circles_to_corners(&mut wires)?;
     // Through more than two profiles, or with conditions at the ends, the engine builds the sides across the
     // profiles itself (natural cubic splines at chord-length parameters, as Onshape's).
@@ -1773,4 +1785,140 @@ fn add_lofted_shape(
         });
     }
     Ok(())
+}
+
+/// Two circles in parallel planes lofted along a straight spine with sections added (batches 075 c006, 112
+/// c004–c006): Onshape adds `sections` between the profiles at even steps along the loft, each the plain loft's
+/// circle there as a cubic through it every 45° from the circles' starts, matching its tangent (so dipping 9.8e-4 of
+/// the radius between), and runs a natural cubic spline along the loft through the profiles and those sections at
+/// even parameters (its radius every 22.5° between them to 4e-7 of Onshape's, for 3, 5 and 9 sections). The solid's
+/// shape and its caps, or `None` where the profiles aren't two such circles started alike, or are equal (a cylinder).
+fn sectioned_circle_loft(wires: &[Shape], sections: usize, solid: bool) -> R<Option<(Shape, Vec<Shape>, Vec<Shape>)>> {
+    use values::{add, cross, dot, norm, normalize, scale, sub};
+    let [w0, w1] = wires else { return Ok(None) };
+    if !solid || sections == 0 {
+        return Ok(None);
+    }
+    // Each circle's centre, radius, start direction and the way it runs at its start.
+    let circle = |w: &Shape| -> Option<(Vec3, f64, Vec3, Vec3)> {
+        let [edge] = &w.sub_shapes(ShapeKind::Edge)[..] else { return None };
+        if edge.curve_type().ok() != Some(occt::CurveType::Circle) {
+            return None;
+        }
+        let conic = edge.curve_definition().ok()?;
+        let start = edge.edge_tangent(0.0, false).ok()?;
+        let x = normalize(sub(start.origin, conic.frame.origin))?;
+        Some((conic.frame.origin, conic.radius1, x, normalize(start.direction)?))
+    };
+    let (Some((c0, r0, x0, y0)), Some((c1, r1, x1, y1))) = (circle(w0), circle(w1)) else { return Ok(None) };
+    if norm(sub(x0, x1)) > 1e-9 || norm(sub(y0, y1)) > 1e-9 || dot(cross(x0, y0), sub(c1, c0)).abs() < 1e-12 {
+        return Ok(None);
+    }
+    // Equal circles: Onshape's plain loft is a cylinder, its sections exact circles, so the loft is the plain one
+    // (batch 089 c009); its sections are presumably cut from the plain loft's surface, a B-spline otherwise.
+    if (r0 - r1).abs() < 1e-12 {
+        return Ok(None);
+    }
+    let (x, y) = (x0, y0);
+    let count = sections + 2;
+    let h = 1.0 / (count - 1) as f64;
+    let quarter = std::f64::consts::FRAC_PI_4;
+    // A point of section k (0 and count − 1 the profiles) at angle θ round from the start.
+    let point = |k: usize, theta: f64| -> Vec3 {
+        let v = k as f64 * h;
+        let centre = add(c0, scale(sub(c1, c0), v));
+        let r = r0 + (r1 - r0) * v;
+        let unit = if k == 0 || k == count - 1 {
+            (theta.cos(), theta.sin())
+        } else {
+            let span = ((theta / quarter).floor() as i64).clamp(0, 7) as f64;
+            let (t0, t1) = (span * quarter, (span + 1.0) * quarter);
+            let s = (theta - t0) / quarter;
+            let p0 = (t0.cos(), t0.sin());
+            let p3 = (t1.cos(), t1.sin());
+            let k3 = quarter / 3.0;
+            let p1 = (p0.0 - k3 * t0.sin(), p0.1 + k3 * t0.cos());
+            let p2 = (p3.0 + k3 * t1.sin(), p3.1 - k3 * t1.cos());
+            let b = [(1.0 - s).powi(3), 3.0 * (1.0 - s).powi(2) * s, 3.0 * (1.0 - s) * s * s, s.powi(3)];
+            (
+                b[0] * p0.0 + b[1] * p1.0 + b[2] * p2.0 + b[3] * p3.0,
+                b[0] * p0.1 + b[1] * p1.1 + b[2] * p2.1 + b[3] * p3.1,
+            )
+        };
+        add(centre, add(scale(x, r * unit.0), scale(y, r * unit.1)))
+    };
+    // Along the loft at angle θ: the natural cubic spline through the sections, as C1 cubic spans (its values and
+    // slopes at the sections).
+    let column = |theta: f64| -> Vec<Vec3> {
+        let ys: Vec<Vec3> = (0..count).map(|k| point(k, theta)).collect();
+        let n = count - 1;
+        // Second derivatives: M₀ = Mₙ = 0, M_{i−1} + 4Mᵢ + M_{i+1} = 6(y_{i+1} − 2yᵢ + y_{i−1})/h².
+        let mut m = vec![Vec3::new(0.0, 0.0, 0.0); count];
+        if n >= 2 {
+            let (mut c, mut d) = (vec![0.0; count], vec![Vec3::new(0.0, 0.0, 0.0); count]);
+            for i in 1..n {
+                let rhs = scale(add(sub(ys[i + 1], scale(ys[i], 2.0)), ys[i - 1]), 6.0 / (h * h));
+                let denominator = 4.0 - if i > 1 { c[i - 1] } else { 0.0 };
+                c[i] = 1.0 / denominator;
+                d[i] = scale(sub(rhs, if i > 1 { d[i - 1] } else { Vec3::new(0.0, 0.0, 0.0) }), 1.0 / denominator);
+            }
+            for i in (1..n).rev() {
+                m[i] = sub(d[i], scale(m[i + 1], c[i]));
+            }
+        }
+        let slope = |i: usize| -> Vec3 {
+            if i < n {
+                sub(scale(sub(ys[i + 1], ys[i]), 1.0 / h), scale(add(scale(m[i], 2.0), m[i + 1]), h / 6.0))
+            } else {
+                add(scale(sub(ys[n], ys[n - 1]), 1.0 / h), scale(add(m[n - 1], scale(m[n], 2.0)), h / 6.0))
+            }
+        };
+        let mut poles = vec![ys[0]];
+        for i in 0..n {
+            poles.push(add(ys[i], scale(slope(i), h / 3.0)));
+            poles.push(sub(ys[i + 1], scale(slope(i + 1), h / 3.0)));
+            poles.push(ys[i + 1]);
+        }
+        // As C1 cubic spans: the inner knots doubled, so each value pole between two spans once.
+        let mut out = vec![poles[0]];
+        for i in 0..n {
+            out.extend_from_slice(&poles[3 * i + 1..3 * i + 3]);
+            if i == n - 1 {
+                out.push(poles[3 * n]);
+            }
+        }
+        out
+    };
+    let mut knots_along = vec![0.0; 4];
+    for i in 1..count - 1 {
+        knots_along.extend([i as f64 * h, i as f64 * h]);
+    }
+    knots_along.extend([1.0; 4]);
+    let rows = column(0.0).len();
+    let round: Vec<f64> = (0..=128).map(|i| i as f64 / 128.0).collect();
+    let tau = 2.0 * std::f64::consts::PI;
+    let curves = super::surface::sampled_rows_at(rows, &round, |f| Ok(column(tau * f)))?;
+    let nv = curves[0].poles.len();
+    let poles: Vec<Vec3> = curves.iter().flat_map(|c| c.poles.iter().copied()).collect();
+    let side = occt::bspline_surface_face(&poles, (rows, nv), &knots_along, &curves[0].knots, (3, 3))
+        .map_err(|_| regen_error("LOFT_FAILED"))?;
+    let cap = |c: &occt::BSplineData| -> R<Shape> {
+        let edge = occt::bspline_edge(&c.poles, &[], &c.knots, 3, false).map_err(occt_error)?;
+        occt::fill_edges(&[edge]).map_err(|_| regen_error("LOFT_FAILED"))
+    };
+    let (first, last) = (cap(&curves[0])?, cap(&curves[rows - 1])?);
+    let sewn = occt::sew_faces(&[side, first.clone(), last.clone()], 1e-6).map_err(|_| regen_error("LOFT_FAILED"))?;
+    let shape = occt::solid_from(&sewn).map_err(|_| regen_error("LOFT_FAILED"))?;
+    let shape = if shape.volume().map_err(occt_error)? < 0.0 { shape.reversed() } else { shape };
+    // The caps, found again: sewing makes new faces of them.
+    let find = |c: &Shape| -> Vec<Shape> {
+        let Ok(p) = c.face_inner_point() else { return Vec::new() };
+        shape
+            .sub_shapes(ShapeKind::Face)
+            .into_iter()
+            .filter(|f| f.surface_type().ok() == Some(occt::SurfaceType::Plane))
+            .filter(|f| occt::vertex(p).ok().and_then(|v| v.distance(f).ok()).is_some_and(|d| d.distance < 1e-7))
+            .collect()
+    };
+    Ok(Some((shape.clone(), find(&first), find(&last))))
 }
