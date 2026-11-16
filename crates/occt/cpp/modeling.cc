@@ -94,6 +94,9 @@
 #include <BRepOffsetAPI_DraftAngle.hxx>
 #include <BRepOffsetAPI_MakeOffsetShape.hxx>
 #include <BRepOffsetAPI_MakeThickSolid.hxx>
+#include <Geom2d_BSplineCurve.hxx>
+#include <Geom2d_TrimmedCurve.hxx>
+#include <Geom2dConvert.hxx>
 #include <BRepOffset_MakeOffset.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
 #include <BRepTools.hxx>
@@ -246,6 +249,7 @@ bool is_similarity(const Transform &t) {
 namespace {
 TopoDS_Shape planes_recognized(const TopoDS_Shape &shape, const Handle(BRepTools_History) &history);
 TopoDS_Shape pcurves_reprojected(const TopoDS_Shape &shape, const Handle(BRepTools_History) &history);
+TopoDS_Shape rulings_as_cubics(const TopoDS_Shape &shape, const Handle(BRepTools_History) &history);
 }
 
 std::unique_ptr<Operation> transform_op(const Shape &s, const Transform &t) {
@@ -3293,6 +3297,46 @@ TopoDS_Shape planes_recognized(const TopoDS_Shape &shape, const Handle(BRepTools
   return reshape->Apply(shape);
 }
 
+// A loft's twisted sides between straight edges (bilinear patches) as Onshape writes them: cubic along the edges, its
+// poles at thirds, linear across, both from 0 to 1 (batch 181: polygons with different numbers of corners).
+TopoDS_Shape rulings_as_cubics(const TopoDS_Shape &shape, const Handle(BRepTools_History) &) {
+  // In place: raising the degree keeps the parameters; the knots rescaled to 0 to 1, each edge's curve on the face
+  // rescaled with them.
+  for (TopExp_Explorer it(shape, TopAbs_FACE); it.More(); it.Next()) {
+    const TopoDS_Face &face = TopoDS::Face(it.Current());
+    TopLoc_Location location;
+    Handle(Geom_BSplineSurface) surface = Handle(Geom_BSplineSurface)::DownCast(BRep_Tool::Surface(face, location));
+    if (surface.IsNull() || surface->UDegree() != 1 || surface->VDegree() != 1 || surface->NbUKnots() != 2 ||
+        surface->NbVKnots() != 2 || surface->IsURational() || surface->IsVRational())
+      continue;
+    double u1, u2, v1, v2;
+    surface->Bounds(u1, u2, v1, v2);
+    std::vector<std::pair<TopoDS_Edge, Handle(Geom2d_BSplineCurve)>> curves;
+    bool ok = true;
+    for (TopExp_Explorer e(face, TopAbs_EDGE); e.More() && ok; e.Next()) {
+      const TopoDS_Edge edge = TopoDS::Edge(e.Current());
+      double f, l;
+      Handle(Geom2d_Curve) c = BRep_Tool::CurveOnSurface(edge, face, f, l);
+      if (c.IsNull()) { ok = false; break; }
+      Handle(Geom2d_BSplineCurve) b = Geom2dConvert::CurveToBSplineCurve(new Geom2d_TrimmedCurve(c, f, l));
+      for (int k = 1; k <= b->NbPoles(); ++k) {
+        gp_Pnt2d q = b->Pole(k);
+        b->SetPole(k, gp_Pnt2d((q.X() - u1) / (u2 - u1), (q.Y() - v1) / (v2 - v1)));
+      }
+      curves.emplace_back(edge, b);
+    }
+    if (!ok) continue;
+    surface->IncreaseDegree(3, 1);
+    TColStd_Array1OfReal unit(1, 2);
+    unit(1) = 0, unit(2) = 1;
+    surface->SetUKnots(unit);
+    surface->SetVKnots(unit);
+    BRep_Builder builder;
+    for (auto &[edge, b] : curves) builder.UpdateEdge(edge, b, face, BRep_Tool::Tolerance(edge));
+  }
+  return shape;
+}
+
 // A general transform's result with its edges' curves on faces projected again from their 3D curves, and its
 // tolerances measured again. The transform is exact on the 3D curves and surfaces (it moves the poles of their
 // NURBS forms), but the curves OCCT fits on a cylinder's NURBS form leave edges up to 1e-4 m tolerant: a closed
@@ -3354,7 +3398,7 @@ std::unique_ptr<Operation> loft_op_matching(const ShapeList &wires, bool solid, 
   add_sections(maker, wires);
   maker.Build();
   auto op = finish(to_list(wires), maker, "loft");
-  op->result = planes_recognized(op->result, op->history);
+  op->result = rulings_as_cubics(planes_recognized(op->result, op->history), op->history);
   TopoDS_Shape first = maker.FirstShape(), last = maker.LastShape();
   if (!first.IsNull()) op->first.push_back(first);
   if (!last.IsNull()) op->last.push_back(last);
