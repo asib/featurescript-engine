@@ -211,6 +211,30 @@ pub struct Metrics {
     pub valid: bool,
     /// Of the B-spline faces, those that are flat (see [`planar_bspline`]).
     pub planar_bsplines: usize,
+    /// Of the B-spline faces, those that are round a straight axis at one radius (see [`cylindrical_bspline`]).
+    pub cylindrical_bsplines: usize,
+}
+
+/// Whether a B-spline face is a cylinder's: across it one principal curvature nothing and the other the same.
+/// Onshape's STEP may write such a face as a cylinder (a hole carried along a cylinder's ruling, batch 183 c004,
+/// which its own `evSurfaceDefinition` calls a B-spline).
+fn cylindrical_bspline(face: &Shape) -> bool {
+    let mut bent = None;
+    for fu in [0.25, 0.5, 0.75] {
+        for fv in [0.25, 0.5, 0.75] {
+            let Ok(c) = face.face_curvatures(fu, fv) else { return false };
+            let (flat, round) = if c.radius1.abs() < c.radius2.abs() { (c.radius1, c.radius2) } else { (c.radius2, c.radius1) };
+            if flat.abs() > 1e-9 || round.abs() < 1e-9 {
+                return false;
+            }
+            match bent {
+                None => bent = Some(round),
+                Some(k) if ((round - k) / k).abs() > 1e-6 => return false,
+                _ => {}
+            }
+        }
+    }
+    true
 }
 
 /// Whether a B-spline face is flat: all its poles in one plane. Onshape's STEP may write such a face as a plane (a
@@ -246,10 +270,13 @@ fn planar_bspline(face: &Shape) -> bool {
 pub fn metrics(shape: &Shape) -> Result<Metrics, occt::Error> {
     let mut faces = BTreeMap::new();
     let mut planar_bsplines = 0;
+    let mut cylindrical_bsplines = 0;
     for face in shape.sub_shapes(ShapeKind::Face) {
         let kind = face.surface_type()?;
         if kind == occt::SurfaceType::BSpline && planar_bspline(&face) {
             planar_bsplines += 1;
+        } else if kind == occt::SurfaceType::BSpline && cylindrical_bspline(&face) {
+            cylindrical_bsplines += 1;
         }
         *faces.entry(format!("{kind:?}")).or_insert(0) += 1;
     }
@@ -272,6 +299,7 @@ pub fn metrics(shape: &Shape) -> Result<Metrics, occt::Error> {
         vertices: shape.sub_shapes(ShapeKind::Vertex).len(),
         valid: shape.is_valid(),
         planar_bsplines,
+        cylindrical_bsplines,
     })
 }
 
@@ -450,17 +478,20 @@ pub fn compare_with(name: &str, ours: &Shape, theirs: &Shape, strictness: Strict
         out
     };
     // With probes, the engine's flat B-spline faces may be Onshape's planes or its B-splines: its STEP writes some
-    // flat B-splines as planes (batch 070 c008) and keeps others (batch 057 c010).
+    // flat B-splines as planes (batch 070 c008) and keeps others (batch 057 c010); and cylindrical ones as cylinders
+    // (batch 183 c004).
     let same_faces = if strictness.topology {
         face_types(&ours_m) == face_types(&theirs_m)
     } else {
         let (ours_t, theirs_t) = (face_types(&ours_m), face_types(&theirs_m));
         let count = |m: &BTreeMap<String, usize>, k: &str| m.get(k).copied().unwrap_or(0);
         let as_planes = count(&theirs_t, "Plane") as i64 - count(&ours_t, "Plane") as i64;
-        let analytic_same = ["Cylinder", "Cone", "Sphere", "Torus"].iter().all(|k| count(&ours_t, k) == count(&theirs_t, k));
+        let as_cylinders = count(&theirs_t, "Cylinder") as i64 - count(&ours_t, "Cylinder") as i64;
+        let analytic_same = ["Cone", "Sphere", "Torus"].iter().all(|k| count(&ours_t, k) == count(&theirs_t, k));
         analytic_same
             && (0..=ours_m.planar_bsplines as i64).contains(&as_planes)
-            && count(&ours_t, "FreeForm") as i64 - as_planes == count(&theirs_t, "FreeForm") as i64
+            && (0..=ours_m.cylindrical_bsplines as i64).contains(&as_cylinders)
+            && count(&ours_t, "FreeForm") as i64 - as_planes - as_cylinders == count(&theirs_t, "FreeForm") as i64
     };
     if !same_faces {
         problems.push(format!("faces {:?}, Onshape {:?}", ours_m.faces, theirs_m.faces));
