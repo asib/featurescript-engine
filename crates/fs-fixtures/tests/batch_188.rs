@@ -4,11 +4,12 @@ use std::path::PathBuf;
 
 /// Cases the engine doesn't build as Onshape does yet (see docs/FINDINGS.md): a rounded rectangle to a circle (c001,
 /// c002: Onshape's slopes at the nodes not the geometric means, its circle split at every vertex); a D (c003: a face
-/// for each edge, the half circle's a cylinder); a slot to an ellipse (c005).
-const KNOWN_GAPS: &[&str] = &["c001", "c002", "c003", "c005"];
+/// for each edge, the half circle's a cylinder).
+const KNOWN_GAPS: &[&str] = &["c001", "c002", "c003"];
 
-/// Onshape's ends of a connected loft measured on other approximations than its side's edges (c008: 0.006 mm²).
-const LOOSE: &[(&str, f64)] = &[("c008", 0.05)];
+/// Onshape's ends measured on other approximations than its side's edges: the ellipse's (c005: 0.0016 mm²), a
+/// connected loft's (c008: 0.006 mm²).
+const LOOSE: &[(&str, f64)] = &[("c005", 0.05), ("c008", 0.05)];
 
 /// Onshape lists the faces in its own order.
 const UNORDERED: &[&str] = &["c001", "c002", "c003", "c004", "c005", "c006", "c007", "c008", "c009"];
@@ -21,6 +22,6 @@ fn batch_188_matches_onshape() {
         let unexpected: Vec<String> =
             report.problems().into_iter().filter(|p| !KNOWN_GAPS.iter().any(|case| p.starts_with(case))).collect();
         assert!(unexpected.is_empty(), "{report}");
-        assert_eq!(report.probes_matched, (6, 10), "{report}");
+        assert_eq!(report.probes_matched, (7, 10), "{report}");
     });
 }
