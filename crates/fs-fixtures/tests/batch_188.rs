@@ -19,6 +19,6 @@ fn batch_188_matches_onshape() {
         let unexpected: Vec<String> =
             report.problems().into_iter().filter(|p| !KNOWN_GAPS.iter().any(|case| p.starts_with(case))).collect();
         assert!(unexpected.is_empty(), "{report}");
-        assert_eq!(report.probes_matched, (2, 10), "{report}");
+        assert_eq!(report.probes_matched, (4, 10), "{report}");
     });
 }

@@ -2038,8 +2038,10 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
 
 ## Lofts of other profiles (batch 188)
 
-- **One periodic face of cubic Hermite spans** for every smooth profile here: an ellipse to a smaller ellipse (c004)
-  and a closed fit spline to a circle (c006), each in 64 even spans, no vertices; a slot to an ellipse (c005), the
+- **One periodic face of cubic Hermite spans** for every smooth profile here: an ellipse to a smaller ellipse (c004,
+  each along its own parameter from its start, 64 even spans) and a closed fit spline to a circle (c006, the spline
+  along its parameter, the circle from the spline's start's direction, 66 spans halved to 10 nm), no vertices (the
+  engine builds both); a slot to an ellipse (c005), the
   ellipse split in four (8 edges); the circle to the slot (c007, as 187 c012 the other way round, which the engine
   builds); an ellipse and a slot connected twice (c008, c009), split at the connections (4 and 12 edges).
 - **A profile with corners** (c003, a D: a half circle of radius 10 and its diameter): a face for each edge, the circle
