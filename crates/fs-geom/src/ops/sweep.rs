@@ -1307,6 +1307,7 @@ fn smooth_loft_to_circle(
             nodes.push((before[k] / total, k, 0.0, true, None));
         }
     }
+    let mut first_given = None;
     for ((edge, t), c) in connections {
         // The connection's edge by its middle; its parameter the curve's own, so along the edge as the loop runs.
         let middle = edge.edge_tangent(0.5, false).map_err(occt_error)?.origin;
@@ -1316,6 +1317,7 @@ fn smooth_loft_to_circle(
         let s = if edges[k].is_reversed() { 1.0 - t } else { *t };
         let s = if reversed { 1.0 - s } else { s };
         let f = fraction(k, s)?;
+        first_given.get_or_insert(f);
         match nodes.iter_mut().find(|n| (n.0 - f).abs() < 1e-12 || (n.0 - f).abs() > 1.0 - 1e-12) {
             Some(n) => n.4 = Some(*c),
             None => nodes.push((f, k, s, false, Some(*c))),
@@ -1325,7 +1327,14 @@ fn smooth_loft_to_circle(
         nodes.push((0.0, 0, 0.0, false, None));
     }
     nodes.sort_by(|a, b| a.0.total_cmp(&b.0));
-    // The start: a connection (of two the first, of more the last) or the first edge's drawn start.
+    // The start: a connection (of two the first given, batch 188 c009; of more the last round from it) or the first
+    // edge's drawn start.
+    let given = first_given.and_then(|f| {
+        nodes.iter().position(|n| (n.0 - f).abs() < 1e-12 || (n.0 - f).abs() > 1.0 - 1e-12)
+    });
+    if let Some(g) = given {
+        nodes.rotate_left(g);
+    }
     let marked: Vec<usize> = (0..nodes.len()).filter(|&i| nodes[i].4.is_some()).collect();
     let start = match marked.len() {
         0 => {
