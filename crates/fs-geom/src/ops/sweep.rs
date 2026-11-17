@@ -1159,7 +1159,7 @@ fn circles_connected(
 }
 
 /// Two polygons with different numbers of corners, matched as Onshape lofts them (batches 180 c007, 181 c001–c006,
-/// 182 c001, c002): from the first one's first corner to the corner of the other nearest it (of two as near, the
+/// 182 c001, c002, 187 c001–c003): from the first one's first corner to the corner of the other nearest it (of two as near, the
 /// later round), or from each connection's corners to the next's, both run anticlockwise along the way from the
 /// first to the second and measured by the fraction of each stretch from there; in each stretch each corner of the
 /// polygon with fewer goes to the other's corner nearest it so measured (ties as below), and each of the other's
@@ -1288,6 +1288,36 @@ fn unequal_polygons(wires: &[Shape], forced: &[(Vec3, Vec3)]) -> R<Option<Vec<Sh
         occt::ordered_wire(&edges).map_err(occt_error)
     };
     Ok(Some(vec![rebuild(&grown_p)?, rebuild(&grown_q)?]))
+}
+
+/// A closed wire of straight edges with points along its edges made corners (none: the wire itself), or `None` for
+/// other wires.
+fn with_corners(wire: &Shape, points: &[Vec3]) -> R<Option<Shape>> {
+    use values::{cross, dot, norm, sub};
+    if points.is_empty() {
+        return Ok(polygon_corners(wire).map(|_| wire.clone()));
+    }
+    let Some(corners) = polygon_corners(wire) else { return Ok(None) };
+    let n = corners.len();
+    let mut grown = Vec::new();
+    for k in 0..n {
+        let (a, b) = (corners[k], corners[(k + 1) % n]);
+        grown.push(a);
+        let e = sub(b, a);
+        let mut along: Vec<(f64, Vec3)> = points
+            .iter()
+            .filter(|&&p| {
+                let d = sub(p, a);
+                norm(cross(d, e)) < 1e-9 * norm(e) && dot(d, e) > 1e-9 * dot(e, e) && dot(d, e) < (1.0 - 1e-9) * dot(e, e)
+            })
+            .map(|&p| (dot(sub(p, a), e), p))
+            .collect();
+        along.sort_by(|x, y| x.0.total_cmp(&y.0));
+        grown.extend(along.into_iter().map(|(_, p)| p));
+    }
+    let edges: Vec<Shape> =
+        (0..grown.len()).map(|i| occt::line_edge(grown[i], grown[(i + 1) % grown.len()])).collect::<Result<_, _>>().map_err(occt_error)?;
+    Ok(Some(occt::ordered_wire(&edges).map_err(occt_error)?))
 }
 
 /// The corners of a closed wire of straight edges, in order round it.
@@ -1505,16 +1535,20 @@ pub fn loft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
                 return Err(regen_error("LOFT_CONNECTION_MATCHING"));
             }
         }
-        // Two polygons connected corner to corner: that matching (batch 075 c001–c003).
+        // Two polygons connected corner to corner: that matching (batch 075 c001–c003); any connection along an
+        // edge is matched below.
         let first = field(definition, "connections").as_array().and_then(|a| a.first().cloned()).unwrap_or(Value::UNDEFINED);
         let entities: Vec<Shape> =
             query::evaluate(model, field(&first, "connectionEntities"))?.into_iter().map(|r| model.shape(r).clone()).collect();
-        let point = |w: &Shape| -> Option<Vec3> {
-            let e = entities.iter().find(|e| touches(e, w))?;
-            e.vertex_point().ok().or_else(|| e.edge_tangent(0.5, false).ok().map(|a| a.origin))
-        };
+        let point = |w: &Shape| -> Option<Vec3> { entities.iter().find(|e| touches(e, w))?.vertex_point().ok() };
+        let mut corners_only = true;
+        for connection in field(definition, "connections").as_array().map(|a| a.to_vec()).unwrap_or_default() {
+            for r in query::evaluate(model, field(&connection, "connectionEntities"))? {
+                corners_only &= r.kind == EntityType::Vertex;
+            }
+        }
         let forced = match (wires.len(), point(&wires[0]), wires.get(1).and_then(point)) {
-            (2, Some(a), Some(b)) => Some((a, b)),
+            (2, Some(a), Some(b)) if corners_only => Some((a, b)),
             _ => None,
         };
         // Two circles connected at points along them (batch 082 c006): each started there, lofted start to start
@@ -1655,20 +1689,52 @@ pub fn loft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
         let matched = match forced.map(|f| matched_polygons_with(&wires, Some(f))).transpose()?.flatten() {
             Some(m) => Some(m),
             None if wires.len() == 2 => {
-                // Each connection's points on the two profiles: corners, or points along edges.
+                // Each connection's points on the two profiles: corners, or points along edges, which become corners
+                // of their polygons (batch 187 c001–c003: a square's edge split at its middle, a fifth corner).
                 let mut pairs = Vec::new();
+                let mut added: [Vec<Vec3>; 2] = [Vec::new(), Vec::new()];
                 for connection in field(definition, "connections").as_array().map(|a| a.to_vec()).unwrap_or_default() {
                     let entities: Vec<Shape> = query::evaluate(model, field(&connection, "connectionEntities"))?
                         .into_iter()
                         .map(|r| model.shape(r).clone())
                         .collect();
-                    let at = |w: &Shape| entities.iter().find(|e| touches(e, w)).and_then(|e| e.vertex_point().ok());
-                    match (at(&wires[0]), at(&wires[1])) {
-                        (Some(a), Some(b)) => pairs.push((a, b)),
-                        _ => return Err(error("@opLoft: connections other than between corners aren't supported yet")),
+                    let params: Vec<f64> = field(&connection, "connectionEdgeParameters")
+                        .as_array()
+                        .map(|a| a.iter().filter_map(Value::as_number).collect())
+                        .unwrap_or_default();
+                    let edges: Vec<Shape> = query::evaluate(model, field(&connection, "connectionEdgeQueries"))?
+                        .into_iter()
+                        .filter(|r| r.kind == EntityType::Edge)
+                        .map(|r| model.shape(r).clone())
+                        .collect();
+                    let mut at = [None, None];
+                    for (w, wire) in wires.iter().enumerate() {
+                        let Some(e) = entities.iter().find(|e| touches(e, wire)) else { continue };
+                        at[w] = match e.vertex_point() {
+                            Ok(p) => Some(p),
+                            Err(_) => match edges.iter().zip(&params).find(|(x, _)| touches(x, wire)) {
+                                Some((x, &t)) => {
+                                    let p = x.edge_tangent(t, true).map_err(occt_error)?.origin;
+                                    added[w].push(p);
+                                    Some(p)
+                                }
+                                None => None,
+                            },
+                        };
+                    }
+                    match at {
+                        [Some(a), Some(b)] => pairs.push((a, b)),
+                        _ => return Err(regen_error("LOFT_CONNECTION_MATCHING")),
                     }
                 }
-                unequal_polygons(&wires, &pairs)?
+                let grown: Vec<Shape> = (0..2)
+                    .map(|w| with_corners(&wires[w], &added[w]))
+                    .collect::<R<Option<Vec<Shape>>>>()?
+                    .ok_or_else(|| error("@opLoft: connections other than between polygons aren't supported yet"))?;
+                match unequal_polygons(&grown, &pairs)? {
+                    Some(m) => Some(m),
+                    None => matched_polygons_with(&grown, pairs.first().copied())?,
+                }
             }
             None => None,
         };
