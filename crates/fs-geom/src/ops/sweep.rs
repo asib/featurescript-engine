@@ -844,11 +844,11 @@ fn halved_spans(u0: f64, u1: f64, off: &dyn Fn(f64, f64) -> f64, tolerance: f64,
     }
 }
 
-/// The tolerance Onshape halves the spans of a loft with connections to: 1.1 µm with one connection (batch 186 c003:
-/// spans 1.00 µm off kept, 1.15 halved; batch 180's 22.5° spans of a circle, 0.62 µm, kept), a tenth of that with
-/// more (batch 182 c006: 0.107 µm kept, 0.113 halved).
+/// The tolerance Onshape halves the spans of a loft with connections to: 1 µm with one connection (batch 186 c003:
+/// spans 0.999 µm off kept, 1.15 halved; 187 c010: 1.06 halved; batch 180's 22.5° spans of a circle, 0.62 µm, kept),
+/// 0.11 µm with more (batch 182 c006: 0.107 µm kept, 0.113 halved).
 fn connected_span_tolerance(connections: usize) -> f64 {
-    if connections > 1 { 1.1e-7 } else { 1.1e-6 }
+    if connections > 1 { 1.1e-7 } else { 1e-6 }
 }
 
 /// A clamped C1 cubic through stations (u, point, slope): each point at a double knot, the poles either side a third
