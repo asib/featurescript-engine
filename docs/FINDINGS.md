@@ -1968,11 +1968,8 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   matched as a whole loft is above, by fractions of the whole perimeter from the first connection, summed edge by edge
   (c002: a triangle to a square, the square's corner between the connections taken to the middle of the triangle's
   edge; c003: two squares a quarter turn round). Where a stretch's corner falls exactly between two of the other's
-  (c001: a square to a hexagon, connected at opposite corners), Onshape's rounding picks the earlier in one stretch and
-  the later in the other: the same sums in Python's floating point do, from the corners in millimetres as the sketch
-  gives them. The engine's corners carry the last bits of its sketch plane's transform (0.004999999999999999 m for
-  5 mm), which pick the earlier in both; it takes the fractions from its corners in millimetres rounded to 1e-9 mm, and
-  so matches.
+  (c001: a square to a hexagon, connected at opposite corners), Onshape picks the earlier in one stretch and the later
+  in the other; batch 187 below gives the rule.
 - **Circles connected twice** (182 c004, from their starts and from half round the first to a third round the
   second): Onshape's side is one periodic face from the first connection, each circle split at the connection points
   (4 edges, 4 vertices). Its u puts each connection at the mean of the circles' fractions round from the first (5/12,
@@ -1998,13 +1995,39 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   square to a circle once, a quarter along an edge (c003: the connection at u = 0.375, the mean of the edge's 0.25 and
   the arcs' half; its spans halved to 1.1 µm, seven and six either side).
 - **Where a periodic side starts:** circles connected three times (c002: from their starts, 0.3 to 0.25 and 0.7 to
-  0.6) give a side starting at the third connection, which ends the longest stretch (0.375 of the mean fractions; 182
-  c004's two connections start at the first, which ends the longer, 0.583). The engine starts there.
+  0.6) give a side starting at the third connection (batch 187 below gives the rule).
 - **A square connected at every corner** (c004, to 0.1, 0.3, 0.6 and 0.85 round): Onshape runs every side clockwise
-  round the loft, where every other connected loft so far runs anticlockwise; the surfaces are otherwise the
-  engine's (areas within 3e-5 mm²). Why isn't known: compared on the body.
+  round the loft, where every other connected loft so far runs anticlockwise (batch 187 below explains it).
 - Sketch text: Roboto Slab Bold (1.100263, as its Regular), and "Rf&9" in Roboto Slab, Noto Sans regular and bold
   italic, Noto Serif italic and bold, Arimo Bold, Allerta Stencil and Droid Sans Mono, match.
+
+## Lofts with connections, more (batch 187)
+
+- **Which way round the sides run:** with three connections or more, the way the polygon's first edge was drawn. A
+  sketch rectangle's first edge runs up its left side, so a square connected at three corners or four (c005–c007, 186
+  c004, in either order) runs clockwise; a triangle drawn of lines anticlockwise, connected at every corner (c004),
+  and 182 c005's pentagon run anticlockwise. With one connection or two, anticlockwise, whatever the polygon.
+- **Where circles' periodic side starts:** at the first connection of two (c009: from their starts and 0.6 round to
+  0.7, though the longer stretch comes first; 182 c004), at the last round of more (c008, the fourth of four; 186
+  c002, the third of three).
+- **A polygon connected along an edge** (c001–c003): the point becomes a corner of its polygon (the square's edge
+  split at its middle, a seventh corner of a hexagon), and the polygons are matched as polygons with different
+  numbers of corners are (batch 181), from the connection.
+- **Ties** (the corner of the polygon with fewer exactly between two of the other's, by fraction): the earlier, as
+  batch 181 c004 found, except in the stretch from the last connection round to the first, which takes the later when
+  there are two connections or more (182 c001 and c002 here: the earlier in the first stretch, the later in the
+  second, though the two are the same turned half round), and with one connection when the polygon with fewer
+  corners is the second profile (c001 the later, c003 with the fewer first the earlier). Seven ties fit this; why
+  Onshape breaks them so isn't known.
+- **Other profiles** (c010–c013, a slot of two lines and two half circles, and an ellipse, to a circle): one periodic
+  face of cubic Hermite spans, along the same correspondence as connected lofts': the ellipse's own parameter against
+  the circle's angle in 64 even spans (c013); the slot's vertices sharing the circle out evenly from its first vertex,
+  at the circle's point in that vertex's direction, each node at the mean of the fractions (the slot by arc length:
+  its half circles 0.234975 of u, its lines 0.265025), slopes the geometric means, 32 spans to each half circle and 16
+  to each line (c012). Plain lofts halve spans until within 10 nm (the ellipse's 32 spans stray 31–58 nm, its 64 under
+  4; the slot's lines' 8 at least 13 nm, 16 under 4); with a connection, as connected lofts do (c010, from the
+  connection's point on the slot's end; c011, 16 spans from 0.1 round the ellipse). Their ends: the plain lofts' the
+  profiles' own, the connected lofts' the side's edges. Not modelled yet.
 
 ## STEP export
 
