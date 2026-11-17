@@ -1162,9 +1162,9 @@ fn circles_connected(
 /// 182 c001, c002): from the first one's first corner to the corner of the other nearest it (of two as near, the
 /// later round), or from each connection's corners to the next's, both run anticlockwise along the way from the
 /// first to the second and measured by the fraction of each stretch from there; in each stretch each corner of the
-/// polygon with fewer goes to the other's corner nearest it so measured, and each of the other's corners left over
-/// to the middle of the edge it falls in (several in one edge, evenly along it). The two polygons rebuilt from those
-/// corners, points added; `None` for other profiles.
+/// polygon with fewer goes to the other's corner nearest it so measured (ties as below), and each of the other's
+/// corners left over to the middle of the edge it falls in (several in one edge, evenly along it). The two polygons
+/// rebuilt from those corners, points added; `None` for other profiles.
 fn unequal_polygons(wires: &[Shape], forced: &[(Vec3, Vec3)]) -> R<Option<Vec<Shape>>> {
     use values::{add, cross, dot, norm, normalize, scale, sub};
     let [first, second] = wires else { return Ok(None) };
@@ -1212,17 +1212,10 @@ fn unequal_polygons(wires: &[Shape], forced: &[(Vec3, Vec3)]) -> R<Option<Vec<Sh
     }
     // One stretch: corners a..=b of one and c..=d of the other (indices round), matched by fraction.
     let stretch = |c: &[Vec3], from: usize, to: usize| -> Vec<Vec3> { (from..=to).map(|k| c[k % c.len()]).collect() };
-    // Fractions of the whole perimeter from the first anchor, summed edge by edge (Onshape's ties fall as these do in
-    // floating point: batch 182 c001, a square to a hexagon, earlier in one stretch and later in the other), from the
-    // corners in millimetres as the sketch gives them: the engine's carry the last bits of its plane's transform
-    // (0.004999999999999999 m for 5 mm), which would break the tie the same way in both.
+    // Fractions of the whole perimeter from the first anchor, summed edge by edge.
     let fractions = |c: &[Vec3]| -> Vec<f64> {
         let n = c.len();
-        let mm = |v: Vec3| {
-            let r = |x: f64| (x * 1e12).round() / 1e9;
-            Vec3::new(r(v.x), r(v.y), r(v.z))
-        };
-        let lengths: Vec<f64> = (0..n).map(|i| norm(sub(mm(c[(i + 1) % n]), mm(c[i])))).collect();
+        let lengths: Vec<f64> = (0..n).map(|i| norm(sub(c[(i + 1) % n], c[i]))).collect();
         let total: f64 = lengths.iter().sum();
         let mut at = vec![0.0];
         for l in &lengths[..n - 1] {
@@ -1246,17 +1239,25 @@ fn unequal_polygons(wires: &[Shape], forced: &[(Vec3, Vec3)]) -> R<Option<Vec<Sh
         } else {
             ((c..=d).map(|i| fq[i]).collect(), (a..=b).map(|i| fp[i]).collect())
         };
-        // Each corner of the smaller to the larger's nearest by fraction, in order (ties to the earlier).
+        // Each corner of the smaller to the larger's nearest by fraction, in order. Of two as near, the earlier (181
+        // c004, a square to a pentagon), but in the stretch from the last connection round to the first the later
+        // when there are two connections or more (182 c001, 187 c002: the earlier in the first stretch, the later in
+        // the second), and with one when the polygon with fewer corners is the second (187 c001; c003, the fewer
+        // first, the earlier). Seven ties fit this; why Onshape breaks them so isn't known.
+        let later = !forced.is_empty() && k + 1 == anchors.len() && (anchors.len() > 1 || !small_is_p);
         let mut partner = vec![0usize; small.len()];
         let last = small.len() - 1;
         partner[last] = large.len() - 1;
         for i in 1..last {
             let lo = partner[i - 1] + 1;
             let hi = large.len() - 1 - (last - i);
-            let Some(m) = (lo..=hi).min_by(|&x, &y| (fl[x] - fs[i]).abs().total_cmp(&(fl[y] - fs[i]).abs())) else {
+            if lo > hi {
                 return Ok(None);
-            };
-            partner[i] = m;
+            }
+            let off = |x: usize| (fl[x] - fs[i]).abs();
+            let least = (lo..=hi).map(off).fold(f64::INFINITY, f64::min);
+            let near: Vec<usize> = (lo..=hi).filter(|&x| off(x) - least < 1e-9).collect();
+            partner[i] = if later { near[near.len() - 1] } else { near[0] };
         }
         // The smaller with the larger's corners left over in the middle of the edge each falls in (the stretch's last
         // corner is the next stretch's first, so left out).
