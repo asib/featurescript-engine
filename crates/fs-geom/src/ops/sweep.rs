@@ -831,17 +831,24 @@ fn midpoint_off(curve: &dyn Fn(f64) -> (Vec3, Vec3), u0: f64, u1: f64) -> f64 {
     norm(sub(cubic, pm))
 }
 
-/// Onshape's spans from one connection to the next (batches 180–182 with more than one connection): each halved
-/// until its cubic strays at its middle within 0.11 µm of the curve (batch 182 c006: spans 0.107 µm off kept, 0.113
-/// halved); `off` how far the span from one u to another strays. Pushes the spans' ends after `u0`.
-fn halved_spans(u0: f64, u1: f64, off: &dyn Fn(f64, f64) -> f64, ends: &mut Vec<f64>, depth: usize) {
-    if depth < 10 && off(u0, u1) > 1.1e-7 {
+/// Onshape's spans from one connection (or corner) to the next (batches 180–182, 186): each halved until its cubic
+/// strays at its middle within a tolerance of the curve; `off` how far the span from one u to another strays. Pushes
+/// the spans' ends after `u0`.
+fn halved_spans(u0: f64, u1: f64, off: &dyn Fn(f64, f64) -> f64, tolerance: f64, ends: &mut Vec<f64>, depth: usize) {
+    if depth < 10 && off(u0, u1) > tolerance {
         let middle = (u0 + u1) / 2.0;
-        halved_spans(u0, middle, off, ends, depth + 1);
-        halved_spans(middle, u1, off, ends, depth + 1);
+        halved_spans(u0, middle, off, tolerance, ends, depth + 1);
+        halved_spans(middle, u1, off, tolerance, ends, depth + 1);
     } else {
         ends.push(u1);
     }
+}
+
+/// The tolerance Onshape halves the spans of a loft with connections to: 1.1 µm with one connection (batch 186 c003:
+/// spans 1.00 µm off kept, 1.15 halved; batch 180's 22.5° spans of a circle, 0.62 µm, kept), a tenth of that with
+/// more (batch 182 c006: 0.107 µm kept, 0.113 halved).
+fn connected_span_tolerance(connections: usize) -> f64 {
+    if connections > 1 { 1.1e-7 } else { 1.1e-6 }
 }
 
 /// A clamped C1 cubic through stations (u, point, slope): each point at a double knot, the poles either side a third
@@ -881,7 +888,7 @@ fn stations_edge(stations: &[(f64, Vec3, Vec3)], u0: f64, u1: f64) -> R<Shape> {
 /// polygon's corners between (and the connection points along edges) divide the circle's arc between them into as
 /// many equal arcs, each taken to the next in turn (one connection: the whole circle from it); each side ruled
 /// between its edge and its arcs, both cubic Hermite spans along the [`Correspondence`] of the edge and its arcs
-/// (four for each arc with one connection, with more halved till close: [`halved_spans`]), and the circle's end
+/// (halved till close: [`halved_spans`]), and the circle's end
 /// bounded by those arcs, a vertex at each point. The solid and its caps (first and last profile), or `None` for
 /// other profiles.
 fn polygon_circle_connected(
@@ -953,8 +960,7 @@ fn polygon_circle_connected(
             angles[k] = a + (b - a) * (k - i) as f64 / (j - i) as f64;
         }
     }
-    // One connection: four spans for each arc; more: halved as Onshape's are ([`halved_spans`]).
-    let halving = pairs.len() > 1;
+    let tolerance = connected_span_tolerance(pairs.len());
     let on_circle = |theta: f64| add(centre, add(scale(x, radius * theta.cos()), scale(y, radius * theta.sin())));
     let tangent = |theta: f64| add(scale(x, -radius * theta.sin()), scale(y, radius * theta.cos()));
     let mut sides = Vec::new();
@@ -993,11 +999,7 @@ fn polygon_circle_connected(
         let mut breaks = vec![0.0];
         for g in 0..segments {
             let (u0, u1) = (along.nodes[g], along.nodes[g + 1]);
-            if halving {
-                halved_spans(u0, u1, &|p, q| midpoint_off(&arc_at, p, q), &mut breaks, 0);
-            } else {
-                breaks.extend((1..=4).map(|k| u0 + (u1 - u0) * k as f64 / 4.0));
-            }
+            halved_spans(u0, u1, &|p, q| midpoint_off(&arc_at, p, q), tolerance, &mut breaks, 0);
         }
         let edge_stations: Vec<(f64, Vec3, Vec3)> = breaks.iter().map(|&u| (u, edge_at(u).0, edge_at(u).1)).collect();
         let arc_stations: Vec<(f64, Vec3, Vec3)> = breaks.iter().map(|&u| (u, arc_at(u).0, arc_at(u).1)).collect();
@@ -1050,12 +1052,12 @@ fn polygon_circle_connected(
     Ok(Some((shape, first, last)))
 }
 
-/// Two circles joined by more than one connection, as Onshape lofts them (batch 182 c004): one side all the way round,
-/// periodic, from the first connection, its u the circles' [`Correspondence`] round from there (each circle's
-/// fraction its angle's, running as its own circle does), cubic Hermite spans halved till close ([`halved_spans`]);
-/// the ends bounded by the side's edges, a vertex at each connection. Each circle: its frame (x towards the first
-/// connection, its normal the way it runs) and radius, and the connections' angles round it from there. The solid and
-/// its caps (first and last profile).
+/// Two circles joined by more than one connection, as Onshape lofts them (batches 182 c004, 186 c001, c002): one side
+/// all the way round, periodic, from the connection ending the longest stretch, its u the circles' [`Correspondence`]
+/// round from there (each circle's fraction its angle's, running as its own circle does), cubic Hermite spans halved
+/// till close ([`halved_spans`]); the ends bounded by the side's edges, a vertex at each connection. Each circle: its
+/// frame (x towards the first connection, its normal the way it runs) and radius, and the connections' angles round
+/// it from there, rising. The solid and its caps (first and last profile).
 fn circles_connected(
     circles: [(occt::Frame, f64); 2],
     angles: [&[f64]; 2],
@@ -1066,8 +1068,27 @@ fn circles_connected(
         return Ok(None);
     }
     let tau = std::f64::consts::TAU;
-    let fractions = |a: &[f64]| -> Vec<f64> { a.iter().map(|t| t / tau).chain([1.0]).collect() };
-    let (f0, f1) = (fractions(angles[0]), fractions(angles[1]));
+    let m = angles[0].len();
+    // From the connection that ends the longest stretch (by the mean of the circles' fractions; batch 186 c002, from
+    // the third of three; 182 c004, the first of two), the longest last.
+    let stretch = |k: usize| -> f64 {
+        let next = |c: usize| if k + 1 < m { angles[c][k + 1] } else { tau };
+        (next(0) - angles[0][k] + next(1) - angles[1][k]) / (2.0 * tau)
+    };
+    let longest = (0..m).fold(0, |best, k| if stretch(k) > stretch(best) + 1e-12 { k } else { best });
+    let start = (longest + 1) % m;
+    let circles: Vec<(occt::Frame, f64)> = (0..2)
+        .map(|c| {
+            let (frame, radius) = &circles[c];
+            let (a, y) = (angles[c][start], cross(frame.normal, frame.x));
+            let x = add(scale(frame.x, a.cos()), scale(y, a.sin()));
+            (occt::Frame { x, ..frame.clone() }, *radius)
+        })
+        .collect();
+    let fractions = |c: usize| -> Vec<f64> {
+        (0..m).map(|j| (angles[c][(start + j) % m] - angles[c][start]).rem_euclid(tau) / tau).chain([1.0]).collect()
+    };
+    let (f0, f1) = (fractions(0), fractions(1));
     let Some(round) = Correspondence::new([&f0, &f1], true) else { return Ok(None) };
     let at = |c: usize, u: f64| -> (Vec3, Vec3) {
         let (frame, radius) = &circles[c];
@@ -1081,7 +1102,7 @@ fn circles_connected(
     let mut breaks = vec![0.0];
     for g in 0..round.nodes.len() - 1 {
         let off = |p: f64, q: f64| midpoint_off(&|u| at(0, u), p, q).max(midpoint_off(&|u| at(1, u), p, q));
-        halved_spans(round.nodes[g], round.nodes[g + 1], &off, &mut breaks, 0);
+        halved_spans(round.nodes[g], round.nodes[g + 1], &off, connected_span_tolerance(m), &mut breaks, 0);
     }
     let stations: Vec<Vec<(f64, Vec3, Vec3)>> =
         (0..2).map(|c| breaks.iter().map(|&u| (u, at(c, u).0, at(c, u).1)).collect()).collect();
