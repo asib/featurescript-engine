@@ -2036,6 +2036,23 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   approximations than the side's edges (c011's circle 314.1631 mm², as batch 180's). The engine builds these, its ends
   bounded by the side's edges.
 
+## Lofts of other profiles (batch 188)
+
+- **One periodic face of cubic Hermite spans** for every smooth profile here: an ellipse to a smaller ellipse (c004)
+  and a closed fit spline to a circle (c006), each in 64 even spans, no vertices; a slot to an ellipse (c005), the
+  ellipse split in four (8 edges); the circle to the slot (c007, as 187 c012 the other way round, which the engine
+  builds); an ellipse and a slot connected twice (c008, c009), split at the connections (4 and 12 edges).
+- **A profile with corners** (c003, a D: a half circle of radius 10 and its diameter): a face for each edge, the circle
+  split at the D's corners. The half circle to the circle's half is a cylinder; the diameter to the other half 32 even
+  Hermite spans, linear along the line (as batch 170's rectangles to circles, 16 spans to each side: neither is a
+  ruled surface the engine's way, which batch 170 compares on its bodies only).
+- **A rounded rectangle** (c001, 20 × 10 with corners of radius 2; c002 connected once): the nodes at its vertices,
+  the spans laid out as the engine's but for the first and last of each long edge (15 and 12 nm off, kept), and the
+  slopes at the nodes not the geometric means: the profile's all 0.99155 of them, the circle's at the long edges'
+  ends 0.898 (at the short edges' the geometric means). The circle is split at every vertex (16 edges), where the
+  slot's isn't (187 c012), and the ends are bounded by approximations (196.5665 mm² for the exact 196.5664). Not
+  understood yet.
+
 ## STEP export
 
 - **Part names** are written on each `MANIFOLD_SOLID_BREP` (`MANIFOLD_SOLID_BREP('c030.1', ...)`), as well as on
