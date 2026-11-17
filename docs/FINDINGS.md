@@ -1983,10 +1983,26 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   the arcs as above, and the same correspondence along each side: c006's side along y = −10, the connection at its
   middle, puts it at u = 39/76, the mean of the edge's half and the arcs' 75° of 142.5°, the edge's and the arc's
   fractions each a cubic in u either side, sloped at the connection as above and at the corners as their own stretch.
-  With one connection the sides' spans are four to each arc (batch 180: 22.5° spans 0.62 µm off the circle); with more
-  each span from one connection or corner to the next is halved until its cubic at its middle lies within 0.11 µm of
-  the curve (c006's spans 0.100 and 0.107 µm off kept, 0.113 and 0.144 halved; c005's 54° arc in four spans, its 72°
-  and 81° in eight; two connections' 90° and 67.5° arcs in eight, 181 c007, c008). The engine builds these so.
+  Each span from one connection or corner to the next is halved until its cubic at its middle lies within a tolerance
+  of the curve: 0.11 µm with more than one connection (c006's spans 0.100 and 0.107 µm off kept, 0.113 and 0.144
+  halved; c005's 54° arc in four spans, its 72° and 81° in eight; two connections' 90° and 67.5° arcs in eight, 181
+  c007, c008), ten times that, 1.1 µm, with one (186 c003: 1.00 µm kept, 1.15 halved; batch 180's 90° arcs in four
+  spans 0.62 µm off). The engine builds these so.
+
+## Lofts with connections, checked (batch 186)
+
+- The rules above hold on cases they weren't found on: circles of radii 10 and 6 connected twice (c001), a hexagon to
+  a circle of radius 15 twice (c005), a triangle to one of radius 5 at a corner and 0.3 along an edge (c006), and a
+  square to a circle once, a quarter along an edge (c003: the connection at u = 0.375, the mean of the edge's 0.25 and
+  the arcs' half; its spans halved to 1.1 µm, seven and six either side).
+- **Where a periodic side starts:** circles connected three times (c002: from their starts, 0.3 to 0.25 and 0.7 to
+  0.6) give a side starting at the third connection, which ends the longest stretch (0.375 of the mean fractions; 182
+  c004's two connections start at the first, which ends the longer, 0.583). The engine starts there.
+- **A square connected at every corner** (c004, to 0.1, 0.3, 0.6 and 0.85 round): Onshape runs every side clockwise
+  round the loft, where every other connected loft so far runs anticlockwise; the surfaces are otherwise the
+  engine's (areas within 3e-5 mm²). Why isn't known: compared on the body.
+- Sketch text: Roboto Slab Bold (1.100263, as its Regular), and "Rf&9" in Roboto Slab, Noto Sans regular and bold
+  italic, Noto Serif italic and bold, Arimo Bold, Allerta Stencil and Droid Sans Mono, match.
 
 ## STEP export
 

@@ -1,6 +1,6 @@
 # Fonts for sketch text
 
-The fonts `@skText` draws with, as Onshape's sketch text does (batches 091, 185): its outlines are these versions'.
+The fonts `@skText` draws with, as Onshape's sketch text does (batches 091, 185, 186): its outlines are these versions'.
 
 | file | font | version | from | licence |
 |---|---|---|---|---|
@@ -17,6 +17,5 @@ The fonts `@skText` draws with, as Onshape's sketch text does (batches 091, 185)
 The current releases differ (Open Sans 3's "I" is 200 to 370 units, Onshape's 201 to 371 as in 1.10; Roboto Slab 2 is
 a variable font). Onshape's Arimo Bold is 1.23, its other Arimos 1.33; its Noto Sans 1.05 and Noto Serif 1.04, not
 Debian's `fonts-noto-core` 20200323 or 20201225 (their "Ag" 0.003 to 0.03 mm² off), nor Noto Serif's first Google
-Fonts release (its italic 0.003 mm² off) (batch 185). Roboto Slab Bold is untested (no fixture yet; the Regular of the
-same release matches). The Noto Sans CJK fonts (OpenType, CFF outlines) aren't here: the engine refuses them. Any
+Fonts release (its italic 0.003 mm² off) (batch 185). The Noto Sans CJK fonts (OpenType, CFF outlines) aren't here: the engine refuses them. Any
 other name is Open Sans Regular, as std documents.
