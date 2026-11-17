@@ -2050,8 +2050,10 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   from its first edge). The engine builds c004–c009.
 - **A profile with corners** (c003, a D: a half circle of radius 10 and its diameter): a face for each edge, the circle
   split at the D's corners. The half circle to the circle's half is a cylinder; the diameter to the other half 32 even
-  Hermite spans, linear along the line (as batch 170's rectangles to circles, 16 spans to each side: neither is a
-  ruled surface the engine's way, which batch 170 compares on its bodies only).
+  Hermite spans, linear along the line (as batch 170's rectangles to circles, 16 spans to each side). The engine builds
+  these so, a side for each run between corners, an arc round the circle's axis and as wide a cylinder; batch 170's
+  surfaces are Onshape's pole for pole, the point at the middle of each face's parameters 0.06 mm off (Onshape's face
+  parameters normalised over a slightly larger box than the surface's).
 - **A rounded rectangle** (c001, 20 × 10 with corners of radius 2; c002 connected once): the nodes at its vertices,
   the spans laid out as the engine's but for the first and last of each long edge (15 and 12 nm off, kept), and the
   slopes at the nodes not the geometric means: the profile's all 0.99155 of them, the circle's at the long edges'

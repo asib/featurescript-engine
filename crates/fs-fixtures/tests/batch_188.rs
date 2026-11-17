@@ -3,9 +3,8 @@
 use std::path::PathBuf;
 
 /// Cases the engine doesn't build as Onshape does yet (see docs/FINDINGS.md): a rounded rectangle to a circle (c001,
-/// c002: Onshape's slopes at the nodes not the geometric means, its circle split at every vertex); a D (c003: a face
-/// for each edge, the half circle's a cylinder).
-const KNOWN_GAPS: &[&str] = &["c001", "c002", "c003"];
+/// c002: Onshape's slopes at the nodes not the geometric means, its circle split at every vertex).
+const KNOWN_GAPS: &[&str] = &["c001", "c002"];
 
 /// Onshape's ends measured on other approximations than its side's edges: the ellipse's (c005: 0.0016 mm²), a
 /// connected loft's (c008: 0.006 mm²).
@@ -22,6 +21,6 @@ fn batch_188_matches_onshape() {
         let unexpected: Vec<String> =
             report.problems().into_iter().filter(|p| !KNOWN_GAPS.iter().any(|case| p.starts_with(case))).collect();
         assert!(unexpected.is_empty(), "{report}");
-        assert_eq!(report.probes_matched, (7, 10), "{report}");
+        assert_eq!(report.probes_matched, (8, 10), "{report}");
     });
 }
