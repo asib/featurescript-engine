@@ -781,6 +781,15 @@ impl Correspondence {
             return None;
         }
         let nodes: Vec<f64> = (0..m).map(|g| (fractions[0][g] + fractions[1][g]) / 2.0).collect();
+        Self::with_nodes(nodes, fractions, periodic)
+    }
+
+    /// With the nodes given: each profile's values there (fractions of its way round), slopes as above.
+    fn with_nodes(nodes: Vec<f64>, fractions: [&[f64]; 2], periodic: bool) -> Option<Self> {
+        let m = nodes.len();
+        if m < 2 || fractions.iter().any(|f| f.len() != m) {
+            return None;
+        }
         if nodes.windows(2).any(|w| w[1] <= w[0]) {
             return None;
         }
@@ -1181,8 +1190,8 @@ fn smooth_loft_to_circle(
     let tau = std::f64::consts::TAU;
     let profile = &wires[1 - circle_at];
     use occt::CurveType::{BSpline, Circle, Ellipse, Line};
-    // The other profile: a circle, or an ellipse to a profile of one closed edge without connections (batch 188 c004:
-    // each along its own parameter from its start).
+    // The other profile: a circle, or (without connections) an ellipse, shared out by its parameter from its point
+    // nearest the start (batch 188 c004, c005).
     let [circle_edge] = &wires[circle_at].sub_shapes(ShapeKind::Edge)[..] else { return Ok(None) };
     let to_ellipse = match circle_edge.curve_type() {
         Ok(Circle) => false,
@@ -1192,7 +1201,7 @@ fn smooth_loft_to_circle(
     let conic = circle_edge.curve_definition().map_err(occt_error)?;
     let (centre, radius) = (conic.frame.origin, conic.radius1);
     let listed = profile.sub_shapes(ShapeKind::Edge);
-    if listed.is_empty() || (to_ellipse && (listed.len() > 1 || !connections.is_empty())) {
+    if listed.is_empty() || (to_ellipse && !connections.is_empty()) {
         return Ok(None);
     }
     if listed.iter().any(|e| !matches!(e.curve_type(), Ok(Line | Circle | Ellipse | BSpline)))
@@ -1329,9 +1338,8 @@ fn smooth_loft_to_circle(
     nodes.sort_by(|a, b| a.0.total_cmp(&b.0));
     // The start: a connection (of two the first given, batch 188 c009; of more the last round from it) or the first
     // edge's drawn start.
-    let given = first_given.and_then(|f| {
-        nodes.iter().position(|n| (n.0 - f).abs() < 1e-12 || (n.0 - f).abs() > 1.0 - 1e-12)
-    });
+    let given =
+        first_given.and_then(|f| nodes.iter().position(|n| (n.0 - f).abs() < 1e-12 || (n.0 - f).abs() > 1.0 - 1e-12));
     if let Some(g) = given {
         nodes.rotate_left(g);
     }
@@ -1382,7 +1390,67 @@ fn smooth_loft_to_circle(
             }
         }
     }
-    let Some(round) = Correspondence::new([&fractions, &circle_f], true) else { return Ok(None) };
+    // An ellipse: from its point nearest the start, the way round the loft runs, shared out evenly by its parameter;
+    // its nodes measured by arc length (batch 188 c005: a slot's corners to a quarter of its parameter each, from
+    // 147.05°).
+    let ellipse_backwards = to_ellipse && {
+        let (p, d) = (point(circle_edge, 0.0)?, slope(circle_edge, 0.0)?);
+        dot(cross(sub(p, centre), d), axis) < 0.0
+    };
+    let ellipse_start = if to_ellipse {
+        let anchor = at(nodes[0].1, nodes[0].2)?;
+        let near = |t: f64| {
+            point(circle_edge, t.rem_euclid(1.0))
+                .map(|p| norm(sub(sub(p, anchor), scale(axis, dot(sub(p, anchor), axis)))))
+        };
+        let mut best = (f64::INFINITY, 0.0);
+        for i in 0..720 {
+            let t = i as f64 / 720.0;
+            let d = near(t)?;
+            if d < best.0 {
+                best = (d, t);
+            }
+        }
+        let (mut lo, mut hi) = (best.1 - 1.0 / 720.0, best.1 + 1.0 / 720.0);
+        for _ in 0..100 {
+            let (a, b) = (lo + (hi - lo) / 3.0, hi - (hi - lo) / 3.0);
+            if near(a)? < near(b)? { hi = b } else { lo = a }
+        }
+        ((lo + hi) / 2.0).rem_euclid(1.0)
+    } else {
+        0.0
+    };
+    let ellipse_param = |f: f64| -> f64 {
+        let t = if ellipse_backwards { ellipse_start - f } else { ellipse_start + f };
+        t.rem_euclid(1.0)
+    };
+    let target_f: Vec<f64> = if to_ellipse {
+        let speed = |f: f64| norm(slope(circle_edge, ellipse_param(f)).unwrap_or(centre));
+        let length = |f0: f64, f1: f64| -> f64 {
+            let n = 64;
+            let mut sum = 0.0;
+            for i in 0..n {
+                let (a, b) = (f0 + (f1 - f0) * i as f64 / n as f64, f0 + (f1 - f0) * (i + 1) as f64 / n as f64);
+                for (x, w) in [(-0.7745966692414834, 5.0 / 9.0), (0.0, 8.0 / 9.0), (0.7745966692414834, 5.0 / 9.0)] {
+                    sum += w * (b - a) / 2.0 * speed((a + b) / 2.0 + x * (b - a) / 2.0);
+                }
+            }
+            sum
+        };
+        let total = length(0.0, 1.0);
+        let mut acc = vec![0.0];
+        for g in 0..n {
+            acc.push(acc[g] + length(circle_f[g], circle_f[g + 1]) / total);
+        }
+        acc[n] = 1.0;
+        acc
+    } else {
+        circle_f.clone()
+    };
+    // The nodes by both profiles' arc lengths; an ellipse's values its parameter's fractions (batch 188 c005: its slope
+    // at the slot's corner 57.065 mm, the geometric mean of its parameter's).
+    let node_u: Vec<f64> = (0..=n).map(|g| (fractions[g] + target_f[g]) / 2.0).collect();
+    let Some(round) = Correspondence::with_nodes(node_u, [&fractions, &circle_f], true) else { return Ok(None) };
     // Each interval's piece and the fractions along it at its ends.
     let intervals: Vec<(usize, f64, f64)> = (0..n)
         .map(|i| {
@@ -1411,22 +1479,10 @@ fn smooth_loft_to_circle(
         let d = slope_at(k, s).unwrap_or(centre);
         (p, scale(d, (s1 - s0) / (f1 - f0) * df))
     };
-    // An ellipse runs from its start, the way round the loft runs; its start must be where the profile's is headed.
-    let ellipse_backwards = to_ellipse && {
-        let (p, d) = (point(circle_edge, 0.0)?, slope(circle_edge, 0.0)?);
-        dot(cross(sub(p, centre), d), axis) < 0.0
-    };
-    if to_ellipse {
-        let p = point(circle_edge, 0.0)?;
-        let Some(dir) = normalize(sub(sub(p, centre), scale(axis, dot(sub(p, centre), axis)))) else { return Ok(None) };
-        if norm(sub(dir, x)) > 1e-9 {
-            return Ok(None);
-        }
-    }
     let circle_point = |u: f64| -> (Vec3, Vec3) {
         let (f, df) = round.at(1, u);
         if to_ellipse {
-            let s = if ellipse_backwards { (1.0 - f).rem_euclid(1.0) } else { f.rem_euclid(1.0) };
+            let s = ellipse_param(f);
             let p = point(circle_edge, s).unwrap_or(centre);
             let d = slope(circle_edge, s).unwrap_or(centre);
             return (p, scale(d, if ellipse_backwards { -df } else { df }));
@@ -1461,7 +1517,9 @@ fn smooth_loft_to_circle(
         .map(|i| round.nodes[i])
         .chain([1.0].into_iter().filter(|_| split_all || nodes[0].3))
         .collect();
-    let circle_splits: Vec<f64> = if split_all { round.nodes[1..].to_vec() } else { Vec::new() };
+    // An ellipse split at every node where the profile has vertices (batch 188 c005), a circle only with connections.
+    let circle_splits: Vec<f64> =
+        if split_all || (to_ellipse && has_vertices) { round.nodes[1..].to_vec() } else { Vec::new() };
     let seam = breaks[1] / 2.0;
     let ends =
         |splits: &[f64]| -> Vec<f64> { [seam].into_iter().chain(splits.iter().copied()).chain([1.0 + seam]).collect() };
@@ -2173,7 +2231,8 @@ pub fn loft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
     }
     // A smooth profile (a slot, an ellipse) to a circle: one periodic side (batch 187 c012, c013).
     if wires.len() == 2 && ends.iter().all(Option::is_none) && !has_guides {
-        for circle_at in 0..2 {
+        // The second profile shared out from the first's start where either could be (two ellipses).
+        for circle_at in [1, 0] {
             if let Some((shape, first, last)) = smooth_loft_to_circle(&wires, circle_at, &[], solid)? {
                 add_lofted_shape(model, &id, &shape, &first, &last, solid, &wires)?;
                 return Ok(Value::UNDEFINED);
