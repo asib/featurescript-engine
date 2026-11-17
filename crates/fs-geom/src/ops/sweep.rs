@@ -905,9 +905,19 @@ fn polygon_circle_connected(
     let Some(mut corners) = polygon_corners(&wires[polygon]) else { return Ok(None) };
     let centroid = scale(corners.iter().fold(Vec3::new(0.0, 0.0, 0.0), |a, &c| add(a, c)), 1.0 / corners.len() as f64);
     let centre = circle.frame.origin;
-    // Round the way from the first profile to the second, anticlockwise (whichever the circle is).
+    // Round the way from the first profile to the second, anticlockwise (whichever the circle is); with three
+    // connections or more, the way the polygon's first edge was drawn (batches 186 c004, 187 c005–c007: a rectangle's,
+    // up its left side, clockwise; 182 c005, 187 c004: polygons of lines drawn anticlockwise, anticlockwise).
     let travel = if polygon == 0 { sub(centre, centroid) } else { sub(centroid, centre) };
-    let Some(axis) = normalize(travel) else { return Ok(None) };
+    let Some(mut axis) = normalize(travel) else { return Ok(None) };
+    if pairs.len() >= 3 {
+        let first = &wires[polygon].sub_shapes(ShapeKind::Edge)[0];
+        let start = first.edge_tangent(0.0, false).map_err(occt_error)?;
+        let drawn = if first.is_reversed() { scale(start.direction, -1.0) } else { start.direction };
+        if dot(cross(sub(start.origin, centroid), drawn), axis) < 0.0 {
+            axis = scale(axis, -1.0);
+        }
+    }
     if dot(cross(sub(corners[0], centroid), sub(corners[1], centroid)), axis) < 0.0 {
         corners.reverse();
     }
@@ -1052,12 +1062,12 @@ fn polygon_circle_connected(
     Ok(Some((shape, first, last)))
 }
 
-/// Two circles joined by more than one connection, as Onshape lofts them (batches 182 c004, 186 c001, c002): one side
-/// all the way round, periodic, from the connection ending the longest stretch, its u the circles' [`Correspondence`]
-/// round from there (each circle's fraction its angle's, running as its own circle does), cubic Hermite spans halved
-/// till close ([`halved_spans`]); the ends bounded by the side's edges, a vertex at each connection. Each circle: its
-/// frame (x towards the first connection, its normal the way it runs) and radius, and the connections' angles round
-/// it from there, rising. The solid and its caps (first and last profile).
+/// Two circles joined by more than one connection, as Onshape lofts them (batches 182 c004, 186 c001, c002, 187 c008,
+/// c009): one side all the way round, periodic, from the first connection of two or the last of more, its u the
+/// circles' [`Correspondence`] round from there (each circle's fraction its angle's, running as its own circle does),
+/// cubic Hermite spans halved till close ([`halved_spans`]); the ends bounded by the side's edges, a vertex at each
+/// connection. Each circle: its frame (x towards the first connection, its normal the way it runs) and radius, and the
+/// connections' angles round it from there, rising. The solid and its caps (first and last profile).
 fn circles_connected(
     circles: [(occt::Frame, f64); 2],
     angles: [&[f64]; 2],
@@ -1069,14 +1079,9 @@ fn circles_connected(
     }
     let tau = std::f64::consts::TAU;
     let m = angles[0].len();
-    // From the connection that ends the longest stretch (by the mean of the circles' fractions; batch 186 c002, from
-    // the third of three; 182 c004, the first of two), the longest last.
-    let stretch = |k: usize| -> f64 {
-        let next = |c: usize| if k + 1 < m { angles[c][k + 1] } else { tau };
-        (next(0) - angles[0][k] + next(1) - angles[1][k]) / (2.0 * tau)
-    };
-    let longest = (0..m).fold(0, |best, k| if stretch(k) > stretch(best) + 1e-12 { k } else { best });
-    let start = (longest + 1) % m;
+    // From the first connection when there are two (batches 182 c004, 187 c009), from the last round when there are
+    // more (186 c002, the third of three; 187 c008, the fourth of four).
+    let start = if m > 2 { m - 1 } else { 0 };
     let circles: Vec<(occt::Frame, f64)> = (0..2)
         .map(|c| {
             let (frame, radius) = &circles[c];
