@@ -346,20 +346,17 @@ pub fn difference_volume(a: &Shape, b: &Shape) -> Result<f64, occt::Error> {
         let rest = attempt(FUZZY).or_else(|_| attempt(FUZZY * 10.0))?;
         rest.shape().volume()
     };
+    // Or from what they share: V(a) + V(b) - 2 V(a and b). A subtraction between nearly coincident B-splines can come
+    // back with most of the solid when it fails (batch 141 c003's shell, 0.98 of the volume); an intersection that
+    // fails shares too little, so only ever overstates the difference: the smaller of the two is kept.
+    let shared = || -> Result<f64, occt::Error> {
+        let common =
+            occt::boolean_fuzzy(BooleanKind::Intersection, std::slice::from_ref(a), std::slice::from_ref(b), false, FUZZY)?;
+        Ok((a.volume()? + b.volume()? - 2.0 * common.shape().volume()?).max(0.0))
+    };
     match (one_way(a, b), one_way(b, a)) {
-        (Ok(x), Ok(y)) => Ok(x + y),
-        // Or from what they share: V(a) + V(b) - 2 V(a and b).
-        (Err(e), _) | (_, Err(e)) => {
-            let common = occt::boolean_fuzzy(
-                BooleanKind::Intersection,
-                std::slice::from_ref(a),
-                std::slice::from_ref(b),
-                false,
-                FUZZY,
-            )
-            .map_err(|_| e)?;
-            Ok((a.volume()? + b.volume()? - 2.0 * common.shape().volume()?).max(0.0))
-        }
+        (Ok(x), Ok(y)) => Ok(shared().map_or(x + y, |z| z.min(x + y))),
+        (Err(e), _) | (_, Err(e)) => shared().map_err(|_| e),
     }
 }
 
