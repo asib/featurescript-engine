@@ -1208,10 +1208,16 @@ fn unequal_polygons(wires: &[Shape], forced: &[(Vec3, Vec3)]) -> R<Option<Vec<Sh
     // One stretch: corners a..=b of one and c..=d of the other (indices round), matched by fraction.
     let stretch = |c: &[Vec3], from: usize, to: usize| -> Vec<Vec3> { (from..=to).map(|k| c[k % c.len()]).collect() };
     // Fractions of the whole perimeter from the first anchor, summed edge by edge (Onshape's ties fall as these do in
-    // floating point: batch 182 c001, a square to a hexagon, earlier in one stretch and later in the other).
+    // floating point: batch 182 c001, a square to a hexagon, earlier in one stretch and later in the other), from the
+    // corners in millimetres as the sketch gives them: the engine's carry the last bits of its plane's transform
+    // (0.004999999999999999 m for 5 mm), which would break the tie the same way in both.
     let fractions = |c: &[Vec3]| -> Vec<f64> {
         let n = c.len();
-        let lengths: Vec<f64> = (0..n).map(|i| norm(sub(c[(i + 1) % n], c[i]))).collect();
+        let mm = |v: Vec3| {
+            let r = |x: f64| (x * 1e12).round() / 1e9;
+            Vec3::new(r(v.x), r(v.y), r(v.z))
+        };
+        let lengths: Vec<f64> = (0..n).map(|i| norm(sub(mm(c[(i + 1) % n]), mm(c[i])))).collect();
         let total: f64 = lengths.iter().sum();
         let mut at = vec![0.0];
         for l in &lengths[..n - 1] {

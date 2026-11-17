@@ -1969,8 +1969,10 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   (c002: a triangle to a square, the square's corner between the connections taken to the middle of the triangle's
   edge; c003: two squares a quarter turn round). Where a stretch's corner falls exactly between two of the other's
   (c001: a square to a hexagon, connected at opposite corners), Onshape's rounding picks the earlier in one stretch and
-  the later in the other: the same sums in Python's floating point do, the engine's (its hexagon's corners from its
-  sketch) the earlier in both.
+  the later in the other: the same sums in Python's floating point do, from the corners in millimetres as the sketch
+  gives them. The engine's corners carry the last bits of its sketch plane's transform (0.004999999999999999 m for
+  5 mm), which pick the earlier in both; it takes the fractions from its corners in millimetres rounded to 1e-9 mm, and
+  so matches.
 - **Circles connected twice** (182 c004, from their starts and from half round the first to a third round the
   second): Onshape's side is one periodic face from the first connection, each circle split at the connection points
   (4 edges, 4 vertices). Its u puts each connection at the mean of the circles' fractions round from the first (5/12,
