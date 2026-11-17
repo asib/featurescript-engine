@@ -54,10 +54,12 @@ double edge_parameter_at(const TopoDS_Edge &edge, const BRepAdaptor_Curve &curve
   bool reversed = edge.Orientation() == TopAbs_REVERSED;
   if (reversed) t = 1 - t;
   if (!arc_length) return first + t * (last - first);
-  double length = GCPnts_AbscissaPoint::Length(curve);
+  // To a tolerance: the default's fixed rule is millimetres off along a long thin ellipse (batch 184 c008: 15 by 4,
+  // its point half way round 0.2 mm off its axis).
+  double length = GCPnts_AbscissaPoint::Length(curve, 1e-12);
   if (t <= 0) return first;
   if (t >= 1) return last;
-  GCPnts_AbscissaPoint point(curve, t * length, first);
+  GCPnts_AbscissaPoint point(1e-12 * std::max(1.0, length), curve, t * length, first);
   if (!point.IsDone()) throw std::runtime_error("could not find the point along the edge");
   return point.Parameter();
 }
