@@ -759,6 +759,10 @@ fn solve(model: &mut Model, sketch: &Sketch) -> R<()> {
             }
             Geometry::Conic { start, control, end, rho } => {
                 conics.push(entity.id.clone());
+                // Its start, control point and end, a point body each, as Onshape's (batch 184 c009).
+                for (name, at) in [("start", start), ("control", control), ("end", end)] {
+                    points.push((format!("{}.{name}", entity.id).into(), world(*at), entity.construction));
+                }
                 let w = rho / (1.0 - rho);
                 occt::conic_edge(world(*start), world(*control), world(*end), w).map_err(occt_error)?
             }
@@ -872,6 +876,8 @@ mod constraints {
         Arc(usize),
         /// Centre and radius.
         Circle(usize),
+        /// Centre, and major and minor radii (its axis held).
+        Ellipse(usize),
     }
 
     /// Each entity's slot, the unknowns as the sketch starts, each unknown's scale (so that moving it by one is
@@ -939,6 +945,14 @@ mod constraints {
                         place.push(vec![i, i + 1]);
                     }
                     Some(Slot::Circle(i))
+                }
+                // An ellipse's diameters given (batch 184 c008: MAJOR_DIAMETER and MINOR_DIAMETER as `length`).
+                Geometry::Ellipse { center, major, minor, arc: None, .. } => {
+                    x.extend([center.0, center.1, *major, *minor]);
+                    scale.extend([1.0, 1.0, 1.0, 1.0]);
+                    stiff.push(vec![i + 2, i + 3]);
+                    place.push(vec![i, i + 1]);
+                    Some(Slot::Ellipse(i))
                 }
                 _ => None,
             };
@@ -1046,7 +1060,7 @@ mod constraints {
             (Slot::Point(i), _) => Some((x[i], x[i + 1])),
             (Slot::Line(_), "start") => line(x, slot).map(|(a, _)| a),
             (Slot::Line(_), "end") => line(x, slot).map(|(_, b)| b),
-            (Slot::Arc(i) | Slot::Circle(i), "center") => Some((x[i], x[i + 1])),
+            (Slot::Arc(i) | Slot::Circle(i) | Slot::Ellipse(i), "center") => Some((x[i], x[i + 1])),
             (Slot::Arc(i), "start") => Some((x[i] + x[i + 2] * x[i + 3].cos(), x[i + 1] + x[i + 2] * x[i + 3].sin())),
             (Slot::Arc(i), "end") => Some((x[i] + x[i + 2] * x[i + 4].cos(), x[i + 1] + x[i + 2] * x[i + 4].sin())),
             _ => None,
@@ -1139,6 +1153,7 @@ mod constraints {
             }
             ("FIX", Some(Part::Entity(Slot::Line(i))), None) => (i..i + 4).map(|k| x[k] - x0[k]).collect(),
             ("FIX", Some(Part::Entity(Slot::Circle(i))), None) => (i..i + 3).map(|k| x[k] - x0[k]).collect(),
+            ("FIX", Some(Part::Entity(Slot::Ellipse(i))), None) => (i..i + 4).map(|k| x[k] - x0[k]).collect(),
             ("COINCIDENT", Some(Part::Point(s1, w1)), Some(Part::Point(s2, w2))) => {
                 match (point(x, s1, w1), point(x, s2, w2)) {
                     (Some(p), Some(q)) => vec![p.0 - q.0, p.1 - q.1],
@@ -1151,7 +1166,7 @@ mod constraints {
                 match e {
                     Slot::Line(_) => line(x, e).map(|(a, b)| vec![to_line(p, a, b)]).unwrap_or_default(),
                     Slot::Arc(i) | Slot::Circle(i) => vec![(p.0 - x[i]).hypot(p.1 - x[i + 1]) - x[i + 2]],
-                    Slot::Point(_) => vec![],
+                    Slot::Point(_) | Slot::Ellipse(_) => vec![],
                 }
             }
             ("TANGENT", Some(Part::Entity(Slot::Arc(i) | Slot::Circle(i))), Some(Part::Entity(l @ Slot::Line(_))))
@@ -1175,6 +1190,10 @@ mod constraints {
                     _ => (b.0 - a.0).hypot(b.1 - a.1) - d,
                 }],
                 _ => vec![],
+            },
+            ("MAJOR_DIAMETER" | "MINOR_DIAMETER", Some(Part::Entity(Slot::Ellipse(i))), None) => match length("length") {
+                Some(d) => vec![2.0 * x[i + if kind == "MAJOR_DIAMETER" { 2 } else { 3 }] - d],
+                None => vec![],
             },
             ("RADIUS" | "DIAMETER", Some(Part::Entity(Slot::Arc(i) | Slot::Circle(i))), None) => match length("length") {
                 Some(d) => vec![if kind == "RADIUS" { x[i + 2] - d } else { 2.0 * x[i + 2] - d }],
@@ -1674,6 +1693,10 @@ mod constraints {
                 (Some(Slot::Circle(i)), Geometry::Circle { center, radius }) => {
                     *center = (x[*i], x[*i + 1]);
                     *radius = x[*i + 2];
+                }
+                (Some(Slot::Ellipse(i)), Geometry::Ellipse { center, major, minor, .. }) => {
+                    *center = (x[*i], x[*i + 1]);
+                    (*major, *minor) = (x[*i + 2], x[*i + 3]);
                 }
                 _ => {}
             }
