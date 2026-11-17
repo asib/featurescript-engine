@@ -1942,7 +1942,8 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   so the areas are 0.025 mm² and the volumes up to 0.09 mm³ apart.
 - **Two connections** (c003, the square's opposite corners to an eighth and five eighths round; 181 c007, c008):
   round from each connection to the next, the circle's arc between them is shared evenly among the polygon's edges
-  between (181 c008: 135° over two edges, 225° over two), and each arc takes eight spans (four for each connection).
+  between (181 c008: 135° over two edges, 225° over two), and each arc takes eight spans (halved till close: batch
+  182 below).
   Onshape's circular end measures 314.1595 mm² (its sides' finer arcs bound nearly the exact circle); the engine's
   within 0.002 (0.01 mm³ of 181 c008's volume).
 - **A triangle to a square**, corner to corner (c007): the triangle's edge opposite the connected corner split at its
@@ -1971,11 +1972,21 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   the later in the other: the same sums in Python's floating point do, the engine's (its hexagon's corners from its
   sketch) the earlier in both.
 - **Circles connected twice** (182 c004, from their starts and from half round the first to a third round the
-  second): Onshape's side is one periodic face (48 uneven spans), each circle split at the connection points, its
-  correspondence between them not even along each arc (0.7% of the volume less than arc to arc); not modelled.
+  second): Onshape's side is one periodic face from the first connection, each circle split at the connection points
+  (4 edges, 4 vertices). Its u puts each connection at the mean of the circles' fractions round from the first (5/12,
+  between a half and a third); each circle's angle is a cubic in u from one connection to the next (Hermite), its slope
+  at each the geometric mean of the stretches' either side, each its fraction over its u (√(1.2 × 0.857) = 1.0142
+  turns per unit of u round the first circle, √(0.8 × 1.143) = 0.9562 round the second). Spans: 16 to the first
+  stretch, 32 to the second (below). The engine builds this pole for pole; Onshape's ends, though, measure 314.1594
+  and 314.1599 mm² where its side's edges bound 314.1581 and 314.1591.
 - **More connections to a circle** (182 c005, a pentagon three times; c006, a square at a corner and along an edge):
-  the arcs as above, but Onshape lays out its spans round them otherwise (four for one arc and eight for the rest; an
-  uneven fourteen), so the engine's sides match only their bodies (to 0.16 mm³).
+  the arcs as above, and the same correspondence along each side: c006's side along y = −10, the connection at its
+  middle, puts it at u = 39/76, the mean of the edge's half and the arcs' 75° of 142.5°, the edge's and the arc's
+  fractions each a cubic in u either side, sloped at the connection as above and at the corners as their own stretch.
+  With one connection the sides' spans are four to each arc (batch 180: 22.5° spans 0.62 µm off the circle); with more
+  each span from one connection or corner to the next is halved until its cubic at its middle lies within 0.11 µm of
+  the curve (c006's spans 0.100 and 0.107 µm off kept, 0.113 and 0.144 halved; c005's 54° arc in four spans, its 72°
+  and 81° in eight; two connections' 90° and 67.5° arcs in eight, 181 c007, c008). The engine builds these so.
 
 ## STEP export
 
