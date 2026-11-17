@@ -1985,15 +1985,15 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   Each span from one connection or corner to the next is halved until its cubic at its middle lies within a tolerance
   of the curve: 0.11 µm with more than one connection (c006's spans 0.100 and 0.107 µm off kept, 0.113 and 0.144
   halved; c005's 54° arc in four spans, its 72° and 81° in eight; two connections' 90° and 67.5° arcs in eight, 181
-  c007, c008), ten times that, 1.1 µm, with one (186 c003: 1.00 µm kept, 1.15 halved; batch 180's 90° arcs in four
-  spans 0.62 µm off). The engine builds these so.
+  c007, c008), 1 µm with one (186 c003: 0.999 µm kept, 1.15 halved; 187 c010: 1.06 halved; batch 180's 90° arcs in
+  four spans 0.62 µm off). The engine builds these so.
 
 ## Lofts with connections, checked (batch 186)
 
 - The rules above hold on cases they weren't found on: circles of radii 10 and 6 connected twice (c001), a hexagon to
   a circle of radius 15 twice (c005), a triangle to one of radius 5 at a corner and 0.3 along an edge (c006), and a
   square to a circle once, a quarter along an edge (c003: the connection at u = 0.375, the mean of the edge's 0.25 and
-  the arcs' half; its spans halved to 1.1 µm, seven and six either side).
+  the arcs' half; its spans halved to 1 µm, seven and six either side).
 - **Where a periodic side starts:** circles connected three times (c002: from their starts, 0.3 to 0.25 and 0.7 to
   0.6) give a side starting at the third connection (batch 187 below gives the rule).
 - **A square connected at every corner** (c004, to 0.1, 0.3, 0.6 and 0.85 round): Onshape runs every side clockwise
@@ -2026,8 +2026,15 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   its half circles 0.234975 of u, its lines 0.265025), slopes the geometric means, 32 spans to each half circle and 16
   to each line (c012). Plain lofts halve spans until within 10 nm (the ellipse's 32 spans stray 31–58 nm, its 64 under
   4; the slot's lines' 8 at least 13 nm, 16 under 4); with a connection, as connected lofts do (c010, from the
-  connection's point on the slot's end; c011, 16 spans from 0.1 round the ellipse). Their ends: the plain lofts' the
-  profiles' own, the connected lofts' the side's edges. Not modelled yet.
+  connection's point on the slot's end, the circle shared among the slot's four edges and the connection's point;
+  c011, 16 spans from 0.1 round the ellipse, its parameter as std passes connections', not its arc length). With one
+  connection the tolerance is 1 µm, not 1.1: c010's spans 1.06 µm off are halved (186 c003's 0.999 kept). The start of
+  a plain loft: the first sketch edge's drawn start (the slot's top line from (−10, 5); batch 170's rectangle's left
+  side from (−10, −5) gives the arcs the engine's rule for polygons does). The side's edges split at the slot's
+  vertices only (5 edges, 4 vertices), with a connection at the circle's points too (10 and 10); one connection round
+  an ellipse leaves no vertex. Their ends: the plain lofts' the profiles' own; the connected lofts' other
+  approximations than the side's edges (c011's circle 314.1631 mm², as batch 180's). The engine builds these, its ends
+  bounded by the side's edges.
 
 ## STEP export
 
