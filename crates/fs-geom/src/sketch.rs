@@ -269,8 +269,15 @@ pub fn register(m: &mut GeomBuiltins) {
         }
         let text = field(value, "text").as_str().ok_or_else(|| error("@skText: text must be a string"))?.to_string();
         let font_name = field(value, "fontName").as_str().unwrap_or("OpenSans-Regular.ttf");
-        let font = crate::font::by_name(font_name)
-            .ok_or_else(|| error(format!("@skText: the font {font_name} isn't one the engine has (fs-geom/fonts)")))?;
+        let font = match crate::font::by_name(font_name) {
+            Some(font) => font,
+            // A font Onshape has that the engine doesn't (its version of Noto Sans, Allerta Stencil, ...).
+            None if crate::font::onshape_has(font_name) => {
+                return Err(error(format!("@skText: the font {font_name} isn't one the engine has (fs-geom/fonts)")));
+            }
+            // Any other name: Open Sans, as std documents it (batch 185 c022).
+            None => crate::font::by_name("OpenSans-Regular.ttf").ok_or_else(|| error("@skText: no Open Sans"))?,
+        };
         for key in ["mirrorHorizontal", "mirrorVertical"] {
             if field(value, key).as_bool() == Some(true) {
                 return Err(error(format!("@skText: {key} isn't supported yet")));

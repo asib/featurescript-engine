@@ -286,13 +286,37 @@ pub fn segments(contour: &[(f64, f64, bool)]) -> Vec<Vec<(f64, f64)>> {
 /// The fonts sketch text can use, by the names Onshape gives them (fs-geom/fonts/README.md).
 pub fn by_name(name: &str) -> Option<&'static Font> {
     use std::sync::OnceLock;
-    static OPEN_SANS: OnceLock<Option<Font>> = OnceLock::new();
-    static ARIMO: OnceLock<Option<Font>> = OnceLock::new();
-    match name {
-        "OpenSans-Regular.ttf" => {
-            OPEN_SANS.get_or_init(|| Font::parse(include_bytes!("../fonts/OpenSans-Regular.ttf"))).as_ref()
-        }
-        "Arimo-Regular.ttf" => ARIMO.get_or_init(|| Font::parse(include_bytes!("../fonts/Arimo-Regular.ttf"))).as_ref(),
-        _ => None,
+    macro_rules! fonts {
+        ($($file:literal),* $(,)?) => {{
+            const FILES: &[(&str, &[u8])] = &[$(($file, include_bytes!(concat!("../fonts/", $file)))),*];
+            static PARSED: [OnceLock<Option<Font>>; FILES.len()] = [const { OnceLock::new() }; FILES.len()];
+            let k = FILES.iter().position(|(file, _)| *file == name)?;
+            PARSED[k].get_or_init(|| Font::parse(FILES[k].1)).as_ref()
+        }};
     }
+    fonts!(
+        "OpenSans-Regular.ttf",
+        "OpenSans-Bold.ttf",
+        "OpenSans-Italic.ttf",
+        "OpenSans-BoldItalic.ttf",
+        "Arimo-Regular.ttf",
+        "Arimo-Italic.ttf",
+        "Arimo-BoldItalic.ttf",
+        "Tinos-Regular.ttf",
+        "Tinos-Bold.ttf",
+        "Tinos-Italic.ttf",
+        "Tinos-BoldItalic.ttf",
+    )
+}
+
+/// Whether Onshape's sketch text has a font of this name (std's `skText` lists them, with their bold and italic
+/// forms), whether or not the engine does.
+pub fn onshape_has(name: &str) -> bool {
+    let Some(stem) = name.strip_suffix(".ttf").or_else(|| name.strip_suffix(".otf")) else { return false };
+    let family = stem.rsplit_once('-').map_or(stem, |(f, _)| f);
+    matches!(
+        family,
+        "OpenSans" | "AllertaStencil" | "Arimo" | "DroidSansMono" | "NotoSans" | "NotoSansCJKjp" | "NotoSansCJKkr"
+            | "NotoSansCJKsc" | "NotoSansCJKtc" | "NotoSerif" | "RobotoSlab" | "Tinos"
+    )
 }
