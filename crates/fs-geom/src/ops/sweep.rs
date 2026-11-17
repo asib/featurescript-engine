@@ -1158,6 +1158,316 @@ fn circles_connected(
     Ok(Some((shape.clone(), find(&caps[0]), find(&caps[1]))))
 }
 
+/// A closed profile of smooth pieces (lines, arcs and ellipses meeting tangent, not all of one circle) lofted to a
+/// circle, as Onshape lofts them (batch 187 c010–c013): one periodic side of cubic Hermite spans along the profiles'
+/// [`Correspondence`]. Nodes at the profile's vertices and connection points, by arc length round it (within each
+/// piece its own parameter, an ellipse's angle); the circle shared evenly among them from the start (between
+/// connections, as a polygon's corners share it); the start the first edge's drawn start and the circle's point in
+/// its direction, or a connection (of two the first, of more the last); spans halved till within 10 nm, or as
+/// connected lofts' ([`connected_span_tolerance`]). The side's edges split at the profile's vertices, and with
+/// connections at theirs and the circle's points too (unless one connection is all a loop without vertices has);
+/// the ends bounded by them. `connections`: each one's point on the profile (its edge and parameter there) and on
+/// the circle. The solid and its caps (first and last profile), or `None` for other profiles.
+fn smooth_loft_to_circle(
+    wires: &[Shape],
+    circle_at: usize,
+    connections: &[((Shape, f64), Vec3)],
+    solid: bool,
+) -> R<Option<(Shape, Vec<Shape>, Vec<Shape>)>> {
+    use values::{add, cross, dot, norm, normalize, scale, sub};
+    if wires.len() != 2 || !solid {
+        return Ok(None);
+    }
+    let tau = std::f64::consts::TAU;
+    let profile = &wires[1 - circle_at];
+    let [circle_edge] = &wires[circle_at].sub_shapes(ShapeKind::Edge)[..] else { return Ok(None) };
+    if circle_edge.curve_type().ok() != Some(occt::CurveType::Circle) {
+        return Ok(None);
+    }
+    let conic = circle_edge.curve_definition().map_err(occt_error)?;
+    let (centre, radius) = (conic.frame.origin, conic.radius1);
+    let listed = profile.sub_shapes(ShapeKind::Edge);
+    if listed.is_empty() {
+        return Ok(None);
+    }
+    use occt::CurveType::{Circle, Ellipse, Line};
+    if listed.iter().any(|e| !matches!(e.curve_type(), Ok(Line | Circle | Ellipse)))
+        || listed.iter().all(|e| e.curve_type().ok() == Some(Line))
+        || (listed.len() == 1 && listed[0].curve_type().ok() == Some(Circle))
+    {
+        return Ok(None);
+    }
+    // Each piece's point and slope at a fraction of its own parameter, as the loop runs.
+    let point = |e: &Shape, s: f64| -> R<Vec3> { Ok(e.edge_tangent(s, false).map_err(occt_error)?.origin) };
+    let closed = listed.len() == 1;
+    let slope = |e: &Shape, s: f64| -> R<Vec3> {
+        let h = 1e-6;
+        if closed || (s - h >= 0.0 && s + h <= 1.0) {
+            let (a, b) = (point(e, (s - h).rem_euclid(1.0))?, point(e, (s + h).rem_euclid(1.0))?);
+            return Ok(scale(sub(b, a), 0.5 / h));
+        }
+        let k = if s - h < 0.0 { 1.0 } else { -1.0 };
+        let (p0, p1, p2) = (point(e, s)?, point(e, s + k * h)?, point(e, s + 2.0 * k * h)?);
+        Ok(scale(add(scale(p0, -3.0), sub(scale(p1, 4.0), p2)), k * 0.5 / h))
+    };
+    // The edges in order round the loop, each as it runs (the list isn't in that order).
+    let mut edges = vec![listed[0].clone()];
+    while edges.len() < listed.len() {
+        let end = point(&edges[edges.len() - 1], 1.0)?;
+        let Some(next) = listed.iter().find(|e| {
+            !edges.iter().any(|x| norm(sub(point(x, 0.5).unwrap_or(centre), point(e, 0.5).unwrap_or(centre))) < 1e-12)
+                && point(e, 0.0).is_ok_and(|p| norm(sub(p, end)) < 1e-9)
+        }) else {
+            return Ok(None);
+        };
+        edges.push(next.clone());
+    }
+    // In one plane, parallel to the circle's.
+    let normal = conic.frame.normal;
+    for e in &edges {
+        for s in [0.0, 0.3, 0.7] {
+            if dot(sub(point(e, s)?, point(&edges[0], 0.0)?), normal).abs() > 1e-9 {
+                return Ok(None);
+            }
+        }
+    }
+    // Smooth all the way round.
+    for k in 0..edges.len() {
+        let (a, b) = (&edges[k], &edges[(k + 1) % edges.len()]);
+        let (ta, tb) = (normalize(slope(a, 1.0)?), normalize(slope(b, 0.0)?));
+        if norm(sub(point(a, 1.0)?, point(b, 0.0)?)) > 1e-9
+            || !matches!((ta, tb), (Some(x), Some(y)) if norm(sub(x, y)) < 1e-6)
+        {
+            return Ok(None);
+        }
+    }
+    // Anticlockwise along the way from the first profile to the second.
+    let samples: Vec<Vec3> = edges
+        .iter()
+        .flat_map(|e| (0..8).map(move |i| (e.clone(), i as f64 / 8.0)))
+        .map(|(e, s)| point(&e, s))
+        .collect::<R<_>>()?;
+    let centroid = scale(samples.iter().fold(Vec3::new(0.0, 0.0, 0.0), |a, &p| add(a, p)), 1.0 / samples.len() as f64);
+    let travel = if circle_at == 1 { sub(centre, centroid) } else { sub(centroid, centre) };
+    if dot(travel, normal).abs() < 1e-12 {
+        return Ok(None);
+    }
+    let axis = if dot(travel, normal) > 0.0 { normal } else { scale(normal, -1.0) };
+    let turning: f64 = (0..samples.len())
+        .map(|i| dot(cross(sub(samples[i], centroid), sub(samples[(i + 1) % samples.len()], centroid)), axis))
+        .sum();
+    // The first edge's drawn start (its curve's own start), before the loop is turned round.
+    let first_start = {
+        let e = &edges[0];
+        point(e, if e.is_reversed() { 1.0 } else { 0.0 })?
+    };
+    let reversed = turning < 0.0;
+    if reversed {
+        edges.reverse();
+    }
+    // Along the loop as it now runs: piece k at fraction s of its way.
+    let at = |k: usize, s: f64| -> R<Vec3> { point(&edges[k], if reversed { 1.0 - s } else { s }) };
+    let slope_at = |k: usize, s: f64| -> R<Vec3> {
+        let d = slope(&edges[k], if reversed { 1.0 - s } else { s })?;
+        Ok(if reversed { scale(d, -1.0) } else { d })
+    };
+    let lengths: Vec<f64> = edges.iter().map(|e| e.length().map_err(occt_error)).collect::<R<_>>()?;
+    let total: f64 = lengths.iter().sum();
+    // How far along piece k fraction s is (an ellipse's by its arc length).
+    let partial = |k: usize, s: f64| -> R<f64> {
+        if edges[k].curve_type().ok() != Some(Ellipse) {
+            return Ok(s * lengths[k]);
+        }
+        let n = 64;
+        let mut sum = 0.0;
+        for i in 0..n {
+            let (a, b) = (s * i as f64 / n as f64, s * (i + 1) as f64 / n as f64);
+            for (x, w) in [(-0.7745966692414834, 5.0 / 9.0), (0.0, 8.0 / 9.0), (0.7745966692414834, 5.0 / 9.0)] {
+                sum += w * (b - a) / 2.0 * norm(slope_at(k, (a + b) / 2.0 + x * (b - a) / 2.0)?);
+            }
+        }
+        Ok(sum)
+    };
+    let before: Vec<f64> = (0..edges.len())
+        .scan(0.0, |acc, k| {
+            let v = *acc;
+            *acc += lengths[k];
+            Some(v)
+        })
+        .collect();
+    let fraction = |k: usize, s: f64| -> R<f64> { Ok((before[k] + partial(k, s)?) / total) };
+    // The nodes: (fraction round, piece, fraction along it, a vertex?, the circle's angle for a connection).
+    let mut nodes: Vec<(f64, usize, f64, bool, Option<Vec3>)> = Vec::new();
+    if edges.len() > 1 {
+        for k in 0..edges.len() {
+            nodes.push((before[k] / total, k, 0.0, true, None));
+        }
+    }
+    for ((edge, t), c) in connections {
+        // The connection's edge by its middle; its parameter the curve's own, so along the edge as the loop runs.
+        let middle = edge.edge_tangent(0.5, false).map_err(occt_error)?.origin;
+        let Some(k) = edges.iter().position(|e| point(e, 0.5).is_ok_and(|p| norm(sub(p, middle)) < 1e-9)) else {
+            return Ok(None);
+        };
+        let s = if edges[k].is_reversed() { 1.0 - t } else { *t };
+        let s = if reversed { 1.0 - s } else { s };
+        let f = fraction(k, s)?;
+        match nodes.iter_mut().find(|n| (n.0 - f).abs() < 1e-12 || (n.0 - f).abs() > 1.0 - 1e-12) {
+            Some(n) => n.4 = Some(*c),
+            None => nodes.push((f, k, s, false, Some(*c))),
+        }
+    }
+    if nodes.is_empty() {
+        nodes.push((0.0, 0, 0.0, false, None));
+    }
+    nodes.sort_by(|a, b| a.0.total_cmp(&b.0));
+    // The start: a connection (of two the first, of more the last) or the first edge's drawn start.
+    let marked: Vec<usize> = (0..nodes.len()).filter(|&i| nodes[i].4.is_some()).collect();
+    let start = match marked.len() {
+        0 => {
+            let Some(i) = nodes.iter().position(|n| at(n.1, n.2).is_ok_and(|p| norm(sub(p, first_start)) < 1e-9))
+            else {
+                return Ok(None);
+            };
+            i
+        }
+        1 | 2 => marked[0],
+        m => marked[m - 1],
+    };
+    nodes.rotate_left(start);
+    let f0 = nodes[0].0;
+    let mut fractions: Vec<f64> = nodes.iter().map(|n| (n.0 - f0).rem_euclid(1.0)).collect();
+    fractions[0] = 0.0;
+    fractions.push(1.0);
+    // The circle: x towards the start (its connection's point, or the start's direction), round anticlockwise.
+    let towards = nodes[0].4.unwrap_or(at(nodes[0].1, nodes[0].2)?);
+    let d = sub(towards, centre);
+    let Some(x) = normalize(sub(d, scale(axis, dot(d, axis)))) else { return Ok(None) };
+    let y = cross(axis, x);
+    let angle_of = |c: Vec3| {
+        let d = sub(c, centre);
+        dot(d, y).atan2(dot(d, x)).rem_euclid(tau)
+    };
+    let n = nodes.len();
+    let marks: Vec<usize> = (0..n).filter(|&i| nodes[i].4.is_some()).collect();
+    let mut circle_f = vec![0.0; n + 1];
+    circle_f[n] = 1.0;
+    if marks.len() < 2 {
+        for i in 0..n {
+            circle_f[i] = i as f64 / n as f64;
+        }
+    } else {
+        for (m, &i) in marks.iter().enumerate() {
+            let j = marks.get(m + 1).copied().unwrap_or(n);
+            let a = if i == 0 { 0.0 } else { angle_of(nodes[i].4.unwrap_or(centre)) / tau };
+            let b = if j < n { angle_of(nodes[j].4.unwrap_or(centre)) / tau } else { 1.0 };
+            if b <= a {
+                return Err(regen_error("LOFT_CONNECTION_MATCHING"));
+            }
+            for k in i..j {
+                circle_f[k] = a + (b - a) * (k - i) as f64 / (j - i) as f64;
+            }
+        }
+    }
+    let Some(round) = Correspondence::new([&fractions, &circle_f], true) else { return Ok(None) };
+    // Each interval's piece and the fractions along it at its ends.
+    let intervals: Vec<(usize, f64, f64)> = (0..n)
+        .map(|i| {
+            let (k, s) = (nodes[i].1, nodes[i].2);
+            let (nk, ns) = (nodes[(i + 1) % n].1, nodes[(i + 1) % n].2);
+            if n == 1 {
+                (k, s, s + 1.0)
+            } else if nk == k && ns > s {
+                (k, s, ns)
+            } else {
+                (k, s, 1.0)
+            }
+        })
+        .collect();
+    let profile_at = |u: f64| -> (Vec3, Vec3) {
+        let (f, df) = round.at(0, u);
+        let g = (0..n).find(|&g| u <= round.nodes[g + 1]).unwrap_or(n - 1);
+        let (k, s0, s1) = intervals[g];
+        let (f0, f1) = (fractions[g], fractions[g + 1]);
+        let s = s0 + (s1 - s0) * (f - f0) / (f1 - f0);
+        let s = if closed { s.rem_euclid(1.0) } else { s.clamp(0.0, 1.0) };
+        let p = at(k, s).unwrap_or(centre);
+        let d = slope_at(k, s).unwrap_or(centre);
+        (p, scale(d, (s1 - s0) / (f1 - f0) * df))
+    };
+    let circle_point = |u: f64| -> (Vec3, Vec3) {
+        let (f, df) = round.at(1, u);
+        let theta = tau * f;
+        let p = add(centre, add(scale(x, radius * theta.cos()), scale(y, radius * theta.sin())));
+        let d = add(scale(x, -radius * theta.sin()), scale(y, radius * theta.cos()));
+        (p, scale(d, tau * df))
+    };
+    let tolerance = if connections.is_empty() { 1e-8 } else { connected_span_tolerance(connections.len()) };
+    let mut breaks = vec![0.0];
+    for g in 0..n {
+        let off = |p: f64, q: f64| midpoint_off(&profile_at, p, q).max(midpoint_off(&circle_point, p, q));
+        halved_spans(round.nodes[g], round.nodes[g + 1], &off, tolerance, &mut breaks, 0);
+    }
+    let rows: Vec<Vec<(f64, Vec3, Vec3)>> = [&profile_at as &dyn Fn(f64) -> (Vec3, Vec3), &circle_point]
+        .iter()
+        .map(|f| breaks.iter().map(|&u| (u, f(u).0, f(u).1)).collect())
+        .collect();
+    let (profile_row, knots) = hermite_poles(&rows[0]);
+    let (circle_row, _) = hermite_poles(&rows[1]);
+    let (row0, row1) = if circle_at == 1 { (&profile_row, &circle_row) } else { (&circle_row, &profile_row) };
+    let poles: Vec<Vec3> = row0.iter().zip(row1).flat_map(|(&a, &b)| [a, b]).collect();
+    let side = occt::u_periodic_bspline_surface_face(&poles, (row0.len(), 2), &knots, &[0.0, 0.0, 1.0, 1.0], (3, 1))
+        .map_err(|_| regen_error("LOFT_FAILED"))?;
+    // The side's edges: split at the profile's vertices, and with connections at every node, both ends (but not for
+    // one connection round a loop without vertices); the seam midway along the first span.
+    let has_vertices = edges.len() > 1;
+    let split_all = !connections.is_empty() && (has_vertices || connections.len() > 1);
+    let profile_splits: Vec<f64> = (1..n)
+        .filter(|&i| split_all || nodes[i].3)
+        .map(|i| round.nodes[i])
+        .chain([1.0].into_iter().filter(|_| split_all || nodes[0].3))
+        .collect();
+    let circle_splits: Vec<f64> = if split_all { round.nodes[1..].to_vec() } else { Vec::new() };
+    let seam = breaks[1] / 2.0;
+    let ends =
+        |splits: &[f64]| -> Vec<f64> { [seam].into_iter().chain(splits.iter().copied()).chain([1.0 + seam]).collect() };
+    let (ends0, ends1) = if circle_at == 1 {
+        (ends(&profile_splits), ends(&circle_splits))
+    } else {
+        (ends(&circle_splits), ends(&profile_splits))
+    };
+    let mut loop_uv: Vec<Vec<(f64, f64)>> = ends0.windows(2).map(|w| vec![(w[0], 0.0), (w[1], 0.0)]).collect();
+    loop_uv.push(vec![(1.0 + seam, 0.0), (1.0 + seam, 1.0)]);
+    loop_uv.extend(ends1.windows(2).rev().map(|w| vec![(w[1], 1.0), (w[0], 1.0)]));
+    loop_uv.push(vec![(seam, 1.0), (seam, 0.0)]);
+    let side = occt::face_from_uv(&side, &loop_uv).map_err(|_| regen_error("LOFT_FAILED"))?;
+    // The ends bounded by the side's own edges.
+    let mut caps = Vec::new();
+    for w in wires {
+        let probe = w.sub_shapes(ShapeKind::Edge)[0].edge_tangent(0.0, false).map_err(occt_error)?.origin;
+        let side_edges: Vec<Shape> = side
+            .sub_shapes(ShapeKind::Edge)
+            .into_iter()
+            .filter(|e| e.edge_tangent(0.5, false).is_ok_and(|a| dot(sub(a.origin, probe), normal).abs() < 1e-9))
+            .collect();
+        caps.push(occt::fill_edges(&side_edges).map_err(|_| regen_error("LOFT_FAILED"))?);
+    }
+    let sewn =
+        occt::sew_faces(&[side, caps[0].clone(), caps[1].clone()], 1e-6).map_err(|_| regen_error("LOFT_FAILED"))?;
+    let shape = occt::solid_from(&sewn).map_err(|_| regen_error("LOFT_FAILED"))?;
+    let shape = if shape.volume().map_err(occt_error)? < 0.0 { shape.reversed() } else { shape };
+    let find = |c: &Shape| -> Vec<Shape> {
+        let Ok(p) = c.face_inner_point() else { return Vec::new() };
+        shape
+            .sub_shapes(ShapeKind::Face)
+            .into_iter()
+            .filter(|f| f.surface_type().ok() == Some(occt::SurfaceType::Plane))
+            .filter(|f| occt::vertex(p).ok().and_then(|v| v.distance(f).ok()).is_some_and(|d| d.distance < 1e-7))
+            .collect()
+    };
+    Ok(Some((shape.clone(), find(&caps[0]), find(&caps[1]))))
+}
+
 /// Two polygons with different numbers of corners, matched as Onshape lofts them (batches 180 c007, 181 c001–c006,
 /// 182 c001, c002, 187 c001–c003): from the first one's first corner to the corner of the other nearest it (of two as near, the
 /// later round), or from each connection's corners to the next's, both run anticlockwise along the way from the
@@ -1643,6 +1953,63 @@ pub fn loft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
                 return Err(error("@opLoft: connections with end conditions aren't supported yet"));
             }
             let polygon = if touches(&wires[0], &circles[0].1) { 1 } else { 0 };
+            // A smooth profile (a slot, an ellipse) to the circle: one periodic side (batch 187 c010, c011). Each
+            // connection's edge and parameter on the profile (a vertex as the start or end of an edge there), and
+            // its point round the circle.
+            if polygon_corners(&wires[polygon]).is_none() {
+                let mut joined = Vec::new();
+                for connection in field(definition, "connections").as_array().map(|a| a.to_vec()).unwrap_or_default() {
+                    let entities: Vec<Shape> = query::evaluate(model, field(&connection, "connectionEntities"))?
+                        .into_iter()
+                        .map(|r| model.shape(r).clone())
+                        .collect();
+                    let params: Vec<f64> = field(&connection, "connectionEdgeParameters")
+                        .as_array()
+                        .map(|a| a.iter().filter_map(Value::as_number).collect())
+                        .unwrap_or_default();
+                    let edges: Vec<Shape> = query::evaluate(model, field(&connection, "connectionEdgeQueries"))?
+                        .into_iter()
+                        .filter(|r| r.kind == EntityType::Edge)
+                        .map(|r| model.shape(r).clone())
+                        .collect();
+                    let on_circle = edges.iter().zip(&params).find(|(e, _)| touches(e, &circles[0].1));
+                    let on_profile = match entities
+                        .iter()
+                        .find(|e| e.kind() == Some(ShapeKind::Vertex) && touches(e, &wires[polygon]))
+                    {
+                        Some(v) => {
+                            let p = v.vertex_point().map_err(occt_error)?;
+                            wires[polygon].sub_shapes(ShapeKind::Edge).into_iter().find_map(|e| {
+                                let native = |t: f64| {
+                                    e.edge_tangent(if e.is_reversed() { 1.0 - t } else { t }, false)
+                                        .ok()
+                                        .map(|a| a.origin)
+                                };
+                                [0.0, 1.0]
+                                    .into_iter()
+                                    .find(|&t| native(t).is_some_and(|q| values::norm(values::sub(q, p)) < 1e-9))
+                                    .map(|t| (e.clone(), t))
+                            })
+                        }
+                        None => edges
+                            .iter()
+                            .zip(&params)
+                            .find(|(e, _)| touches(e, &wires[polygon]))
+                            .map(|(e, &t)| (e.clone(), t)),
+                    };
+                    match (on_profile, on_circle) {
+                        (Some(at), Some((e, &t))) => {
+                            joined.push((at, e.edge_tangent(t, false).map_err(occt_error)?.origin))
+                        }
+                        _ => return Err(regen_error("LOFT_CONNECTION_MATCHING")),
+                    }
+                }
+                let circle_at = 1 - polygon;
+                if let Some((shape, first, last)) = smooth_loft_to_circle(&wires, circle_at, &joined, solid)? {
+                    add_lofted_shape(model, &id, &shape, &first, &last, solid, &wires)?;
+                    return Ok(Value::UNDEFINED);
+                }
+            }
             // Each connection's point on the polygon (a corner, or along an edge) and round the circle.
             let mut pairs = Vec::new();
             for connection in field(definition, "connections").as_array().map(|a| a.to_vec()).unwrap_or_default() {
@@ -1768,6 +2135,15 @@ pub fn loft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
         if let Some((shape, first, last)) = sectioned_circle_loft(&wires, sections, solid)? {
             add_lofted_shape(model, &id, &shape, &first, &last, solid, &wires)?;
             return Ok(Value::UNDEFINED);
+        }
+    }
+    // A smooth profile (a slot, an ellipse) to a circle: one periodic side (batch 187 c012, c013).
+    if wires.len() == 2 && ends.iter().all(Option::is_none) && !has_guides {
+        for circle_at in 0..2 {
+            if let Some((shape, first, last)) = smooth_loft_to_circle(&wires, circle_at, &[], solid)? {
+                add_lofted_shape(model, &id, &shape, &first, &last, solid, &wires)?;
+                return Ok(Value::UNDEFINED);
+            }
         }
     }
     match_circles_to_corners(&mut wires)?;
