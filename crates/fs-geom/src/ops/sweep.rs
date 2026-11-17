@@ -763,12 +763,125 @@ fn match_circles_to_corners(wires: &mut [Shape]) -> R<()> {
     Ok(())
 }
 
+/// Onshape's correspondence along a side of a loft between profiles joined by connections (batch 182 c004, c006):
+/// the side's parameter u runs from 0 to 1, each point where the profiles are joined at the mean of the fractions of
+/// the side the two profiles have come there; each profile's fraction a cubic in u from one such point to the next
+/// (Hermite), its slope at each the geometric mean of the stretches' either side (their fractions over their u), at
+/// an end of the side its stretch's own (round a whole loop, the last's and the first's).
+struct Correspondence {
+    nodes: Vec<f64>,
+    /// Each profile's fractions at the nodes and its slopes there.
+    profiles: [(Vec<f64>, Vec<f64>); 2],
+}
+
+impl Correspondence {
+    fn new(fractions: [&[f64]; 2], periodic: bool) -> Option<Self> {
+        let m = fractions[0].len();
+        if m < 2 || fractions[1].len() != m {
+            return None;
+        }
+        let nodes: Vec<f64> = (0..m).map(|g| (fractions[0][g] + fractions[1][g]) / 2.0).collect();
+        if nodes.windows(2).any(|w| w[1] <= w[0]) {
+            return None;
+        }
+        let profile = |f: &[f64]| -> Option<(Vec<f64>, Vec<f64>)> {
+            let secant: Vec<f64> = (0..m - 1).map(|g| (f[g + 1] - f[g]) / (nodes[g + 1] - nodes[g])).collect();
+            if secant.iter().any(|&s| s <= 0.0) {
+                return None;
+            }
+            let mut slopes = vec![0.0; m];
+            for g in 1..m - 1 {
+                slopes[g] = (secant[g - 1] * secant[g]).sqrt();
+            }
+            if periodic {
+                let s = (secant[m - 2] * secant[0]).sqrt();
+                (slopes[0], slopes[m - 1]) = (s, s);
+            } else {
+                (slopes[0], slopes[m - 1]) = (secant[0], secant[m - 2]);
+            }
+            Some((f.to_vec(), slopes))
+        };
+        let profiles = [profile(fractions[0])?, profile(fractions[1])?];
+        Some(Self { nodes, profiles })
+    }
+
+    /// Profile `p`'s fraction at u and its slope.
+    fn at(&self, p: usize, u: f64) -> (f64, f64) {
+        let last = self.nodes.len() - 2;
+        let g = (0..last).find(|&g| u <= self.nodes[g + 1]).unwrap_or(last);
+        let (u0, h) = (self.nodes[g], self.nodes[g + 1] - self.nodes[g]);
+        let t = (u - u0) / h;
+        let (values, slopes) = &self.profiles[p];
+        let (p0, p1, m0, m1) = (values[g], values[g + 1], slopes[g] * h, slopes[g + 1] * h);
+        let (t2, t3) = (t * t, t * t * t);
+        let value =
+            (2.0 * t3 - 3.0 * t2 + 1.0) * p0 + (t3 - 2.0 * t2 + t) * m0 + (3.0 * t2 - 2.0 * t3) * p1 + (t3 - t2) * m1;
+        let slope =
+            ((6.0 * t2 - 6.0 * t) * (p0 - p1) + (3.0 * t2 - 4.0 * t + 1.0) * m0 + (3.0 * t2 - 2.0 * t) * m1) / h;
+        (value, slope)
+    }
+}
+
+/// How far a cubic Hermite span from `u0` to `u1` of a curve (its point and slope at u) strays at its middle from the
+/// curve's own point there.
+fn midpoint_off(curve: &dyn Fn(f64) -> (Vec3, Vec3), u0: f64, u1: f64) -> f64 {
+    use values::{add, norm, scale, sub};
+    let ((p0, d0), (p1, d1), (pm, _)) = (curve(u0), curve(u1), curve((u0 + u1) / 2.0));
+    let cubic = add(scale(add(p0, p1), 0.5), scale(sub(d0, d1), (u1 - u0) / 8.0));
+    norm(sub(cubic, pm))
+}
+
+/// Onshape's spans from one connection to the next (batches 180–182 with more than one connection): each halved
+/// until its cubic strays at its middle within 0.11 µm of the curve (batch 182 c006: spans 0.107 µm off kept, 0.113
+/// halved); `off` how far the span from one u to another strays. Pushes the spans' ends after `u0`.
+fn halved_spans(u0: f64, u1: f64, off: &dyn Fn(f64, f64) -> f64, ends: &mut Vec<f64>, depth: usize) {
+    if depth < 10 && off(u0, u1) > 1.1e-7 {
+        let middle = (u0 + u1) / 2.0;
+        halved_spans(u0, middle, off, ends, depth + 1);
+        halved_spans(middle, u1, off, ends, depth + 1);
+    } else {
+        ends.push(u1);
+    }
+}
+
+/// A clamped C1 cubic through stations (u, point, slope): each point at a double knot, the poles either side a third
+/// of the span along the slope. Its poles and knots.
+fn hermite_poles(stations: &[(f64, Vec3, Vec3)]) -> (Vec<Vec3>, Vec<f64>) {
+    use values::{add, scale, sub};
+    let n = stations.len() - 1;
+    let mut poles = vec![stations[0].1];
+    let mut knots = vec![stations[0].0; 4];
+    for k in 0..=n {
+        let (u, p, d) = stations[k];
+        if k > 0 {
+            poles.push(sub(p, scale(d, (u - stations[k - 1].0) / 3.0)));
+        }
+        if k < n {
+            poles.push(add(p, scale(d, (stations[k + 1].0 - u) / 3.0)));
+        }
+        if k > 0 && k < n {
+            knots.extend([u, u]);
+        }
+    }
+    poles.push(stations[n].1);
+    knots.extend([stations[n].0; 4]);
+    (poles, knots)
+}
+
+/// The edge along stations' C1 cubic ([`hermite_poles`]) from u0 to u1, both stations'.
+fn stations_edge(stations: &[(f64, Vec3, Vec3)], u0: f64, u1: f64) -> R<Shape> {
+    let within: Vec<(f64, Vec3, Vec3)> =
+        stations.iter().copied().filter(|s| s.0 >= u0 - 1e-12 && s.0 <= u1 + 1e-12).collect();
+    let (poles, knots) = hermite_poles(&within);
+    occt::bspline_edge(&poles, &[], &knots, 3, false).map_err(occt_error)
+}
+
 /// A polygon lofted to a circle with connections, a point of each (a corner or a point along an edge of the polygon,
-/// a point round the circle), as Onshape lofts it (batches 180, 181): round from each connection to the next, the
+/// a point round the circle), as Onshape lofts it (batches 180–182): round from each connection to the next, the
 /// polygon's corners between (and the connection points along edges) divide the circle's arc between them into as
 /// many equal arcs, each taken to the next in turn (one connection: the whole circle from it); each side ruled
-/// between its edge and its arcs, both as cubic Hermite spans, four for each arc and connection (the arc's from its
-/// own tangent, as long as the span's angle times the radius over three; the edge evenly), and the circle's end
+/// between its edge and its arcs, both cubic Hermite spans along the [`Correspondence`] of the edge and its arcs
+/// (four for each arc with one connection, with more halved till close: [`halved_spans`]), and the circle's end
 /// bounded by those arcs, a vertex at each point. The solid and its caps (first and last profile), or `None` for
 /// other profiles.
 fn polygon_circle_connected(
@@ -840,7 +953,8 @@ fn polygon_circle_connected(
             angles[k] = a + (b - a) * (k - i) as f64 / (j - i) as f64;
         }
     }
-    let per_arc = 4 * pairs.len();
+    // One connection: four spans for each arc; more: halved as Onshape's are ([`halved_spans`]).
+    let halving = pairs.len() > 1;
     let on_circle = |theta: f64| add(centre, add(scale(x, radius * theta.cos()), scale(y, radius * theta.sin())));
     let tangent = |theta: f64| add(scale(x, -radius * theta.sin()), scale(y, radius * theta.cos()));
     let mut sides = Vec::new();
@@ -852,48 +966,43 @@ fn polygon_circle_connected(
             j = (j + 1) % count;
         }
         let segments = (j + count - i) % count;
-        let spans = per_arc * segments;
         let (a, b) = (points[i].0, points[j].0);
-        // The arcs of each segment, evenly within each.
-        let seg_angle = |g: usize| -> f64 { angles[(i + g) % count] + if i + g >= count { tau } else { 0.0 } };
-        let theta_at = |s: usize| -> f64 {
-            let g = s / per_arc;
-            let f = (s % per_arc) as f64 / per_arc as f64;
-            let (t0, mut t1) = (seg_angle(g), seg_angle((g + 1).min(segments)));
-            if s == spans {
-                return seg_angle(segments);
+        // The points' angles round the circle, rising, and their fractions of the edge and of its arcs.
+        let mut thetas: Vec<f64> =
+            (0..=segments).map(|g| angles[(i + g) % count] + if i + g >= count { tau } else { 0.0 }).collect();
+        for g in 1..=segments {
+            while thetas[g] <= thetas[g - 1] {
+                thetas[g] += tau;
             }
-            if t1 < t0 {
-                t1 += tau;
-            }
-            t0 + (t1 - t0) * f
+        }
+        let sweep = thetas[segments] - thetas[0];
+        let length = norm(sub(b, a));
+        let mut edge_f: Vec<f64> = (0..=segments).map(|g| norm(sub(points[(i + g) % count].0, a)) / length).collect();
+        edge_f[segments] = 1.0;
+        let arc_f: Vec<f64> = thetas.iter().map(|t| (t - thetas[0]) / sweep).collect();
+        let Some(along) = Correspondence::new([&edge_f, &arc_f], false) else { return Ok(None) };
+        let edge_at = |u: f64| {
+            let (f, s) = along.at(0, u);
+            (add(a, scale(sub(b, a), f)), scale(sub(b, a), s))
         };
-        let mut edge_row = vec![a];
-        let mut arc_row = vec![on_circle(theta_at(0))];
-        let along = scale(sub(b, a), 1.0 / spans as f64);
-        for k in 0..=spans {
-            let theta = theta_at(k);
-            let step = if k < spans { theta_at(k + 1) - theta } else { theta - theta_at(k - 1) };
-            let (p, d) = (on_circle(theta), scale(tangent(theta), step / 3.0));
-            let q = add(a, scale(along, k as f64));
-            let e = scale(along, 1.0 / 3.0);
-            if k > 0 {
-                let back = theta - theta_at(k - 1);
-                arc_row.push(sub(p, scale(tangent(theta), back / 3.0)));
-                edge_row.push(sub(q, e));
-            }
-            if k < spans {
-                arc_row.push(add(p, d));
-                edge_row.push(add(q, e));
+        let arc_at = |u: f64| {
+            let (f, s) = along.at(1, u);
+            let theta = thetas[0] + sweep * f;
+            (on_circle(theta), scale(tangent(theta), sweep * s))
+        };
+        let mut breaks = vec![0.0];
+        for g in 0..segments {
+            let (u0, u1) = (along.nodes[g], along.nodes[g + 1]);
+            if halving {
+                halved_spans(u0, u1, &|p, q| midpoint_off(&arc_at, p, q), &mut breaks, 0);
+            } else {
+                breaks.extend((1..=4).map(|k| u0 + (u1 - u0) * k as f64 / 4.0));
             }
         }
-        arc_row.push(on_circle(theta_at(spans)));
-        edge_row.push(b);
-        let mut knots = vec![0.0; 4];
-        for k in 1..spans {
-            knots.extend([k as f64 / spans as f64; 2]);
-        }
-        knots.extend([1.0; 4]);
+        let edge_stations: Vec<(f64, Vec3, Vec3)> = breaks.iter().map(|&u| (u, edge_at(u).0, edge_at(u).1)).collect();
+        let arc_stations: Vec<(f64, Vec3, Vec3)> = breaks.iter().map(|&u| (u, arc_at(u).0, arc_at(u).1)).collect();
+        let (edge_row, knots) = hermite_poles(&edge_stations);
+        let (arc_row, _) = hermite_poles(&arc_stations);
         // v from the first profile to the second.
         let rows = if polygon == 0 { [&edge_row, &arc_row] } else { [&arc_row, &edge_row] };
         let poles: Vec<Vec3> = (0..edge_row.len()).flat_map(|u| [rows[0][u], rows[1][u]]).collect();
@@ -905,7 +1014,7 @@ fn polygon_circle_connected(
             let e = 1.0 - c;
             let mut loop_uv: Vec<Vec<(f64, f64)>> = vec![vec![(0.0, e), (1.0, e)], vec![(1.0, e), (1.0, c)]];
             for g in (0..segments).rev() {
-                loop_uv.push(vec![((g + 1) as f64 / segments as f64, c), (g as f64 / segments as f64, c)]);
+                loop_uv.push(vec![(along.nodes[g + 1], c), (along.nodes[g], c)]);
             }
             loop_uv.push(vec![(0.0, c), (0.0, e)]);
             occt::face_from_uv(&side, &loop_uv).map_err(|_| regen_error("LOFT_FAILED"))?
@@ -913,27 +1022,9 @@ fn polygon_circle_connected(
             side
         };
         sides.push(side);
-        // The circle's edges end at each of the points: each a segment's spans, its ends the values at the double
-        // knots (midway between the poles there).
-        let value_at = |k: usize| -> Vec3 {
-            if k == 0 {
-                arc_row[0]
-            } else if k == spans {
-                arc_row[arc_row.len() - 1]
-            } else {
-                scale(add(arc_row[2 * k], arc_row[2 * k + 1]), 0.5)
-            }
-        };
+        // The circle's edges end at each of the points: each a segment's spans.
         for g in 0..segments {
-            let mut piece = vec![value_at(per_arc * g)];
-            piece.extend_from_slice(&arc_row[2 * per_arc * g + 1..2 * per_arc * (g + 1) + 1]);
-            piece.push(value_at(per_arc * (g + 1)));
-            let mut piece_knots = vec![0.0; 4];
-            for k in 1..per_arc {
-                piece_knots.extend([k as f64 / per_arc as f64; 2]);
-            }
-            piece_knots.extend([1.0; 4]);
-            arc_edges.push(occt::bspline_edge(&piece, &[], &piece_knots, 3, false).map_err(occt_error)?);
+            arc_edges.push(stations_edge(&arc_stations, along.nodes[g], along.nodes[g + 1])?);
         }
         i = j;
     }
@@ -957,6 +1048,88 @@ fn polygon_circle_connected(
     };
     let (first, last) = if polygon == 0 { (find(&polygon_cap), find(&circle_cap)) } else { (find(&circle_cap), find(&polygon_cap)) };
     Ok(Some((shape, first, last)))
+}
+
+/// Two circles joined by more than one connection, as Onshape lofts them (batch 182 c004): one side all the way round,
+/// periodic, from the first connection, its u the circles' [`Correspondence`] round from there (each circle's
+/// fraction its angle's, running as its own circle does), cubic Hermite spans halved till close ([`halved_spans`]);
+/// the ends bounded by the side's edges, a vertex at each connection. Each circle: its frame (x towards the first
+/// connection, its normal the way it runs) and radius, and the connections' angles round it from there. The solid and
+/// its caps (first and last profile).
+fn circles_connected(
+    circles: [(occt::Frame, f64); 2],
+    angles: [&[f64]; 2],
+    solid: bool,
+) -> R<Option<(Shape, Vec<Shape>, Vec<Shape>)>> {
+    use values::{add, cross, dot, scale, sub};
+    if !solid {
+        return Ok(None);
+    }
+    let tau = std::f64::consts::TAU;
+    let fractions = |a: &[f64]| -> Vec<f64> { a.iter().map(|t| t / tau).chain([1.0]).collect() };
+    let (f0, f1) = (fractions(angles[0]), fractions(angles[1]));
+    let Some(round) = Correspondence::new([&f0, &f1], true) else { return Ok(None) };
+    let at = |c: usize, u: f64| -> (Vec3, Vec3) {
+        let (frame, radius) = &circles[c];
+        let y = cross(frame.normal, frame.x);
+        let (f, s) = round.at(c, u);
+        let theta = tau * f;
+        let point = add(frame.origin, add(scale(frame.x, radius * theta.cos()), scale(y, radius * theta.sin())));
+        let slope = add(scale(frame.x, -radius * theta.sin()), scale(y, radius * theta.cos()));
+        (point, scale(slope, tau * s))
+    };
+    let mut breaks = vec![0.0];
+    for g in 0..round.nodes.len() - 1 {
+        let off = |p: f64, q: f64| midpoint_off(&|u| at(0, u), p, q).max(midpoint_off(&|u| at(1, u), p, q));
+        halved_spans(round.nodes[g], round.nodes[g + 1], &off, &mut breaks, 0);
+    }
+    let stations: Vec<Vec<(f64, Vec3, Vec3)>> =
+        (0..2).map(|c| breaks.iter().map(|&u| (u, at(c, u).0, at(c, u).1)).collect()).collect();
+    let (row0, knots) = hermite_poles(&stations[0]);
+    let (row1, _) = hermite_poles(&stations[1]);
+    let poles: Vec<Vec3> = row0.iter().zip(&row1).flat_map(|(&a, &b)| [a, b]).collect();
+    let side = occt::u_periodic_bspline_surface_face(&poles, (row0.len(), 2), &knots, &[0.0, 0.0, 1.0, 1.0], (3, 1))
+        .map_err(|_| regen_error("LOFT_FAILED"))?;
+    // Its edges round each end split at the connections. Its seam (OCCT's; Onshape's face has none) away from them,
+    // midway along the first span, where the engine shows the pieces either side as one edge: at a connection it
+    // would hide the vertex there.
+    let nodes = &round.nodes;
+    let seam = breaks[1] / 2.0;
+    let mut ends: Vec<f64> = vec![seam];
+    ends.extend(nodes[1..].iter().copied());
+    ends.push(1.0 + seam);
+    let mut loop_uv: Vec<Vec<(f64, f64)>> = ends.windows(2).map(|w| vec![(w[0], 0.0), (w[1], 0.0)]).collect();
+    loop_uv.push(vec![(1.0 + seam, 0.0), (1.0 + seam, 1.0)]);
+    loop_uv.extend(ends.windows(2).rev().map(|w| vec![(w[1], 1.0), (w[0], 1.0)]));
+    loop_uv.push(vec![(seam, 1.0), (seam, 0.0)]);
+    let side = occt::face_from_uv(&side, &loop_uv).map_err(|_| regen_error("LOFT_FAILED"))?;
+    // The ends bounded by the side's own edges.
+    let mut caps = Vec::new();
+    for (frame, _) in &circles {
+        let edges: Vec<Shape> = side
+            .sub_shapes(ShapeKind::Edge)
+            .into_iter()
+            .filter(|e| {
+                e.edge_tangent(0.5, false).is_ok_and(|a| dot(sub(a.origin, frame.origin), frame.normal).abs() < 1e-9)
+            })
+            .collect();
+        caps.push(occt::fill_edges(&edges).map_err(|_| regen_error("LOFT_FAILED"))?);
+    }
+    let sewn =
+        occt::sew_faces(&[side, caps[0].clone(), caps[1].clone()], 1e-6).map_err(|_| regen_error("LOFT_FAILED"))?;
+    let shape = occt::solid_from(&sewn).map_err(|_| regen_error("LOFT_FAILED"))?;
+    let shape = if shape.volume().map_err(occt_error)? < 0.0 { shape.reversed() } else { shape };
+    // The caps, found again: sewing makes new faces of them.
+    let find = |c: &Shape| -> Vec<Shape> {
+        let Ok(p) = c.face_inner_point() else { return Vec::new() };
+        shape
+            .sub_shapes(ShapeKind::Face)
+            .into_iter()
+            .filter(|f| f.surface_type().ok() == Some(occt::SurfaceType::Plane))
+            .filter(|f| occt::vertex(p).ok().and_then(|v| v.distance(f).ok()).is_some_and(|d| d.distance < 1e-7))
+            .collect()
+    };
+    Ok(Some((shape.clone(), find(&caps[0]), find(&caps[1]))))
 }
 
 /// Two polygons with different numbers of corners, matched as Onshape lofts them (batches 180 c007, 181 c001–c006,
@@ -1347,44 +1520,51 @@ pub fn loft(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
                     points[c].push(edges[k].edge_tangent(t, true).map_err(occt_error)?.origin);
                 }
             }
-            let mut started = Vec::new();
+            let mut frames = Vec::new();
             for (c, (conic, edge)) in circles.iter().enumerate() {
                 // Running as the profile's own circle does.
                 let start = edge.edge_tangent(0.0, false).map_err(occt_error)?;
                 let normal = normalize(cross(sub(start.origin, conic.frame.origin), start.direction))
                     .ok_or_else(|| regen_error("LOFT_FAILED"))?;
                 let x = normalize(sub(points[c][0], conic.frame.origin)).ok_or_else(|| regen_error("LOFT_FAILED"))?;
-                let frame = occt::Frame { origin: conic.frame.origin, normal, x };
-                // Connected more than once, Onshape's side is one periodic face whose correspondence between the
-                // circles isn't even along each arc (batch 182 c004: 0.7% of the volume less than arc to arc).
-                if points[c].len() > 1 {
-                    return Err(error("@opLoft: circles connected more than once aren't supported yet"));
-                }
-                if points[c].len() == 1 {
-                    let circle = occt::circle_edge(frame, conic.radius1).map_err(occt_error)?;
-                    started.push(occt::ordered_wire(&[circle]).map_err(occt_error)?);
-                    continue;
-                }
-                let y = cross(normal, x);
+                frames.push((occt::Frame { origin: conic.frame.origin, normal, x }, conic.radius1));
+            }
+            // Connected more than once: one periodic side (batch 182 c004).
+            if points[0].len() > 1 {
                 let tau = std::f64::consts::TAU;
-                let mut angles: Vec<f64> = points[c]
-                    .iter()
-                    .map(|&p| {
-                        let d = sub(p, conic.frame.origin);
-                        dot(d, y).atan2(dot(d, x)).rem_euclid(tau)
+                let angles: Vec<Vec<f64>> = (0..2)
+                    .map(|c| {
+                        let (frame, _) = &frames[c];
+                        let y = cross(frame.normal, frame.x);
+                        let mut a: Vec<f64> = points[c]
+                            .iter()
+                            .map(|&p| {
+                                let d = sub(p, frame.origin);
+                                dot(d, y).atan2(dot(d, frame.x)).rem_euclid(tau)
+                            })
+                            .collect();
+                        a[0] = 0.0;
+                        a
                     })
                     .collect();
-                // The connections in the order given must run round each circle the same way.
-                if angles.windows(2).any(|w| w[1] <= w[0]) {
+                // In order round the first circle, and so round the second.
+                let mut order: Vec<usize> = (0..angles[0].len()).collect();
+                order.sort_by(|&a, &b| angles[0][a].total_cmp(&angles[0][b]));
+                let sorted: Vec<Vec<f64>> = angles.iter().map(|a| order.iter().map(|&k| a[k]).collect()).collect();
+                if sorted.iter().any(|a| a.windows(2).any(|w| w[1] <= w[0] + 1e-9)) {
                     return Err(regen_error("LOFT_CONNECTION_MATCHING"));
                 }
-                angles.push(tau);
-                let arcs: Vec<Shape> = angles
-                    .windows(2)
-                    .map(|w| occt::arc_edge(frame, conic.radius1, w[0], w[1]))
-                    .collect::<Result<_, _>>()
-                    .map_err(occt_error)?;
-                started.push(occt::ordered_wire(&arcs).map_err(occt_error)?);
+                let built = circles_connected([frames[0].clone(), frames[1].clone()], [&sorted[0], &sorted[1]], solid)?;
+                let Some((shape, first, last)) = built else {
+                    return Err(error("@opLoft: circles connected more than once into a surface aren't supported yet"));
+                };
+                add_lofted_shape(model, &id, &shape, &first, &last, solid, &wires)?;
+                return Ok(Value::UNDEFINED);
+            }
+            let mut started = Vec::new();
+            for (frame, radius) in frames {
+                let circle = occt::circle_edge(frame, radius).map_err(occt_error)?;
+                started.push(occt::ordered_wire(&[circle]).map_err(occt_error)?);
             }
             let op = occt::loft_as_given(&started, solid).map_err(|_| regen_error("LOFT_FAILED"))?;
             add_lofted(model, &id, &op, solid, &wires)?;
