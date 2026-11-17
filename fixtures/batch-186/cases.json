@@ -1,0 +1,167 @@
+{
+  "batch": "186",
+  "title": "probes: lofts with connections, more sketch text",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "loft",
+      "description": "circles of radius 10 at z = 0 and 6 at z = 20, connected from their starts and from a quarter round the first to half round the second",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "loft",
+      "description": "circles of radius 10 at z = 0 and 20, connected three times: from their starts, from 0.3 round the first to 0.25 round the second, and from 0.7 to 0.6",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "loft",
+      "description": "a 20 mm square at z = 0 to a circle of radius 10 at z = 20, connected once: its edge along x = 10 a quarter along as it runs to the circle's start",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "loft",
+      "description": "the square to the circle, every corner connected: (10, 10) to 0.1 round, (-10, 10) to 0.3, (-10, -10) to 0.6, (10, -10) to 0.85",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "loft",
+      "description": "a hexagon, corners 10 from the middle, at z = 0 to a circle of radius 15 at z = 20, its corners at (10, 0) and (-5, -8.660254) connected to the circle's start and 0.6 round",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "loft",
+      "description": "an equilateral triangle, corners 10 from the middle, one at (0, 10), at z = 0 to a circle of radius 5 at z = 20: its corner at (0, 10) to a quarter round, and its edge along y = -5 0.3 along as it runs to 0.7 round",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "sketch",
+      "description": "\"Ag\" in RobotoSlab-Bold.ttf in a 40 × 10 box",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c008",
+      "kind": "sketch",
+      "description": "\"Rf&9\" in RobotoSlab-Regular.ttf in a 40 × 10 box",
+      "slotMeters": [
+        2.8000000000000003,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c009",
+      "kind": "sketch",
+      "description": "\"Rf&9\" in RobotoSlab-Bold.ttf in a 40 × 10 box",
+      "slotMeters": [
+        3.2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c010",
+      "kind": "sketch",
+      "description": "\"Rf&9\" in NotoSans-Regular.ttf in a 40 × 10 box",
+      "slotMeters": [
+        3.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c011",
+      "kind": "sketch",
+      "description": "\"Rf&9\" in NotoSans-BoldItalic.ttf in a 40 × 10 box",
+      "slotMeters": [
+        0,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c012",
+      "kind": "sketch",
+      "description": "\"Rf&9\" in NotoSerif-Italic.ttf in a 40 × 10 box",
+      "slotMeters": [
+        0.4,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c013",
+      "kind": "sketch",
+      "description": "\"Rf&9\" in NotoSerif-Bold.ttf in a 40 × 10 box",
+      "slotMeters": [
+        0.8,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c014",
+      "kind": "sketch",
+      "description": "\"Rf&9\" in Arimo-Bold.ttf in a 40 × 10 box",
+      "slotMeters": [
+        1.2000000000000002,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c015",
+      "kind": "sketch",
+      "description": "\"Rf&9\" in AllertaStencil-Regular.ttf in a 40 × 10 box",
+      "slotMeters": [
+        1.6,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c016",
+      "kind": "sketch",
+      "description": "\"Rf&9\" in DroidSansMono.ttf in a 40 × 10 box",
+      "slotMeters": [
+        2,
+        0.4,
+        0
+      ]
+    }
+  ]
+}
