@@ -1392,6 +1392,9 @@ fn smooth_loft_to_circle(
                 (k, s, s + 1.0)
             } else if nk == k && ns > s {
                 (k, s, ns)
+            } else if closed && nk == k {
+                // Round a closed edge past its start.
+                (k, s, ns + 1.0)
             } else {
                 (k, s, 1.0)
             }
