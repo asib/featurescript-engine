@@ -1180,18 +1180,22 @@ fn smooth_loft_to_circle(
     }
     let tau = std::f64::consts::TAU;
     let profile = &wires[1 - circle_at];
+    use occt::CurveType::{BSpline, Circle, Ellipse, Line};
+    // The other profile: a circle, or an ellipse to a profile of one closed edge without connections (batch 188 c004:
+    // each along its own parameter from its start).
     let [circle_edge] = &wires[circle_at].sub_shapes(ShapeKind::Edge)[..] else { return Ok(None) };
-    if circle_edge.curve_type().ok() != Some(occt::CurveType::Circle) {
-        return Ok(None);
-    }
+    let to_ellipse = match circle_edge.curve_type() {
+        Ok(Circle) => false,
+        Ok(Ellipse) => true,
+        _ => return Ok(None),
+    };
     let conic = circle_edge.curve_definition().map_err(occt_error)?;
     let (centre, radius) = (conic.frame.origin, conic.radius1);
     let listed = profile.sub_shapes(ShapeKind::Edge);
-    if listed.is_empty() {
+    if listed.is_empty() || (to_ellipse && (listed.len() > 1 || !connections.is_empty())) {
         return Ok(None);
     }
-    use occt::CurveType::{Circle, Ellipse, Line};
-    if listed.iter().any(|e| !matches!(e.curve_type(), Ok(Line | Circle | Ellipse)))
+    if listed.iter().any(|e| !matches!(e.curve_type(), Ok(Line | Circle | Ellipse | BSpline)))
         || listed.iter().all(|e| e.curve_type().ok() == Some(Line))
         || (listed.len() == 1 && listed[0].curve_type().ok() == Some(Circle))
     {
@@ -1275,7 +1279,7 @@ fn smooth_loft_to_circle(
     let total: f64 = lengths.iter().sum();
     // How far along piece k fraction s is (an ellipse's by its arc length).
     let partial = |k: usize, s: f64| -> R<f64> {
-        if edges[k].curve_type().ok() != Some(Ellipse) {
+        if matches!(edges[k].curve_type(), Ok(Line | Circle)) {
             return Ok(s * lengths[k]);
         }
         let n = 64;
@@ -1395,8 +1399,26 @@ fn smooth_loft_to_circle(
         let d = slope_at(k, s).unwrap_or(centre);
         (p, scale(d, (s1 - s0) / (f1 - f0) * df))
     };
+    // An ellipse runs from its start, the way round the loft runs; its start must be where the profile's is headed.
+    let ellipse_backwards = to_ellipse && {
+        let (p, d) = (point(circle_edge, 0.0)?, slope(circle_edge, 0.0)?);
+        dot(cross(sub(p, centre), d), axis) < 0.0
+    };
+    if to_ellipse {
+        let p = point(circle_edge, 0.0)?;
+        let Some(dir) = normalize(sub(sub(p, centre), scale(axis, dot(sub(p, centre), axis)))) else { return Ok(None) };
+        if norm(sub(dir, x)) > 1e-9 {
+            return Ok(None);
+        }
+    }
     let circle_point = |u: f64| -> (Vec3, Vec3) {
         let (f, df) = round.at(1, u);
+        if to_ellipse {
+            let s = if ellipse_backwards { (1.0 - f).rem_euclid(1.0) } else { f.rem_euclid(1.0) };
+            let p = point(circle_edge, s).unwrap_or(centre);
+            let d = slope(circle_edge, s).unwrap_or(centre);
+            return (p, scale(d, if ellipse_backwards { -df } else { df }));
+        }
         let theta = tau * f;
         let p = add(centre, add(scale(x, radius * theta.cos()), scale(y, radius * theta.sin())));
         let d = add(scale(x, -radius * theta.sin()), scale(y, radius * theta.cos()));
