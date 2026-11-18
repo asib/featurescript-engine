@@ -43,6 +43,11 @@ The same interface runs natively (`fs_wasm::parameters_json`, `fs_wasm::build`; 
 points; `index.d.ts` types it), the engine, std, the fonts sketch text uses and the licences. A page serves the
 module, std and fonts and passes their URLs; fonts are fetched only for designs whose text uses them.
 
+Releases tagged `wasm-v<version>` (the version in `package/package.json`) carry the package built, so it needn't be
+rebuilt to be used: `featurescript-engine-wasm-<version>.tar.gz` unpacks to `featurescript-engine/`, and
+`SHA256SUMS` has its checksum. To make one, check out the commit to release, run `pack.sh`, archive its output as a
+`featurescript-engine/` folder, tag the commit and attach the archive and checksum with `gh release create`.
+
 ## Trying it
 
 `node crates/fs-wasm/test.mjs crates/fs-wasm/rounded-cube.fs roundedCube` builds a filleted cube (7855.841 mm³, in
