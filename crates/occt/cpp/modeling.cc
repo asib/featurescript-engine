@@ -2150,11 +2150,27 @@ std::unique_ptr<Operation> delete_faces_op(const Shape &solid, const ShapeList &
 // that extending the solid extends them; otherwise this throws.
 std::unique_ptr<Operation> replace_planar_face_op(const Shape &solid, const Shape &face, Frame target) {
   const TopoDS_Face &f = TopoDS::Face(face.shape);
-  if (BRepAdaptor_Surface(f).GetType() != GeomAbs_Plane) throw std::runtime_error("replace face: not planar");
-  gp_Dir n = face_normal(f);
+  // A curved face (batch 189: a fillet up to a plane across it, a dome up to a plane above it): its column along the
+  // target plane's normal, turned outwards from the face, the faces round it left to that column.
+  const bool curved = BRepAdaptor_Surface(f).GetType() != GeomAbs_Plane;
+  gp_Dir n;
+  if (curved) {
+    BRepAdaptor_Surface surface(f);
+    const double u = (surface.FirstUParameter() + surface.LastUParameter()) / 2;
+    const double v = (surface.FirstVParameter() + surface.LastVParameter()) / 2;
+    gp_Pnt p;
+    gp_Vec du, dv;
+    surface.D1(u, v, p, du, dv);
+    gp_Vec outward = du.Crossed(dv);
+    if (f.Orientation() == TopAbs_REVERSED) outward.Reverse();
+    n = dir(target.normal);
+    if (outward.Magnitude() > 1e-12 && gp_Vec(n).Dot(outward) < 0) n.Reverse();
+  } else {
+    n = face_normal(f);
+  }
   // Replacing a face with (nearly) its own plane changes nothing: frame mitres a tangent joint that way, and a joint
   // drawn tangent to a few digits is still one.
-  {
+  if (!curved) {
     GProp_GProps props;
     BRepGProp::SurfaceProperties(f, props);
     gp_Pln plane(pnt(target.origin), dir(target.normal));
@@ -2174,7 +2190,7 @@ std::unique_ptr<Operation> replace_planar_face_op(const Shape &solid, const Shap
   bool square = true;
   bool revolved = false;
   gp_Ax1 axis;
-  const gp_Pln face_plane = BRepAdaptor_Surface(f).Plane();
+  const gp_Pln face_plane = curved ? gp_Pln(pnt(target.origin), n) : BRepAdaptor_Surface(f).Plane();
   auto revolution_axis = [](const BRepAdaptor_Surface &surface, gp_Ax1 &out) {
     switch (surface.GetType()) {
       case GeomAbs_Cylinder: out = surface.Cylinder().Axis(); return true;
@@ -2184,7 +2200,7 @@ std::unique_ptr<Operation> replace_planar_face_op(const Shape &solid, const Shap
       default: return false;
     }
   };
-  for (TopExp_Explorer it(f, TopAbs_EDGE); it.More(); it.Next()) {
+  for (TopExp_Explorer it(f, TopAbs_EDGE); it.More() && !curved; it.Next()) {
     const TopTools_ListOfShape *faces = edge_faces.Seek(it.Current());
     if (faces == nullptr) continue;
     for (const TopoDS_Shape &g : *faces) {
@@ -2281,6 +2297,23 @@ std::unique_ptr<Operation> replace_planar_face_op(const Shape &solid, const Shap
   };
   const TopoDS_Shape grown = clipped(column(true), true);
   const TopoDS_Shape cut_back = clipped(column(false), false);
+  // Grown out from a curved face, the column's sides stand in for its neighbours extended: only right where they
+  // run along it (planes along it, cylinders about it: a dome on a cylinder, batch 189 c005). Cut back only, any
+  // neighbours do (a fillet to a plane across it, c001); otherwise (a loft's side, c004, its neighbours lofted too)
+  // this refuses.
+  if (curved && !grown.IsNull()) {
+    for (TopExp_Explorer it(f, TopAbs_EDGE); it.More(); it.Next()) {
+      const TopTools_ListOfShape *faces = edge_faces.Seek(it.Current());
+      if (faces == nullptr) continue;
+      for (const TopoDS_Shape &g : *faces) {
+        if (g.IsSame(f)) continue;
+        BRepAdaptor_Surface surface(TopoDS::Face(g));
+        const bool along = (surface.GetType() == GeomAbs_Plane && std::abs(surface.Plane().Axis().Direction().Dot(n)) < 1e-9) ||
+                           (surface.GetType() == GeomAbs_Cylinder && surface.Cylinder().Axis().Direction().IsParallel(n, 1e-9));
+        if (!along) throw std::runtime_error("replace face: a curved face's neighbours don't run along its column");
+      }
+    }
+  }
   auto op = std::make_unique<Operation>();
   op->history = new BRepTools_History();
   TopoDS_Shape current = solid.shape;
