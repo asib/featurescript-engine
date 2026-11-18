@@ -7,11 +7,14 @@ use std::path::PathBuf;
 /// along a circle on a torus, locked to it (c004, c005), their faces 0.25 and 0.09 mm² off Onshape's.
 const KNOWN_GAPS: &[&str] = &["c003", "c004", "c005"];
 
+/// Onshape lists the faces in its own order.
+const UNORDERED: &[&str] = &["c001", "c002", "c003", "c004", "c005"];
+
 #[test]
 fn batch_200_matches_onshape() {
     fs_interp::run_with_large_stack(|| {
         let batch = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/batch-200");
-        let report = fs_fixtures::check_batch(&batch, None).unwrap();
+        let report = fs_fixtures::check_batch_unordered(&batch, None, &[], &[], UNORDERED).unwrap();
         let unexpected: Vec<String> = report
             .problems()
             .into_iter()
