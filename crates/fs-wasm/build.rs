@@ -15,15 +15,16 @@ fn main() {
         // Rust links through emcc, which leaves out C++'s runtime unless asked (the bridge and OCCT need it).
         "-lc++".to_string(),
         "-lc++abi".to_string(),
-        "-sEXPORTED_FUNCTIONS=['_fs_build','_main']".to_string(),
+        "-sEXPORTED_FUNCTIONS=['_fs_build','_fs_parameters','_main']".to_string(),
         "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','FS']".to_string(),
         "-sMODULARIZE=1".to_string(),
+        "-sEXPORT_ES6=1".to_string(),
         "-sEXPORT_NAME=createFeatureScriptEngine".to_string(),
         "-sENVIRONMENT=web,worker,node".to_string(),
         "-sALLOW_MEMORY_GROWTH=1".to_string(),
         "-sMAXIMUM_MEMORY=4GB".to_string(),
-        "-sSTACK_SIZE=256MB".to_string(),
-        "-sINITIAL_MEMORY=512MB".to_string(),
+        "-sSTACK_SIZE=64MB".to_string(),
+        "-sINITIAL_MEMORY=128MB".to_string(),
         format!("--preload-file={}@/std", std_dir.display()),
     ] {
         println!("cargo:rustc-link-arg-bins={arg}");

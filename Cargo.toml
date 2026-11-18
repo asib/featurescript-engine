@@ -9,3 +9,10 @@ publish = false
 
 [profile.release]
 debug = "line-tables-only"
+
+# The WebAssembly engine (crates/fs-wasm): release without debug information, which would take its module over the
+# 25 MiB a static host serves.
+[profile.wasm]
+inherits = "release"
+debug = false
+opt-level = "s"
