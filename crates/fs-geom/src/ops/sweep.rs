@@ -772,6 +772,8 @@ struct Correspondence {
     nodes: Vec<f64>,
     /// Each profile's fractions at the nodes and its slopes there.
     profiles: [(Vec<f64>, Vec<f64>); 2],
+    /// Whether each profile's slopes were held back somewhere (α + β ≤ 2.7).
+    held: [bool; 2],
 }
 
 impl Correspondence {
@@ -793,7 +795,7 @@ impl Correspondence {
         if nodes.windows(2).any(|w| w[1] <= w[0]) {
             return None;
         }
-        let profile = |f: &[f64]| -> Option<(Vec<f64>, Vec<f64>)> {
+        let profile = |f: &[f64]| -> Option<(Vec<f64>, Vec<f64>, bool)> {
             let secant: Vec<f64> = (0..m - 1).map(|g| (f[g + 1] - f[g]) / (nodes[g + 1] - nodes[g])).collect();
             if secant.iter().any(|&s| s <= 0.0) {
                 return None;
@@ -808,10 +810,28 @@ impl Correspondence {
             } else {
                 (slopes[0], slopes[m - 1]) = (secant[0], secant[m - 2]);
             }
-            Some((f.to_vec(), slopes))
+            // Each stretch's slopes held to α + β ≤ 2.7 (each over its own secant), both scaled down together where
+            // they'd pass it, a node taking the lower of its stretches' (batch 190: rounded rectangles, every
+            // stretch so scaled lands on 2.6997–2.7002).
+            let mut held = slopes.clone();
+            let mut any = false;
+            for g in 0..m - 1 {
+                let sum = (slopes[g] + slopes[g + 1]) / secant[g];
+                if sum > 2.7 {
+                    any = true;
+                    let scale = 2.7 / sum;
+                    held[g] = held[g].min(slopes[g] * scale);
+                    held[g + 1] = held[g + 1].min(slopes[g + 1] * scale);
+                }
+            }
+            if periodic {
+                let s = held[0].min(held[m - 1]);
+                (held[0], held[m - 1]) = (s, s);
+            }
+            Some((f.to_vec(), held, any))
         };
-        let profiles = [profile(fractions[0])?, profile(fractions[1])?];
-        Some(Self { nodes, profiles })
+        let ((v0, s0, h0), (v1, s1, h1)) = (profile(fractions[0])?, profile(fractions[1])?);
+        Some(Self { nodes, profiles: [(v0, s0), (v1, s1)], held: [h0, h1] })
     }
 
     /// Profile `p`'s fraction at u and its slope.
@@ -1643,9 +1663,13 @@ fn smooth_loft_to_circle(
         .map(|i| round.nodes[i])
         .chain([1.0].into_iter().filter(|_| split_all || nodes[0].3))
         .collect();
-    // An ellipse split at every node where the profile has vertices (batch 188 c005), a circle only with connections.
-    let circle_splits: Vec<f64> =
-        if split_all || (to_ellipse && has_vertices) { round.nodes[1..].to_vec() } else { Vec::new() };
+    // An ellipse split at every node where the profile has vertices (batch 188 c005); a circle with connections, or
+    // where its slopes were held back (batch 190: rounded rectangles, all but the one whose circle's weren't).
+    let circle_splits: Vec<f64> = if split_all || (has_vertices && (to_ellipse || round.held[1])) {
+        round.nodes[1..].to_vec()
+    } else {
+        Vec::new()
+    };
     let seam = breaks[1] / 2.0;
     let ends =
         |splits: &[f64]| -> Vec<f64> { [seam].into_iter().chain(splits.iter().copied()).chain([1.0 + seam]).collect() };
