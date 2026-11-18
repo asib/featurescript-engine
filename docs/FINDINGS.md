@@ -2209,10 +2209,19 @@ Each sketch drawn off and pulled into place by one constraint, with what it acts
   seed turned `i` times the angle about the pivot, radii made equal (c001, c005: two entities to an instance); a
   copied line lies on its seed's line turned, keeping its own length, its middle where turning the line about the
   pivot puts it (c004: the drawn middle's distance from the pivot kept). Without instance 0 named nothing changes
-  (c002). Known gap: an open pattern spaces its instances evenly by a step of its own, not the angle given (c003:
-  86.83° for 270° over three steps, the second copy where it was drawn).
+  (c002). An open pattern spaces its instances evenly by a step of its own, not the angle given (c003: 86.83° for
+  270° over three steps, the second copy where it was drawn; batch 199 gives the rule).
 - **`PIERCE`** changes nothing named as `localFirst` and `externalSecond`, `localEntity` and `externalEdge`, or
   `externalFirst` and `localSecond` (c006–c008).
+
+## Open sketch circular patterns (batch 199)
+
+An open circular pattern's step is the median of the steps its copies were drawn at, each copy's angle from the seed
+(anticlockwise about the pivot) over its index, the lower of the middle two for an even number; the angle given
+doesn't matter (c006: 300° given, the copies drawn a quarter turn apart stay; c008: 360°). Two copies at 80° and
+170° step 80° (c001); three at 80°, 180°, 270° step 90° (c003), as at 90°, 170°, 270° (c004) and 90°, 180°, 260°
+(c005); batch 198 c003's at 83.66°, 173.66° and 270° step 86.83° (c007). Each copy is then the seed turned, as in a
+closed pattern.
 
 ## STEP export
 
