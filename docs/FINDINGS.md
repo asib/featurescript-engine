@@ -1503,9 +1503,8 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   direction; the unknowns are grouped (directions, lengths and radii oldest entity first, then places oldest first)
   and each step projects the start onto the constraints, linearised where the solution has got to, one group at a
   time: each group moving as little as the groups after it let it (std's tear drop hem, batch 029, solves so too).
-  Gauss–Newton steps finish it off. Sketch curves constrained to each other come out in the order the sketch made
-  them (136 c015: a circle, then a line normal to it); in a sketch drawn in Onshape, closed curves after open ones
-  (batch 103).
+  Gauss–Newton steps finish it off. Sketch curves come out in the order the sketch made them (136 c015: a circle,
+  then a line normal to it; batch 193); in a sketch drawn in Onshape, closed curves after open ones (batch 103).
 - **Sweeps locked to curved faces** (batch 137): along a helix round a cylinder or a cone frustum, locked to it,
   Onshape fails (`SWEEP_FAILED`): its helix is its own fit, 7 µm off the face (batch 124). Along an edge of the face
   (the curve a split left round a cylinder, across its seam) or a circle on it (a small circle split from a sphere by
@@ -2092,6 +2091,66 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
 - **Auto-spaced curves across part of a period** fall at i / (n − 1) without the ends: two leave none, and Onshape
   refuses the request (two tube circles across a quarter torus, two circles across a cylinder's height); the engine
   does too. (Batch 072 c001's cut list still differs: Onshape's swept-angle check fails, the engine's doesn't.)
+
+## Sketch constraints between other pairs of entities (batch 192)
+
+Each sketch drawn off and pulled into place by one constraint, with what it acts on fixed:
+
+- **Two points made horizontal or vertical** keep their distance: one turns about the other into line with it,
+  from (26, 9) to (27.211103, 5) beside a fixed line's end at (20, 5), and of two free points the second (c001–c003),
+  not straight across as a point put on a line moves (batch 193: the second named, its whole entity). The engine
+  turns it so before solving.
+- **Distances to circles and arcs** are to their nearest points, a point's along the radius through it, outside or
+  inside as it starts (c004, c005, c016: 5 from a circle of radius 10, 2 inside it, 3 from an arc); a line's
+  between it and the centre less the radius, the line keeping its direction and moving square to itself (c006); a
+  circle's between the centres less both radii, the circle keeping its radius and moving along the line between
+  the centres (c007).
+- **A line made coincident with a line** turns about its middle onto it and moves straight across (c008); **a
+  circle made coincident with a circle** takes its centre and radius (c009).
+- **Ellipses**: a point put on one goes to its nearest point (c010: (5.420125, 4.201852) from (6, 6), not where the
+  ellipse's implicit equation's gradient leads); a line made tangent keeps its direction and moves square to
+  itself until its distance from the centre is the ellipse's reach across it (c011); a circle made concentric moves
+  to its centre (c012); one made horizontal turns about its centre (c013).
+- **A point put on a fit spline** goes to its nearest point (c014); the spline's points are point bodies, after the
+  spline, as in a Part Studio's sketch (batch 103).
+- `MIDPOINT` given a point and an arc as the UI writes it (`localMidpoint`, `localEntity1`) changes nothing (c015),
+  as with a line (batch 184).
+
+## Sketch curves' order, spline points, more constraints (batch 193)
+
+- **Order**: a sketch made by FeatureScript lists its curves' wire bodies in the order it made them, closed or open,
+  constrained or not (c001–c004; batch 136 c015 and 192 likewise); only a sketch placed by an initial guess, as a
+  Part Studio's own code places it, lists closed curves after open ones (batch 103). The regions' sheets follow.
+- **Points**: every point a fit spline runs through is a point body, open, closed (each once) or with end
+  derivatives, and no handles (c005–c007); every Bézier control point too, after its control polygon's lines (c008).
+- **Two points made horizontal or vertical**: the second named turns about the first, whether newer or older
+  (c010: of two free points the older, named second, moved), or the first if the second is fixed; its whole entity
+  turns with it, a line keeping its length and its ends' distances from the point (c009: a free line's start made
+  vertical with a fixed circle's centre), a point keeping its distance (c011).
+- **Points on held curves**: on an elliptical arc, a conic and a Bézier, the nearest point (c012–c014).
+- **A line's end a distance from a circle**: the line keeps its direction and length, moving so the end goes
+  straight out along the radius (c015).
+
+## Sketch constraints with ellipses and splines; regions' edges (batch 194)
+
+- **Ellipses**: a circle made tangent to one has its centre its radius from the ellipse's nearest point (c001); a
+  point or a circle a distance from one, measured from the nearest point, on the side it starts (c003, c012).
+  `EQUAL` between two ellipses changes nothing (c005); `COINCIDENT` gives the second the first's centre, radii and
+  axis (c006). A line made normal to one turns as a whole, keeping its length, about the point where it (here its
+  extension) crosses the ellipse, until it runs along the normal there (c010: both ends moved along parallel
+  chords, about (9.677, 1.258) on the ellipse). An ellipse mirrored across a line keeps the first's size (c011).
+- **Splines**: a line made tangent to a fixed fit spline keeps its direction and slides square to itself until it
+  touches the spline where the spline runs parallel to it (c002); a point a distance from one is measured from its
+  nearest point (c004).
+- **Lines**: a distance between lines that aren't parallel makes them parallel, the second turning about its middle
+  (c007). A point put on an arc or a line goes to its circle or its line, beyond its ends if nearer there (c008,
+  c009).
+- **Regions**: a closed curve's region edges have no vertex at its own seam where curves bounding regions meet it:
+  they run between the points where the others cross it (c011, two ellipses overlapping and a line through the
+  overlap), and a circle touching an ellipse starts both their region edges where they touch (c001). A line merely
+  touching an ellipse, bounding nothing, leaves its edge starting at its seam (batch 192 c011). A region sheet's
+  edges come in the order of the sketch curves they lie on, and along each curve from where it starts (c011). The
+  engine restarts such closed curves where the bounding curves meet them before splitting, and orders the edges so.
 
 ## STEP export
 

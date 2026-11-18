@@ -1,0 +1,127 @@
+{
+  "batch": "194",
+  "title": "probes: sketch constraints with ellipses, splines and curves' extensions",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "sketch",
+      "description": "a circle of radius 3 at (14, 4) made tangent to a fixed ellipse of radii 10 and 5 at the origin",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "sketch",
+      "description": "a line from (5, 9) to (15, 10) made tangent to a fixed fit spline through (0, 0), (10, 5), (20, 0) and (30, 5)",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "sketch",
+      "description": "a point drawn at (14, 3) put 2 from that ellipse",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "sketch",
+      "description": "a point drawn at (11, 9) put 2 from that spline",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "sketch",
+      "description": "an ellipse of radii 6 and 3 at (25, 0) made equal to that ellipse",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "sketch",
+      "description": "an ellipse of radii 8 and 4 at (1, 1), its axis at 10°, made coincident with that ellipse",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "sketch",
+      "description": "a line from (0, 5) to (20, 8) put 10 from a fixed one from (0, 0) to (20, 0)",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c008",
+      "kind": "sketch",
+      "description": "a point drawn at (−8, −7) put on a fixed arc from (10, 0) through (0, 10) to (−10, 0), beyond its ends",
+      "slotMeters": [
+        2.8000000000000003,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c009",
+      "kind": "sketch",
+      "description": "a point drawn at (30, 3) put on a fixed line from (0, 0) to (20, 0), beyond its end",
+      "slotMeters": [
+        3.2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c010",
+      "kind": "sketch",
+      "description": "a line from (12, 3) to (20, 9) made normal to a fixed ellipse of radii 10 and 5 at the origin",
+      "slotMeters": [
+        3.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c011",
+      "kind": "sketch",
+      "description": "an ellipse of radii 6 and 3 at (5, 12) mirrored onto one of radii 4 and 2 at (−3, 10) across a fixed vertical line",
+      "slotMeters": [
+        0,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c012",
+      "kind": "sketch",
+      "description": "a circle of radius 3 at (14, 4) put 2 from that ellipse",
+      "slotMeters": [
+        0.4,
+        0.4,
+        0
+      ]
+    }
+  ]
+}
