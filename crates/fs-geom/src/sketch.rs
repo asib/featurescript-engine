@@ -400,6 +400,18 @@ pub fn register(m: &mut GeomBuiltins) {
             };
             Ok(Geometry::FitSpline { points, derivatives, parameters })
         })?;
+        // Each point it runs through is a point body, after it (batch 192 c014), as in a Part Studio's sketch (103).
+        let sketch = sketch_arg(&args, "skFitSpline")?;
+        let through = match sketch.entities.borrow().last().map(|e| &e.geometry) {
+            Some(Geometry::FitSpline { points, .. }) => points.clone(),
+            _ => Vec::new(),
+        };
+        let closed = through.len() > 2 && (through[0].0 - through[through.len() - 1].0).hypot(through[0].1 - through[through.len() - 1].1) < 1e-12;
+        let construction = field(arg(&args, 2, "skFitSpline")?, "construction").as_bool().unwrap_or(false);
+        for (k, p) in through.iter().take(through.len() - usize::from(closed)).enumerate() {
+            let point_id: Rc<str> = format!("{id}.{k}.internal").into();
+            sketch.entities.borrow_mut().push(SketchEntity { id: point_id, geometry: Geometry::Point(*p), construction });
+        }
         Ok(ids(&id, &[("startId", "start"), ("endId", "end")]))
     });
     // A Bézier comes with its control polygon, construction lines between its points, each a wire body as the
@@ -425,6 +437,11 @@ pub fn register(m: &mut GeomBuiltins) {
         for (k, w) in poles.windows(2).enumerate() {
             let line_id: Rc<str> = format!("{id}.polygon{k}").into();
             sketch.entities.borrow_mut().push(SketchEntity { id: line_id, geometry: Geometry::Line(w[0], w[1]), construction: true });
+        }
+        // Each control point a construction point, as in a Part Studio's sketch (batch 193 c008, 103).
+        for (k, p) in poles.iter().enumerate() {
+            let point_id: Rc<str> = format!("{id}.{k}.internal").into();
+            sketch.entities.borrow_mut().push(SketchEntity { id: point_id, geometry: Geometry::Point(*p), construction: true });
         }
         Ok(ids(&id, &[("startId", "start"), ("endId", "end")]))
     });
