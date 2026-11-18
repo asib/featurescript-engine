@@ -1,0 +1,47 @@
+{
+  "batch": "191",
+  "title": "probes: periodicity and iso curves of swept and revolved tori",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "probe",
+      "description": "a frame's round tube along a quarter circle of radius 40",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "probe",
+      "description": "a circle of radius 5 swept along the quarter circle",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "probe",
+      "description": "the circle revolved a quarter turn about z",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "probe",
+      "description": "a cylinder of radius 5 and 20 long",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    }
+  ]
+}
