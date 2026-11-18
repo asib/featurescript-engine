@@ -1,0 +1,57 @@
+{
+  "batch": "200",
+  "title": "frames and sweeps locked to cones and tori",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "frame",
+      "description": "a 4 mm square tube along a quarter circle on a cone frustum's side, its profile locked to the cone",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "sweep",
+      "description": "a 2 x 3 rectangle swept along the quarter circle on the cone, locked to the cone",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "frame",
+      "description": "the square tube along the cone's ruling from (10, 0, 0) to (5, 0, 20), locked to the cone",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "frame",
+      "description": "the square tube along a quarter circle 45° up a cylinder's rounded top edge, locked to the round",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "sweep",
+      "description": "the rectangle swept along that quarter circle on the round, locked to it",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    }
+  ]
+}
