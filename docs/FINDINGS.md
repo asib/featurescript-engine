@@ -2171,6 +2171,21 @@ Each sketch drawn off and pulled into place by one constraint, with what it acts
   the parallel (c012). The engine's walks started off a revolved face's first meridian went the wrong way round
   until a point on it was taken to the face's own turn of the angle, 0 rather than 2π.
 
+## Constrained surfaces through points (batch 196)
+
+- Every surface is a bicubic B-spline over the rectangle the points span, widened by 5 times the tolerance each way
+  (0.5, 0.05 and 0.005 mm for tolerances of 0.1, 0.01 and 0.001 mm), its parameters lengths in metres from the
+  rectangle's middle (batch 011 c006: u from −0.02005 to 0.02005 over 40 mm).
+- **Points in a plane** (c001, c003): one span, the plane over that rectangle, u along the points' main axis (+x
+  here), the normal the way the first three points not in a line turn (c001's corners anticlockwise, +z; c003's grid,
+  its first three points in a line, the fourth turning clockwise, −z).
+- **Other points**: knots refined unevenly, one span at a time (c007, c010: u at −L, −7L/8, −3L/4, −L/2, −L/4, 0,
+  L/2, L and v at its middle, for a bump of 1 mm and of 4 mm alike), not monotonically in the tolerance (0.001 mm:
+  fewer u knots than 0.01 mm, more v knots); for performance (c004) even halvings both ways. Through points not on a
+  grid (c009), or a grid's corners with one raised (c002), the domain is off centre, its parameters Onshape's own
+  (corrected to the surface, it seems). Known gap: the engine's surfaces through such points are within tolerance of
+  them but other surfaces.
+
 ## STEP export
 
 - **Part names** are written on each `MANIFOLD_SOLID_BREP` (`MANIFOLD_SOLID_BREP('c030.1', ...)`), as well as on
