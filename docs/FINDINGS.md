@@ -2201,6 +2201,19 @@ Each sketch drawn off and pulled into place by one constraint, with what it acts
 - A vertical round up to the plane through its ends is a chamfer (c002); a D-shaped extrusion's half cylinder up to
   a plane above it, a flat top (c003).
 
+## Sketch circular pattern and pierce constraints (batch 198)
+
+- **Circular patterns**, as the UI writes them (fields from a forum post quoting its code: `angle`, `patterng` the
+  entities in each instance, `patternc1` the instances, `openPattern`, `localPivot`, `sketchToolType`, and
+  `localInstance<g>,<i>` the `g`th entity of instance `i`, instance 0 the seed): each copy of a circle or point is its
+  seed turned `i` times the angle about the pivot, radii made equal (c001, c005: two entities to an instance); a
+  copied line lies on its seed's line turned, keeping its own length, its middle where turning the line about the
+  pivot puts it (c004: the drawn middle's distance from the pivot kept). Without instance 0 named nothing changes
+  (c002). Known gap: an open pattern spaces its instances evenly by a step of its own, not the angle given (c003:
+  86.83° for 270° over three steps, the second copy where it was drawn).
+- **`PIERCE`** changes nothing named as `localFirst` and `externalSecond`, `localEntity` and `externalEdge`, or
+  `externalFirst` and `localSecond` (c006–c008).
+
 ## STEP export
 
 - **Part names** are written on each `MANIFOLD_SOLID_BREP` (`MANIFOLD_SOLID_BREP('c030.1', ...)`), as well as on
