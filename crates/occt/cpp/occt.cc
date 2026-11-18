@@ -36,6 +36,7 @@
 #include <BRepTools_History.hxx>
 #include <BRep_Builder.hxx>
 #include <BRep_Tool.hxx>
+#include <Geom_Curve.hxx>
 #include <Bnd_Box.hxx>
 #include <ElSLib.hxx>
 #include <GC_MakeArcOfCircle.hxx>
@@ -166,14 +167,59 @@ std::unique_ptr<Shape> make_plane_face(Frame f, double umin, double umax, double
   return wrap(maker.Face());
 }
 
-// Splits a face larger than all the edges by the edges, then drops the faces that reach the big face's boundary.
-// What's left are the regions the edges enclose, oriented with the frame's normal.
-std::unique_ptr<ShapeList> sketch_regions(const ShapeList &edges, Frame f) {
-  auto out = std::make_unique<ShapeList>();
-  if (edges.shapes.empty()) return out;
+// A closed edge on a periodic curve restarted at the first point where another of the edges meets it (crossing or
+// touching), so that the regions get no vertex at its own seam: Onshape's have none where curves bounding regions
+// meet a closed one (batch 194: an ellipse's region edges run between where another crosses it, a circle touching
+// an ellipse starts both their edges where they touch; a line merely touching one, bounding nothing, leaves it be,
+// batch 192 c011). Unchanged if nothing meets it, or something meets it at its seam.
+static TopoDS_Shape restart_closed(const TopoDS_Shape &shape, const std::vector<TopoDS_Shape> &others) {
+  if (shape.ShapeType() != TopAbs_EDGE) return shape;
+  const TopoDS_Edge &edge = TopoDS::Edge(shape);
+  TopoDS_Vertex v0, v1;
+  TopExp::Vertices(edge, v0, v1);
+  if (v0.IsNull() || !v0.IsSame(v1)) return shape;
+  double first, last;
+  Handle(Geom_Curve) curve = BRep_Tool::Curve(edge, first, last);
+  if (curve.IsNull() || !curve->IsPeriodic()) return shape;
+  const double period = curve->Period();
+  if (std::abs(last - first - period) > 1e-9) return shape;
+  Bnd_Box box;
+  BRepBndLib::Add(edge, box);
+  box.Enlarge(1e-6);
+  bool found = false;
+  double best = 0.0;
+  for (const TopoDS_Shape &other_edge : others) {
+    if (other_edge.IsSame(shape)) continue;
+    Bnd_Box other;
+    BRepBndLib::Add(other_edge, other);
+    if (box.IsOut(other)) continue;
+    BRepExtrema_DistShapeShape distance(edge, other_edge);
+    if (!distance.IsDone() || distance.Value() > 1e-7) continue;
+    for (int k = 1; k <= distance.NbSolution(); ++k) {
+      double t = first;
+      if (distance.SupportTypeShape1(k) == BRepExtrema_IsOnEdge) distance.ParOnEdgeS1(k, t);
+      double along = std::fmod(t - first, period);
+      if (along < 0) along += period;
+      if (along < 1e-9 || period - along < 1e-9) return shape;
+      if (!found || along < best) best = along, found = true;
+    }
+  }
+  if (!found) return shape;
+  BRepBuilderAPI_MakeEdge maker(curve, first + best, first + best + period);
+  if (!maker.IsDone()) return shape;
+  TopoDS_Shape restarted = maker.Edge();
+  restarted.Orientation(edge.Orientation());
+  return restarted;
+}
+
+// Splits a face larger than all the edges by the edges, then drops the faces that reach the big face's boundary:
+// the regions the edges enclose, oriented with the frame's normal. `bounding` gets the edges whose pieces bound them.
+static std::vector<TopoDS_Shape> split_regions(const std::vector<TopoDS_Shape> &edges, Frame f,
+                                               std::vector<TopoDS_Shape> *bounding) {
+  std::vector<TopoDS_Shape> out;
   gp_Pln plane(ax3(f));
   Bnd_Box box;
-  for (const TopoDS_Shape &e : edges.shapes) BRepBndLib::Add(e, box);
+  for (const TopoDS_Shape &e : edges) BRepBndLib::Add(e, box);
   double x0, y0, z0, x1, y1, z1;
   box.Get(x0, y0, z0, x1, y1, z1);
   double umin = 1e100, umax = -1e100, vmin = 1e100, vmax = -1e100;
@@ -188,10 +234,11 @@ std::unique_ptr<ShapeList> sketch_regions(const ShapeList &edges, Frame f) {
   check_done(outer, "region bounding face");
 
   BRepAlgoAPI_Splitter splitter;
-  TopTools_ListOfShape arguments;
+  TopTools_ListOfShape arguments, tools;
   arguments.Append(outer.Face());
+  for (const TopoDS_Shape &e : edges) tools.Append(e);
   splitter.SetArguments(arguments);
-  splitter.SetTools(to_list(edges));
+  splitter.SetTools(tools);
   splitter.SetRunParallel(Standard_False);
   splitter.Build();
   if (splitter.HasErrors()) {
@@ -207,6 +254,7 @@ std::unique_ptr<ShapeList> sketch_regions(const ShapeList &edges, Frame f) {
     boundary.Add(outer_edges(i));
     for (const TopoDS_Shape &piece : splitter.Modified(outer_edges(i))) boundary.Add(piece);
   }
+  TopTools_MapOfShape kept_edges;
   TopTools_IndexedMapOfShape faces;
   TopExp::MapShapes(splitter.Shape(), TopAbs_FACE, faces);
   for (int i = 1; i <= faces.Extent(); ++i) {
@@ -214,8 +262,35 @@ std::unique_ptr<ShapeList> sketch_regions(const ShapeList &edges, Frame f) {
     TopExp::MapShapes(faces(i), TopAbs_EDGE, face_edges);
     bool outside = false;
     for (int j = 1; j <= face_edges.Extent() && !outside; ++j) outside = boundary.Contains(face_edges(j));
-    if (!outside) out->shapes.push_back(faces(i));
+    if (outside) continue;
+    out.push_back(faces(i));
+    for (int j = 1; j <= face_edges.Extent(); ++j) kept_edges.Add(face_edges(j));
   }
+  if (bounding) {
+    for (const TopoDS_Shape &e : edges) {
+      const TopTools_ListOfShape &pieces = splitter.Modified(e);
+      bool bounds = pieces.IsEmpty() ? kept_edges.Contains(e) : false;
+      for (const TopoDS_Shape &piece : pieces) bounds = bounds || kept_edges.Contains(piece);
+      if (bounds) bounding->push_back(e);
+    }
+  }
+  return out;
+}
+
+// The regions the edges enclose, closed edges restarted where the edges bounding regions meet them.
+std::unique_ptr<ShapeList> sketch_regions(const ShapeList &edges, Frame f) {
+  auto out = std::make_unique<ShapeList>();
+  if (edges.shapes.empty()) return out;
+  std::vector<TopoDS_Shape> bounding;
+  std::vector<TopoDS_Shape> regions = split_regions(edges.shapes, f, &bounding);
+  std::vector<TopoDS_Shape> restarted;
+  bool changed = false;
+  for (const TopoDS_Shape &e : edges.shapes) {
+    restarted.push_back(restart_closed(e, bounding));
+    changed = changed || !restarted.back().IsSame(e);
+  }
+  if (changed) regions = split_regions(restarted, f, nullptr);
+  out->shapes = regions;
   return out;
 }
 
