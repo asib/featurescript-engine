@@ -2186,6 +2186,21 @@ Each sketch drawn off and pulled into place by one constraint, with what it acts
   (corrected to the surface, it seems). Known gap: the engine's surfaces through such points are within tolerance of
   them but other surfaces.
 
+## Other curved faces replaced (batch 197)
+
+- **A template facing against the face** it replaces, and not parallel to it, takes the face away, its neighbours
+  healing over it (c001: a cylinder's rounded top edge up to a cone through the round's ends, the cone revolved from
+  its line facing in: the cylinder comes back with a sharp edge, its volume π·10²·10). Up to a parallel surface the
+  same is refused (batch 189 c002), and so is a face its neighbours can't heal over (batch 087 c005: a frustum's
+  side, its caps parallel).
+- **Up to the plane of a face next to it**: taken away, that face healing over it (c004: the round up to the plane of
+  the cylinder's top).
+- **A round up to a larger coaxial cylinder** (c005: radius 3 to 4): the corner made sharp, then cut back to the
+  cylinder, the neighbours meeting it where it crosses them (the top to y = 17 + √7, the back to z = 7 + √7; volume
+  4000 − 1.2 mm³).
+- A vertical round up to the plane through its ends is a chamfer (c002); a D-shaped extrusion's half cylinder up to
+  a plane above it, a flat top (c003).
+
 ## STEP export
 
 - **Part names** are written on each `MANIFOLD_SOLID_BREP` (`MANIFOLD_SOLID_BREP('c030.1', ...)`), as well as on
