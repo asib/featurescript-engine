@@ -1,0 +1,12 @@
+[package]
+name = "fs-wasm"
+version = "0.1.0"
+description = "The FeatureScript engine for WebAssembly (Emscripten): runs a feature, writes its parts as STL and STEP"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+fs-geom = { path = "../fs-geom" }
+fs-interp = { path = "../fs-interp" }
+occt = { path = "../occt" }
