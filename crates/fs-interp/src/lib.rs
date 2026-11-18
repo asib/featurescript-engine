@@ -120,7 +120,15 @@ fn unwrap(result: Result<Value, Flow>) -> Result<Value, Exception> {
     }
 }
 
+/// Runs `f` on a thread with a 512 MB stack, for the evaluator's deep recursion. WebAssembly has no threads here: the
+/// module's own stack is made large instead (crates/fs-wasm), and `f` runs on it.
+#[cfg(target_os = "emscripten")]
+pub fn run_with_large_stack<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T {
+    f()
+}
+
 /// Runs `f` on a thread with a 512 MB stack, for the evaluator's deep recursion.
+#[cfg(not(target_os = "emscripten"))]
 pub fn run_with_large_stack<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T {
     std::thread::Builder::new()
         .stack_size(512 << 20)

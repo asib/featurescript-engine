@@ -72,6 +72,13 @@ pub fn engine() -> Engine {
     engine
 }
 
+/// An engine with the geometry builtins over std in `std_dir` (WebAssembly's virtual file system, say).
+pub fn engine_with_std(std_dir: impl Into<std::path::PathBuf>) -> Engine {
+    let mut engine = Engine::new(std_dir);
+    install(&mut engine.interp);
+    engine
+}
+
 /// State the geometry builtins keep per engine.
 struct Extension {
     tags: Rc<Tags>,
