@@ -649,8 +649,14 @@ pub fn replace_face(model: &mut Model, id: FeatureId, definition: &Value) -> R<V
         let mut shape = body.shape.clone();
         let mut last = None;
         for face in &faces {
-            let op = occt::replace_planar_face(&shape, face, target)
-                .map_err(|_| regen_error("DIRECT_EDIT_REPLACE_FACE_FAILED"))?;
+            // Up to the plane of a face next to it, the face is taken away, that face healing over it (batch 197 c004:
+            // a cylinder's rounded top edge up to the plane of its top).
+            let op = match occt::replace_planar_face(&shape, face, target) {
+                Ok(op) => op,
+                Err(_) if neighbour_on_plane(&shape, face, target) => occt::delete_faces(&shape, std::slice::from_ref(face))
+                    .map_err(|_| regen_error("DIRECT_EDIT_REPLACE_FACE_FAILED"))?,
+                Err(_) => return Err(regen_error("DIRECT_EDIT_REPLACE_FACE_FAILED")),
+            };
             shape = op.shape();
             last = Some(op);
         }
@@ -683,6 +689,73 @@ pub fn replace_face(model: &mut Model, id: FeatureId, definition: &Value) -> R<V
         keep_edge_runs(model, b, &face, &runs);
     }
     Ok(Value::UNDEFINED)
+}
+
+/// Whether a face next to `face` in `solid` lies on the plane `target`.
+fn neighbour_on_plane(solid: &Shape, face: &Shape, target: occt::Frame) -> bool {
+    face.sub_shapes(ShapeKind::Edge).iter().any(|edge| {
+        solid.ancestors(edge, ShapeKind::Face).into_iter().filter(|g| !g.is_same(face)).any(|g| {
+            g.face_plane().is_ok_and(|p| {
+                values::norm(values::cross(p.normal, target.normal)) < 1e-9
+                    && values::dot(values::sub(p.origin, target.origin), target.normal).abs() < 1e-9
+            })
+        })
+    })
+}
+
+/// A round (a convex cylindrical face tangent to two planar faces) replaced by a larger coaxial cylinder (batch 197
+/// c005): the corner made sharp again, then cut back to the larger cylinder within the wedge between the round's
+/// axis and the corner, its neighbours meeting the cylinder where it crosses them.
+fn round_to_coaxial(solid: &Shape, face: &Shape, template: &Shape) -> R<Option<occt::Operation>> {
+    use crate::values::{add, cross, dot, norm, scale, sub};
+    let (Ok(a), Ok(b)) = (face.surface_definition(), template.surface_definition()) else { return Ok(None) };
+    if a.kind != 1 || b.kind != 1 || b.radius1 <= a.radius1 + 1e-9 {
+        return Ok(None);
+    }
+    let d = a.frame.normal;
+    let o = a.frame.origin;
+    if norm(cross(d, b.frame.normal)) > 1e-9 || norm(cross(sub(b.frame.origin, o), d)) > 1e-9 {
+        return Ok(None);
+    }
+    let r = a.radius1;
+    // Its two planar neighbours, each its radius from the axis and parallel to it, their normals out of the solid.
+    let mut planes: Vec<occt::Frame> = Vec::new();
+    for edge in face.sub_shapes(ShapeKind::Edge) {
+        for g in solid.ancestors(&edge, ShapeKind::Face).into_iter().filter(|g| !g.is_same(face)) {
+            if let Ok(p) = g.face_plane()
+                && dot(p.normal, d).abs() < 1e-9
+                && (dot(sub(p.origin, o), p.normal) - r).abs() < 1e-7
+                && !planes.iter().any(|q| norm(sub(q.normal, p.normal)) < 1e-9)
+            {
+                planes.push(p);
+            }
+        }
+    }
+    let [p1, p2] = planes[..] else { return Ok(None) };
+    let c = 1.0 + dot(p1.normal, p2.normal);
+    if c < 1e-6 {
+        return Ok(None);
+    }
+    // Along the axis, past the solid either way.
+    let corners = solid.bounding_box(false).map_err(occt_error)?;
+    let reach = norm(sub(corners.max, corners.min)) + 1.0;
+    let base = sub(o, scale(d, reach));
+    let (t1, t2) = (add(base, scale(p1.normal, r)), add(base, scale(p2.normal, r)));
+    let corner = add(base, scale(add(p1.normal, p2.normal), r / c));
+    let ring = [base, t1, corner, t2];
+    let edges = (0..4)
+        .map(|i| occt::line_edge(ring[i], ring[(i + 1) % 4]))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(occt_error)?;
+    let wedge = occt::prism(&occt::fill_edges(&edges).map_err(occt_error)?, scale(d, 2.0 * reach)).map_err(occt_error)?.shape();
+    let x = p1.normal;
+    let circle = occt::circle_edge(occt::Frame { origin: base, normal: d, x }, b.radius1).map_err(occt_error)?;
+    let cylinder = occt::prism(&occt::fill_edges(&[circle]).map_err(occt_error)?, scale(d, 2.0 * reach)).map_err(occt_error)?.shape();
+    let healed = occt::delete_faces(solid, std::slice::from_ref(face)).map_err(|_| regen_error("DIRECT_EDIT_REPLACE_FACE_FAILED"))?.shape();
+    let outside = occt::boolean(occt::BooleanKind::Subtraction, &[wedge], &[cylinder], false).map_err(occt_error)?.shape();
+    let op = occt::boolean(occt::BooleanKind::Subtraction, &[healed], &[outside], true)
+        .map_err(|_| regen_error("DIRECT_EDIT_REPLACE_FACE_FAILED"))?;
+    Ok(Some(op))
 }
 
 /// How an edge of a face ran: the face next to it across the edge (its transient id), and whether Onshape's edge
@@ -887,8 +960,11 @@ fn replace_with_surface(model: &mut Model, id: FeatureId, definition: &Value, of
         return Err(regen_error("DIRECT_EDIT_REPLACE_FACE_FAILED"));
     }
     // The new face takes the template's sense (or its opposite, `oppositeSense`): one facing against the replaced
-    // face would turn the body inside out there, which Onshape refuses (batch 189 c002: a hole up to a smaller coaxial
-    // cylinder, the cylinder's face outward from its axis, the hole's towards it).
+    // face would turn the body inside out there. Onshape refuses that up to a parallel surface (batch 189 c002: a
+    // hole up to a smaller coaxial cylinder, the cylinder's face outward from its axis, the hole's towards it), and
+    // otherwise takes the face away, its neighbours healing over it (batch 197 c001: a round up to a cone across it
+    // facing in).
+    let mut against: Vec<Shape> = Vec::new();
     let samples: Vec<occt::Frame> = (0..9)
         .flat_map(|i| (0..9).map(move |j| ((i as f64 + 0.5) / 9.0, (j as f64 + 0.5) / 9.0)))
         .filter_map(|(fu, fv)| template.face_tangent_plane(fu, fv).ok())
@@ -903,7 +979,10 @@ fn replace_with_surface(model: &mut Model, id: FeatureId, definition: &Value, of
             if let Some(t) = nearest {
                 let sense = values::dot(at.normal, t.normal) * if opposite { -1.0 } else { 1.0 };
                 if sense < -1e-9 {
-                    return Err(regen_error("DIRECT_EDIT_REPLACE_FACE_FAILED"));
+                    if parallel_offset(face, &template)?.is_some() {
+                        return Err(regen_error("DIRECT_EDIT_REPLACE_FACE_FAILED"));
+                    }
+                    against.push(face.clone());
                 }
             }
         }
@@ -913,6 +992,24 @@ fn replace_with_surface(model: &mut Model, id: FeatureId, definition: &Value, of
         let mut shape = model.bodies[b].shape.clone();
         let mut last = None;
         for face in &faces {
+            if against.iter().any(|f| f.is_same(face)) {
+                let op = occt::delete_faces(&shape, std::slice::from_ref(face))
+                    .map_err(|_| regen_error("DIRECT_EDIT_REPLACE_FACE_FAILED"))?;
+                // Where the neighbours can't heal over it, refused (batch 087 c005: a cone frustum's side up to a
+                // steeper coaxial cone, its caps parallel).
+                let count = |s: &Shape| s.sub_shapes(ShapeKind::Face).len();
+                if count(&op.shape()) >= count(&shape) {
+                    return Err(regen_error("DIRECT_EDIT_REPLACE_FACE_FAILED"));
+                }
+                shape = op.shape();
+                last = Some(op);
+                continue;
+            }
+            if let Some(op) = round_to_coaxial(&shape, face, &template)? {
+                shape = op.shape();
+                last = Some(op);
+                continue;
+            }
             // A plain cylinder's side replaced by a parallel cylinder off its axis: that cylinder between the
             // caps (batch 058 c002).
             if let Some(op) = off_axis_cylinder(&shape, face, &template, offset)? {
