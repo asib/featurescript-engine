@@ -12,6 +12,7 @@
 
 pub mod builtins;
 pub mod eval;
+pub mod features;
 pub mod module;
 pub mod types;
 pub mod value;
