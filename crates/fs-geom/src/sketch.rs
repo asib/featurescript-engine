@@ -1164,9 +1164,10 @@ mod constraints {
     /// A closed circular pattern as the UI writes it (batch 198): `localInstance<g>,<i>` the `i`th instance of group
     /// `g`, instance 0 the seed, `patternc1` instances `angle` apart about `localPivot`. Each copy of a point, circle,
     /// arc or ellipse is its seed turned (radii equal); of a line, on its seed's line turned. With a seed unnamed it
-    /// changes nothing (c002); open patterns aren't solved yet (c003).
-    fn circular_pattern(entities: &[SketchEntity], slots: &[Option<Slot>], c: &Value, x: &[f64]) -> Vec<f64> {
-        let Some(pattern) = pattern_of(entities, slots, c, x) else { return vec![] };
+    /// changes nothing (c002). An open pattern's step is the median of the steps its copies were drawn at, the lower
+    /// of the middle two for an even number, whatever angle it's given (batch 199).
+    fn circular_pattern(entities: &[SketchEntity], slots: &[Option<Slot>], c: &Value, x: &[f64], x0: &[f64]) -> Vec<f64> {
+        let Some(pattern) = pattern_of(entities, slots, c, x, x0) else { return vec![] };
         let mut out = Vec::new();
         for (seed, copy, turn) in pattern.pairs {
             let (sin, cos) = turn.sin_cos();
@@ -1209,15 +1210,38 @@ mod constraints {
         pairs: Vec<(Part, Part, f64)>,
     }
 
-    fn pattern_of(entities: &[SketchEntity], slots: &[Option<Slot>], c: &Value, x: &[f64]) -> Option<Pattern> {
-        if field(c, "openPattern").as_bool() == Some(true) {
-            return None;
-        }
+    fn pattern_of(entities: &[SketchEntity], slots: &[Option<Slot>], c: &Value, x: &[f64], x0: &[f64]) -> Option<Pattern> {
         let named = |key: &str| field(c, key).as_str().and_then(|n| part(entities, slots, n));
         let Some(Part::Point(ps, pw)) = named("localPivot") else { return None };
         let pivot = point(x, ps, pw)?;
-        let angle = crate::values::angle(field(c, "angle"), "pattern angle").ok()?;
         let count = field(c, "patternc1").as_number()? as usize;
+        let angle = if field(c, "openPattern").as_bool() == Some(true) {
+            // Where an entity of group 0 lies, as the sketch starts: a point, a centre, a line's middle.
+            let at = |part: &Part| -> Option<P2> {
+                match *part {
+                    Part::Point(s, w) => point(x0, s, w),
+                    Part::Entity(Slot::Circle(i) | Slot::Arc(i) | Slot::Ellipse(i)) => Some((x0[i], x0[i + 1])),
+                    Part::Entity(l @ Slot::Line(_)) => line(x0, l).map(|(a, b)| ((a.0 + b.0) / 2.0, (a.1 + b.1) / 2.0)),
+                    _ => None,
+                }
+            };
+            let o = point(x0, ps, pw)?;
+            let polar = |p: P2| (p.1 - o.1).atan2(p.0 - o.0);
+            let seed = polar(at(&named("localInstance0,0")?)?);
+            let mut steps: Vec<f64> = (1..count)
+                .filter_map(|i| {
+                    let p = at(&named(&format!("localInstance0,{i}"))?)?;
+                    Some((polar(p) - seed).rem_euclid(TAU) / i as f64)
+                })
+                .collect();
+            if steps.is_empty() {
+                return None;
+            }
+            steps.sort_by(f64::total_cmp);
+            steps[(steps.len() - 1) / 2]
+        } else {
+            crate::values::angle(field(c, "angle"), "pattern angle").ok()?
+        };
         let groups = field(c, "patterng").as_number().unwrap_or(1.0) as usize;
         let mut pairs = Vec::new();
         for g in 0..groups {
@@ -1242,7 +1266,7 @@ mod constraints {
             if field(c, "constraintType").as_str() != Some("CIRCULAR_PATTERN") {
                 continue;
             }
-            let Some(pattern) = pattern_of(entities, slots, c, x0) else { continue };
+            let Some(pattern) = pattern_of(entities, slots, c, x0, x0) else { continue };
             for (seed, copy, turn) in &pattern.pairs {
                 let (Part::Entity(l1 @ Slot::Line(_)), Part::Entity(Slot::Line(j))) = (seed, copy) else { continue };
                 let (Some((a, b)), Some((p, q))) = (line(x0, *l1), line(x0, Slot::Line(*j))) else { continue };
@@ -1374,7 +1398,7 @@ mod constraints {
             }
         }
         if kind == "CIRCULAR_PATTERN" {
-            return circular_pattern(entities, slots, c, x);
+            return circular_pattern(entities, slots, c, x, x0);
         }
         // The second the first's mirror image across a line: a point the other's reflection; a line on the other's
         // reflection, wherever along it (Onshape's lines are mirrored as lines: batch 135 c019).
