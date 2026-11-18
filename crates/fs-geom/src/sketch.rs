@@ -738,6 +738,25 @@ fn free_curve(geometry: &Geometry, world: &dyn Fn(P2) -> occt::Vec3, direction: 
     })
 }
 
+/// Where a region's edge comes in the sketch: the first of the sketch's curves it lies on, and how far along that curve
+/// it starts (less one for a piece running on past a closed curve's start, which comes first).
+fn region_edge_key(edge: &Shape, curves: &[Shape]) -> (usize, f64) {
+    let at = |s: &Shape, t: f64| s.edge_tangent(t, false).ok();
+    let (Some(p1), Some(p3)) = (at(edge, 0.2817), at(edge, 0.7183)) else { return (usize::MAX, 0.0) };
+    for (k, curve) in curves.iter().enumerate() {
+        let on = |p: occt::Vec3| {
+            let f = curve.edge_fraction(p, false).ok()?;
+            let axis = at(curve, f)?;
+            (values::norm(values::sub(axis.origin, p)) < 1e-7).then_some((f, axis))
+        };
+        let (Some((f1, a1)), Some((f3, _))) = (on(p1.origin), on(p3.origin)) else { continue };
+        let forward = values::dot(a1.direction, p1.direction) >= 0.0;
+        let (q1, q3) = if forward { (f1, f3) } else { (f3, f1) };
+        return (k, if q3 < q1 { q1 - 1.0 } else { q1 });
+    }
+    (usize::MAX, 0.0)
+}
+
 fn solve(model: &mut Model, sketch: &Sketch) -> R<()> {
     let plane = sketch.plane;
     let world = |p: P2| on_plane(&plane, p.0, p.1);
@@ -812,9 +831,11 @@ fn solve(model: &mut Model, sketch: &Sketch) -> R<()> {
     let none = Origins::default();
     // The curves' wire bodies come first, then the regions' sheets, as Onshape lists them (batch 091).
     let shapes: Vec<Shape> = edges.iter().filter(|(_, _, c)| !c).map(|(_, e, _)| e.clone()).collect();
-    // Curves: a wire body each, closed curves' after the open ones' (batch 103 c003, c006); a construction curve's
-    // edge and vertices are construction.
-    let (open, closed): (Vec<_>, Vec<_>) = edges.into_iter().partition(|(_, e, _)| !e.is_closed_edge());
+    // Curves: a wire body each, in the order the sketch made them, constrained or not (batches 136 c015, 192, 193);
+    // in a sketch placed by an initial guess, as a Part Studio's own code places it, closed curves' after the open
+    // ones' (batch 103 c003, c006). A construction curve's edge and vertices are construction.
+    let guessed = sketch.guess.borrow().is_some();
+    let (open, closed): (Vec<_>, Vec<_>) = edges.into_iter().partition(|(_, e, _)| !guessed || !e.is_closed_edge());
     let guessed_lines = sketch.guessed_lines.borrow();
     for (id, edge, construction) in open.into_iter().chain(closed) {
         let line_origin = guessed_lines
@@ -873,7 +894,15 @@ fn solve(model: &mut Model, sketch: &Sketch) -> R<()> {
             flat_of: sketch.flat_of,
             ..NewBody::new(sheet, BodyType::Sheet, created.clone())
         };
-        model.add_body(new, &none, &created, &|_| None);
+        let index = model.add_body(new, &none, &created, &|_| None);
+        // Its edges in the order of the sketch curves they lie on, and along each curve from where it starts, as
+        // Onshape lists them (batch 194 c011).
+        model.update_body(index, |body| {
+            let mut keyed: Vec<((usize, f64), crate::model::Entity)> =
+                body.edges.drain(..).map(|e| (region_edge_key(&e.shape, &shapes), e)).collect();
+            keyed.sort_by(|(a, _), (b, _)| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)));
+            body.edges = keyed.into_iter().map(|(_, e)| e).collect();
+        });
     }
     for (id, p, construction) in points {
         let info = Rc::new(Info {
