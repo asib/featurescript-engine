@@ -266,6 +266,7 @@ bool faces_tangent_along(const Shape &edge, const Shape &a, const Shape &b, doub
 std::unique_ptr<Shape> extended_shape(const Shape &s, double reach);
 
 void write_step(const ShapeList &shapes, const rust::Vec<rust::String> &names, rust::Str path);
+rust::Vec<double> mesh_triangles(const Shape &s, double deflection);
 std::unique_ptr<ShapeList> read_step(rust::Str path, rust::Vec<rust::String> &names);
 
 }  // namespace occt

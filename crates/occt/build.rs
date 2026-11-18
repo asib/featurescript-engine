@@ -28,6 +28,7 @@ const LIBRARIES: &[&str] = &[
     "TKLCAF",
     "TKCAF",
     "TKXCAF",
+    "TKMesh",
     "TKHLR",
 ];
 

@@ -36,6 +36,8 @@
 #include <BRepTools_History.hxx>
 #include <BRep_Builder.hxx>
 #include <BRep_Tool.hxx>
+#include <BRepMesh_IncrementalMesh.hxx>
+#include <Poly_Triangulation.hxx>
 #include <Geom_Curve.hxx>
 #include <Bnd_Box.hxx>
 #include <ElSLib.hxx>
@@ -1215,6 +1217,33 @@ double shape_max_tolerance(const Shape &s) {
 
 // Writes AP242 in metres, naming each shape's product and, as Onshape does, its MANIFOLD_SOLID_BREP. The solids
 // are named in the order they were transferred, so each shape must be a single solid for its name to land on it.
+// A shape's faces meshed to within `deflection`, each triangle's corners in turn, wound out of the material.
+rust::Vec<double> mesh_triangles(const Shape &s, double deflection) {
+  TopoDS_Shape shape = s.shape;
+  BRepMesh_IncrementalMesh mesher(shape, deflection, Standard_False, 0.3, Standard_False);
+  rust::Vec<double> out;
+  for (TopExp_Explorer ex(shape, TopAbs_FACE); ex.More(); ex.Next()) {
+    const TopoDS_Face &face = TopoDS::Face(ex.Current());
+    TopLoc_Location location;
+    Handle(Poly_Triangulation) mesh = BRep_Tool::Triangulation(face, location);
+    if (mesh.IsNull()) continue;
+    const gp_Trsf trsf = location.Transformation();
+    const bool reversed = face.Orientation() == TopAbs_REVERSED;
+    for (int i = 1; i <= mesh->NbTriangles(); ++i) {
+      int a, b, c;
+      mesh->Triangle(i).Get(a, b, c);
+      if (reversed) std::swap(b, c);
+      for (int n : {a, b, c}) {
+        gp_Pnt p = mesh->Node(n).Transformed(trsf);
+        out.push_back(p.X());
+        out.push_back(p.Y());
+        out.push_back(p.Z());
+      }
+    }
+  }
+  return out;
+}
+
 void write_step(const ShapeList &shapes, const rust::Vec<rust::String> &names, rust::Str path) {
   if (shapes.shapes.size() != names.size()) throw std::invalid_argument("one name per shape");
   quiet();

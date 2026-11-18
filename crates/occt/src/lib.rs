@@ -449,6 +449,7 @@ mod ffi {
         fn extended_shape(s: &Shape, reach: f64) -> Result<UniquePtr<Shape>>;
 
         fn write_step(shapes: &ShapeList, names: &Vec<String>, path: &str) -> Result<()>;
+        fn mesh_triangles(s: &Shape, deflection: f64) -> Result<Vec<f64>>;
         fn read_step(path: &str, names: &mut Vec<String>) -> Result<UniquePtr<ShapeList>>;
     }
 }
@@ -1614,6 +1615,15 @@ pub fn solid_from(shape: &Shape) -> Result<Shape> {
 /// The faces of a solid other than `faces`, as an open sheet.
 pub fn remove_faces_open(solid: &Shape, faces: &[Shape]) -> Result<Shape> {
     Ok(Shape::new(ffi::remove_faces_open(&solid.0, &to_list(faces))?))
+}
+
+/// A shape's faces meshed to within `deflection` (m): each triangle's three corners, wound outward.
+pub fn mesh_triangles(shape: &Shape, deflection: f64) -> Result<Vec<[Vec3; 3]>> {
+    let flat = ffi::mesh_triangles(&shape.0, deflection)?;
+    Ok(flat
+        .chunks_exact(9)
+        .map(|c| [Vec3::new(c[0], c[1], c[2]), Vec3::new(c[3], c[4], c[5]), Vec3::new(c[6], c[7], c[8])])
+        .collect())
 }
 
 /// Writes shapes to an AP242 STEP file in metres, naming each one's product.
