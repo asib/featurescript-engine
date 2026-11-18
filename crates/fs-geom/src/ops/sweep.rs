@@ -265,6 +265,62 @@ fn along_ruling(model: &mut Model, id: &FeatureId, definition: &Value, edge: &Sh
 }
 
 pub fn sweep(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
+    let before = model.bodies.len();
+    let done = sweep_bodies(model, id, definition)?;
+    swept_torus_frames(model, definition, before)?;
+    Ok(done)
+}
+
+/// Onshape's coordinate system on a torus a sweep made (a circle along an arc, batch 191): its z along the way the
+/// sweep turns round the axis (a revolve's is against it), x as a revolved torus's; its u so starting where the profile
+/// is, its v at the tube's inner equator.
+fn swept_torus_frames(model: &mut Model, definition: &Value, before: usize) -> R<()> {
+    use values::{cross, dot, norm, scale, sub};
+    let path: Vec<Shape> = match query::evaluate(model, field(definition, "path")) {
+        Ok(found) => found.into_iter().filter(|r| r.kind == EntityType::Edge).map(|r| model.shape(r).clone()).collect(),
+        Err(_) => return Ok(()),
+    };
+    let profiles: Vec<Shape> = match query::evaluate(model, field(definition, "profiles")) {
+        Ok(found) => found.into_iter().map(|r| model.shape(r).clone()).collect(),
+        Err(_) => return Ok(()),
+    };
+    let (Some(edge), Some(profile)) = (path.first(), profiles.first()) else { return Ok(()) };
+    let Ok(at) = profile.face_inner_point().or_else(|_| profile.edge_tangent(0.5, false).map(|a| a.origin)) else {
+        return Ok(());
+    };
+    let (Ok(a), Ok(b)) = (edge.edge_tangent(0.0, false), edge.edge_tangent(1.0, false)) else { return Ok(()) };
+    // From the path's end at the profile, along the path.
+    let (start, along) = if norm(sub(a.origin, at)) <= norm(sub(b.origin, at)) {
+        (a.origin, a.direction)
+    } else {
+        (b.origin, scale(b.direction, -1.0))
+    };
+    for index in before..model.bodies.len() {
+        let mut updates = Vec::new();
+        for (k, face) in model.bodies[index].faces.iter().enumerate() {
+            let Ok(surface) = face.shape.surface_definition() else { continue };
+            if surface.kind != 4 || face.info.surface_frame.is_some() {
+                continue;
+            }
+            let axis = surface.frame.normal;
+            let turning = dot(cross(sub(start, surface.frame.origin), along), axis);
+            if turning.abs() < 1e-12 {
+                continue;
+            }
+            let z = if turning > 0.0 { axis } else { scale(axis, -1.0) };
+            let Some(x) = super::frames::world_y_cross(z) else { continue };
+            updates.push((k, occt::Frame { origin: surface.frame.origin, normal: z, x }));
+        }
+        model.update_body(index, |body| {
+            for (k, frame) in &updates {
+                body.faces[*k].info = Rc::new(Info { surface_frame: Some(*frame), ..(*body.faces[*k].info).clone() });
+            }
+        });
+    }
+    Ok(())
+}
+
+fn sweep_bodies(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value> {
     if let Some(done) = locked_to_revolution(model, &id, definition)? {
         return Ok(done);
     }
