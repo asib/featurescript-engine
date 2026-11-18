@@ -1137,6 +1137,11 @@ pub fn curves_on_face(model: &mut Model, id: FeatureId, definition: &Value) -> R
         if let Some(frame) = onshape_frame
             && let Some(curves) = torus_curves(&face, frame, group, &creation)?
         {
+            // Auto-spaced curves that all fall on the face's edges leave none, which Onshape refuses (batch 191: two
+            // across a quarter torus).
+            if curves.is_empty() && creation.contains("AUTO_SPACED") {
+                return Err(regen_error("ISOPARAMETRIC_CURVE_SELECT_POSITION"));
+            }
             let names = field(group, "names").as_array();
             for (i, edge) in curves.into_iter().enumerate() {
                 let mut curve_id = id.to_vec();
@@ -1189,6 +1194,7 @@ pub fn curves_on_face(model: &mut Model, id: FeatureId, definition: &Value) -> R
         };
         let boundary: Vec<Shape> = face.visible_sub_shapes(ShapeKind::Edge);
         let names = field(group, "names").as_array();
+        let mut made = 0;
         for (i, t) in parameters.into_iter().enumerate() {
             let mut curve_id = id.to_vec();
             if let Some(name) = names.and_then(|n| n.get(i)).and_then(Value::as_str) {
@@ -1204,7 +1210,12 @@ pub fn curves_on_face(model: &mut Model, id: FeatureId, definition: &Value) -> R
             if auto && !edges.is_empty() && edges.iter().all(on_boundary) {
                 continue;
             }
+            made += edges.len();
             add_wires(model, &curve_id.into(), &edges)?;
+        }
+        // None left (all on the face's edges, as two across a cylinder's height): Onshape refuses (batch 191 c004).
+        if auto && made == 0 {
+            return Err(regen_error("ISOPARAMETRIC_CURVE_SELECT_POSITION"));
         }
     }
     Ok(Value::UNDEFINED)
@@ -1264,9 +1275,10 @@ fn torus_curves(face: &Shape, frame: occt::Frame, group: &Value, creation: &str)
         let n = field(group, "nCurves").as_number().unwrap_or(1.0).max(1.0) as usize;
         if whole(span) {
             (0..n).map(|i| i as f64 / n as f64).collect()
-        } else if n <= 2 {
+        } else if n == 1 {
             vec![0.5]
         } else {
+            // At i / (n − 1) without the ends: two curves leave none (batch 191).
             (1..n - 1).map(|i| i as f64 / (n - 1) as f64).collect()
         }
     } else {
