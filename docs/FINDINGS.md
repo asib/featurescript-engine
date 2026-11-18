@@ -2061,6 +2061,17 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   slot's isn't (187 c012), and the ends are bounded by approximations (196.5665 mm² for the exact 196.5664). Not
   understood yet.
 
+## Curved faces replaced (batch 189)
+
+- **A curved face up to a plane**: the face's column along the plane's normal is cut back to the plane, or grown up
+  to it: a fillet of radius 3 up to the plane through its ends is the chamfer (its neighbours trimmed, 90 mm³ off the
+  block, c001); a hemispherical dome on a cylinder up to a plane above its rim is a flat top, the cylinder carried up
+  to it (c005). The engine builds these so, refusing to grow past neighbours that don't run along the column: a
+  square-to-circle loft's side up to the plane x = 8 (c004), which Onshape builds, its lofted neighbours and its
+  circular top extended to the plane (the top 203.8 mm² where the circle is 201.06).
+- **A hole up to a smaller coaxial cylinder** (c002): Onshape refuses it (`DIRECT_EDIT_REPLACE_FACE_FAILED`), where a
+  boss up to a larger one (c003) and batch 118's cylinder up to itself offset outwards build; the engine builds it.
+
 ## STEP export
 
 - **Part names** are written on each `MANIFOLD_SOLID_BREP` (`MANIFOLD_SOLID_BREP('c030.1', ...)`), as well as on
