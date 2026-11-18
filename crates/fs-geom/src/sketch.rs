@@ -1161,6 +1161,109 @@ mod constraints {
         ((p.0 - a.0) * dy - (p.1 - a.1) * dx) / len
     }
 
+    /// A closed circular pattern as the UI writes it (batch 198): `localInstance<g>,<i>` the `i`th instance of group
+    /// `g`, instance 0 the seed, `patternc1` instances `angle` apart about `localPivot`. Each copy of a point, circle,
+    /// arc or ellipse is its seed turned (radii equal); of a line, on its seed's line turned. With a seed unnamed it
+    /// changes nothing (c002); open patterns aren't solved yet (c003).
+    fn circular_pattern(entities: &[SketchEntity], slots: &[Option<Slot>], c: &Value, x: &[f64]) -> Vec<f64> {
+        let Some(pattern) = pattern_of(entities, slots, c, x) else { return vec![] };
+        let mut out = Vec::new();
+        for (seed, copy, turn) in pattern.pairs {
+            let (sin, cos) = turn.sin_cos();
+            let o = pattern.pivot;
+            let rot = |p: P2| (o.0 + (p.0 - o.0) * cos - (p.1 - o.1) * sin, o.1 + (p.0 - o.0) * sin + (p.1 - o.1) * cos);
+            match (seed, copy) {
+                (Part::Point(s1, w1), Part::Point(s2, w2)) => {
+                    if let (Some(p), Some(q)) = (point(x, s1, w1), point(x, s2, w2)) {
+                        let r = rot(p);
+                        out.extend([q.0 - r.0, q.1 - r.1]);
+                    }
+                }
+                (Part::Entity(Slot::Circle(i)), Part::Entity(Slot::Circle(j))) => {
+                    let r = rot((x[i], x[i + 1]));
+                    out.extend([x[j] - r.0, x[j + 1] - r.1, x[j + 2] - x[i + 2]]);
+                }
+                (Part::Entity(Slot::Arc(i)), Part::Entity(Slot::Arc(j))) => {
+                    let r = rot((x[i], x[i + 1]));
+                    out.extend([x[j] - r.0, x[j + 1] - r.1, x[j + 2] - x[i + 2], x[j + 3] - x[i + 3] - turn, x[j + 4] - x[i + 4] - turn]);
+                }
+                (Part::Entity(Slot::Ellipse(i)), Part::Entity(Slot::Ellipse(j))) => {
+                    let r = rot((x[i], x[i + 1]));
+                    out.extend([x[j] - r.0, x[j + 1] - r.1, x[j + 2] - x[i + 2], x[j + 3] - x[i + 3], (x[j + 4] - x[i + 4] - turn).sin()]);
+                }
+                (Part::Entity(l1 @ Slot::Line(_)), Part::Entity(l2 @ Slot::Line(_))) => {
+                    if let (Some((a, b)), Some((p, q))) = (line(x, l1), line(x, l2)) {
+                        let (a, b) = (rot(a), rot(b));
+                        out.extend([to_line(p, a, b), to_line(q, a, b)]);
+                    }
+                }
+                _ => {}
+            }
+        }
+        out
+    }
+
+    /// A closed circular pattern's pivot, and each copy with its seed and how far it turns.
+    struct Pattern {
+        pivot: P2,
+        pairs: Vec<(Part, Part, f64)>,
+    }
+
+    fn pattern_of(entities: &[SketchEntity], slots: &[Option<Slot>], c: &Value, x: &[f64]) -> Option<Pattern> {
+        if field(c, "openPattern").as_bool() == Some(true) {
+            return None;
+        }
+        let named = |key: &str| field(c, key).as_str().and_then(|n| part(entities, slots, n));
+        let Some(Part::Point(ps, pw)) = named("localPivot") else { return None };
+        let pivot = point(x, ps, pw)?;
+        let angle = crate::values::angle(field(c, "angle"), "pattern angle").ok()?;
+        let count = field(c, "patternc1").as_number()? as usize;
+        let groups = field(c, "patterng").as_number().unwrap_or(1.0) as usize;
+        let mut pairs = Vec::new();
+        for g in 0..groups {
+            let seed = named(&format!("localInstance{g},0"))?;
+            for i in 1..count {
+                let Some(copy) = named(&format!("localInstance{g},{i}")) else { continue };
+                let seed = match seed {
+                    Part::Point(s, w) => Part::Point(s, w),
+                    Part::Entity(s) => Part::Entity(s),
+                };
+                pairs.push((seed, copy, i as f64 * angle));
+            }
+        }
+        Some(Pattern { pivot, pairs })
+    }
+
+    /// A line copied by a circular pattern: before solving, it turns as a whole about the pivot until its middle lies
+    /// on its seed's line turned, keeping its distance, as Onshape's solver moves it (batch 198 c004).
+    fn turn_pattern_lines(entities: &[SketchEntity], slots: &[Option<Slot>], constraints: &[Value], x0: &mut [f64]) -> bool {
+        let mut moved = false;
+        for c in constraints {
+            if field(c, "constraintType").as_str() != Some("CIRCULAR_PATTERN") {
+                continue;
+            }
+            let Some(pattern) = pattern_of(entities, slots, c, x0) else { continue };
+            for (seed, copy, turn) in &pattern.pairs {
+                let (Part::Entity(l1 @ Slot::Line(_)), Part::Entity(Slot::Line(j))) = (seed, copy) else { continue };
+                let (Some((a, b)), Some((p, q))) = (line(x0, *l1), line(x0, Slot::Line(*j))) else { continue };
+                let o = pattern.pivot;
+                let polar = |m: P2| (m.1 - o.1).atan2(m.0 - o.0);
+                let (seed_mid, copy_mid) = (((a.0 + b.0) / 2.0, (a.1 + b.1) / 2.0), ((p.0 + q.0) / 2.0, (p.1 + q.1) / 2.0));
+                let mut by = polar(seed_mid) + turn - polar(copy_mid);
+                by = (by + std::f64::consts::PI).rem_euclid(TAU) - std::f64::consts::PI;
+                if by.abs() < 1e-15 {
+                    continue;
+                }
+                let (sin, cos) = by.sin_cos();
+                let (dx, dy) = (x0[*j] - o.0, x0[*j + 1] - o.1);
+                (x0[*j], x0[*j + 1]) = (o.0 + dx * cos - dy * sin, o.1 + dx * sin + dy * cos);
+                x0[*j + 2] += by;
+                moved = true;
+            }
+        }
+        moved
+    }
+
     /// The ellipse slot `i`'s centre, radii, and its axes' directions.
     fn ellipse(x: &[f64], i: usize) -> (P2, f64, f64, P2, P2) {
         let (s, c) = x[i + 4].sin_cos();
@@ -1269,6 +1372,9 @@ mod constraints {
                     _ => vec![],
                 };
             }
+        }
+        if kind == "CIRCULAR_PATTERN" {
+            return circular_pattern(entities, slots, c, x);
         }
         // The second the first's mirror image across a line: a point the other's reflection; a line on the other's
         // reflection, wherever along it (Onshape's lines are mirrored as lines: batch 135 c019).
@@ -2063,7 +2169,9 @@ mod constraints {
             .map(|(i, _)| i)
             .collect();
         let (slots, mut x0, scale, groups) = slots(entities, fixed, &wedged, &ends_named);
-        let aligned = align_points(entities, &slots, constraints, &mut x0) | turn_normals(entities, &slots, constraints, &mut x0);
+        let aligned = align_points(entities, &slots, constraints, &mut x0)
+            | turn_normals(entities, &slots, constraints, &mut x0)
+            | turn_pattern_lines(entities, &slots, constraints, &mut x0);
         // The held curves constraints name, as edges in the sketch's plane.
         let named = |id: &str| {
             constraints.iter().any(|c| {
