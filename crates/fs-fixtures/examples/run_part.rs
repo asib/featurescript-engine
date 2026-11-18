@@ -1,4 +1,5 @@
-//! Runs one feature of a Feature Studio on the engine and writes its solid parts as a STEP and an STL.
+//! Runs one feature of a Feature Studio on the engine, each parameter its default, and writes its solid parts as a
+//! STEP and an STL.
 //!
 //! Usage: cargo run --release -p fs-fixtures --example run_part -- FILE.fs FEATURE OUT_STEM
 //!
@@ -33,7 +34,10 @@ fn run(file: &str, feature: &str, stem: &str) -> Result<(), String> {
     let exception = |e| format!("{e:?}");
     let context = engine.eval(module, "newContextWithDefaults(millimeter)").map_err(exception)?;
     let id = engine.eval(module, &format!("makeId(\"F{feature}\")")).map_err(exception)?;
-    engine.call(module, feature, vec![context.clone(), id.clone(), Value::map(Default::default())]).map_err(exception)?;
+    // Each parameter its default.
+    let parameters = engine.feature_parameters(module, feature)?;
+    let definition = engine.feature_definition(module, &parameters, &[])?;
+    engine.call(module, feature, vec![context.clone(), id.clone(), definition]).map_err(exception)?;
     let status = engine.call(module, "getFeatureStatus", vec![context.clone(), id]).map_err(exception)?;
     print!("{}", engine.interp.output);
     if status.get("statusType").and_then(Value::as_str) != Some("OK") {
