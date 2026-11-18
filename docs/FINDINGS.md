@@ -2055,11 +2055,8 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   surfaces are Onshape's pole for pole, the point at the middle of each face's parameters 0.06 mm off (Onshape's face
   parameters normalised over a slightly larger box than the surface's).
 - **A rounded rectangle** (c001, 20 × 10 with corners of radius 2; c002 connected once): the nodes at its vertices,
-  the spans laid out as the engine's but for the first and last of each long edge (15 and 12 nm off, kept), and the
-  slopes at the nodes not the geometric means: the profile's all 0.99155 of them, the circle's at the long edges'
-  ends 0.898 (at the short edges' the geometric means). The circle is split at every vertex (16 edges), where the
-  slot's isn't (187 c012), and the ends are bounded by approximations (196.5665 mm² for the exact 196.5664). Not
-  understood yet.
+  the slopes at them not the geometric means (the profile's all 0.99155 of them, the circle's at the long edges' ends
+  0.898), the circle split at every vertex (16 edges): the slopes are held back, batch 190 below.
 
 ## Curved faces replaced (batch 189)
 
@@ -2074,6 +2071,16 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
   new face takes the template face's sense unless `oppositeSense` (which the UI sets when they face apart): the tool
   cylinder's face points away from its axis, the hole's towards it, so the body would turn inside out. The engine
   refuses a template facing against the replaced face so.
+
+## Rounded rectangles lofted to circles (batch 190)
+
+- **The slopes held back**: each stretch's two slopes (the geometric means above) are held to α + β ≤ 2.7, α and β
+  each slope over the stretch's own secant; where they'd pass it both are scaled down by 2.7 / (α + β), and a node
+  takes the lower of its two stretches' values. Every stretch so scaled in c001–c006 lands on 2.6997–2.7002: a rounded
+  square's corner arcs (0.848 of the means), 20 × 10's arcs (0.992) and its circle's long sides (0.898), 20 × 10
+  rounded to 4's short sides (0.931). The slots, ellipses and connected lofts so far never reach 2.7.
+- **The circle split**: at every node where its slopes were held back (16 edges); where they weren't (c004) it stays
+  one edge, as the slot's does (187 c012). The engine builds these so, 188 c001 and c002 too.
 
 ## STEP export
 
