@@ -2853,6 +2853,17 @@ fn other_degree(edge: &Shape) -> Option<occt::BSplineData> {
         .then_some(data)
 }
 
+/// Whether an edge lies on a rational B-spline with weights that differ, other than a conic (one rational quadratic
+/// span).
+fn is_rational_spline(edge: &Shape) -> bool {
+    edge.curve_type().ok() == Some(occt::CurveType::BSpline)
+        && edge.edge_bspline(1e-7, false, false).is_ok_and(|data| {
+            data.rational
+                && data.weights.iter().any(|w| (w - data.weights[0]).abs() > 1e-12)
+                && !(data.degree == 2 && data.poles.len() == 3)
+        })
+}
+
 /// A curve as Onshape extends or trims it (batches 036, 038): an arc or elliptical arc made a B-spline, or the
 /// clamped cubic B-spline it is.
 fn edge_as_cubic(edge: &Shape) -> R<crate::curve_extend::Cubic> {
@@ -2905,6 +2916,20 @@ fn edge_as_cubic(edge: &Shape) -> R<crate::curve_extend::Cubic> {
         let knots = fitted.knots.iter().map(|k| first + k * (last - first)).collect();
         let poles = fitted.poles;
         let cubic = Cubic { knots, poles };
+        if norm(sub(*cubic.poles.last().expect("poles"), end.origin)) > 1e-9 || norm(sub(cubic.poles[0], start.origin)) > 1e-9
+        {
+            return Err(error("@opMoveCurveBoundary: B-splines running against their edge aren't supported yet"));
+        }
+        return Ok(cubic);
+    }
+    // Another rational B-spline becomes the clamped cubic spline through it, as a conic does (batch 195).
+    let d = data.degree as usize;
+    let rational = data.rational && data.weights.iter().any(|w| (w - data.weights[0]).abs() > 1e-12);
+    if rational && !data.periodic && d >= 1 && data.knots.len() == data.poles.len() + d + 1
+        && data.knots[..=d].iter().all(|k| *k == first)
+        && data.knots[data.knots.len() - d - 1..].iter().all(|k| *k == last)
+    {
+        let cubic = Cubic::rational_within(d, &data.poles, &data.weights, &data.knots, crate::curve_extend::CURVE_CONIC_TOLERANCE)?;
         if norm(sub(*cubic.poles.last().expect("poles"), end.origin)) > 1e-9 || norm(sub(cubic.poles[0], start.origin)) > 1e-9
         {
             return Err(error("@opMoveCurveBoundary: B-splines running against their edge aren't supported yet"));
@@ -3076,6 +3101,7 @@ fn geodesic_offset(face: &Shape, edge: &Shape, distance: f64) -> R<Option<Shape>
     if points.len() < 2 {
         return Ok(None);
     }
+    // Along the edge as the face's loop runs it (batch 066 c004).
     // Along the edge as the face's loop runs it (batch 066 c004).
     let in_face = face.sub_shapes(ShapeKind::Edge).into_iter().find(|e| e.is_same(edge));
     if in_face.is_some_and(|e| e.is_reversed() != edge.is_reversed()) {
@@ -3301,6 +3327,31 @@ fn curved_boundary_moved(
                 .into_iter()
                 .find(|t| *t > a + 1e-9 && *t < b - 1e-9)
                 .ok_or_else(|| regen_error("TRIM_CURVE_FAILED"))?;
+            // A rational B-spline other than a conic stays itself, restricted where it crosses the plane (batch
+            // 195 c007), the cubic through it only finding the crossing first.
+            if is_rational_spline(edge) {
+                let side = |f: f64| -> R<f64> {
+                    let p = edge.edge_tangent(f, false).map_err(occt_error)?.origin;
+                    Ok(dot(sub(p, plane.origin), plane.normal))
+                };
+                let guess = (cut - a) / (b - a);
+                let (mut lo, mut hi) = ((guess - 0.02).max(0.0), (guess + 0.02).min(1.0));
+                let low_side = side(lo)?;
+                if low_side * side(hi)? > 0.0 {
+                    return Err(regen_error("TRIM_CURVE_FAILED"));
+                }
+                for _ in 0..60 {
+                    let mid = (lo + hi) / 2.0;
+                    if (side(mid)? < 0.0) == (low_side < 0.0) {
+                        lo = mid;
+                    } else {
+                        hi = mid;
+                    }
+                }
+                let f = (lo + hi) / 2.0;
+                let (from, to) = if at_end { (f, 1.0) } else { (0.0, f) };
+                return occt::edge_between(edge, from, to, false).map_err(|_| regen_error("TRIM_CURVE_FAILED"));
+            }
             let kept = if at_end { cubic.segment(cut, b)? } else { cubic.segment(a, cut)? };
             return kept.edge();
         }

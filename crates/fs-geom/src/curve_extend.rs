@@ -167,6 +167,49 @@ impl Cubic {
         }
     }
 
+    /// The clamped cubic spline through a clamped rational B-spline (its `degree`, `poles`, `weights` and `knots`), as
+    /// Onshape makes one to extend it, as it does a conic (batch 195: a rational cubic's knots 1/32 to 1/16 apart): the
+    /// curve's points at the knots and its derivatives at its ends, each span halved while its middle strays from the
+    /// curve more than `tolerance` (m).
+    pub fn rational_within(degree: usize, poles: &[Vec3], weights: &[f64], knots: &[f64], tolerance: f64) -> R<Cubic> {
+        let n = poles.len();
+        if degree == 0 || weights.len() != n || knots.len() != n + degree + 1 {
+            return Err(error("curve extension: a rational B-spline's poles, weights and knots don't agree"));
+        }
+        let zero = Vec3 { x: 0.0, y: 0.0, z: 0.0 };
+        // The point and the derivative at `t`, from the homogeneous curve's.
+        let at = |t: f64| -> (Vec3, Vec3) {
+            let span = find_span(n, degree, t, knots);
+            let ders = basis_derivatives(span, t, degree, 1, knots);
+            let (mut a, mut da, mut w, mut dw) = (zero, zero, 0.0, 0.0);
+            for j in 0..=degree {
+                let i = span - degree + j;
+                a = add(a, scale(poles[i], weights[i] * ders[0][j]));
+                da = add(da, scale(poles[i], weights[i] * ders[1][j]));
+                w += weights[i] * ders[0][j];
+                dw += weights[i] * ders[1][j];
+            }
+            let c = scale(a, 1.0 / w);
+            (c, scale(sub(da, scale(c, dw)), 1.0 / w))
+        };
+        let (a, b) = (knots[degree], knots[n]);
+        let mut parameters = vec![a, b];
+        loop {
+            let points: Vec<Vec3> = parameters.iter().map(|t| at(*t).0).collect();
+            let cubic = Cubic::interpolate(&parameters, &points, at(a).1, at(b).1)?;
+            let halves: Vec<f64> = parameters
+                .windows(2)
+                .map(|span| (span[0] + span[1]) / 2.0)
+                .filter(|&m| norm(sub(cubic.derivative(m, 0), at(m).0)) > tolerance)
+                .collect();
+            if halves.is_empty() || parameters.len() > 1024 {
+                return Ok(cubic);
+            }
+            parameters.extend(halves);
+            parameters.sort_by(f64::total_cmp);
+        }
+    }
+
     /// The clamped cubic spline through `points` at increasing `parameters` (its knots), with the derivatives `start`
     /// and `end` there.
     pub fn interpolate(parameters: &[f64], points: &[Vec3], start: Vec3, end: Vec3) -> R<Cubic> {
