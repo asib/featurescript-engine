@@ -1,0 +1,57 @@
+{
+  "batch": "189",
+  "title": "more curved faces replaced",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "replace-face",
+      "description": "a 20 × 20 × 10 block, its top edge along y = 20 filleted to radius 3, the fillet replaced up to the plane through its ends (a chamfer)",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "replace-face",
+      "description": "a 20 × 20 × 10 plate with a hole of radius 4 through its middle, the hole replaced up to a coaxial cylinder of radius 3",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "replace-face",
+      "description": "a 20 × 20 × 5 block with a boss of radius 4 and 5 tall on its top, the boss's side replaced up to a coaxial cylinder of radius 6",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "replace-face",
+      "description": "a 20 mm square at z = 0 lofted to a circle of radius 8 at z = 20, the side on the square's edge along x = 10 replaced up to the plane x = 8",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "replace-face",
+      "description": "a cylinder of radius 8 and 10 tall with a hemispherical dome on its top, the dome replaced up to the plane z = 14",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    }
+  ]
+}
