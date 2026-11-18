@@ -2152,6 +2152,25 @@ Each sketch drawn off and pulled into place by one constraint, with what it acts
   edges come in the order of the sketch curves they lie on, and along each curve from where it starts (c011). The
   engine restarts such closed curves where the bounding curves meet them before splitting, and orders the edges so.
 
+## Rational B-spline curves trimmed and extended; offsets across other curved faces (batch 195)
+
+- **Rational B-splines extended** (`opCreateBSplineCurve` with weights): a quarter circle as a rational quadratic is
+  extended as an arc is, the cubic of 8 even spans (c001, c002). A rational cubic is first made the clamped cubic
+  spline through it at its knots with its end derivatives, each span halved while its middle strays more than 1 µm
+  from the curve (c003–c006: knots 1/32 apart up to 1/8, 1/16 apart on), as a sketch's conic is (batch 070), then
+  extended as a cubic is, straight on, curving on, at either end and up to a plane.
+- **Rational B-splines trimmed** by a plane stay themselves, restricted (c007: the rational cubic's knots from
+  0.684766 to 1, its weights the subdivision's, 0.982419, 0.883511, 0.842383 and 1).
+- **Offsets' direction**: an offset curve runs the way its edge does (c009: an extruded sheet's top edge; c011, c012:
+  a revolved sheet's meridian and bottom circle), but against it where the face's loop runs the edge backwards on a
+  face that isn't itself reversed (batch 066 c004: a loft's bottom edge, which in Onshape runs the other way).
+- **Offsets across extruded sheets**: an end curve offset along the sheet is that curve moved (c009: an elliptical
+  arc, its points at each parameter the same); a ruling offset round it lies on the ruling the distance round
+  (c008, c010: Onshape's curves aren't lines, the engine's are). Across a revolved sheet, Onshape's offsets are its
+  own fits: of the meridian within 2.1e-4 mm of the geodesic offset (c011), of the bottom circle within 2.7e-4 mm of
+  the parallel (c012). The engine's walks started off a revolved face's first meridian went the wrong way round
+  until a point on it was taken to the face's own turn of the angle, 0 rather than 2π.
+
 ## STEP export
 
 - **Part names** are written on each `MANIFOLD_SOLID_BREP` (`MANIFOLD_SOLID_BREP('c030.1', ...)`), as well as on

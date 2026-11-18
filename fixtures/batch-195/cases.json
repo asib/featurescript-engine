@@ -1,0 +1,127 @@
+{
+  "batch": "195",
+  "title": "rational B-spline curves trimmed and extended; offset curves across other curved faces",
+  "std": "3112.0",
+  "cases": [
+    {
+      "name": "c001",
+      "kind": "trim-curve",
+      "description": "a quarter circle of radius 10 as a rational quadratic B-spline extended 5 mm at its end, straight on",
+      "slotMeters": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c002",
+      "kind": "trim-curve",
+      "description": "the rational quarter circle extended 5 mm at its end, curving on",
+      "slotMeters": [
+        0.4,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c003",
+      "kind": "trim-curve",
+      "description": "a rational cubic B-spline (weights 1, 2, 0.5, 1) extended 8 mm at its end, curving on",
+      "slotMeters": [
+        0.8,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c004",
+      "kind": "trim-curve",
+      "description": "the rational cubic extended 8 mm at its end, straight on",
+      "slotMeters": [
+        1.2000000000000002,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c005",
+      "kind": "trim-curve",
+      "description": "the rational cubic extended 6 mm at its start, curving on",
+      "slotMeters": [
+        1.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c006",
+      "kind": "trim-curve",
+      "description": "the rational cubic extended up to the plane x = 24, curving on",
+      "slotMeters": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c007",
+      "kind": "trim-curve",
+      "description": "the rational cubic trimmed by the plane x = 12, keeping its end at (20, 0)",
+      "slotMeters": [
+        2.4000000000000004,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c008",
+      "kind": "offset-curve-on-face",
+      "description": "an extruded elliptical arc's straight edge at (10, 0) offset 3 mm round it",
+      "slotMeters": [
+        2.8000000000000003,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c009",
+      "kind": "offset-curve-on-face",
+      "description": "the extruded elliptical arc's top edge offset 4 mm down it",
+      "slotMeters": [
+        3.2,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c010",
+      "kind": "offset-curve-on-face",
+      "description": "an extruded fit spline's straight edge at (0, 0) offset 4 mm round it",
+      "slotMeters": [
+        3.6,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "c011",
+      "kind": "offset-curve-on-face",
+      "description": "a revolved fit spline's meridian in the xz plane offset 2 mm round it",
+      "slotMeters": [
+        0,
+        0.4,
+        0
+      ]
+    },
+    {
+      "name": "c012",
+      "kind": "offset-curve-on-face",
+      "description": "the revolved fit spline's bottom circle offset 3 mm up it",
+      "slotMeters": [
+        0.4,
+        0.4,
+        0
+      ]
+    }
+  ]
+}
