@@ -688,6 +688,39 @@ fn occt_error(e: occt::Error) -> fs_interp::eval::Flow {
     error(format!("sketch: {e}"))
 }
 
+/// A fit spline's, Bézier's or B-spline's edge, its points placed by `world` and its derivatives by `direction`; `None`
+/// for other entities.
+fn free_curve(geometry: &Geometry, world: &dyn Fn(P2) -> occt::Vec3, direction: &dyn Fn(P2) -> occt::Vec3) -> Option<R<Shape>> {
+    Some(match geometry {
+        Geometry::FitSpline { points: through, derivatives, parameters } => {
+            let mut through: Vec<occt::Vec3> = through.iter().map(|p| world(*p)).collect();
+            let closed =
+                through.len() > 2 && values::norm(values::sub(through[0], *through.last().expect("points"))) < 1e-12;
+            if closed {
+                through.pop();
+            }
+            let ends = match derivatives {
+                _ if closed => crate::splines::Ends::Periodic,
+                (Some(a), Some(b)) => crate::splines::Ends::Clamped(direction(*a), direction(*b)),
+                (Some(a), None) => crate::splines::Ends::StartClamped(direction(*a)),
+                (None, Some(b)) => crate::splines::Ends::EndClamped(direction(*b)),
+                (None, None) => crate::splines::Ends::Natural,
+            };
+            let parameters = (!parameters.is_empty()).then(|| parameters.clone());
+            crate::splines::spline(&through, ends, parameters)
+        }
+        Geometry::Bezier(poles) => {
+            let poles: Vec<occt::Vec3> = poles.iter().map(|p| world(*p)).collect();
+            occt::bezier_edge(&poles).map_err(occt_error)
+        }
+        Geometry::BSpline { poles, weights, knots, degree, .. } => {
+            let poles: Vec<occt::Vec3> = poles.iter().map(|p| world(*p)).collect();
+            occt::bspline_edge(&poles, weights, knots, *degree as i32, false).map_err(occt_error)
+        }
+        _ => return None,
+    })
+}
+
 fn solve(model: &mut Model, sketch: &Sketch) -> R<()> {
     let plane = sketch.plane;
     let world = |p: P2| on_plane(&plane, p.0, p.1);
@@ -733,33 +766,14 @@ fn solve(model: &mut Model, sketch: &Sketch) -> R<()> {
                 let arc = arc.map(|(a, b)| (a * std::f64::consts::TAU, b * std::f64::consts::TAU));
                 occt::ellipse_edge(frame, *major, *minor, arc).map_err(occt_error)?
             }
-            Geometry::FitSpline { points: through, derivatives, parameters } => {
-                let mut through: Vec<occt::Vec3> = through.iter().map(|p| world(*p)).collect();
-                let closed = through.len() > 2
-                    && values::norm(values::sub(through[0], *through.last().expect("points"))) < 1e-12;
-                if closed {
-                    through.pop();
-                }
-                let ends = match derivatives {
-                    _ if closed => crate::splines::Ends::Periodic,
-                    (Some(a), Some(b)) => crate::splines::Ends::Clamped(direction(*a), direction(*b)),
-                    (Some(a), None) => crate::splines::Ends::StartClamped(direction(*a)),
-                    (None, Some(b)) => crate::splines::Ends::EndClamped(direction(*b)),
-                    (None, None) => crate::splines::Ends::Natural,
-                };
-                let parameters = (!parameters.is_empty()).then(|| parameters.clone());
-                crate::splines::spline(&through, ends, parameters)?
+            Geometry::FitSpline { .. } | Geometry::Bezier(_) => {
+                free_curve(&entity.geometry, &world, &direction).expect("a free curve")?
             }
-            Geometry::Bezier(poles) => {
-                let poles: Vec<occt::Vec3> = poles.iter().map(|p| world(*p)).collect();
-                occt::bezier_edge(&poles).map_err(occt_error)?
-            }
-            Geometry::BSpline { poles, weights, knots, degree, periodic } => {
+            Geometry::BSpline { periodic, .. } => {
                 if *periodic {
                     flagged.push(entity.id.clone());
                 }
-                let poles: Vec<occt::Vec3> = poles.iter().map(|p| world(*p)).collect();
-                occt::bspline_edge(&poles, weights, knots, *degree as i32, false).map_err(occt_error)?
+                free_curve(&entity.geometry, &world, &direction).expect("a free curve")?
             }
             Geometry::Pending(kind) => {
                 return Err(error(format!("@skSolve: sketch entity {:?} ({kind:?}) has no geometry and no initial guess", entity.id)));
@@ -866,7 +880,7 @@ fn solve(model: &mut Model, sketch: &Sketch) -> R<()> {
 
 mod constraints {
     //! Solving a sketch's constraints: see the module's documentation.
-    use super::{Geometry, P2, SketchEntity, circle_through};
+    use super::{Geometry, P2, SketchEntity, circle_through, free_curve};
     use crate::values::field;
     use fs_interp::Value;
     use fs_interp::eval::R;
@@ -883,8 +897,11 @@ mod constraints {
         Arc(usize),
         /// Centre and radius.
         Circle(usize),
-        /// Centre, and major and minor radii (its axis held).
+        /// Centre, major and minor radii, and its major axis's angle.
         Ellipse(usize),
+        /// A fit spline, Bézier, B-spline, elliptical arc or conic, held where it is: the entity's index (its edge is
+        /// `curves`' entry).
+        Curve(usize),
     }
 
     /// Each entity's slot, the unknowns as the sketch starts, each unknown's scale (so that moving it by one is
@@ -954,13 +971,19 @@ mod constraints {
                     Some(Slot::Circle(i))
                 }
                 // An ellipse's diameters given (batch 184 c008: MAJOR_DIAMETER and MINOR_DIAMETER as `length`).
-                Geometry::Ellipse { center, major, minor, arc: None, .. } => {
-                    x.extend([center.0, center.1, *major, *minor]);
-                    scale.extend([1.0, 1.0, 1.0, 1.0]);
-                    stiff.push(vec![i + 2, i + 3]);
+                // Its axis turns when made horizontal or vertical (batch 192 c013), about its centre.
+                Geometry::Ellipse { center, major_axis, major, minor, arc: None } => {
+                    x.extend([center.0, center.1, *major, *minor, major_axis.1.atan2(major_axis.0)]);
+                    scale.extend([1.0, 1.0, 1.0, 1.0, major.max(1e-9)]);
+                    stiff.push(vec![i + 2, i + 3, i + 4]);
                     place.push(vec![i, i + 1]);
                     Some(Slot::Ellipse(i))
                 }
+                Geometry::FitSpline { .. }
+                | Geometry::Bezier(_)
+                | Geometry::BSpline { .. }
+                | Geometry::Ellipse { arc: Some(_), .. }
+                | Geometry::Conic { .. } => Some(Slot::Curve(index)),
                 _ => None,
             };
             out.push(slot);
@@ -1092,8 +1115,99 @@ mod constraints {
         ((p.0 - a.0) * dy - (p.1 - a.1) * dx) / len
     }
 
+    /// The ellipse slot `i`'s centre, radii, and its axes' directions.
+    fn ellipse(x: &[f64], i: usize) -> (P2, f64, f64, P2, P2) {
+        let (s, c) = x[i + 4].sin_cos();
+        ((x[i], x[i + 1]), x[i + 2], x[i + 3], (c, s), (-s, c))
+    }
+
+    /// The distance from `p` to the nearest point of the ellipse slot `i`, positive outside it (Onshape puts a point
+    /// on an ellipse at the nearest point, batch 192 c010, and measures distances from it, 194).
+    fn to_ellipse(x: &[f64], i: usize, p: P2) -> f64 {
+        ellipse_foot(x, i, p).1
+    }
+
+    /// The nearest point to `p` of the ellipse slot `i`, and the distance to it, positive outside the ellipse.
+    fn ellipse_foot(x: &[f64], i: usize, p: P2) -> (P2, f64) {
+        let (c, a, b, e1, e2) = ellipse(x, i);
+        let d = (p.0 - c.0, p.1 - c.1);
+        let (su, sv) = (d.0 * e1.0 + d.1 * e1.1, d.0 * e2.0 + d.1 * e2.1);
+        let (u, v) = (su.abs(), sv.abs());
+        // The nearest point in the first quadrant, its angle parameter by sampling and then golden sections.
+        let gap = |t: f64| (a * t.cos() - u).powi(2) + (b * t.sin() - v).powi(2);
+        let steps = 64;
+        let h = std::f64::consts::FRAC_PI_2 / steps as f64;
+        let best = (0..=steps).map(|k| k as f64 * h).min_by(|&s, &t| gap(s).total_cmp(&gap(t))).unwrap_or(0.0);
+        let (mut lo, mut hi) = ((best - h).max(0.0), (best + h).min(std::f64::consts::FRAC_PI_2));
+        let g = (5f64.sqrt() - 1.0) / 2.0;
+        for _ in 0..80 {
+            let (m1, m2) = (hi - g * (hi - lo), lo + g * (hi - lo));
+            if gap(m1) < gap(m2) {
+                hi = m2;
+            } else {
+                lo = m1;
+            }
+        }
+        let t = (lo + hi) / 2.0;
+        let distance = gap(t).sqrt();
+        let (fu, fv) = ((a * t.cos()).copysign(su), (b * t.sin()).copysign(sv));
+        let foot = (c.0 + fu * e1.0 + fv * e2.0, c.1 + fu * e1.1 + fv * e2.1);
+        (foot, if (u / a).powi(2) + (v / b).powi(2) >= 1.0 { distance } else { -distance })
+    }
+
+    /// How far a held curve's nearest stretch parallel to the line through `a` and `b` is from that line (signed as
+    /// `to_line`): zero when the line touches the curve there (batch 194 c002).
+    fn curve_to_line(curve: &occt::Shape, a: P2, b: P2) -> Option<f64> {
+        let len = (b.0 - a.0).hypot(b.1 - a.1).max(1e-300);
+        let d = ((b.0 - a.0) / len, (b.1 - a.1) / len);
+        let at = |t: f64| curve.edge_tangent(t, false).ok();
+        let across = |axis: &occt::Axis| axis.direction.x * d.1 - axis.direction.y * d.0;
+        let steps = 100;
+        let samples: Vec<occt::Axis> = (0..=steps).map(|k| at(k as f64 / steps as f64)).collect::<Option<_>>()?;
+        let mut best: Option<f64> = None;
+        for k in 0..steps {
+            let (g0, g1) = (across(&samples[k]), across(&samples[k + 1]));
+            if g0 * g1 > 0.0 || (g0 == 0.0 && k > 0) {
+                continue;
+            }
+            // Where the curve runs parallel to the line, by bisection.
+            let (mut lo, mut hi, mut glo) = (k as f64 / steps as f64, (k + 1) as f64 / steps as f64, g0);
+            for _ in 0..34 {
+                let mid = (lo + hi) / 2.0;
+                let g = across(&at(mid)?);
+                if (g < 0.0) == (glo < 0.0) {
+                    (lo, glo) = (mid, g);
+                } else {
+                    hi = mid;
+                }
+            }
+            let o = at((lo + hi) / 2.0)?.origin;
+            let f = to_line((o.x, o.y), a, b);
+            if best.is_none_or(|g| f.abs() < g.abs()) {
+                best = Some(f);
+            }
+        }
+        best
+    }
+
+    /// The distance from `p` to the nearest point of a held curve, signed by the side of it (left of its direction
+    /// positive).
+    fn to_curve(curve: &occt::Shape, p: P2) -> Option<f64> {
+        let t = curve.edge_fraction(occt::Vec3 { x: p.0, y: p.1, z: 0.0 }, false).ok()?;
+        let axis = curve.edge_tangent(t, false).ok()?;
+        let (f, d) = (axis.origin, axis.direction);
+        Some(d.x * (p.1 - f.y) - d.y * (p.0 - f.x))
+    }
+
     /// One constraint's residuals at `x` (each zero when it holds), given its values at the start `x0` for fixes.
-    fn residuals(entities: &[SketchEntity], slots: &[Option<Slot>], c: &Value, x: &[f64], x0: &[f64]) -> Vec<f64> {
+    fn residuals(
+        entities: &[SketchEntity],
+        slots: &[Option<Slot>],
+        curves: &[Option<occt::Shape>],
+        c: &Value,
+        x: &[f64],
+        x0: &[f64],
+    ) -> Vec<f64> {
         let kind = field(c, "constraintType").as_str().unwrap_or("");
         let first = field(c, "localFirst").as_str().and_then(|n| part(entities, slots, n));
         let second = field(c, "localSecond").as_str().and_then(|n| part(entities, slots, n));
@@ -1139,6 +1253,12 @@ mod constraints {
                     let m = reflect((x[i], x[i + 1]));
                     return vec![x[j] - m.0, x[j + 1] - m.1, x[j + 2] - x[i + 2]];
                 }
+                // An ellipse's image the same size, its axis reflected (batch 194 c011).
+                (Some(Part::Entity(Slot::Ellipse(i))), Some(Part::Entity(Slot::Ellipse(j)))) => {
+                    let m = reflect((x[i], x[i + 1]));
+                    let axis = 2.0 * dy.atan2(dx) - x[i + 4];
+                    return vec![x[j] - m.0, x[j + 1] - m.1, x[j + 2] - x[i + 2], x[j + 3] - x[i + 3], (x[j + 4] - axis).sin()];
+                }
                 _ => vec![],
             };
             return pairs
@@ -1160,7 +1280,7 @@ mod constraints {
             }
             ("FIX", Some(Part::Entity(Slot::Line(i))), None) => (i..i + 4).map(|k| x[k] - x0[k]).collect(),
             ("FIX", Some(Part::Entity(Slot::Circle(i))), None) => (i..i + 3).map(|k| x[k] - x0[k]).collect(),
-            ("FIX", Some(Part::Entity(Slot::Ellipse(i))), None) => (i..i + 4).map(|k| x[k] - x0[k]).collect(),
+            ("FIX", Some(Part::Entity(Slot::Ellipse(i))), None) => (i..i + 5).map(|k| x[k] - x0[k]).collect(),
             ("COINCIDENT", Some(Part::Point(s1, w1)), Some(Part::Point(s2, w2))) => {
                 match (point(x, s1, w1), point(x, s2, w2)) {
                     (Some(p), Some(q)) => vec![p.0 - q.0, p.1 - q.1],
@@ -1173,8 +1293,141 @@ mod constraints {
                 match e {
                     Slot::Line(_) => line(x, e).map(|(a, b)| vec![to_line(p, a, b)]).unwrap_or_default(),
                     Slot::Arc(i) | Slot::Circle(i) => vec![(p.0 - x[i]).hypot(p.1 - x[i + 1]) - x[i + 2]],
-                    Slot::Point(_) | Slot::Ellipse(_) => vec![],
+                    // At the nearest point of an ellipse or a held spline (batch 192 c010, c014).
+                    Slot::Ellipse(i) => vec![to_ellipse(x, i, p)],
+                    Slot::Curve(k) => curves[k].as_ref().and_then(|curve| to_curve(curve, p)).into_iter().collect(),
+                    Slot::Point(_) => vec![],
                 }
+            }
+            // Lines made collinear: the second's ends on the first's line (batch 192 c008).
+            ("COINCIDENT", Some(Part::Entity(l1 @ Slot::Line(_))), Some(Part::Entity(l2 @ Slot::Line(_)))) => {
+                match (line(x, l1), line(x, l2)) {
+                    (Some((a, b)), Some((p, q))) => vec![to_line(p, a, b), to_line(q, a, b)],
+                    _ => vec![],
+                }
+            }
+            // Round curves made one: one centre and radius (batch 192 c009).
+            (
+                "COINCIDENT",
+                Some(Part::Entity(Slot::Arc(i) | Slot::Circle(i))),
+                Some(Part::Entity(Slot::Arc(j) | Slot::Circle(j))),
+            ) => vec![x[i] - x[j], x[i + 1] - x[j + 1], x[i + 2] - x[j + 2]],
+            // Ellipses made one: one centre, radii and axis (batch 194 c006).
+            ("COINCIDENT", Some(Part::Entity(Slot::Ellipse(i))), Some(Part::Entity(Slot::Ellipse(j)))) => {
+                let mut r: Vec<f64> = (0..4).map(|k| x[j + k] - x[i + k]).collect();
+                r.push((x[j + 4] - x[i + 4]).sin());
+                r
+            }
+            // A round curve touching an ellipse: its centre its radius from the ellipse, outside or inside as it
+            // starts (batch 194 c001).
+            ("TANGENT", Some(Part::Entity(Slot::Ellipse(i))), Some(Part::Entity(Slot::Arc(j) | Slot::Circle(j))))
+            | ("TANGENT", Some(Part::Entity(Slot::Arc(j) | Slot::Circle(j))), Some(Part::Entity(Slot::Ellipse(i)))) => {
+                let outside = to_ellipse(x0, i, (x0[j], x0[j + 1])) >= 0.0;
+                let gap = to_ellipse(x, i, (x[j], x[j + 1]));
+                vec![if outside { gap - x[j + 2] } else { gap + x[j + 2] }]
+            }
+            // A point or a round curve a distance from an ellipse, measured from its nearest point, on the side it
+            // starts (batch 194 c003, c012).
+            ("DISTANCE", Some(Part::Point(s, w)), Some(Part::Entity(Slot::Ellipse(i))))
+            | ("DISTANCE", Some(Part::Entity(Slot::Ellipse(i))), Some(Part::Point(s, w))) => {
+                let (Some(p), Some(p0), Some(d)) = (point(x, s, w), point(x0, s, w), length("length")) else {
+                    return vec![];
+                };
+                let gap = to_ellipse(x, i, p);
+                vec![if to_ellipse(x0, i, p0) >= 0.0 { gap } else { -gap } - d]
+            }
+            ("DISTANCE", Some(Part::Entity(Slot::Ellipse(i))), Some(Part::Entity(Slot::Arc(j) | Slot::Circle(j))))
+            | ("DISTANCE", Some(Part::Entity(Slot::Arc(j) | Slot::Circle(j))), Some(Part::Entity(Slot::Ellipse(i)))) => {
+                let Some(d) = length("length") else { return vec![] };
+                let gap = to_ellipse(x, i, (x[j], x[j + 1]));
+                vec![if to_ellipse(x0, i, (x0[j], x0[j + 1])) >= 0.0 { gap } else { -gap } - x[j + 2] - d]
+            }
+            // A point a distance from a held curve, on the side it starts (batch 194 c004).
+            ("DISTANCE", Some(Part::Point(s, w)), Some(Part::Entity(Slot::Curve(k))))
+            | ("DISTANCE", Some(Part::Entity(Slot::Curve(k))), Some(Part::Point(s, w))) => {
+                let (Some(curve), Some(p), Some(p0), Some(d)) =
+                    (curves[k].as_ref(), point(x, s, w), point(x0, s, w), length("length"))
+                else {
+                    return vec![];
+                };
+                match (to_curve(curve, p), to_curve(curve, p0)) {
+                    (Some(gap), Some(gap0)) => vec![if gap0 >= 0.0 { gap } else { -gap } - d],
+                    _ => vec![],
+                }
+            }
+            // A line touching a held curve where the curve runs parallel to it (batch 194 c002).
+            ("TANGENT", Some(Part::Entity(Slot::Curve(k))), Some(Part::Entity(l @ Slot::Line(_))))
+            | ("TANGENT", Some(Part::Entity(l @ Slot::Line(_))), Some(Part::Entity(Slot::Curve(k)))) => {
+                match (curves[k].as_ref(), line(x, l)) {
+                    (Some(curve), Some((a, b))) => curve_to_line(curve, a, b).into_iter().collect(),
+                    _ => vec![],
+                }
+            }
+            // A line normal to an ellipse: through the nearest point of the ellipse to its middle, so along the normal
+            // there (batch 194 c010; first turned about where it crosses the ellipse, `turn_normals`).
+            ("NORMAL", Some(Part::Entity(l @ Slot::Line(_))), Some(Part::Entity(Slot::Ellipse(i))))
+            | ("NORMAL", Some(Part::Entity(Slot::Ellipse(i))), Some(Part::Entity(l @ Slot::Line(_)))) => {
+                let Some((a, b)) = line(x, l) else { return vec![] };
+                let (foot, _) = ellipse_foot(x, i, ((a.0 + b.0) / 2.0, (a.1 + b.1) / 2.0));
+                vec![to_line(foot, a, b)]
+            }
+            // A line touching an ellipse: as far from its centre as the ellipse reaches across the line (batch 192
+            // c011).
+            ("TANGENT", Some(Part::Entity(Slot::Ellipse(i))), Some(Part::Entity(l @ Slot::Line(_))))
+            | ("TANGENT", Some(Part::Entity(l @ Slot::Line(_))), Some(Part::Entity(Slot::Ellipse(i)))) => {
+                let Some((a, b)) = line(x, l) else { return vec![] };
+                let (c, ra, rb, e1, e2) = ellipse(x, i);
+                let len = (b.0 - a.0).hypot(b.1 - a.1).max(1e-300);
+                let n = (-(b.1 - a.1) / len, (b.0 - a.0) / len);
+                let reach = (ra * (n.0 * e1.0 + n.1 * e1.1)).hypot(rb * (n.0 * e2.0 + n.1 * e2.1));
+                vec![to_line(c, a, b).abs() - reach]
+            }
+            // From a point to a round curve, measured to its nearest point, on the side the point starts (batch 192
+            // c004, c005, c016).
+            ("DISTANCE", Some(Part::Point(s, w)), Some(Part::Entity(Slot::Arc(i) | Slot::Circle(i))))
+            | ("DISTANCE", Some(Part::Entity(Slot::Arc(i) | Slot::Circle(i))), Some(Part::Point(s, w))) => {
+                let (Some(p), Some(p0), Some(d)) = (point(x, s, w), point(x0, s, w), length("length")) else {
+                    return vec![];
+                };
+                let outside = (p0.0 - x0[i]).hypot(p0.1 - x0[i + 1]) >= x0[i + 2];
+                let gap = (p.0 - x[i]).hypot(p.1 - x[i + 1]) - x[i + 2];
+                vec![if outside { gap } else { -gap } - d]
+            }
+            // From a line to a round curve, measured to its nearest point (batch 192 c006).
+            ("DISTANCE", Some(Part::Entity(l @ Slot::Line(_))), Some(Part::Entity(Slot::Arc(i) | Slot::Circle(i))))
+            | ("DISTANCE", Some(Part::Entity(Slot::Arc(i) | Slot::Circle(i))), Some(Part::Entity(l @ Slot::Line(_)))) => {
+                let (Some((a, b)), Some((a0, b0)), Some(d)) = (line(x, l), line(x0, l), length("length")) else {
+                    return vec![];
+                };
+                let outside = to_line((x0[i], x0[i + 1]), a0, b0).abs() >= x0[i + 2];
+                let gap = to_line((x[i], x[i + 1]), a, b).abs() - x[i + 2];
+                vec![if outside { gap } else { -gap } - d]
+            }
+            // Between round curves, apart or one inside the other as they start (batch 192 c007).
+            (
+                "DISTANCE",
+                Some(Part::Entity(Slot::Arc(i) | Slot::Circle(i))),
+                Some(Part::Entity(Slot::Arc(j) | Slot::Circle(j))),
+            ) => {
+                let Some(d) = length("length") else { return vec![] };
+                let centres = |x: &[f64]| (x[i] - x[j]).hypot(x[i + 1] - x[j + 1]);
+                if centres(x0) + x0[i + 2].min(x0[j + 2]) <= x0[i + 2].max(x0[j + 2]) {
+                    vec![(x[i + 2] - x[j + 2]).abs() - centres(x) - d]
+                } else {
+                    vec![centres(x) - x[i + 2] - x[j + 2] - d]
+                }
+            }
+            // Two points made level or plumb (batch 192 c001–c003: the newer first turned about the other,
+            // `align_points`).
+            ("HORIZONTAL" | "VERTICAL", Some(Part::Point(s1, w1)), Some(Part::Point(s2, w2))) => {
+                match (point(x, s1, w1), point(x, s2, w2)) {
+                    (Some(p), Some(q)) => vec![if kind == "HORIZONTAL" { q.1 - p.1 } else { q.0 - p.0 }],
+                    _ => vec![],
+                }
+            }
+            // An ellipse made horizontal or vertical: its major axis turned about its centre (batch 192 c013).
+            ("HORIZONTAL" | "VERTICAL", Some(Part::Entity(Slot::Ellipse(i))), None) => {
+                vec![if kind == "HORIZONTAL" { x[i + 4].sin() } else { x[i + 4].cos() }]
             }
             ("TANGENT", Some(Part::Entity(Slot::Arc(i) | Slot::Circle(i))), Some(Part::Entity(l @ Slot::Line(_))))
             | ("TANGENT", Some(Part::Entity(l @ Slot::Line(_))), Some(Part::Entity(Slot::Arc(i) | Slot::Circle(i)))) => {
@@ -1216,7 +1469,7 @@ mod constraints {
             },
             ("CONCENTRIC", Some(a), Some(b)) => {
                 let centre = |p: &Part| match *p {
-                    Part::Entity(Slot::Arc(i) | Slot::Circle(i)) => Some((x[i], x[i + 1])),
+                    Part::Entity(Slot::Arc(i) | Slot::Circle(i) | Slot::Ellipse(i)) => Some((x[i], x[i + 1])),
                     Part::Point(s, w) => point(x, s, w),
                     _ => None,
                 };
@@ -1230,11 +1483,14 @@ mod constraints {
             | ("NORMAL", Some(Part::Entity(Slot::Arc(i) | Slot::Circle(i))), Some(Part::Entity(l @ Slot::Line(_)))) => {
                 line(x, l).map(|(a, b)| vec![to_line((x[i], x[i + 1]), a, b)]).unwrap_or_default()
             }
-            // Between lines (parallel ones): the second's middle that far from the first's line.
+            // Between lines: the second's ends that far from the first's line, on the side its middle starts, so
+            // parallel to it (batch 194 c007: a line not parallel turns about its middle).
             ("DISTANCE", Some(Part::Entity(l1 @ Slot::Line(_))), Some(Part::Entity(l2 @ Slot::Line(_)))) => {
-                match (line(x, l1), line(x, l2), length("length")) {
-                    (Some((a, b)), Some((p, q)), Some(d)) => {
-                        vec![to_line(((p.0 + q.0) / 2.0, (p.1 + q.1) / 2.0), a, b).abs() - d]
+                match (line(x, l1), line(x, l2), line(x0, l1), line(x0, l2), length("length")) {
+                    (Some((a, b)), Some((p, q)), Some((a0, b0)), Some((p0, q0)), Some(d)) => {
+                        let side = to_line(((p0.0 + q0.0) / 2.0, (p0.1 + q0.1) / 2.0), a0, b0).signum();
+                        let side = if side == 0.0 { 1.0 } else { side };
+                        vec![side * to_line(p, a, b) - d, side * to_line(q, a, b) - d]
                     }
                     _ => vec![],
                 }
@@ -1292,11 +1548,12 @@ mod constraints {
     fn all(
         entities: &[SketchEntity],
         slots: &[Option<Slot>],
+        curves: &[Option<occt::Shape>],
         constraints: &[Value],
         x: &[f64],
         x0: &[f64],
     ) -> Vec<f64> {
-        constraints.iter().flat_map(|c| residuals(entities, slots, c, x, x0)).collect()
+        constraints.iter().flat_map(|c| residuals(entities, slots, curves, c, x, x0)).collect()
     }
 
     /// Moves the entities to meet the constraints, if they don't already.
@@ -1587,6 +1844,144 @@ mod constraints {
         }
     }
 
+    /// Where a slot's unknowns start.
+    fn base(slot: Slot) -> usize {
+        match slot {
+            Slot::Point(i) | Slot::Line(i) | Slot::Arc(i) | Slot::Circle(i) | Slot::Ellipse(i) | Slot::Curve(i) => i,
+        }
+    }
+
+    /// Two points made horizontal or vertical: before solving, the entity of the second (or, if it's fixed, of the
+    /// first) turns as a whole about the other point until they line up, as Onshape's solver moves it: a point keeps
+    /// its distance, a line its length and its distances from the point (batch 192 c001–c003, 193 c009–c011).
+    fn align_points(entities: &[SketchEntity], slots: &[Option<Slot>], constraints: &[Value], x0: &mut [f64]) -> bool {
+        let mut moved = false;
+        let fixed: Vec<usize> = constraints
+            .iter()
+            .filter(|c| field(c, "constraintType").as_str() == Some("FIX"))
+            .filter_map(|c| match field(c, "localFirst").as_str().and_then(|n| part(entities, slots, n)) {
+                // (A held curve's slot is its entity's index, not a place among the unknowns.)
+                Some(Part::Point(s, _) | Part::Entity(s)) if !matches!(s, Slot::Curve(_)) => Some(base(s)),
+                _ => None,
+            })
+            .collect();
+        for c in constraints {
+            let kind = field(c, "constraintType").as_str().unwrap_or("");
+            if kind != "HORIZONTAL" && kind != "VERTICAL" {
+                continue;
+            }
+            let named = |key: &str| field(c, key).as_str().and_then(|n| part(entities, slots, n));
+            let (Some(Part::Point(s1, w1)), Some(Part::Point(s2, w2))) = (named("localFirst"), named("localSecond")) else {
+                continue;
+            };
+            if base(s1) == base(s2) {
+                continue;
+            }
+            let movable = |s: Slot| !matches!(s, Slot::Curve(_)) && !fixed.contains(&base(s));
+            let (moving, which, pivot) = if movable(s2) {
+                (s2, w2, (s1, w1))
+            } else if movable(s1) {
+                (s1, w1, (s2, w2))
+            } else {
+                continue;
+            };
+            let (Some(o), Some(m)) = (point(x0, pivot.0, pivot.1), point(x0, moving, which)) else { continue };
+            let r = (m.0 - o.0).hypot(m.1 - o.1);
+            let side = |d: f64| if d < 0.0 { -r } else { r };
+            let to = if kind == "HORIZONTAL" { (o.0 + side(m.0 - o.0), o.1) } else { (o.0, o.1 + side(m.1 - o.1)) };
+            let turn = (to.1 - o.1).atan2(to.0 - o.0) - (m.1 - o.1).atan2(m.0 - o.0);
+            if turn.abs() < 1e-15 {
+                continue;
+            }
+            moved = true;
+            let (sin, cos) = turn.sin_cos();
+            let i = base(moving);
+            let (dx, dy) = (x0[i] - o.0, x0[i + 1] - o.1);
+            (x0[i], x0[i + 1]) = (o.0 + dx * cos - dy * sin, o.1 + dx * sin + dy * cos);
+            match moving {
+                Slot::Line(i) | Slot::Ellipse(i) => x0[i + if matches!(moving, Slot::Line(_)) { 2 } else { 4 }] += turn,
+                Slot::Arc(i) => {
+                    x0[i + 3] += turn;
+                    x0[i + 4] += turn;
+                }
+                _ => {}
+            }
+        }
+        moved
+    }
+
+    /// A line made normal to an ellipse: before solving, it turns as a whole about where it (or its extension)
+    /// crosses the ellipse nearest it until it runs along the normal there, keeping its length, as Onshape's solver
+    /// moves it (batch 194 c010).
+    fn turn_normals(entities: &[SketchEntity], slots: &[Option<Slot>], constraints: &[Value], x0: &mut [f64]) -> bool {
+        let mut moved = false;
+        for c in constraints {
+            if field(c, "constraintType").as_str() != Some("NORMAL") {
+                continue;
+            }
+            let named = |key: &str| field(c, key).as_str().and_then(|n| part(entities, slots, n));
+            let (l, i) = match (named("localFirst"), named("localSecond")) {
+                (Some(Part::Entity(l @ Slot::Line(_))), Some(Part::Entity(Slot::Ellipse(i))))
+                | (Some(Part::Entity(Slot::Ellipse(i))), Some(Part::Entity(l @ Slot::Line(_)))) => (l, i),
+                _ => continue,
+            };
+            let Some((a, b)) = line(x0, l) else { continue };
+            let length = (b.0 - a.0).hypot(b.1 - a.1);
+            if length < 1e-12 {
+                continue;
+            }
+            let d = ((b.0 - a.0) / length, (b.1 - a.1) / length);
+            let (c0, ra, rb, e1, e2) = ellipse(x0, i);
+            let local = |v: P2| (v.0 * e1.0 + v.1 * e1.1, v.0 * e2.0 + v.1 * e2.1);
+            let (q, e) = (local((a.0 - c0.0, a.1 - c0.1)), local(d));
+            let qa = (e.0 / ra).powi(2) + (e.1 / rb).powi(2);
+            let qb = 2.0 * (q.0 * e.0 / (ra * ra) + q.1 * e.1 / (rb * rb));
+            let qc = (q.0 / ra).powi(2) + (q.1 / rb).powi(2) - 1.0;
+            let disc = qb * qb - 4.0 * qa * qc;
+            if disc < 0.0 {
+                continue;
+            }
+            let off = |s: f64| (-s).max(s - length).max(0.0);
+            let s = [(-qb - disc.sqrt()) / (2.0 * qa), (-qb + disc.sqrt()) / (2.0 * qa)]
+                .into_iter()
+                .min_by(|&s, &t| off(s).total_cmp(&off(t)))
+                .unwrap_or(0.0);
+            let pivot = (a.0 + s * d.0, a.1 + s * d.1);
+            let lp = local((pivot.0 - c0.0, pivot.1 - c0.1));
+            let (nu, nv) = (lp.0 / (ra * ra), lp.1 / (rb * rb));
+            let n = (nu * e1.0 + nv * e2.0, nu * e1.1 + nv * e2.1);
+            let n = if n.0 * d.0 + n.1 * d.1 < 0.0 { (-n.0, -n.1) } else { n };
+            let turn = (d.0 * n.1 - d.1 * n.0).atan2(d.0 * n.0 + d.1 * n.1);
+            if turn.abs() < 1e-15 {
+                continue;
+            }
+            moved = true;
+            let Slot::Line(j) = l else { continue };
+            let (sin, cos) = turn.sin_cos();
+            let (dx, dy) = (x0[j] - pivot.0, x0[j + 1] - pivot.1);
+            (x0[j], x0[j + 1]) = (pivot.0 + dx * cos - dy * sin, pivot.1 + dx * sin + dy * cos);
+            x0[j + 2] += turn;
+        }
+        moved
+    }
+
+    /// A curve with no unknowns of its own, as an edge in the sketch's plane: a fit spline, Bézier, B-spline,
+    /// elliptical arc or conic.
+    fn held_curve(geometry: &Geometry) -> Option<occt::Shape> {
+        let flat = |p: P2| occt::Vec3 { x: p.0, y: p.1, z: 0.0 };
+        match geometry {
+            Geometry::Ellipse { center, major_axis, major, minor, arc: Some((a, b)) } => {
+                let normal = occt::Vec3 { x: 0.0, y: 0.0, z: 1.0 };
+                let frame = occt::Frame { origin: flat(*center), normal, x: flat(*major_axis) };
+                occt::ellipse_edge(frame, *major, *minor, Some((a * TAU, b * TAU))).ok()
+            }
+            Geometry::Conic { start, control, end, rho } => {
+                occt::conic_edge(flat(*start), flat(*control), flat(*end), rho / (1.0 - rho)).ok()
+            }
+            _ => free_curve(geometry, &flat, &flat).and_then(|r| r.ok()),
+        }
+    }
+
     pub fn solve(entities: &mut [SketchEntity], constraints: &[Value]) -> R<()> {
         if constraints.is_empty() {
             return Ok(());
@@ -1621,11 +2016,20 @@ mod constraints {
             })
             .map(|(i, _)| i)
             .collect();
-        let (slots, x0, scale, groups) = slots(entities, fixed, &wedged, &ends_named);
+        let (slots, mut x0, scale, groups) = slots(entities, fixed, &wedged, &ends_named);
+        let aligned = align_points(entities, &slots, constraints, &mut x0) | turn_normals(entities, &slots, constraints, &mut x0);
+        // The held curves constraints name, as edges in the sketch's plane.
+        let named = |id: &str| {
+            constraints.iter().any(|c| {
+                ["localFirst", "localSecond"].iter().any(|k| field(c, k).as_str() == Some(id))
+            })
+        };
+        let curves: Vec<Option<occt::Shape>> =
+            entities.iter().map(|e| if named(&e.id) { held_curve(&e.geometry) } else { None }).collect();
         let norm = |r: &[f64]| r.iter().map(|v| v * v).sum::<f64>().sqrt();
         let mut x = x0.clone();
-        let mut r = all(entities, &slots, constraints, &x, &x0);
-        if r.iter().all(|v| v.abs() < 1e-10) {
+        let mut r = all(entities, &slots, &curves, constraints, &x, &x0);
+        if r.iter().all(|v| v.abs() < 1e-10) && !aligned {
             return Ok(());
         }
         let n = x.len();
@@ -1646,7 +2050,7 @@ mod constraints {
                 let (mut up, mut down) = (x.clone(), x.clone());
                 up[k] += h;
                 down[k] -= h;
-                let (ru, rd) = (all(entities, &slots, constraints, &up, &x0), all(entities, &slots, constraints, &down, &x0));
+                let (ru, rd) = (all(entities, &slots, &curves, constraints, &up, &x0), all(entities, &slots, &curves, constraints, &down, &x0));
                 for (row, (a, b)) in jac.iter_mut().zip(ru.iter().zip(rd.iter())) {
                     row[k] = (a - b) / (2.0 * h);
                 }
@@ -1661,7 +2065,7 @@ mod constraints {
             let mut improved = false;
             for _ in 0..30 {
                 let trial: Vec<f64> = (0..n).map(|k| x[k] + t * (target[k] - x[k])).collect();
-                let rt = all(entities, &slots, constraints, &trial, &x0);
+                let rt = all(entities, &slots, &curves, constraints, &trial, &x0);
                 if norm(&rt) < norm(&r) {
                     x = trial;
                     r = rt;
@@ -1701,9 +2105,11 @@ mod constraints {
                     *center = (x[*i], x[*i + 1]);
                     *radius = x[*i + 2];
                 }
-                (Some(Slot::Ellipse(i)), Geometry::Ellipse { center, major, minor, .. }) => {
+                (Some(Slot::Ellipse(i)), Geometry::Ellipse { center, major_axis, major, minor, .. }) => {
                     *center = (x[*i], x[*i + 1]);
                     (*major, *minor) = (x[*i + 2], x[*i + 3]);
+                    let (s, c) = x[*i + 4].sin_cos();
+                    *major_axis = (c, s);
                 }
                 _ => {}
             }
