@@ -886,6 +886,28 @@ fn replace_with_surface(model: &mut Model, id: FeatureId, definition: &Value, of
     if model.info(template_ref).lofted {
         return Err(regen_error("DIRECT_EDIT_REPLACE_FACE_FAILED"));
     }
+    // The new face takes the template's sense (or its opposite, `oppositeSense`): one facing against the replaced
+    // face would turn the body inside out there, which Onshape refuses (batch 189 c002: a hole up to a smaller coaxial
+    // cylinder, the cylinder's face outward from its axis, the hole's towards it).
+    let samples: Vec<occt::Frame> = (0..9)
+        .flat_map(|i| (0..9).map(move |j| ((i as f64 + 0.5) / 9.0, (j as f64 + 0.5) / 9.0)))
+        .filter_map(|(fu, fv)| template.face_tangent_plane(fu, fv).ok())
+        .collect();
+    for (_, faces) in &groups {
+        for face in faces {
+            let Ok(at) = face.face_tangent_plane(0.5, 0.5) else { continue };
+            let nearest = samples.iter().min_by(|x, y| {
+                values::norm(values::sub(x.origin, at.origin))
+                    .total_cmp(&values::norm(values::sub(y.origin, at.origin)))
+            });
+            if let Some(t) = nearest {
+                let sense = values::dot(at.normal, t.normal) * if opposite { -1.0 } else { 1.0 };
+                if sense < -1e-9 {
+                    return Err(regen_error("DIRECT_EDIT_REPLACE_FACE_FAILED"));
+                }
+            }
+        }
+    }
     let mut results = Vec::new();
     for (b, faces) in groups {
         let mut shape = model.bodies[b].shape.clone();
