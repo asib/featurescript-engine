@@ -3672,11 +3672,70 @@ pub fn constrained_surface(model: &mut Model, id: FeatureId, definition: &Value)
         v => values::length(v, "constrained surface tolerance")?,
     };
     let smooth = values::opt_bool(definition, "smooth")?.unwrap_or(false);
+    if let Some(face) = flat_constrained_surface(&points, tolerance)? {
+        add(model, &id, face, BodyType::Sheet);
+        return Ok(Value::UNDEFINED);
+    }
     let fit = crate::bspline::fit_surface(&points, tolerance, smooth)?;
     let face =
         occt::bspline_surface_face(&fit.poles, fit.counts, &fit.knots_u, &fit.knots_v, (3, 3)).map_err(occt_error)?;
     add(model, &id, face, BodyType::Sheet);
     Ok(Value::UNDEFINED)
+}
+
+/// A constrained surface through points that lie in a plane, as Onshape makes it (batch 196 c001, c003): one bicubic
+/// span over the rectangle the points span along their main axis and across it, 5 times the tolerance wider each
+/// way, its parameters lengths (m) from the rectangle's middle; its normal the way the first three points not in a
+/// line turn, its u along the main axis (its largest component positive). None if the points aren't in a plane.
+fn flat_constrained_surface(points: &[occt::Vec3], tolerance: f64) -> R<Option<Shape>> {
+    use crate::values::{add, cross, dot, norm, normalize, scale, sub};
+    if points.len() < 3 {
+        return Ok(None);
+    }
+    let Some(normal) = points.iter().skip(2).find_map(|p| {
+        let n = cross(sub(points[1], points[0]), sub(*p, points[0]));
+        (norm(n) > 1e-12 * norm(sub(points[1], points[0])).max(1e-12)).then(|| normalize(n)).flatten()
+    }) else {
+        return Ok(None);
+    };
+    if points.iter().any(|p| dot(sub(*p, points[0]), normal).abs() > 1e-12) {
+        return Ok(None);
+    }
+    // The main axis: of the points' spread in the plane, the larger direction.
+    let m = points.len() as f64;
+    let centre = scale(points.iter().fold(occt::Vec3 { x: 0.0, y: 0.0, z: 0.0 }, |a, p| add(a, *p)), 1.0 / m);
+    let seed = if normal.x.abs() < 0.9 { occt::Vec3 { x: 1.0, y: 0.0, z: 0.0 } } else { occt::Vec3 { x: 0.0, y: 1.0, z: 0.0 } };
+    let e1 = normalize(cross(cross(normal, seed), normal)).ok_or_else(|| regen_error("CONSTRAINED_SURFACE_FAILED"))?;
+    let e2 = cross(normal, e1);
+    let (mut sxx, mut sxy, mut syy) = (0.0, 0.0, 0.0);
+    for p in points {
+        let d = sub(*p, centre);
+        let (a, b) = (dot(d, e1), dot(d, e2));
+        (sxx, sxy, syy) = (sxx + a * a, sxy + a * b, syy + b * b);
+    }
+    let angle = 0.5 * (2.0 * sxy).atan2(sxx - syy);
+    let mut u = add(scale(e1, angle.cos()), scale(e2, angle.sin()));
+    let largest = [u.x, u.y, u.z].into_iter().fold(0.0f64, |a, c| if c.abs() > a.abs() { c } else { a });
+    if largest < 0.0 {
+        u = scale(u, -1.0);
+    }
+    let v = cross(normal, u);
+    let range = |axis: occt::Vec3| {
+        points.iter().map(|p| dot(sub(*p, centre), axis)).fold((f64::MAX, f64::MIN), |(lo, hi), x| (lo.min(x), hi.max(x)))
+    };
+    let ((u0, u1), (v0, v1)) = (range(u), range(v));
+    let margin = 5.0 * tolerance;
+    let (hu, hv) = ((u1 - u0) / 2.0 + margin, (v1 - v0) / 2.0 + margin);
+    let middle = add(centre, add(scale(u, (u0 + u1) / 2.0), scale(v, (v0 + v1) / 2.0)));
+    let mut poles = Vec::with_capacity(16);
+    for i in 0..4 {
+        for j in 0..4 {
+            let (a, b) = (-hu + 2.0 * hu * i as f64 / 3.0, -hv + 2.0 * hv * j as f64 / 3.0);
+            poles.push(add(middle, add(scale(u, a), scale(v, b))));
+        }
+    }
+    let knots = |h: f64| [vec![-h; 4], vec![h; 4]].concat();
+    occt::bspline_surface_face(&poles, (4, 4), &knots(hu), &knots(hv), (3, 3)).map(Some).map_err(occt_error)
 }
 
 /// A ruled surface's override at a vertex of its path (std's `vertexOverrides`): its ruling's direction (or angle from
