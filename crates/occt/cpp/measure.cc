@@ -444,10 +444,24 @@ Vec3 face_fraction(const Shape &s, Vec3 p) {
   const TopoDS_Face &face = TopoDS::Face(s.shape);
   double u0, u1, v0, v1;
   BRepTools::UVBounds(face, u0, u1, v0, v1);
-  GeomAPI_ProjectPointOnSurf projector(pnt(p), BRep_Tool::Surface(face));
+  Handle(Geom_Surface) surface = BRep_Tool::Surface(face);
+  GeomAPI_ProjectPointOnSurf projector(pnt(p), surface);
   if (projector.NbPoints() == 0) throw std::runtime_error("could not project onto the face");
   double u, v;
   projector.LowerDistanceParameters(u, v);
+  // A periodic parameter taken round to the turn nearest the face's range: a point on a revolved face's start
+  // meridian projects to 2 pi, not 0 (batch 195 c011).
+  auto nearest_turn = [](double t, double lo, double hi, double period) {
+    double best = t, gap = 1e300;
+    for (int k = -2; k <= 2; ++k) {
+      double c = t + k * period;
+      double g = c < lo ? lo - c : (c > hi ? c - hi : 0.0);
+      if (g < gap) gap = g, best = c;
+    }
+    return best;
+  };
+  if (surface->IsUPeriodic()) u = nearest_turn(u, u0, u1, surface->UPeriod());
+  if (surface->IsVPeriodic()) v = nearest_turn(v, v0, v1, surface->VPeriod());
   return Vec3{u1 > u0 ? (u - u0) / (u1 - u0) : 0, v1 > v0 ? (v - v0) / (v1 - v0) : 0, 0};
 }
 

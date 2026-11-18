@@ -3023,14 +3023,20 @@ fn geodesic_offset(face: &Shape, edge: &Shape, distance: f64) -> R<Option<Shape>
         let (fu, fv) = face.face_fraction(x).ok()?;
         face.face_tangent_plane(fu.clamp(0.0, 1.0), fv.clamp(0.0, 1.0)).ok()
     };
-    let inside = |x: occt::Vec3| occt::vertex(x).and_then(|v| v.distance(face)).is_ok_and(|d| d.distance < 1e-6);
     // The walk from the point at fraction t of the edge: its end, or None if it leaves the face. A walk along the
     // face's own boundary (a sphere band's meridian offset round its equator, batch 120 c001) stays on it.
     let walk = |t: f64| -> Option<Option<occt::Vec3>> {
         let a = edge.edge_tangent(t, false).ok()?;
         let start = on_face(a.origin)?;
         let mut dir = normalize(cross(start.normal, a.direction))?;
-        if !inside(add(a.origin, scale(dir, distance * 1e-3))) {
+        // Into the face: of a short step either way, the one that stays nearer it (a step of a thousandth of the
+        // distance off a revolved sheet's meridian can read as on it, batch 195 c011).
+        let off = |d: occt::Vec3| {
+            occt::vertex(add(a.origin, scale(d, distance * 1e-2)))
+                .and_then(|v| v.distance(face))
+                .map_or(f64::INFINITY, |d| d.distance)
+        };
+        if off(scale(dir, -1.0)) < off(dir) {
             dir = scale(dir, -1.0);
         }
         let h = distance / STEPS as f64;
@@ -3055,6 +3061,22 @@ fn geodesic_offset(face: &Shape, edge: &Shape, distance: f64) -> R<Option<Shape>
     for k in 0..=SAMPLES {
         let t = k as f64 / SAMPLES as f64;
         ends.push((t, walk(t).ok_or_else(|| regen_error("OFFSET_CURVE_ON_FACE_FAILED"))?));
+    }
+    // Every walk the same straight move (an extruded sheet's end curve offset along it, batch 195 c009): the edge
+    // itself moved so, as Onshape's is, the same curve.
+    let moves: Option<Vec<occt::Vec3>> = ends
+        .iter()
+        .map(|(t, end)| Some(sub((*end)?, edge.edge_tangent(*t, false).ok()?.origin)))
+        .collect();
+    if let Some(moves) = moves.filter(|m| !m.is_empty()) {
+        let v = moves[0];
+        if moves.iter().all(|m| norm(sub(*m, v)) < 1e-9) && norm(v) > 1e-12 {
+            let t = occt::Transform { m: [1.0, 0.0, 0.0, v.x, 0.0, 1.0, 0.0, v.y, 0.0, 0.0, 1.0, v.z] };
+            let moved = occt::transform(edge, &t).map_err(occt_error)?.shape();
+            let in_face = face.sub_shapes(ShapeKind::Edge).into_iter().find(|e| e.is_same(edge));
+            let backwards = !face.is_reversed() && in_face.is_some_and(|e| e.is_reversed() != edge.is_reversed());
+            return Ok(Some(if backwards { moved.reversed() } else { moved }));
+        }
     }
     let first = ends.iter().position(|e| e.1.is_some());
     let last = ends.iter().rposition(|e| e.1.is_some());
@@ -3102,9 +3124,11 @@ fn geodesic_offset(face: &Shape, edge: &Shape, distance: f64) -> R<Option<Shape>
         return Ok(None);
     }
     // Along the edge as the face's loop runs it (batch 066 c004).
-    // Along the edge as the face's loop runs it (batch 066 c004).
+    // Along the edge's own direction (batch 195 c009, c011, c012: an extruded sheet's top edge, a revolved sheet's
+    // meridian and bottom circle), but against it where the face's loop runs the edge backwards on a face that isn't
+    // itself reversed (batch 066 c004: a loft's bottom edge, which runs the other way in Onshape).
     let in_face = face.sub_shapes(ShapeKind::Edge).into_iter().find(|e| e.is_same(edge));
-    if in_face.is_some_and(|e| e.is_reversed() != edge.is_reversed()) {
+    if !face.is_reversed() && in_face.is_some_and(|e| e.is_reversed() != edge.is_reversed()) {
         points.reverse();
     }
     // A closed edge offset all round: a closed curve.
