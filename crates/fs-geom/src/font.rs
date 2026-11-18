@@ -283,15 +283,32 @@ pub fn segments(contour: &[(f64, f64, bool)]) -> Vec<Vec<(f64, f64)>> {
     out
 }
 
-/// The fonts sketch text can use, by the names Onshape gives them (fs-geom/fonts/README.md).
+/// The fonts sketch text can use, by the names Onshape gives them (fs-geom/fonts/README.md). Natively they're
+/// compiled in; in WebAssembly they're read from `/fonts/<name>` in the virtual file system when first needed, so a
+/// page loads only the fonts a design uses (crates/fs-wasm).
 pub fn by_name(name: &str) -> Option<&'static Font> {
     use std::sync::OnceLock;
+    #[cfg(not(target_os = "emscripten"))]
     macro_rules! fonts {
         ($($file:literal),* $(,)?) => {{
             const FILES: &[(&str, &[u8])] = &[$(($file, include_bytes!(concat!("../fonts/", $file)))),*];
             static PARSED: [OnceLock<Option<Font>>; FILES.len()] = [const { OnceLock::new() }; FILES.len()];
             let k = FILES.iter().position(|(file, _)| *file == name)?;
             PARSED[k].get_or_init(|| Font::parse(FILES[k].1)).as_ref()
+        }};
+    }
+    #[cfg(target_os = "emscripten")]
+    macro_rules! fonts {
+        ($($file:literal),* $(,)?) => {{
+            const FILES: &[&str] = &[$($file),*];
+            static PARSED: [OnceLock<Option<Font>>; FILES.len()] = [const { OnceLock::new() }; FILES.len()];
+            let k = FILES.iter().position(|file| *file == name)?;
+            PARSED[k]
+                .get_or_init(|| {
+                    let data = std::fs::read(format!("/fonts/{}", FILES[k])).ok()?;
+                    Font::parse(Box::leak(data.into_boxed_slice()))
+                })
+                .as_ref()
         }};
     }
     fonts!(
