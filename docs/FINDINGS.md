@@ -2082,6 +2082,17 @@ Facts about Onshape and FeatureScript that our engine has to match. Each entry s
 - **The circle split**: at every node where its slopes were held back (16 edges); where they weren't (c004) it stays
   one edge, as the slot's does (187 c012). The engine builds these so, 188 c001 and c002 too.
 
+## Swept and revolved tori: periodicity and iso curves (batch 191)
+
+- **A swept torus** (a circle along an arc, by sweep or frame) is periodic round the tube only (trimmed; the surface
+  both ways), as the engine's is. Its coordinate system has z along the way the sweep turns round the axis (a
+  revolved torus's is against the revolve) and x as a revolved torus's, so its u starts where the profile is: two
+  auto-spaced curves round the axis start at the profile's end and lie on the tube's inner and outer equators (at
+  k / n from the inner one), inner first, where OCCT's own parameters put them at the tube's top and bottom.
+- **Auto-spaced curves across part of a period** fall at i / (n − 1) without the ends: two leave none, and Onshape
+  refuses the request (two tube circles across a quarter torus, two circles across a cylinder's height); the engine
+  does too. (Batch 072 c001's cut list still differs: Onshape's swept-angle check fails, the engine's doesn't.)
+
 ## STEP export
 
 - **Part names** are written on each `MANIFOLD_SOLID_BREP` (`MANIFOLD_SOLID_BREP('c030.1', ...)`), as well as on
