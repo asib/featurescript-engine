@@ -34,6 +34,7 @@
 #include <BRepGProp.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
 #include <BRepTools_History.hxx>
+#include <BRepTools.hxx>
 #include <BRep_Builder.hxx>
 #include <BRep_Tool.hxx>
 #include <BRepMesh_IncrementalMesh.hxx>
@@ -1317,6 +1318,9 @@ double shape_max_tolerance(const Shape &s) {
 // A shape's faces meshed to within `deflection`, each triangle's corners in turn, wound out of the material.
 rust::Vec<double> mesh_triangles(const Shape &s, double deflection) {
   TopoDS_Shape shape = s.shape;
+  // Afresh: a mesh the shape already has, from an earlier call with another deflection, would be kept where it
+  // is fine enough, and the result would depend on what was asked before.
+  BRepTools::Clean(shape);
   BRepMesh_IncrementalMesh mesher(shape, deflection, Standard_False, 0.3, Standard_False);
   rust::Vec<double> out;
   for (TopExp_Explorer ex(shape, TopAbs_FACE); ex.More(); ex.Next()) {
