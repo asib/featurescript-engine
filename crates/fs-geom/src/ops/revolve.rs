@@ -236,12 +236,15 @@ fn up_to_bound(model: &Model, definition: &Value, axis: occt::Axis, which: &str)
     let entity = |name: &str| -> R<Option<crate::model::EntityRef>> {
         Ok(query::evaluate(model, field(definition, &key(name)))?.into_iter().next())
     };
-    let reach = model
-        .bodies
-        .iter()
-        .filter_map(|b| b.shape.bounding_box(false).ok())
-        .map(|b| values::norm(values::sub(b.max, b.min)) + values::norm(values::sub(b.min, axis.origin)))
-        .fold(1.0, f64::max);
+    // How far a cutting plane has to reach: found only for a bound that's cut by one, as it boxes every body.
+    let reach = || {
+        model
+            .bodies
+            .iter()
+            .filter_map(|b| b.shape.bounding_box(false).ok())
+            .map(|b| values::norm(values::sub(b.max, b.min)) + values::norm(values::sub(b.min, axis.origin)))
+            .fold(1.0, f64::max)
+    };
     let cutter = match field(definition, &key("Bound")).as_str() {
         None | Some("BLIND") => return Ok(None),
         Some("UP_TO_SURFACE") => {
@@ -249,6 +252,7 @@ fn up_to_bound(model: &Model, definition: &Value, axis: occt::Axis, which: &str)
             let face = model.shape(face).clone();
             match face.face_plane() {
                 Ok(plane) => {
+                    let reach = reach();
                     occt::plane_face(plane, -2.0 * reach, 2.0 * reach, -2.0 * reach, 2.0 * reach).map_err(occt_error)?
                 }
                 Err(_) => face,
@@ -268,6 +272,7 @@ fn up_to_bound(model: &Model, definition: &Value, axis: occt::Axis, which: &str)
             let out = values::normalize(radial).ok_or_else(|| regen_error("REVOLVE_FAILED"))?;
             let normal = values::cross(axis.direction, out);
             let frame = occt::Frame { origin: axis.origin, normal, x: out };
+            let reach = reach();
             occt::plane_face(frame, 0.0, 2.0 * reach, -2.0 * reach, 2.0 * reach).map_err(occt_error)?
         }
         Some(other) => return Err(error(format!("@opRevolve: {which}Bound {other} isn't supported yet"))),
