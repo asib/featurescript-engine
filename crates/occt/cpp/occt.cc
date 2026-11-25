@@ -105,6 +105,9 @@
 #include "occt/cpp/internal.h"
 
 #include <cstring>
+#ifndef __EMSCRIPTEN__
+#include <mutex>
+#endif
 #include <unordered_set>
 
 namespace occt {
@@ -1444,8 +1447,18 @@ rust::Vec<double> mesh_triangles(const Shape &s, double deflection) {
   return out;
 }
 
+// OCCT's STEP translators keep their settings and their shape processing in statics: two threads translating at
+// once lose faces from each other's files. One translation runs at a time.
+#ifndef __EMSCRIPTEN__
+static std::mutex step_translation;
+#define ONE_STEP_AT_A_TIME std::lock_guard<std::mutex> one_step_at_a_time(step_translation)
+#else
+#define ONE_STEP_AT_A_TIME
+#endif
+
 void write_step(const ShapeList &shapes, const rust::Vec<rust::String> &names, rust::Str path) {
   if (shapes.shapes.size() != names.size()) throw std::invalid_argument("one name per shape");
+  ONE_STEP_AT_A_TIME;
   quiet();
   Handle(TDocStd_Document) document;
   XCAFApp_Application::GetApplication()->NewDocument("MDTV-XCAF", document);
@@ -1475,6 +1488,7 @@ void write_step(const ShapeList &shapes, const rust::Vec<rust::String> &names, r
 
 // Reads every MANIFOLD_SOLID_BREP of a STEP file, in metres, with the name written on it.
 std::unique_ptr<ShapeList> read_step(rust::Str path, rust::Vec<rust::String> &names) {
+  ONE_STEP_AT_A_TIME;
   quiet();
   STEPControl_Reader reader;
   if (reader.ReadFile(std::string(path).c_str()) != IFSelect_RetDone) throw std::runtime_error("STEP read failed");
