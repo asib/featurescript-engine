@@ -12,11 +12,15 @@ built with edited values.
 - `fs_build(path, feature, values, stem)` builds the feature with `values` (a JSON object; parameters missing take
   their defaults) and writes `<stem>.stl` (binary, millimetres), `<stem>.step` and `<stem>.log` (what it printed and
   each part's volume, or the error).
+- `fs_model(path, feature, values, out)` builds the feature the same way but only keeps it, for `fs_mesh(tolerance,
+  out)` (an STL meshed to within `tolerance` mm), `fs_step(out)` and `fs_volumes(out)` to write out one at a time: a
+  page shows a coarse mesh as soon as the feature is built, and makes the fine one, the STEP and the volumes after.
 
 The engine and the Feature Studio last loaded stay between calls, so a design built again with other values doesn't
 load std again.
 
-The same interface runs natively (`fs_wasm::parameters_json`, `fs_wasm::build`; tests/customizer.rs), and
+The same interface runs natively (`fs_wasm::parameters_json`, `fs_wasm::build`, `fs_wasm::model`;
+tests/customizer.rs), and
 `examples/build_native.rs` builds a design with values natively, to compare.
 
 ## Building

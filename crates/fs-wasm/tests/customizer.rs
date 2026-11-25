@@ -63,6 +63,30 @@ fn step_body(path: &str) -> String {
 }
 
 #[test]
+fn a_model_is_written_out_a_piece_at_a_time() {
+    fs_interp::run_with_large_stack(|| {
+        let (std_dir, path, source) = showcase();
+        let dir = std::env::temp_dir().join(format!("fs-wasm-model-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let stem = |name: &str| dir.join(name).to_string_lossy().into_owned();
+        let log = fs_wasm::build(&std_dir, &path, &source, "", "{}", &stem("built")).unwrap();
+        let built = std::fs::read(stem("built") + ".stl").unwrap();
+
+        let model = fs_wasm::model(&std_dir, &path, &source, "", "{}").unwrap();
+        // A coarse mesh first, as a page shows it: fewer triangles, and the fine mesh after it is the one a build
+        // writes, whatever was meshed before.
+        let coarse = model.stl(0.05).unwrap();
+        assert!(coarse.len() * 2 < built.len(), "{} against {}", coarse.len(), built.len());
+        assert!(model.stl(0.01).unwrap() == built);
+        assert!(model.stl(0.0).is_err());
+        model.write_step(&(stem("model") + ".step")).unwrap();
+        assert_eq!(step_body(&(stem("model") + ".step")), step_body(&(stem("built") + ".step")));
+        assert_eq!(model.output.clone() + &model.volumes().unwrap(), log);
+        let _ = std::fs::remove_dir_all(&dir);
+    });
+}
+
+#[test]
 fn the_engine_kept_between_builds_builds_the_same() {
     fs_interp::run_with_large_stack(|| {
         let (std_dir, path, source) = showcase();

@@ -15,8 +15,9 @@ fn main() {
         // Rust links through emcc, which leaves out C++'s runtime unless asked (the bridge and OCCT need it).
         "-lc++".to_string(),
         "-lc++abi".to_string(),
-        "-sEXPORTED_FUNCTIONS=['_fs_build','_fs_parameters','_main']".to_string(),
-        "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','FS']".to_string(),
+        "-sEXPORTED_FUNCTIONS=['_fs_build','_fs_parameters','_fs_model','_fs_mesh','_fs_step','_fs_volumes','_main']"
+            .to_string(),
+        "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','FS','HEAPU8']".to_string(),
         "-sMODULARIZE=1".to_string(),
         "-sEXPORT_ES6=1".to_string(),
         "-sEXPORT_NAME=createFeatureScriptEngine".to_string(),

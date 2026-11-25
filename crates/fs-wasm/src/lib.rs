@@ -1,6 +1,7 @@
 //! The engine's customizer interface, as the WebAssembly module exports it (src/main.rs) and native tests use it: a
 //! Feature Studio's features and parameters as JSON in the shape OpenSCAD's Customizer gives (so a site's parameter
-//! panel can show either), and a feature built with edited values into an STL and a STEP.
+//! panel can show either), and a feature built with edited values into a [`Model`], which is meshed to an STL,
+//! written as a STEP and measured, each when asked.
 //!
 //! The engine and the Feature Studio it last loaded stay for the next call on the thread, so a design rebuilt with
 //! other values doesn't load std again.
@@ -139,10 +140,16 @@ fn step_for(p: &FeatureParameter) -> f64 {
 /// long for parts with spline faces, to show digits that differ between the native and WebAssembly builds anyway.
 const VOLUME_EPS: f64 = 1e-6;
 
-/// Builds the feature with `values` (a JSON object of parameter values; a parameter missing takes its default) and
-/// writes `<stem>.stl` (binary, millimetres, meshed to 0.01 mm) and `<stem>.step`. Returns what it printed and each
-/// part's volume.
-pub fn build(std_dir: &str, path: &str, source: &str, feature: &str, values: &str, stem: &str) -> Result<String, String> {
+/// A feature built: its solid parts, to mesh, write and measure.
+pub struct Model {
+    parts: Vec<(String, occt::Shape)>,
+    /// What the feature printed.
+    pub output: String,
+}
+
+/// Builds the feature (`feature`, or the Feature Studio's first if it's empty) with `values`: a JSON object of
+/// parameter values, a parameter missing taking its default.
+pub fn model(std_dir: &str, path: &str, source: &str, feature: &str, values: &str) -> Result<Model, String> {
     with_studio(std_dir, path, source, |engine, module| {
         let feature = chosen(engine, module, feature)?;
         let parameters = engine.feature_parameters(module, &feature)?;
@@ -153,10 +160,10 @@ pub fn build(std_dir: &str, path: &str, source: &str, feature: &str, values: &st
         let id = engine.eval(module, &format!("makeId(\"F{feature}\")")).map_err(exception)?;
         engine.call(module, &feature, vec![context.clone(), id.clone(), definition]).map_err(exception)?;
         let status = engine.call(module, "getFeatureStatus", vec![context.clone(), id]).map_err(exception)?;
-        let mut log = std::mem::take(&mut engine.interp.output);
+        let output = std::mem::take(&mut engine.interp.output);
         if status.get("statusType").and_then(Value::as_str) != Some("OK") {
             let reason = status.get("statusEnum").and_then(Value::as_str).unwrap_or("an error");
-            return Err(format!("{log}The feature failed: {reason}."));
+            return Err(format!("{output}The feature failed: {reason}."));
         }
         let parts: Vec<(String, occt::Shape)> = fs_geom::with_model(&context, |model| {
             model
@@ -169,19 +176,53 @@ pub fn build(std_dir: &str, path: &str, source: &str, feature: &str, values: &st
         })
         .ok_or("The feature made no geometry.")?;
         if parts.is_empty() {
-            return Err(format!("{log}The feature made no solid parts."));
+            return Err(format!("{output}The feature made no solid parts."));
+        }
+        Ok(Model { parts, output })
+    })
+}
+
+impl Model {
+    /// The parts as one binary STL in millimetres, meshed to within `tolerance` (mm) of their faces. A page can
+    /// show a coarse mesh at once and make the fine one after: to 0.05 mm takes a quarter of the time to 0.01.
+    pub fn stl(&self, tolerance: f64) -> Result<Vec<u8>, String> {
+        if !(tolerance > 0.0) {
+            return Err("The mesh's tolerance must be more than 0 mm.".to_string());
         }
         let mut triangles = Vec::new();
-        for (name, shape) in &parts {
-            let volume = shape.volume_within(VOLUME_EPS).map_err(|e| e.to_string())? * 1e9;
-            log.push_str(&format!("{name}: {volume:.3} mm³\n"));
-            triangles.extend(occt::mesh_triangles(shape, 1e-5).map_err(|e| e.to_string())?);
+        for (_, shape) in &self.parts {
+            triangles.extend(occt::mesh_triangles(shape, tolerance * 1e-3).map_err(|e| e.to_string())?);
         }
-        let (names, shapes): (Vec<String>, Vec<occt::Shape>) = parts.into_iter().unzip();
-        occt::write_step(&shapes, &names, &format!("{stem}.step")).map_err(|e| e.to_string())?;
-        std::fs::write(format!("{stem}.stl"), stl(&triangles)).map_err(|e| e.to_string())?;
-        Ok(log)
-    })
+        Ok(stl(&triangles))
+    }
+
+    /// Writes the parts to a STEP file, each named.
+    pub fn write_step(&self, path: &str) -> Result<(), String> {
+        let (names, shapes): (Vec<String>, Vec<occt::Shape>) = self.parts.iter().cloned().unzip();
+        occt::write_step(&shapes, &names, path).map_err(|e| e.to_string())
+    }
+
+    /// Each part's volume, a line each: `Name: 1234.567 mm³`.
+    pub fn volumes(&self) -> Result<String, String> {
+        let mut lines = String::new();
+        for (name, shape) in &self.parts {
+            let volume = shape.volume_within(VOLUME_EPS).map_err(|e| e.to_string())? * 1e9;
+            lines.push_str(&format!("{name}: {volume:.3} mm³\n"));
+        }
+        Ok(lines)
+    }
+}
+
+/// Builds the feature with `values` (a JSON object of parameter values; a parameter missing takes its default) and
+/// writes `<stem>.stl` (binary, millimetres, meshed to 0.01 mm) and `<stem>.step`. Returns what it printed and each
+/// part's volume.
+pub fn build(std_dir: &str, path: &str, source: &str, feature: &str, values: &str, stem: &str) -> Result<String, String> {
+    let model = model(std_dir, path, source, feature, values)?;
+    let volumes = model.volumes()?;
+    let stl = model.stl(0.01)?;
+    model.write_step(&format!("{stem}.step"))?;
+    std::fs::write(format!("{stem}.stl"), stl).map_err(|e| e.to_string())?;
+    Ok(model.output + &volumes)
 }
 
 /// A binary STL of the triangles, in millimetres.
