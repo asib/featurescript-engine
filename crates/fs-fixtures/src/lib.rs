@@ -104,12 +104,31 @@ pub fn build(batch: &Path) -> Result<Build, String> {
         })
         .ok_or("generator.fs has no buildFixtureBatch feature")?;
 
-    let start = Instant::now();
-    // The fixture document is in inches: its default planes are 6 inches across (batch 090 c010).
-    let context = engine.eval(module, "newContextWithDefaults(inch)").map_err(exception)?;
-    let id = engine.eval(module, "makeId(\"Fgenerator\")").map_err(exception)?;
-    let definition = Value::map(Default::default());
-    engine.call(module, &generator, vec![context.clone(), id.clone(), definition]).map_err(exception)?;
+    // Diagnostic only: FS_REBUILD builds the batch twice on the one engine, the second time from the states the
+    // first build's operations left (`fs_geom::reuse`), and reports the second. It must report what one build does.
+    let rebuild = std::env::var_os("FS_REBUILD").is_some();
+    if rebuild {
+        fs_geom::reuse::keep(1);
+    }
+    let mut start = Instant::now();
+    let mut run = |engine: &mut fs_interp::Engine| -> Result<(Value, Value), String> {
+        start = Instant::now();
+        fs_geom::reuse::begin();
+        // The fixture document is in inches: its default planes are 6 inches across (batch 090 c010).
+        let context = engine.eval(module, "newContextWithDefaults(inch)").map_err(exception)?;
+        let id = engine.eval(module, "makeId(\"Fgenerator\")").map_err(exception)?;
+        let definition = Value::map(Default::default());
+        engine.call(module, &generator, vec![context.clone(), id.clone(), definition]).map_err(exception)?;
+        Ok((context, id))
+    };
+    let (mut context, mut id) = run(&mut engine)?;
+    if rebuild {
+        let first = fs_geom::reuse::counts();
+        engine.interp.output.clear();
+        (context, id) = run(&mut engine)?;
+        let second = fs_geom::reuse::counts();
+        eprintln!("FS_REBUILD: ran {} operations, then ran {} and took {} kept", first.ran, second.ran, second.kept);
+    }
     let seconds = start.elapsed().as_secs_f64();
     // A top-level feature reports its errors as its status instead of throwing.
     let status = engine.call(module, "getFeatureStatus", vec![context.clone(), id]).map_err(exception)?;
