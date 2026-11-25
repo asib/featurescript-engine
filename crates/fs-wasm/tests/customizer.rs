@@ -112,3 +112,49 @@ fn the_engine_kept_between_builds_builds_the_same() {
         let _ = std::fs::remove_dir_all(&dir);
     });
 }
+
+#[test]
+fn a_rebuild_starts_from_where_its_values_first_differ() {
+    fs_interp::run_with_large_stack(|| {
+        let (std_dir, path, source) = showcase();
+        let dir = std::env::temp_dir().join(format!("fs-wasm-rebuild-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let stem = |name: &str| dir.join(name).to_string_lossy().into_owned();
+        // What a build gives: its log, its STL and its STEP.
+        let outcome = |name: &str, path: &str, values: &str| {
+            let log = fs_wasm::build(&std_dir, path, &source, "", values, &stem(name)).unwrap();
+            (log, std::fs::read(stem(name) + ".stl").unwrap(), step_body(&(stem(name) + ".step")))
+        };
+        let edits = [
+            "{}",
+            r#"{"label": "KEPT"}"#,
+            "{}",
+            r#"{"pins": 5}"#,
+            r#"{"pins": 5, "holes": false}"#,
+            r#"{"vaseHeight": 70, "handle": false}"#,
+            r#"{"length": 150, "edgeFinish": "CHAMFER"}"#,
+            "{}",
+        ];
+        // Each on an engine of its own, which has kept nothing: a Feature Studio at another path loads one.
+        let fresh: Vec<_> =
+            edits.iter().enumerate().map(|(i, values)| outcome("fresh", &format!("fresh-{i}.fs"), values)).collect();
+        // Then one after another on one engine, each starting from what the builds before it left.
+        let mut counts = Vec::new();
+        for (values, fresh) in edits.iter().zip(&fresh) {
+            assert!(outcome("kept", &path, values) == *fresh, "{values} built differently on an engine that had built");
+            counts.push(fs_geom::reuse::counts());
+        }
+        let ran: Vec<usize> = counts.iter().map(|c| c.ran).collect();
+        // The first build runs every operation, with nothing to take.
+        assert_eq!(counts[0].kept, 0, "{counts:?}");
+        // The label is engraved last: a new one runs its own operations and little else.
+        assert!(ran[1] * 3 < ran[0], "{ran:?}");
+        // The values before are still kept, all but a state a later operation altered.
+        assert!(ran[2] <= 2, "{ran:?}");
+        // Pins come halfway, and what follows them runs again; without the holes after, less of it.
+        assert!(ran[3] < ran[0] && ran[4] < ran[3], "{ran:?}");
+        // The plate comes first: another length keeps only the default planes.
+        assert!(counts[6].kept <= 6, "{counts:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    });
+}

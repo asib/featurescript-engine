@@ -17,11 +17,18 @@ built with edited values.
   page shows a coarse mesh as soon as the feature is built, and makes the fine one, the STEP and the volumes after.
 
 The engine and the Feature Studio last loaded stay between calls, so a design built again with other values doesn't
-load std again.
+load std again. Nor does it run again the operations that come before the first one its new values change: the
+engine keeps the state each operation left (`fs_geom::reuse`) for three builds after the last that used it. The
+showcase part's label is engraved last, so with a new label it builds in under half the time; its pins come halfway,
+and another count takes two thirds; its plate comes first, and another length takes as long as ever. A kept state is
+taken up only while its shapes are as they were when it was made, so a build gives the same whether it started from
+kept states or from nothing.
 
 The same interface runs natively (`fs_wasm::parameters_json`, `fs_wasm::build`, `fs_wasm::model`;
 tests/customizer.rs), and
-`examples/build_native.rs` builds a design with values natively, to compare.
+`examples/build_native.rs` builds a design with values natively, to compare. `examples/rebuilds.rs` builds a design
+with one set of values after another on one engine, checks each against a build on an engine that kept nothing, and
+prints how many operations each ran and how many it took from what was kept.
 
 ## Building
 

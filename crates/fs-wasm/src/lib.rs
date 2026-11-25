@@ -4,7 +4,8 @@
 //! written as a STEP and measured, each when asked.
 //!
 //! The engine and the Feature Studio it last loaded stay for the next call on the thread, so a design rebuilt with
-//! other values doesn't load std again.
+//! other values doesn't load std again, and neither does it run again the operations that come before the first one
+//! the new values change: the engine keeps the state each operation left (`fs_geom::reuse`).
 
 use fs_geom::model::BodyType;
 use fs_interp::features::{FeatureParameter, ParameterKind, ParameterValue};
@@ -26,6 +27,10 @@ thread_local! {
     static LOADED: RefCell<Option<Loaded>> = const { RefCell::new(None) };
 }
 
+/// How many builds an operation's state is kept for after the last build that used it: going back to the values
+/// before last costs nothing, and what older values left is given up.
+const KEPT_BUILDS: usize = 3;
+
 /// Runs `f` on an engine over std in `std_dir` with the Feature Studio in `source` (at `path`, for its imports)
 /// loaded: the engine the last call left, if it loaded the same, or else a new one. Loading std takes about a
 /// tenth of a second, and a page rebuilds one design with one set of values after another.
@@ -42,6 +47,7 @@ fn with_studio<T>(
         Some(loaded) => loaded,
         None => {
             let mut engine = fs_geom::engine_with_std(std_dir);
+            fs_geom::reuse::keep(KEPT_BUILDS);
             let module = engine.load_source(path, source)?;
             Loaded { std_dir: std_dir.to_string(), path: path.to_string(), source: source.to_string(), engine, module }
         }
@@ -156,6 +162,7 @@ pub fn model(std_dir: &str, path: &str, source: &str, feature: &str, values: &st
         let values = parse_values(values)?;
         let definition = engine.feature_definition(module, &parameters, &values)?;
         let exception = |e| format!("{e:?}");
+        fs_geom::reuse::begin();
         let context = engine.eval(module, "newContextWithDefaults(millimeter)").map_err(exception)?;
         let id = engine.eval(module, &format!("makeId(\"F{feature}\")")).map_err(exception)?;
         engine.call(module, &feature, vec![context.clone(), id.clone(), definition]).map_err(exception)?;
