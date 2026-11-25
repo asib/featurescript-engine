@@ -829,27 +829,44 @@ bool has_spindle_torus(const TopoDS_Shape &shape) {
 }  // namespace
 
 Box3 bounding_box(const Shape &s, bool precise) {
+  // OCCT's boxes of B-spline faces can miss part of the face (a scaled sphere moved away from the origin loses a
+  // sliver), even loose ones, so each side of a shape with such faces is measured exactly below: the distance from
+  // a plane just outside the box to the shape. Its box here only has to say roughly where it is, so it's the quick
+  // one: the optimal box of a B-spline face takes OCCT longer than measuring the six sides does.
+  const bool measured = has_free_form_faces(s.shape) || has_spindle_torus(s.shape);
+  const auto optimal = [&](Bnd_Box &box) {
+    BRepBndLib::AddOptimal(s.shape, box, precise ? Standard_False : Standard_True, Standard_False);
+  };
   Bnd_Box box;
-  BRepBndLib::AddOptimal(s.shape, box, precise ? Standard_False : Standard_True, Standard_False);
+  if (measured)
+    BRepBndLib::Add(s.shape, box, Standard_False);
+  else
+    optimal(box);
   if (box.IsVoid()) return Box3{Vec3{0, 0, 0}, Vec3{0, 0, 0}, true};
   double lo[3], hi[3];
   box.Get(lo[0], lo[1], lo[2], hi[0], hi[1], hi[2]);
-  if (has_free_form_faces(s.shape) || has_spindle_torus(s.shape)) {
-    // OCCT's boxes of B-spline faces can miss part of the face (a scaled sphere moved away from the origin loses
-    // a sliver), even loose ones, so measure each side exactly: the distance from a plane just outside the box to
-    // the shape.
+  if (measured) {
+    const double from[3] = {lo[0], lo[1], lo[2]}, to[3] = {hi[0], hi[1], hi[2]};
     double size = std::max({hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2], 1e-6});
     double margin = size;
+    // A side that can't be measured is the optimal box's.
+    Bnd_Box fallback;
     for (int axis = 0; axis < 3; ++axis) {
       for (int side = 0; side < 2; ++side) {
         gp_Dir normal(axis == 0, axis == 1, axis == 2);
-        double at = side == 0 ? lo[axis] - margin : hi[axis] + margin;
-        gp_Pnt origin((lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2);
+        double at = side == 0 ? from[axis] - margin : to[axis] + margin;
+        gp_Pnt origin((from[0] + to[0]) / 2, (from[1] + to[1]) / 2, (from[2] + to[2]) / 2);
         origin.SetCoord(axis + 1, at);
         double reach = 4 * size;
         TopoDS_Face plane = BRepBuilderAPI_MakeFace(gp_Pln(origin, normal), -reach, reach, -reach, reach).Face();
         BRepExtrema_DistShapeShape extrema(plane, s.shape);
-        if (!extrema.IsDone() || extrema.NbSolution() == 0) continue;
+        if (!extrema.IsDone() || extrema.NbSolution() == 0) {
+          if (fallback.IsVoid()) optimal(fallback);
+          if (fallback.IsVoid()) continue;
+          const gp_Pnt corner = side == 0 ? fallback.CornerMin() : fallback.CornerMax();
+          (side == 0 ? lo : hi)[axis] = corner.Coord(axis + 1);
+          continue;
+        }
         if (side == 0)
           lo[axis] = at + extrema.Value();
         else
