@@ -3,7 +3,8 @@
 //!
 //! Usage: cargo run --release -p fs-wasm --example rebuilds -- FILE.fs FEATURE VALUES...
 //!
-//! Each VALUES is a JSON object of parameter values. Prints what each build ran and took from what was kept.
+//! Each VALUES is a JSON object of parameter values. Prints how many operations each build ran, how many it took
+//! from what was kept, and how many measurements it was given from what was remembered.
 
 use std::time::Instant;
 
@@ -43,10 +44,11 @@ fn main() {
             let same = (output(&model, "kept"), model.output.clone()) == *expected;
             failed += usize::from(!same);
             println!(
-                "{:>6.0} ms  ran {:>2}, kept {:>2}  {}  {v}",
+                "{:>6.0} ms  ran {:>2}, kept {:>2}, recalled {:>2}  {}  {v}",
                 took.as_secs_f64() * 1e3,
                 counts.ran,
                 counts.kept,
+                counts.recalled,
                 if same { "same as fresh" } else { "DIFFERS FROM FRESH" }
             );
         }

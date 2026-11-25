@@ -2,7 +2,7 @@
 
 use crate::model::{EntityRef, EntityType, Model, Tid};
 use crate::values::{self, field};
-use crate::{GeomBuiltins, model_ref, tags, topology};
+use crate::{GeomBuiltins, model_read, tags, topology};
 use fs_interp::Value;
 use fs_interp::builtins::arg;
 use fs_interp::eval::{R, error};
@@ -13,18 +13,18 @@ pub fn register(m: &mut GeomBuiltins) {
     m.insert("evaluateQuery", |interp, args| {
         let tags = tags(interp)?;
         let query = arg(&args, 1, "evaluateQuery")?.get("query").cloned().unwrap_or(Value::UNDEFINED);
-        model_ref(&args, "evaluateQuery", |model| {
+        model_read(&args, "evaluateQuery", |model| {
             let found = evaluate(model, &query)?;
             Ok(Value::array(found.into_iter().map(|r| tags.transient_query(&tid_string(model.tid(r)))).collect()))
         })
     });
     m.insert("evaluateQueryCount", |_, args| {
         let query = arg(&args, 1, "evaluateQueryCount")?.get("query").cloned().unwrap_or(Value::UNDEFINED);
-        model_ref(&args, "evaluateQueryCount", |model| Ok(Value::number(evaluate(model, &query)?.len() as f64)))
+        model_read(&args, "evaluateQueryCount", |model| Ok(Value::number(evaluate(model, &query)?.len() as f64)))
     });
     m.insert("isQueryEmpty", |_, args| {
         let query = arg(&args, 1, "isQueryEmpty")?.get("query").cloned().unwrap_or(Value::UNDEFINED);
-        model_ref(&args, "isQueryEmpty", |model| Ok(Value::bool(evaluate(model, &query)?.is_empty())))
+        model_read(&args, "isQueryEmpty", |model| Ok(Value::bool(evaluate(model, &query)?.is_empty())))
     });
     m.insert("transientIdToString", |_, args| Ok(arg(&args, 0, "transientIdToString")?.clone().with_tag(None)));
 }

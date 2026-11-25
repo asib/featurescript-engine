@@ -850,6 +850,9 @@ pub struct GeomState {
     /// What made this state (see [`crate::reuse`]), or none once a call that can't be told from others has changed
     /// it. Every call that changes the state changes this.
     pub(crate) stamp: Option<crate::reuse::Stamp>,
+    /// The print of the bodies' shapes when an operation last left them, if nothing has changed the state since:
+    /// what a measurement's print afterwards is held against, to know the measurement altered nothing.
+    pub(crate) print: Option<u64>,
 }
 
 impl Default for GeomState {
@@ -859,6 +862,7 @@ impl Default for GeomState {
             variables: Rc::default(),
             pattern: Rc::default(),
             stamp: Some(crate::reuse::Stamp::START),
+            print: None,
         }
     }
 }
@@ -875,6 +879,8 @@ impl ContextState for GeomState {
             *self = *state;
             self.model.next_tid = next_tid;
             self.stamp = crate::reuse::aborted(self.stamp, next_tid);
+            // The feature's operations may have altered shapes the old state shares.
+            self.print = None;
         }
     }
 

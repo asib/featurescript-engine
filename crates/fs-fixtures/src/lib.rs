@@ -127,7 +127,10 @@ pub fn build(batch: &Path) -> Result<Build, String> {
         engine.interp.output.clear();
         (context, id) = run(&mut engine)?;
         let second = fs_geom::reuse::counts();
-        eprintln!("FS_REBUILD: ran {} operations, then ran {} and took {} kept", first.ran, second.ran, second.kept);
+        eprintln!(
+            "FS_REBUILD: ran {} operations, then ran {}, took {} kept and was given {} measurements",
+            first.ran, second.ran, second.kept, second.recalled
+        );
     }
     let seconds = start.elapsed().as_secs_f64();
     // A top-level feature reports its errors as its status instead of throwing.

@@ -3,7 +3,7 @@
 
 use crate::model::{BodyType, EntityType, Model};
 use crate::values::{self, Tags, field, map};
-use crate::{GeomBuiltins, model_ref, occt_error, query, tags};
+use crate::{GeomBuiltins, model_read, model_ref, occt_error, query, tags};
 use fs_interp::Value;
 use fs_interp::builtins::arg;
 use fs_interp::eval::{R, error};
@@ -12,7 +12,7 @@ use occt::{Shape, Vec3};
 pub fn register(m: &mut GeomBuiltins) {
     m.insert("evApproximateMassProperties", |_, args| {
         let definition = arg(&args, 1, "evApproximateMassProperties")?.clone();
-        model_ref(&args, "evApproximateMassProperties", |model| mass_properties(model, &definition))
+        model_read(&args, "evApproximateMassProperties", |model| mass_properties(model, &definition))
     });
     m.insert("evPointsDeviation", |interp, args| {
         let tags = tags(interp)?;

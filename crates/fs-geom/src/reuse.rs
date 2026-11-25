@@ -10,6 +10,11 @@
 //! has a print of its shapes ([`occt::Shape::print`]), taken when it was made, and is only taken up again while its
 //! shapes still give that print. One that was altered is dropped, and its operation runs again.
 //!
+//! A measurement of a state is remembered the same way ([`read`]): what an evaluation or a query returned, under the
+//! stamp the call would have left had it been a change, with the print the state's shapes had. It is given again to
+//! the same call on a state with that stamp whose shapes still give that print. Only one that took a while is worth
+//! remembering, and only one that left the shapes as it found them can be skipped without a difference.
+//!
 //! Nothing is kept unless a host asks ([`keep`]): a page that rebuilds one design does, the fixtures don't.
 
 use crate::model::GeomState;
@@ -19,6 +24,11 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::Hasher;
+use std::time::{Duration, Instant};
+
+/// How long a measurement has to take to be remembered: a print of the model, which looking one up costs, takes a
+/// few tenths of a millisecond.
+const WORTH_REMEMBERING: Duration = Duration::from_millis(1);
 
 /// What made a state: a hash of the calls that changed it and their arguments, 128 bits of it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -118,11 +128,20 @@ struct Kept {
     build: u64,
 }
 
-/// How many operations a build ran and how many it took from what was kept.
+struct Remembered {
+    value: Value,
+    /// The print of the shapes it measured, which it left as they were.
+    print: u64,
+    build: u64,
+}
+
+/// How many operations a build ran, how many it took from what was kept, and how many measurements it was given
+/// from what was remembered.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Counts {
     pub ran: usize,
     pub kept: usize,
+    pub recalled: usize,
 }
 
 #[derive(Default)]
@@ -131,6 +150,7 @@ struct Store {
     builds: u64,
     build: u64,
     states: HashMap<Stamp, Kept>,
+    measurements: HashMap<Stamp, Remembered>,
     counts: Counts,
 }
 
@@ -147,6 +167,7 @@ pub fn keep(builds: usize) {
         store.builds = builds as u64;
         if builds == 0 {
             store.states.clear();
+            store.measurements.clear();
         }
     });
 }
@@ -164,6 +185,7 @@ pub fn begin() {
         store.counts = Counts::default();
         let (build, builds) = (store.build, store.builds);
         store.states.retain(|_, kept| kept.build + builds >= build);
+        store.measurements.retain(|_, remembered| remembered.build + builds >= build);
     });
 }
 
@@ -205,6 +227,66 @@ pub(crate) fn changed(state: &mut GeomState, name: &str, args: &[Value], sheet_m
             feed.value(arg);
         }
     });
+    state.print = None;
+}
+
+/// Measures `state` with `run`, which reads nothing but the state and `args`, or gives what the same call returned
+/// on this state before, if the state's shapes are still as that call left them.
+pub(crate) fn read<E>(
+    state: &mut GeomState,
+    name: &str,
+    args: &[Value],
+    sheet_metal: bool,
+    run: impl FnOnce(&GeomState) -> Result<Value, E>,
+) -> Result<Value, E> {
+    // The stamp the call would leave if it changed the state: a name for the call on this state.
+    let key = next(state, name, |feed| {
+        feed.u64(u64::from(sheet_metal));
+        for arg in args {
+            feed.value(arg);
+        }
+    });
+    let Some(key) = key else { return run(state) };
+    let known = STORE.with(|s| s.borrow().measurements.get(&key).map(|remembered| remembered.print));
+    if let Some(remembered) = known {
+        let now = print(state);
+        state.print = Some(now);
+        if now == remembered {
+            return Ok(STORE.with(|s| {
+                let mut store = s.borrow_mut();
+                let build = store.build;
+                store.counts.recalled += 1;
+                let remembered = store.measurements.get_mut(&key).expect("looked up above");
+                remembered.build = build;
+                remembered.value.clone()
+            }));
+        }
+    }
+    // The shapes' print before, to tell afterwards whether the measurement altered them.
+    let before = match state.print {
+        Some(print) => print,
+        None => {
+            let now = print(state);
+            state.print = Some(now);
+            now
+        }
+    };
+    let started = Instant::now();
+    let result = run(state);
+    if let Ok(value) = &result
+        && started.elapsed() >= WORTH_REMEMBERING
+    {
+        let after = print(state);
+        state.print = Some(after);
+        if after == before {
+            STORE.with(|s| {
+                let mut store = s.borrow_mut();
+                let build = store.build;
+                store.measurements.insert(key, Remembered { value: value.clone(), print: after, build });
+            });
+        }
+    }
+    result
 }
 
 /// The stamp of a state a feature's abort went back to: the old state's, and the transient ids the feature used
@@ -233,9 +315,12 @@ pub(crate) fn step<E>(
     let result = run(state);
     // Whether it failed or not: what it did before failing is the same each time.
     state.stamp = stamp;
+    state.print = None;
     STORE.with(|s| s.borrow_mut().counts.ran += 1);
     if let (Some(stamp), Ok(value)) = (stamp, &result) {
-        let kept = Kept { state: state.clone(), result: value.clone(), print: print(state), build: 0 };
+        let print = print(state);
+        state.print = Some(print);
+        let kept = Kept { state: state.clone(), result: value.clone(), print, build: 0 };
         STORE.with(|s| {
             let mut store = s.borrow_mut();
             let build = store.build;
@@ -290,6 +375,40 @@ mod tests {
         // And the call and the state it was made on.
         assert_ne!(Feed::after(Stamp::START, "opExtrude").stamp(), Feed::after(Stamp::START, "opRevolve").stamp());
         assert_ne!(Feed::after(Stamp(1, 0), "op").stamp(), Feed::after(Stamp::START, "op").stamp());
+    }
+
+    #[test]
+    fn a_measurement_that_took_a_while_is_given_again_on_the_same_state() {
+        keep(2);
+        begin();
+        let mut state = GeomState::default();
+        let args = [Value::number(1.0)];
+        let slow = |_: &GeomState| -> Result<Value, ()> {
+            std::thread::sleep(WORTH_REMEMBERING * 2);
+            Ok(Value::number(7.0))
+        };
+        let never = |_: &GeomState| -> Result<Value, ()> { panic!("measured again") };
+        assert_eq!(read(&mut state, "evBox", &args, false, slow).unwrap().as_number(), Some(7.0));
+        assert_eq!(read(&mut state, "evBox", &args, false, never).unwrap().as_number(), Some(7.0));
+        assert_eq!(counts().recalled, 1);
+        // Not for other arguments, another call, a sheet metal feature, or a state something has changed.
+        let other = |_: &GeomState| -> Result<Value, ()> { Ok(Value::number(8.0)) };
+        assert_eq!(read(&mut state, "evBox", &[Value::number(2.0)], false, other).unwrap().as_number(), Some(8.0));
+        assert_eq!(read(&mut state, "evVolume", &args, false, other).unwrap().as_number(), Some(8.0));
+        assert_eq!(read(&mut state, "evBox", &args, true, other).unwrap().as_number(), Some(8.0));
+        changed(&mut state, "setVariable", &args, false);
+        assert_eq!(read(&mut state, "evBox", &args, false, other).unwrap().as_number(), Some(8.0));
+        // A quick one isn't remembered, and nor is one that failed.
+        let again = |_: &GeomState| -> Result<Value, ()> { Ok(Value::number(9.0)) };
+        assert_eq!(read(&mut state, "evBox", &args, false, again).unwrap().as_number(), Some(9.0));
+        let failing = |_: &GeomState| -> Result<Value, ()> {
+            std::thread::sleep(WORTH_REMEMBERING * 2);
+            Err(())
+        };
+        assert!(read(&mut state, "evArea", &args, false, failing).is_err());
+        assert_eq!(read(&mut state, "evArea", &args, false, again).unwrap().as_number(), Some(9.0));
+        assert_eq!(counts().recalled, 1);
+        keep(0);
     }
 
     #[test]

@@ -2,7 +2,7 @@
 
 use crate::model::{EntityRef, EntityType, Model};
 use crate::values::{self, Tags, field, map};
-use crate::{GeomBuiltins, model_ref, occt_error, query, regen_error, tags};
+use crate::{GeomBuiltins, model_read, model_ref, occt_error, query, regen_error, tags};
 use fs_interp::Value;
 use fs_interp::builtins::arg;
 use fs_interp::eval::{R, error};
@@ -22,7 +22,7 @@ fn measure(
     tags: &Tags,
 ) -> R<Value> {
     let definition = definition(&args, name)?;
-    model_ref(&args, name, |model| {
+    model_read(&args, name, |model| {
         let found = query::evaluate(model, field(&definition, key))?;
         f(tags, model, found)
     })
@@ -219,7 +219,7 @@ pub fn register(m: &mut GeomBuiltins) {
         let tags = tags(interp)?;
         let definition = definition(&args, "evCollisionDetection")?;
         let clash_type = fs_interp::types::find("ClashType").ok_or_else(|| error("std type ClashType isn't loaded"))?;
-        model_ref(&args, "evCollisionDetection", |model| {
+        model_read(&args, "evCollisionDetection", |model| {
             let tools = query::evaluate(model, field(&definition, "tools"))?;
             let targets = query::evaluate(model, field(&definition, "targets"))?;
             let shape = |r: EntityRef| {
@@ -706,7 +706,7 @@ pub fn register(m: &mut GeomBuiltins) {
         let tags = tags(interp)?;
         let definition = definition(&args, "evDistance")?;
         let arc_length = values::opt_bool(&definition, "arcLengthParameterization")?.unwrap_or(true);
-        model_ref(&args, "evDistance", |model| distance(&tags, model, &definition, arc_length))
+        model_read(&args, "evDistance", |model| distance(&tags, model, &definition, arc_length))
     });
     // Whether a face wraps round its surface each way (`trimmed`, the default) or its surface does (batch 072
     // c001: a tube swept along an arc, periodic round the tube).

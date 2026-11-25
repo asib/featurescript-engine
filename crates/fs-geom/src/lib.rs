@@ -139,6 +139,18 @@ pub(crate) fn model_ref<T>(args: &[Value], name: &str, f: impl FnOnce(&Model) ->
     read_model(context_arg(args, 0, name)?, f)
 }
 
+/// Reads the model of the context in argument 1 for a value that depends on nothing but the model and the call's
+/// arguments, and reads without altering: a value that took a while to find is remembered for the same call on the
+/// same state ([`reuse::read`]).
+pub(crate) fn model_read(args: &[Value], name: &str, f: impl FnOnce(&Model) -> R<Value>) -> R<Value> {
+    let context = context_arg(args, 0, name)?;
+    let sheet_metal = fs_interp::builtins::in_sheet_metal(context);
+    with_context_state(context, |state| {
+        state.model.sheet_metal_scope = sheet_metal;
+        reuse::read(state, name, &args[1..], sheet_metal, |state| f(&state.model))
+    })
+}
+
 fn read_model<T>(context: &fs_interp::builtins::Context, f: impl FnOnce(&Model) -> R<T>) -> R<T> {
     let sheet_metal = fs_interp::builtins::in_sheet_metal(context);
     with_context_state(context, |state| {
