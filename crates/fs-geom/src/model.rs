@@ -842,11 +842,25 @@ pub struct Variable {
 
 /// The state kept in each context: its geometry, its variables, and the feature pattern instances being built (each
 /// instance's id and transform, outermost first).
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct GeomState {
     pub model: Model,
     pub variables: Rc<BTreeMap<Rc<str>, Variable>>,
     pub pattern: Rc<Vec<(FeatureId, occt::Transform)>>,
+    /// What made this state (see [`crate::reuse`]), or none once a call that can't be told from others has changed
+    /// it. Every call that changes the state changes this.
+    pub(crate) stamp: Option<crate::reuse::Stamp>,
+}
+
+impl Default for GeomState {
+    fn default() -> GeomState {
+        GeomState {
+            model: Model::default(),
+            variables: Rc::default(),
+            pattern: Rc::default(),
+            stamp: Some(crate::reuse::Stamp::START),
+        }
+    }
 }
 
 impl ContextState for GeomState {
@@ -860,6 +874,7 @@ impl ContextState for GeomState {
             let next_tid = self.model.next_tid;
             *self = *state;
             self.model.next_tid = next_tid;
+            self.stamp = crate::reuse::aborted(self.stamp, next_tid);
         }
     }
 

@@ -23,7 +23,7 @@ pub use revolve::rotation;
 
 use crate::model::{BodyType, EntityType, FeatureId, Info, Model, NewBody, Origins};
 use crate::values::{self, field};
-use crate::{GeomBuiltins, model_mut, model_ref, occt_error, query, regen_error};
+use crate::{GeomBuiltins, model_ref, occt_error, query, regen_error};
 use fs_interp::Value;
 use fs_interp::builtins::{arg, context_arg};
 use fs_interp::eval::{Flow, R, error};
@@ -430,19 +430,37 @@ fn run_op(args: &[Value], name: &str, f: impl FnOnce(&mut Model, FeatureId, &Val
     // FS_TRACE_OPS: each operation, its id, and the bodies there are after it.
     let trace = std::env::var_os("FS_TRACE_OPS").is_some();
     let traced_id = trace.then(|| id.join("/"));
-    let result = model_mut(args, name, |model| {
-        model.last_operation = Some(id.clone());
-        let result = f(model, id, &definition);
-        refresh_composites(model);
-        if let Some(op_id) = &traced_id {
-            let kinds: Vec<String> = model.bodies.iter().map(|b| format!("{:?}", b.body_type)).collect();
-            eprintln!("OP {name} {op_id} -> {} {}", if result.is_ok() { "ok" } else { "failed" }, kinds.join(","));
+    let context = context_arg(args, 0, name)?;
+    let sheet_metal = fs_interp::builtins::in_sheet_metal(context);
+    // What the operation's result depends on, besides the state it runs on: the id and the definition it was
+    // given, and whether a sheet metal feature is running. An operation that reads anything else can't be kept.
+    let feed = |feed: &mut crate::reuse::Feed| {
+        feed.u64(u64::from(sheet_metal));
+        for arg in &args[1..] {
+            feed.value(arg);
         }
-        result
+        // An import reads the file uploaded for its tab.
+        if name == "opImportForeign" {
+            feed.untold();
+        }
+    };
+    let result = crate::with_context_state(context, |state| {
+        crate::reuse::step(state, name, feed, |state| {
+            let model = &mut state.model;
+            model.sheet_metal_scope = sheet_metal;
+            model.last_operation = Some(id.clone());
+            let result = f(model, id, &definition);
+            refresh_composites(model);
+            if let Some(op_id) = &traced_id {
+                let kinds: Vec<String> = model.bodies.iter().map(|b| format!("{:?}", b.body_type)).collect();
+                eprintln!("OP {name} {op_id} -> {} {}", if result.is_ok() { "ok" } else { "failed" }, kinds.join(","));
+            }
+            result
+        })
     });
     if let Err(Flow::Throw(error)) = &result {
         let status = error.get("message").and_then(Value::as_str).unwrap_or("REGEN_ERROR");
-        context_arg(args, 0, name)?.report_status(&args[1], "ERROR", status);
+        context.report_status(&args[1], "ERROR", status);
     }
     result
 }

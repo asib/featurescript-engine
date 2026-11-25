@@ -22,6 +22,7 @@ pub mod pattern_stack;
 pub mod patterns;
 pub mod properties;
 pub mod query;
+pub mod reuse;
 pub mod selection;
 pub mod sketch;
 pub mod splines;
@@ -45,6 +46,7 @@ pub(crate) type GeomBuiltins = HashMap<&'static str, BuiltinFn>;
 
 /// Adds the geometry builtins to `interp`, replacing nothing it already has except where noted in each module.
 pub fn install(interp: &mut Interp) {
+    reuse::reset();
     interp.state.new_context_state = Some(|| Box::new(GeomState::default()));
     let mut builtins = GeomBuiltins::new();
     query::register(&mut builtins);
@@ -94,7 +96,10 @@ pub(crate) fn tags(interp: &mut Interp) -> R<Rc<Tags>> {
     Ok(tags)
 }
 
-fn with_context_state<T>(context: &fs_interp::builtins::Context, f: impl FnOnce(&mut GeomState) -> R<T>) -> R<T> {
+pub(crate) fn with_context_state<T>(
+    context: &fs_interp::builtins::Context,
+    f: impl FnOnce(&mut GeomState) -> R<T>,
+) -> R<T> {
     let mut state = context.state.borrow_mut();
     let geometry = state
         .as_mut()
@@ -103,18 +108,13 @@ fn with_context_state<T>(context: &fs_interp::builtins::Context, f: impl FnOnce(
     f(geometry)
 }
 
-fn with_context_model<T>(context: &fs_interp::builtins::Context, f: impl FnOnce(&mut Model) -> R<T>) -> R<T> {
-    let sheet_metal = fs_interp::builtins::in_sheet_metal(context);
-    with_context_state(context, |state| {
-        state.model.sheet_metal_scope = sheet_metal;
-        f(&mut state.model)
-    })
-}
-
-/// Runs `f` on the state (model and variables) of the context in argument 1, which it changes. A call that only
-/// reads uses [`state_ref`].
+/// Runs `f` on the state (model and variables) of the context in argument 1, which it changes: the state's stamp
+/// takes in the call and its arguments. A call that only reads uses [`state_ref`].
 pub(crate) fn state_mut<T>(args: &[Value], name: &str, f: impl FnOnce(&mut GeomState) -> R<T>) -> R<T> {
-    with_context_state(context_arg(args, 0, name)?, f)
+    with_context_state(context_arg(args, 0, name)?, |state| {
+        reuse::changed(state, name, &args[1..], false);
+        f(state)
+    })
 }
 
 /// Reads the state of the context in argument 1.
@@ -122,25 +122,43 @@ pub(crate) fn state_ref<T>(args: &[Value], name: &str, f: impl FnOnce(&GeomState
     with_context_state(context_arg(args, 0, name)?, |state| f(state))
 }
 
-/// Runs `f` on the model of the context in argument 1, which it changes. A call that only reads uses
-/// [`model_ref`].
+/// Runs `f` on the model of the context in argument 1, which it changes: the state's stamp takes in the call and
+/// its arguments. A call that only reads uses [`model_ref`].
 pub(crate) fn model_mut<T>(args: &[Value], name: &str, f: impl FnOnce(&mut Model) -> R<T>) -> R<T> {
-    with_context_model(context_arg(args, 0, name)?, f)
+    let context = context_arg(args, 0, name)?;
+    let sheet_metal = fs_interp::builtins::in_sheet_metal(context);
+    with_context_state(context, |state| {
+        reuse::changed(state, name, &args[1..], sheet_metal);
+        state.model.sheet_metal_scope = sheet_metal;
+        f(&mut state.model)
+    })
 }
 
 /// Reads the model of the context in argument 1.
 pub(crate) fn model_ref<T>(args: &[Value], name: &str, f: impl FnOnce(&Model) -> R<T>) -> R<T> {
-    with_context_model(context_arg(args, 0, name)?, |model| f(model))
+    read_model(context_arg(args, 0, name)?, f)
 }
 
-/// Runs `f` on the model of a context value.
-pub(crate) fn model_of<T>(context: &Value, name: &str, f: impl FnOnce(&mut Model) -> R<T>) -> R<T> {
-    let context = match &context.kind {
+fn read_model<T>(context: &fs_interp::builtins::Context, f: impl FnOnce(&Model) -> R<T>) -> R<T> {
+    let sheet_metal = fs_interp::builtins::in_sheet_metal(context);
+    with_context_state(context, |state| {
+        // Not a change to the state: every call sets it for itself.
+        state.model.sheet_metal_scope = sheet_metal;
+        f(&state.model)
+    })
+}
+
+pub(crate) fn context_of<'a>(context: &'a Value, name: &str) -> R<&'a fs_interp::builtins::Context> {
+    match &context.kind {
         Kind::Builtin(native) => native.as_any().downcast_ref::<fs_interp::builtins::Context>(),
         _ => None,
     }
-    .ok_or_else(|| error(format!("@{name}: expected a Context")))?;
-    with_context_model(context, f)
+    .ok_or_else(|| error(format!("@{name}: expected a Context")))
+}
+
+/// Reads the model of a context value.
+pub(crate) fn model_of<T>(context: &Value, name: &str, f: impl FnOnce(&Model) -> R<T>) -> R<T> {
+    read_model(context_of(context, name)?, f)
 }
 
 /// Reads the model of a context value, or `None` if the value isn't a context with geometry.

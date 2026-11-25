@@ -11,7 +11,7 @@
 
 use crate::model::{BodyType, FeatureId, Info, Model, NewBody, Origins};
 use crate::values::{self, field, on_plane};
-use crate::{GeomBuiltins, model_of, tags};
+use crate::{GeomBuiltins, tags};
 use fs_interp::Value;
 use fs_interp::builtins::{arg, string};
 use fs_interp::eval::{R, error};
@@ -57,6 +57,7 @@ impl Native for Sketch {
 
 type P2 = (f64, f64);
 
+#[derive(Debug)]
 enum Geometry {
     Point(P2),
     Line(P2, P2),
@@ -116,6 +117,7 @@ enum Pending {
     Spline { closed: bool },
 }
 
+#[derive(Debug)]
 struct SketchEntity {
     id: Rc<str>,
     geometry: Geometry,
@@ -512,8 +514,27 @@ pub fn register(m: &mut GeomBuiltins) {
             return Ok(Value::UNDEFINED);
         }
         constraints::solve(&mut sketch.entities.borrow_mut(), &sketch.constraints.borrow())?;
-        model_of(&sketch.context, "skSolve", |model| solve(model, sketch))?;
-        Ok(Value::UNDEFINED)
+        let context = crate::context_of(&sketch.context, "skSolve")?;
+        let sheet_metal = fs_interp::builtins::in_sheet_metal(context);
+        crate::with_context_state(context, |state| {
+            // Everything `solve` reads of the sketch, as it is now the solve has placed it.
+            let feed = |feed: &mut crate::reuse::Feed| {
+                feed.u64(u64::from(sheet_metal));
+                feed.text(&format!(
+                    "{:?} {:?} {:?} {} {:?} {:?}",
+                    sketch.id,
+                    sketch.plane,
+                    sketch.entities.borrow(),
+                    sketch.guess.borrow().is_some(),
+                    sketch.guessed_lines.borrow(),
+                    sketch.flat_of
+                ));
+            };
+            crate::reuse::step(state, "skSolve", feed, |state| {
+                state.model.sheet_metal_scope = sheet_metal;
+                solve(&mut state.model, sketch).map(|()| Value::UNDEFINED)
+            })
+        })
     });
 }
 
