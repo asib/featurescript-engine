@@ -1,20 +1,59 @@
 //! The engine's customizer interface, as the WebAssembly module exports it (src/main.rs) and native tests use it: a
 //! Feature Studio's features and parameters as JSON in the shape OpenSCAD's Customizer gives (so a site's parameter
 //! panel can show either), and a feature built with edited values into an STL and a STEP.
+//!
+//! The engine and the Feature Studio it last loaded stay for the next call on the thread, so a design rebuilt with
+//! other values doesn't load std again.
 
 use fs_geom::model::BodyType;
 use fs_interp::features::{FeatureParameter, ParameterKind, ParameterValue};
+use fs_interp::module::ModuleId;
 use fs_interp::{Engine, Value};
+use std::cell::RefCell;
 
-/// The Feature Studio in `source` (at `path`, for its imports), loaded on an engine over std in `std_dir`.
-fn load(std_dir: &str, path: &str, source: &str) -> Result<(Engine, fs_interp::module::ModuleId), String> {
-    let mut engine = fs_geom::engine_with_std(std_dir);
-    let module = engine.load_source(path, source)?;
-    Ok((engine, module))
+/// An engine over std with a Feature Studio loaded on it.
+struct Loaded {
+    std_dir: String,
+    path: String,
+    source: String,
+    engine: Engine,
+    module: ModuleId,
+}
+
+thread_local! {
+    /// The engine the last call on this thread used, if it ended well.
+    static LOADED: RefCell<Option<Loaded>> = const { RefCell::new(None) };
+}
+
+/// Runs `f` on an engine over std in `std_dir` with the Feature Studio in `source` (at `path`, for its imports)
+/// loaded: the engine the last call left, if it loaded the same, or else a new one. Loading std takes about a
+/// tenth of a second, and a page rebuilds one design with one set of values after another.
+///
+/// An engine `f` fails on isn't kept: an error can leave it part of the way through a feature.
+fn with_studio<T>(
+    std_dir: &str,
+    path: &str,
+    source: &str,
+    f: impl FnOnce(&mut Engine, ModuleId) -> Result<T, String>,
+) -> Result<T, String> {
+    let kept = LOADED.with(|l| l.borrow_mut().take());
+    let mut loaded = match kept.filter(|l| l.std_dir == std_dir && l.path == path && l.source == source) {
+        Some(loaded) => loaded,
+        None => {
+            let mut engine = fs_geom::engine_with_std(std_dir);
+            let module = engine.load_source(path, source)?;
+            Loaded { std_dir: std_dir.to_string(), path: path.to_string(), source: source.to_string(), engine, module }
+        }
+    };
+    let result = f(&mut loaded.engine, loaded.module);
+    if result.is_ok() {
+        LOADED.with(|l| *l.borrow_mut() = Some(loaded));
+    }
+    result
 }
 
 /// The feature to build: `feature`, or the first the module exports.
-fn chosen(engine: &Engine, module: fs_interp::module::ModuleId, feature: &str) -> Result<String, String> {
+fn chosen(engine: &Engine, module: ModuleId, feature: &str) -> Result<String, String> {
     let features = engine.features(module);
     if feature.is_empty() {
         features.first().cloned().ok_or_else(|| "This FeatureScript defines no feature (an exported const defined by defineFeature).".to_string())
@@ -30,17 +69,19 @@ fn chosen(engine: &Engine, module: fs_interp::module::ModuleId, feature: &str) -
 /// "units", "control": {"kind", "min", "max", "step", "options"}, "condition"}]}`. Lengths are millimetres and angles
 /// degrees; queries, which can't be edited, are left out.
 pub fn parameters_json(std_dir: &str, path: &str, source: &str, feature: &str) -> Result<String, String> {
-    let (mut engine, module) = load(std_dir, path, source)?;
-    let feature = chosen(&engine, module, feature)?;
-    let features = engine.features(module);
-    let parameters = engine.feature_parameters(module, &feature)?;
-    let params: Vec<String> = parameters.iter().filter(|p| p.kind != ParameterKind::Query).map(parameter_json).collect();
-    Ok(format!(
-        "{{\"feature\":{},\"features\":[{}],\"params\":[{}]}}",
-        json_string(&feature),
-        features.iter().map(|f| json_string(f)).collect::<Vec<_>>().join(","),
-        params.join(",")
-    ))
+    with_studio(std_dir, path, source, |engine, module| {
+        let feature = chosen(engine, module, feature)?;
+        let features = engine.features(module);
+        let parameters = engine.feature_parameters(module, &feature)?;
+        let params: Vec<String> =
+            parameters.iter().filter(|p| p.kind != ParameterKind::Query).map(parameter_json).collect();
+        Ok(format!(
+            "{{\"feature\":{},\"features\":[{}],\"params\":[{}]}}",
+            json_string(&feature),
+            features.iter().map(|f| json_string(f)).collect::<Vec<_>>().join(","),
+            params.join(",")
+        ))
+    })
 }
 
 fn parameter_json(p: &FeatureParameter) -> String {
@@ -102,44 +143,45 @@ const VOLUME_EPS: f64 = 1e-6;
 /// writes `<stem>.stl` (binary, millimetres, meshed to 0.01 mm) and `<stem>.step`. Returns what it printed and each
 /// part's volume.
 pub fn build(std_dir: &str, path: &str, source: &str, feature: &str, values: &str, stem: &str) -> Result<String, String> {
-    let (mut engine, module) = load(std_dir, path, source)?;
-    let feature = chosen(&engine, module, feature)?;
-    let parameters = engine.feature_parameters(module, &feature)?;
-    let values = parse_values(values)?;
-    let definition = engine.feature_definition(module, &parameters, &values)?;
-    let exception = |e| format!("{e:?}");
-    let context = engine.eval(module, "newContextWithDefaults(millimeter)").map_err(exception)?;
-    let id = engine.eval(module, &format!("makeId(\"F{feature}\")")).map_err(exception)?;
-    engine.call(module, &feature, vec![context.clone(), id.clone(), definition]).map_err(exception)?;
-    let status = engine.call(module, "getFeatureStatus", vec![context.clone(), id]).map_err(exception)?;
-    let mut log = std::mem::take(&mut engine.interp.output);
-    if status.get("statusType").and_then(Value::as_str) != Some("OK") {
-        let reason = status.get("statusEnum").and_then(Value::as_str).unwrap_or("an error");
-        return Err(format!("{log}The feature failed: {reason}."));
-    }
-    let parts: Vec<(String, occt::Shape)> = fs_geom::with_model(&context, |model| {
-        model
-            .bodies
-            .iter()
-            .filter(|b| b.body_type == BodyType::Solid && !b.construction)
-            .enumerate()
-            .map(|(i, b)| (b.name().map_or_else(|| format!("Part {}", i + 1), str::to_string), b.shape.clone()))
-            .collect()
+    with_studio(std_dir, path, source, |engine, module| {
+        let feature = chosen(engine, module, feature)?;
+        let parameters = engine.feature_parameters(module, &feature)?;
+        let values = parse_values(values)?;
+        let definition = engine.feature_definition(module, &parameters, &values)?;
+        let exception = |e| format!("{e:?}");
+        let context = engine.eval(module, "newContextWithDefaults(millimeter)").map_err(exception)?;
+        let id = engine.eval(module, &format!("makeId(\"F{feature}\")")).map_err(exception)?;
+        engine.call(module, &feature, vec![context.clone(), id.clone(), definition]).map_err(exception)?;
+        let status = engine.call(module, "getFeatureStatus", vec![context.clone(), id]).map_err(exception)?;
+        let mut log = std::mem::take(&mut engine.interp.output);
+        if status.get("statusType").and_then(Value::as_str) != Some("OK") {
+            let reason = status.get("statusEnum").and_then(Value::as_str).unwrap_or("an error");
+            return Err(format!("{log}The feature failed: {reason}."));
+        }
+        let parts: Vec<(String, occt::Shape)> = fs_geom::with_model(&context, |model| {
+            model
+                .bodies
+                .iter()
+                .filter(|b| b.body_type == BodyType::Solid && !b.construction)
+                .enumerate()
+                .map(|(i, b)| (b.name().map_or_else(|| format!("Part {}", i + 1), str::to_string), b.shape.clone()))
+                .collect()
+        })
+        .ok_or("The feature made no geometry.")?;
+        if parts.is_empty() {
+            return Err(format!("{log}The feature made no solid parts."));
+        }
+        let mut triangles = Vec::new();
+        for (name, shape) in &parts {
+            let volume = shape.volume_within(VOLUME_EPS).map_err(|e| e.to_string())? * 1e9;
+            log.push_str(&format!("{name}: {volume:.3} mm³\n"));
+            triangles.extend(occt::mesh_triangles(shape, 1e-5).map_err(|e| e.to_string())?);
+        }
+        let (names, shapes): (Vec<String>, Vec<occt::Shape>) = parts.into_iter().unzip();
+        occt::write_step(&shapes, &names, &format!("{stem}.step")).map_err(|e| e.to_string())?;
+        std::fs::write(format!("{stem}.stl"), stl(&triangles)).map_err(|e| e.to_string())?;
+        Ok(log)
     })
-    .ok_or("The feature made no geometry.")?;
-    if parts.is_empty() {
-        return Err(format!("{log}The feature made no solid parts."));
-    }
-    let mut triangles = Vec::new();
-    for (name, shape) in &parts {
-        let volume = shape.volume_within(VOLUME_EPS).map_err(|e| e.to_string())? * 1e9;
-        log.push_str(&format!("{name}: {volume:.3} mm³\n"));
-        triangles.extend(occt::mesh_triangles(shape, 1e-5).map_err(|e| e.to_string())?);
-    }
-    let (names, shapes): (Vec<String>, Vec<occt::Shape>) = parts.into_iter().unzip();
-    occt::write_step(&shapes, &names, &format!("{stem}.step")).map_err(|e| e.to_string())?;
-    std::fs::write(format!("{stem}.stl"), stl(&triangles)).map_err(|e| e.to_string())?;
-    Ok(log)
 }
 
 /// A binary STL of the triangles, in millimetres.

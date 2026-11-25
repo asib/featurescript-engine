@@ -13,6 +13,9 @@ built with edited values.
   their defaults) and writes `<stem>.stl` (binary, millimetres), `<stem>.step` and `<stem>.log` (what it printed and
   each part's volume, or the error).
 
+The engine and the Feature Studio last loaded stay between calls, so a design built again with other values doesn't
+load std again.
+
 The same interface runs natively (`fs_wasm::parameters_json`, `fs_wasm::build`; tests/customizer.rs), and
 `examples/build_native.rs` builds a design with values natively, to compare.
 

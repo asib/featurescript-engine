@@ -56,3 +56,35 @@ fn showcase_builds_with_edited_values() {
         std::fs::remove_dir_all(dir).ok();
     });
 }
+
+/// A STEP file's text without its header's FILE_NAME, which carries the time it was written.
+fn step_body(path: &str) -> String {
+    std::fs::read_to_string(path).unwrap().lines().filter(|l| !l.starts_with("FILE_NAME")).collect::<Vec<_>>().join("\n")
+}
+
+#[test]
+fn the_engine_kept_between_builds_builds_the_same() {
+    fs_interp::run_with_large_stack(|| {
+        let (std_dir, path, source) = showcase();
+        let dir = std::env::temp_dir().join(format!("fs-wasm-kept-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let stem = |name: &str| dir.join(name).to_string_lossy().into_owned();
+        let build = |name: &str, values: &str| fs_wasm::build(&std_dir, &path, &source, "", values, &stem(name));
+        // On a new engine, then on the engine that has built the part with other values, failed to build it and
+        // read its parameters.
+        let first = build("first", "{}").unwrap();
+        build("edited", r#"{"length": 150, "pins": 4, "label": "AGAIN"}"#).unwrap();
+        assert!(build("refused", r#"{"edgeFinish": "WAVY"}"#).is_err());
+        fs_wasm::parameters_json(&std_dir, &path, &source, "").unwrap();
+        let again = build("again", "{}").unwrap();
+        assert_eq!(again, first);
+        assert!(std::fs::read(stem("again") + ".stl").unwrap() == std::fs::read(stem("first") + ".stl").unwrap());
+        assert_eq!(step_body(&(stem("again") + ".step")), step_body(&(stem("first") + ".step")));
+        // Another Feature Studio takes a new engine, and the first one after it another.
+        let cube = std::fs::read_to_string(repo().join("crates/fs-wasm/rounded-cube.fs")).unwrap();
+        let cube_log = fs_wasm::build(&std_dir, "rounded-cube.fs", &cube, "", "{}", &stem("cube")).unwrap();
+        assert!(cube_log.contains("7855.841 mm³"), "{cube_log}");
+        assert_eq!(build("after", "{}").unwrap(), first);
+        let _ = std::fs::remove_dir_all(&dir);
+    });
+}
