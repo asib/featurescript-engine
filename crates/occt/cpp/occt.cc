@@ -77,6 +77,12 @@
 #include <GCPnts_AbscissaPoint.hxx>
 #include <gp_Elips.hxx>
 #include <TopoDS_Iterator.hxx>
+#include <BRep_CurveRepresentation.hxx>
+#include <BRep_GCurve.hxx>
+#include <BRep_ListIteratorOfListOfCurveRepresentation.hxx>
+#include <BRep_TEdge.hxx>
+#include <BRep_TFace.hxx>
+#include <BRep_TVertex.hxx>
 #include <TopoDS_Compound.hxx>
 #include <TransferBRep.hxx>
 #include <Transfer_TransientProcess.hxx>
@@ -98,6 +104,9 @@
 #include "occt/src/lib.rs.h"
 #include "occt/cpp/internal.h"
 
+#include <cstring>
+#include <unordered_set>
+
 namespace occt {
 
 std::unique_ptr<Shape> shape_clone(const Shape &s) { return wrap(s.shape); }
@@ -107,6 +116,96 @@ int32_t shape_kind(const Shape &s) { return s.shape.IsNull() ? -1 : static_cast<
 int32_t shape_orientation(const Shape &s) { return static_cast<int32_t>(s.shape.Orientation()); }
 bool shape_is_same(const Shape &a, const Shape &b) { return a.shape.IsSame(b.shape); }
 uint64_t shape_hash(const Shape &s) { return std::hash<TopoDS_Shape>{}(s.shape); }
+
+namespace {
+struct Print {
+  uint64_t h = 1469598103934665603ull;
+  void add(uint64_t v) {
+    h ^= v + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2);
+    h *= 1099511628211ull;
+  }
+  void real(double v) {
+    uint64_t bits;
+    std::memcpy(&bits, &v, sizeof bits);
+    add(bits);
+  }
+  void pointer(const void *p) { add(static_cast<uint64_t>(reinterpret_cast<uintptr_t>(p))); }
+};
+
+void print_shape(const TopoDS_Shape &s, Print &p, std::unordered_set<const TopoDS_TShape *> &seen) {
+  const TopoDS_TShape *t = s.TShape().get();
+  p.pointer(t);
+  if (!seen.insert(t).second) return;
+  p.add(static_cast<uint64_t>(t->ShapeType()) | (t->Free() ? 16 : 0) | (t->Locked() ? 32 : 0) |
+        (t->Modified() ? 64 : 0) | (t->Checked() ? 128 : 0) | (t->Orientable() ? 256 : 0) | (t->Closed() ? 512 : 0) |
+        (t->Infinite() ? 1024 : 0) | (t->Convex() ? 2048 : 0));
+  switch (t->ShapeType()) {
+  case TopAbs_VERTEX: {
+    const BRep_TVertex *v = static_cast<const BRep_TVertex *>(t);
+    p.real(v->Pnt().X());
+    p.real(v->Pnt().Y());
+    p.real(v->Pnt().Z());
+    p.real(v->Tolerance());
+    p.add(static_cast<uint64_t>(v->Points().Extent()));
+    break;
+  }
+  case TopAbs_EDGE: {
+    const BRep_TEdge *e = static_cast<const BRep_TEdge *>(t);
+    p.real(e->Tolerance());
+    p.add((e->SameParameter() ? 1 : 0) | (e->SameRange() ? 2 : 0) | (e->Degenerated() ? 4 : 0));
+    for (BRep_ListIteratorOfListOfCurveRepresentation it(e->Curves()); it.More(); it.Next()) {
+      const Handle(BRep_CurveRepresentation) &r = it.Value();
+      p.pointer(r.get());
+      p.add(static_cast<uint64_t>(r->Location().HashCode()));
+      if (r->IsCurve3D()) p.pointer(r->Curve3D().get());
+      if (r->IsCurveOnSurface()) {
+        p.pointer(r->PCurve().get());
+        p.pointer(r->Surface().get());
+        if (r->IsCurveOnClosedSurface()) p.pointer(r->PCurve2().get());
+      }
+      if (r->IsRegularity()) p.add(static_cast<uint64_t>(r->Continuity()));
+      if (r->IsPolygon3D()) p.pointer(r->Polygon3D().get());
+      if (r->IsPolygonOnTriangulation()) p.pointer(r->PolygonOnTriangulation().get());
+      if (const BRep_GCurve *g = dynamic_cast<const BRep_GCurve *>(r.get())) {
+        p.real(g->First());
+        p.real(g->Last());
+      }
+    }
+    break;
+  }
+  case TopAbs_FACE: {
+    const BRep_TFace *f = static_cast<const BRep_TFace *>(t);
+    p.pointer(f->Surface().get());
+    p.add(static_cast<uint64_t>(f->Location().HashCode()));
+    p.real(f->Tolerance());
+    p.add((f->NaturalRestriction() ? 1 : 0) | (static_cast<uint64_t>(f->NbTriangulations()) << 1));
+    p.pointer(f->ActiveTriangulation().get());
+    break;
+  }
+  default:
+    break;
+  }
+  for (TopoDS_Iterator it(s, Standard_False, Standard_False); it.More(); it.Next()) {
+    const TopoDS_Shape &child = it.Value();
+    p.add(static_cast<uint64_t>(child.Orientation()));
+    p.add(static_cast<uint64_t>(child.Location().HashCode()));
+    print_shape(child, p, seen);
+  }
+}
+}  // namespace
+
+// A print of everything in a shape that an algorithm can change in place: each sub-shape's flags and children, a
+// vertex's point and tolerance, an edge's tolerance, flags and curve representations, a face's surface, tolerance
+// and triangulations. Geometry is told by its address, so two prints compare one shape at two times, not two shapes.
+uint64_t shape_print(const Shape &s) {
+  Print p;
+  if (s.shape.IsNull()) return p.h;
+  std::unordered_set<const TopoDS_TShape *> seen;
+  p.add(static_cast<uint64_t>(s.shape.Orientation()));
+  p.add(static_cast<uint64_t>(s.shape.Location().HashCode()));
+  print_shape(s.shape, p, seen);
+  return p.h;
+}
 
 std::unique_ptr<ShapeList> list_new() { return std::make_unique<ShapeList>(); }
 size_t list_len(const ShapeList &l) { return l.shapes.size(); }

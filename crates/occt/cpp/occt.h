@@ -78,6 +78,7 @@ int32_t shape_kind(const Shape &s);
 int32_t shape_orientation(const Shape &s);
 bool shape_is_same(const Shape &a, const Shape &b);
 uint64_t shape_hash(const Shape &s);
+uint64_t shape_print(const Shape &s);
 
 std::unique_ptr<ShapeList> list_new();
 size_t list_len(const ShapeList &l);

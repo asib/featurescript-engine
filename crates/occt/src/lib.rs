@@ -114,6 +114,7 @@ mod ffi {
         fn shape_reversed(s: &Shape) -> UniquePtr<Shape>;
         fn shape_is_same(a: &Shape, b: &Shape) -> bool;
         fn shape_hash(s: &Shape) -> u64;
+        fn shape_print(s: &Shape) -> u64;
 
         fn list_new() -> UniquePtr<ShapeList>;
         fn list_len(l: &ShapeList) -> usize;
@@ -587,6 +588,13 @@ impl Shape {
     /// A hash that agrees with [`Shape::is_same`].
     pub fn hash(&self) -> u64 {
         ffi::shape_hash(&self.0)
+    }
+
+    /// A print of everything in the shape that an algorithm can change in place: its sub-shapes' flags, tolerances,
+    /// children, curve representations, surfaces and triangulations. It compares one shape at two times (geometry
+    /// is told by its address), to find whether anything altered it in between.
+    pub fn print(&self) -> u64 {
+        ffi::shape_print(&self.0)
     }
 
     /// The distinct sub-shapes of one kind, in OCCT's exploration order.
