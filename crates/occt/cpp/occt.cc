@@ -1444,6 +1444,8 @@ rust::Vec<double> mesh_triangles(const Shape &s, double deflection) {
       }
     }
   }
+  // And left as it was found: a shape is shared with the states it was made from, which later builds may take up.
+  BRepTools::Clean(shape);
   return out;
 }
 
