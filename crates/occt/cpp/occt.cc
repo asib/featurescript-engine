@@ -868,8 +868,8 @@ Box3 bounding_box_in(const Shape &s, Frame frame, bool precise) {
 }
 
 // OCCT integrates some free-form faces badly: extrusions and revolutions of B-splines by 6e-4, closed B-spline
-// faces (a scaled sphere) by 1e-5. Converting free-form faces to NURBS and splitting closed ones into open patches
-// first makes areas and volumes accurate to about 1e-8.
+// faces (a scaled sphere) by 1e-5. Converting swept faces to NURBS and splitting closed ones into open patches
+// first makes areas and volumes accurate to about 1e-8 (see `faces_for_integration`).
 // GProp integrates over each face's curves on the face, which a boolean can leave less accurate than the edges'
 // 3D curves (edges 2e-5 tolerant where a boss meets a slanted plane, 0.2 mm³ off 430 mm from the origin, batch
 // 026). Those curves are projected again from the 3D ones, on a copy, as reading the shape back from STEP would.
@@ -902,54 +902,117 @@ static TopoDS_Shape with_accurate_pcurves(const TopoDS_Shape &shape) {
   return copy;
 }
 
-TopoDS_Shape prepared_for_integration(const TopoDS_Shape &input) {
-  const TopoDS_Shape shape = with_accurate_pcurves(input);
-  if (!has_free_form_faces(shape)) return shape;
-  TopoDS_Shape result = shape;
-  // Only swept and offset faces need converting; converting some imported B-spline shapes crashes OCCT.
-  bool swept = false;
-  for (TopExp_Explorer it(shape, TopAbs_FACE); it.More() && !swept; it.Next()) {
-    switch (BRepAdaptor_Surface(TopoDS::Face(it.Current()), Standard_False).GetType()) {
+// The faces of `shape` that have to be prepared before they are integrated over, prepared, with the rest as they
+// are, in a compound: all its faces for an area (each once), or for a volume (`closed`) those of its closed
+// shells, which is what BRepGProp's OnlyClosed integrates over.
+//
+// Faces on planes, cylinders, cones, spheres and tori are integrated as they are. The others are split into open
+// patches, the extruded and revolved ones converted to NURBS first, each on its own: converting a whole body
+// converts its tori too, and a torus face trimmed across its seam comes out with another area (a handle swept
+// along an arc and joined to a plate, 673 mm², became 830, and the part's volume 0.4% less). Offset faces aren't
+// converted: OCCT approximates them, to within 1e-4 (0.1 mm in our metres) and with patches of degree 14 that
+// take five times as long to integrate over. A shelled vase's inner wall, a revolved spline's offset, came out
+// 0.13 mm² and the vase 1.2 mm³ off what it's integrated to as it is, however finely it's split. Neither way is
+// good past 2e-5 of the volume for the offset of a loft through circles (batch 145 c005, a shelled bottle).
+static TopoDS_Shape faces_for_integration(const TopoDS_Shape &shape, bool closed) {
+  BRep_Builder builder;
+  TopoDS_Compound all, free_form;
+  builder.MakeCompound(all);
+  builder.MakeCompound(free_form);
+  bool any_free_form = false;
+  // A face shared by two solids is converted once, and takes each one's orientation.
+  TopTools_DataMapOfShapeShape converted;
+  auto as_nurbs = [&](const TopoDS_Face &face) {
+    const TopoDS_Shape forward = face.Oriented(TopAbs_FORWARD);
+    if (!converted.IsBound(forward)) {
+      TopoDS_Shape result = forward;
+      BRepBuilderAPI_NurbsConvert converter(forward, Standard_True);
+      if (converter.IsDone()) {
+        // A conversion that changes the face's area outright went wrong: keep the face.
+        GProp_GProps before, after;
+        BRepGProp::SurfaceProperties(forward, before);
+        BRepGProp::SurfaceProperties(converter.Shape(), after);
+        if (std::abs(after.Mass() - before.Mass()) <= 1e-2 * std::abs(before.Mass())) result = converter.Shape();
+      }
+      converted.Bind(forward, result);
+    }
+    return converted.Find(forward).Oriented(face.Orientation());
+  };
+  auto add = [&](const TopoDS_Face &face) {
+    switch (BRepAdaptor_Surface(face, Standard_False).GetType()) {
+      case GeomAbs_Plane:
+      case GeomAbs_Cylinder:
+      case GeomAbs_Cone:
+      case GeomAbs_Sphere:
+      case GeomAbs_Torus:
+        builder.Add(all, face);
+        return;
+      // Only swept faces need converting; converting some imported B-spline shapes crashes OCCT.
       case GeomAbs_SurfaceOfExtrusion:
       case GeomAbs_SurfaceOfRevolution:
-      case GeomAbs_OffsetSurface:
-        swept = true;
+        builder.Add(free_form, as_nurbs(face));
         break;
       default:
+        builder.Add(free_form, face);
         break;
     }
+    any_free_form = true;
+  };
+  if (closed) {
+    for (TopExp_Explorer shells(shape, TopAbs_SHELL); shells.More(); shells.Next()) {
+      if (!BRep_Tool::IsClosed(shells.Current())) continue;
+      for (TopExp_Explorer faces(shells.Current(), TopAbs_FACE); faces.More(); faces.Next())
+        add(TopoDS::Face(faces.Current()));
+    }
+  } else {
+    TopTools_MapOfShape seen;
+    for (TopExp_Explorer faces(shape, TopAbs_FACE); faces.More(); faces.Next())
+      if (seen.Add(faces.Current())) add(TopoDS::Face(faces.Current()));
   }
-  if (swept) {
-    BRepBuilderAPI_NurbsConvert converter(result, Standard_True);
-    if (converter.IsDone()) result = converter.Shape();
+  if (any_free_form) {
+    TopoDS_Shape result = free_form;
+    ShapeUpgrade_ShapeDivideClosed divider(result);
+    divider.SetNbSplitPoints(3);
+    if (divider.Perform()) result = divider.Result();
+    // Adaptive integration can settle on a wrong value over a whole rational face, reporting no error: a conic
+    // extruded 30 mm comes out 3.3e-5 over (batch 055 c011). Over each quarter of it in u and v it converges (to
+    // 1e-11, and on a scaled sphere too).
+    ShapeUpgrade_ShapeDivideArea quarters(result);
+    quarters.SetSplittingByNumber(Standard_True);
+    quarters.NbParts() = 16;
+    quarters.SetNumbersUVSplits(4, 4);
+    if (quarters.Perform()) result = quarters.Result();
+    builder.Add(all, result);
   }
-  ShapeUpgrade_ShapeDivideClosed divider(result);
-  divider.SetNbSplitPoints(3);
-  if (divider.Perform()) result = divider.Result();
-  // Adaptive integration can settle on a wrong value over a whole rational face, reporting no error: a conic
-  // extruded 30 mm comes out 3.3e-5 over (batch 055 c011). Over each quarter of it in u and v it converges (to
-  // 1e-11, and on a scaled sphere too).
-  ShapeUpgrade_ShapeDivideArea quarters(result);
-  quarters.SetSplittingByNumber(Standard_True);
-  quarters.NbParts() = 16;
-  quarters.SetNumbersUVSplits(4, 4);
-  if (quarters.Perform()) result = quarters.Result();
-  return result;
+  return all;
 }
 
 // Volumes and areas use adaptive integration: the default Gauss rule is off by 1e-4 on rational B-spline surfaces,
 // such as a scaled sphere.
 constexpr double GPROP_EPS = 1e-12;
 
+// The volume properties of a shape's closed shells.
+static void volume_properties(const TopoDS_Shape &input, GProp_GProps &props) {
+  const TopoDS_Shape shape = with_accurate_pcurves(input);
+  if (has_free_form_faces(shape))
+    BRepGProp::VolumeProperties(faces_for_integration(shape, true), props, GPROP_EPS);
+  else
+    BRepGProp::VolumeProperties(shape, props, GPROP_EPS, Standard_True);
+}
+
 double shape_volume(const Shape &s) {
   GProp_GProps props;
-  BRepGProp::VolumeProperties(prepared_for_integration(s.shape), props, GPROP_EPS, Standard_True);
+  volume_properties(s.shape, props);
   return props.Mass();
 }
 
 double shape_area(const Shape &s) {
   GProp_GProps props;
-  BRepGProp::SurfaceProperties(prepared_for_integration(s.shape), props, GPROP_EPS, Standard_True);
+  const TopoDS_Shape shape = with_accurate_pcurves(s.shape);
+  if (has_free_form_faces(shape))
+    BRepGProp::SurfaceProperties(faces_for_integration(shape, false), props, GPROP_EPS, Standard_True);
+  else
+    BRepGProp::SurfaceProperties(shape, props, GPROP_EPS, Standard_True);
   return props.Mass();
 }
 
@@ -985,7 +1048,7 @@ Vec3 shape_centroid(const Shape &s) {
 // it in world axes (row by row): 13 numbers.
 rust::Vec<double> shape_mass_properties(const Shape &s, int32_t dimension) {
   GProp_GProps props;
-  if (dimension == 3) BRepGProp::VolumeProperties(prepared_for_integration(s.shape), props, GPROP_EPS, Standard_True);
+  if (dimension == 3) volume_properties(s.shape, props);
   else if (dimension == 2) BRepGProp::SurfaceProperties(s.shape, props);
   else BRepGProp::LinearProperties(s.shape, props);
   rust::Vec<double> out;
@@ -1009,7 +1072,7 @@ Vec3 shape_principal_moments(const Shape &s) {
     case TopAbs_WIRE: BRepGProp::LinearProperties(s.shape, props); break;
     case TopAbs_FACE:
     case TopAbs_SHELL: BRepGProp::SurfaceProperties(s.shape, props); break;
-    default: BRepGProp::VolumeProperties(prepared_for_integration(s.shape), props, GPROP_EPS, Standard_True); break;
+    default: volume_properties(s.shape, props); break;
   }
   double m[3];
   props.PrincipalProperties().Moments(m[0], m[1], m[2]);

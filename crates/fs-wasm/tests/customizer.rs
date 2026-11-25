@@ -45,7 +45,7 @@ fn showcase_builds_with_edited_values() {
             log.lines().find_map(|l| l.strip_prefix("Desk tidy: ")).unwrap().trim_end_matches(" mm³").parse().unwrap()
         };
         let defaults = fs_wasm::build(&std_dir, &path, &source, "", "{}", &stem("defaults")).unwrap();
-        assert!((volume(&defaults) - 108876.078).abs() < 0.01, "{defaults}");
+        assert!((volume(&defaults) - 109322.24).abs() < 0.01, "{defaults}");
         let edited = r#"{"length": 160, "pins": 5, "edgeFinish": "CHAMFER", "handle": false, "holes": false, "label": "HELLO"}"#;
         let log = fs_wasm::build(&std_dir, &path, &source, "showcase", edited, &stem("edited")).unwrap();
         assert!(volume(&log) > volume(&defaults) + 10000.0, "{log}");

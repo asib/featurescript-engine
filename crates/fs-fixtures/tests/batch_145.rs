@@ -3,9 +3,11 @@
 
 use std::path::PathBuf;
 
-/// The bottle (c005), a loft through three circles shelled: Onshape's sides are its own fits, its area 0.024 mm² and
-/// its volume 0.031 mm³ (4e-6) under the engine's.
-const LOOSE: &[(&str, f64)] = &[("c005", 0.04)];
+/// The bottle (c005), a loft through three circles shelled: Onshape's sides are its own fits, its area 0.01 mm² over
+/// and its volume 0.076 mm³ (1e-5) under the engine's. The engine's own volume is only good to about that: its
+/// inner wall is the loft's offset, over which OCCT's integration moves by up to 0.15 mm³ with how finely the face
+/// is split (7413.37, 7413.22, 7413.08 and 7413.15 split 2, 4, 8 and 12 ways each way; Onshape's is 7413.14).
+const LOOSE: &[(&str, f64)] = &[("c005", 0.1)];
 
 #[test]
 fn batch_145_matches_onshape() {
