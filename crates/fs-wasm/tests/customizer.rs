@@ -147,10 +147,12 @@ fn a_rebuild_starts_from_where_its_values_first_differ() {
         let ran: Vec<usize> = counts.iter().map(|c| c.ran).collect();
         // The first build runs every operation, with nothing to take.
         assert_eq!(counts[0].kept, 0, "{counts:?}");
-        // The label is engraved last: a new one runs its own operations and little else.
-        assert!(ran[1] * 3 < ran[0], "{ran:?}");
-        // The values before are still kept, all but a state a later operation altered.
-        assert!(ran[2] <= 2, "{ran:?}");
+        // The label is engraved last: a new one runs its sketch's solve, its extrude and its boolean, and is given
+        // the measurements made before them.
+        assert!(ran[1] <= 3 && ran[0] > 30, "{ran:?}");
+        assert!(counts[1].recalled > 0, "{counts:?}");
+        // The values before are all still kept: no operation alters the shapes of a state before its own.
+        assert_eq!(ran[2], 0, "{ran:?}");
         // Pins come halfway, and what follows them runs again; without the holes after, less of it.
         assert!(ran[3] < ran[0] && ran[4] < ran[3], "{ran:?}");
         // The plate comes first: another length keeps only the default planes.

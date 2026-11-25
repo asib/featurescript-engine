@@ -8,7 +8,7 @@ Studio's feature parameters and `build(source, values)` builds the feature into 
 `mesh(0.05)` gives a coarse STL in a quarter of the time the fine one takes (`mesh()`, to 0.01 mm), and `step()` and
 `volumes()` the rest, each when asked. Keep one engine for a design's rebuilds: it keeps std and the Feature Studio
 loaded, and the state each operation left, so a rebuild runs only from the first operation its new values change
-(a part whose label is engraved last builds with a new label in under half the time). The first build on a new
+(a part whose label is engraved last builds with a new label in a third of the time). The first build on a new
 engine takes longer than the ones after.
 
 - `fs_wasm.js`, `fs_wasm.wasm`: the engine (Rust, and OpenCascade 7.9.2, LGPL-2.1 with its exception:
