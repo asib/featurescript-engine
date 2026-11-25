@@ -1019,18 +1019,24 @@ static TopoDS_Shape faces_for_integration(const TopoDS_Shape &shape, bool closed
 // such as a scaled sphere.
 constexpr double GPROP_EPS = 1e-12;
 
-// The volume properties of a shape's closed shells.
-static void volume_properties(const TopoDS_Shape &input, GProp_GProps &props) {
+// The volume properties of a shape's closed shells, integrated until the error estimated is within `eps` of them.
+static void volume_properties(const TopoDS_Shape &input, GProp_GProps &props, double eps = GPROP_EPS) {
   const TopoDS_Shape shape = with_accurate_pcurves(input);
   if (has_free_form_faces(shape))
-    BRepGProp::VolumeProperties(faces_for_integration(shape, true), props, GPROP_EPS);
+    BRepGProp::VolumeProperties(faces_for_integration(shape, true), props, eps);
   else
-    BRepGProp::VolumeProperties(shape, props, GPROP_EPS, Standard_True);
+    BRepGProp::VolumeProperties(shape, props, eps, Standard_True);
 }
 
 double shape_volume(const Shape &s) {
   GProp_GProps props;
   volume_properties(s.shape, props);
+  return props.Mass();
+}
+
+double shape_volume_within(const Shape &s, double eps) {
+  GProp_GProps props;
+  volume_properties(s.shape, props, eps);
   return props.Mass();
 }
 

@@ -207,6 +207,7 @@ Box3 bounding_box(const Shape &s, bool precise);
 Box3 bounding_box_in(const Shape &s, Frame frame, bool precise);
 Box3 quick_box(const Shape &s);
 double shape_volume(const Shape &s);
+double shape_volume_within(const Shape &s, double eps);
 double shape_area(const Shape &s);
 double shape_length(const Shape &s);
 Vec3 shape_centroid(const Shape &s);

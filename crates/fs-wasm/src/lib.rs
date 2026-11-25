@@ -94,6 +94,10 @@ fn step_for(p: &FeatureParameter) -> f64 {
     step.clamp(1e-3, 10.0)
 }
 
+/// How closely each part's volume in the log is integrated: 1e-12, as `evVolume` measures, takes several times as
+/// long for parts with spline faces, to show digits that differ between the native and WebAssembly builds anyway.
+const VOLUME_EPS: f64 = 1e-6;
+
 /// Builds the feature with `values` (a JSON object of parameter values; a parameter missing takes its default) and
 /// writes `<stem>.stl` (binary, millimetres, meshed to 0.01 mm) and `<stem>.step`. Returns what it printed and each
 /// part's volume.
@@ -128,7 +132,7 @@ pub fn build(std_dir: &str, path: &str, source: &str, feature: &str, values: &st
     }
     let mut triangles = Vec::new();
     for (name, shape) in &parts {
-        let volume = shape.volume().map_err(|e| e.to_string())? * 1e9;
+        let volume = shape.volume_within(VOLUME_EPS).map_err(|e| e.to_string())? * 1e9;
         log.push_str(&format!("{name}: {volume:.3} mm³\n"));
         triangles.extend(occt::mesh_triangles(shape, 1e-5).map_err(|e| e.to_string())?);
     }
