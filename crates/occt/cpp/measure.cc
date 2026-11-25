@@ -10,6 +10,7 @@
 #include <BRepClass_FaceClassifier.hxx>
 #include <gp_Pnt2d.hxx>
 #include <IntCurvesFace_ShapeIntersector.hxx>
+#include <memory>
 #include <algorithm>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
@@ -203,13 +204,20 @@ double edge_fraction_extended(const Shape &s, Vec3 p) {
 // The minimum distance between two shapes and the closest points on each.
 // Where the infinite line through `origin` along `direction` (a unit vector) crosses the faces of a shape, as
 // distances along it, sorted, with crossings at the same place (on an edge between faces) counted once.
+// Lines are cast at one shape many at a time (a hole casts seventeen at each of its targets), and loading a shape
+// takes far longer than casting a line at it, so the last shape stays loaded.
 rust::Vec<double> line_crossings(const Shape &s, Vec3 origin, Vec3 direction) {
-  IntCurvesFace_ShapeIntersector intersector;
-  intersector.Load(s.shape, 1e-9);
-  intersector.Perform(gp_Lin(pnt(origin), dir(direction)), -1e6, 1e6);
+  static thread_local TopoDS_Shape loaded;
+  static thread_local std::unique_ptr<IntCurvesFace_ShapeIntersector> intersector;
+  if (!intersector || !loaded.IsEqual(s.shape)) {
+    intersector = std::make_unique<IntCurvesFace_ShapeIntersector>();
+    intersector->Load(s.shape, 1e-9);
+    loaded = s.shape;
+  }
+  intersector->Perform(gp_Lin(pnt(origin), dir(direction)), -1e6, 1e6);
   std::vector<double> found;
-  if (intersector.IsDone())
-    for (int i = 1; i <= intersector.NbPnt(); ++i) found.push_back(intersector.WParameter(i));
+  if (intersector->IsDone())
+    for (int i = 1; i <= intersector->NbPnt(); ++i) found.push_back(intersector->WParameter(i));
   std::sort(found.begin(), found.end());
   rust::Vec<double> out;
   for (double w : found)
