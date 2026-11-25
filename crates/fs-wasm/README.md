@@ -52,7 +52,7 @@ rebuilt to be used: `featurescript-engine-wasm-<version>.tar.gz` unpacks to `fea
 
 `node crates/fs-wasm/test.mjs crates/fs-wasm/rounded-cube.fs roundedCube` builds a filleted cube (7855.841 mm³, in
 half a second); `node crates/fs-wasm/test.mjs examples/showcase.fs showcase /tmp/showcase '{"pins": 5}'` prints the
-showcase part's parameters and builds it with five pins (in about 8 s), copying its STL out.
+showcase part's parameters and builds it with five pins (in about 3 s), copying its STL out.
 
 ## How it differs from the native engine
 
