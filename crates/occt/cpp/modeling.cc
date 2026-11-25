@@ -138,13 +138,19 @@ namespace occt {
 // hold the faces at the start and end of the sweep.
 std::unique_ptr<Operation> revolve(const Shape &profile, Axis axis, double angle) {
   gp_Ax1 ax(pnt(axis.origin), dir(axis.direction));
-  BRepPrimAPI_MakeRevol maker(profile.shape, ax, angle, Standard_False);
+  // A copy of the profile is swept, as `prism` sweeps one: with the profile's own surfaces and curves, but edges
+  // of its own for the sweep to give curves to.
+  BRepBuilderAPI_Copy copier(profile.shape, Standard_False, Standard_False);
+  const TopoDS_Shape base = copier.Shape();
+  BRepPrimAPI_MakeRevol maker(base, ax, angle, Standard_False);
   maker.Build();
   check_done(maker, "revolve");
   auto op = std::make_unique<Operation>();
-  TopTools_ListOfShape arguments;
+  TopTools_ListOfShape arguments, copied;
   arguments.Append(profile.shape);
-  op->history = new BRepTools_History(arguments, maker);
+  copied.Append(base);
+  op->history = new BRepTools_History(arguments, copier);
+  op->history->Merge(new BRepTools_History(copied, maker));
   op->result = maker.Shape();
   // Edges left on one curve, such as the two halves of a circle where a semicircle revolved half a turn meets
   // itself, become one edge, as in Onshape.
@@ -156,7 +162,7 @@ std::unique_ptr<Operation> revolve(const Shape &profile, Axis axis, double angle
   }
   if (std::abs(angle) < 2 * M_PI - 1e-12) {
     TopTools_IndexedMapOfShape faces;
-    TopExp::MapShapes(profile.shape, TopAbs_FACE, faces);
+    TopExp::MapShapes(base, TopAbs_FACE, faces);
     for (int i = 1; i <= faces.Extent(); ++i) {
       op->first.push_back(maker.FirstShape(faces(i)));
       op->last.push_back(maker.LastShape(faces(i)));

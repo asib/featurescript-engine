@@ -430,18 +430,25 @@ std::unique_ptr<Operation> merge_edges(const Shape &s) {
 }
 
 std::unique_ptr<Operation> prism(const Shape &profile, Vec3 v) {
-  BRepPrimAPI_MakePrism maker(profile.shape, gp_Vec(v.x, v.y, v.z), Standard_False, Standard_True);
+  // A copy of the profile is swept: a sweep keeps its profile's edges and gives them curves on the faces they sweep
+  // out, and the profile is a sketch's, which other operations are given too. The copy has the profile's own
+  // surfaces and curves, so what is swept from it is what would be swept from the profile.
+  BRepBuilderAPI_Copy copier(profile.shape, Standard_False, Standard_False);
+  const TopoDS_Shape base = copier.Shape();
+  BRepPrimAPI_MakePrism maker(base, gp_Vec(v.x, v.y, v.z), Standard_False, Standard_True);
   maker.Build();
   check_done(maker, "extrude");
   auto op = std::make_unique<Operation>();
-  TopTools_ListOfShape arguments;
+  TopTools_ListOfShape arguments, copied;
   arguments.Append(profile.shape);
-  op->history = new BRepTools_History(arguments, maker);
+  copied.Append(base);
+  op->history = new BRepTools_History(arguments, copier);
+  op->history->Merge(new BRepTools_History(copied, maker));
   op->result = maker.Shape();
   // The caps: the profile's faces at each end, or for a profile of edges (a sheet), its edges at each end.
   TopTools_IndexedMapOfShape faces;
-  TopExp::MapShapes(profile.shape, TopAbs_FACE, faces);
-  if (faces.IsEmpty()) TopExp::MapShapes(profile.shape, TopAbs_EDGE, faces);
+  TopExp::MapShapes(base, TopAbs_FACE, faces);
+  if (faces.IsEmpty()) TopExp::MapShapes(base, TopAbs_EDGE, faces);
   for (int i = 1; i <= faces.Extent(); ++i) {
     op->first.push_back(maker.FirstShape(faces(i)));
     op->last.push_back(maker.LastShape(faces(i)));
