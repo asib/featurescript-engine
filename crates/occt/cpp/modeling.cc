@@ -2442,14 +2442,21 @@ std::unique_ptr<Shape> solid_from(const Shape &s) {
 
 // The solid a set of faces of a solid bounds once its open boundary is capped with planar faces: the material of a
 // boss, or the void of a pocket, that the faces make.
-std::unique_ptr<Shape> face_feature_solid(const ShapeList &faces) {
+std::unique_ptr<Shape> face_feature_solid(const ShapeList &given) {
   BRep_Builder builder;
+  // On copies of the faces, which are a body's: capping their boundary alters the vertices on it.
+  TopoDS_Compound together;
+  builder.MakeCompound(together);
+  for (const TopoDS_Shape &f : given.shapes) builder.Add(together, f);
+  BRepBuilderAPI_Copy copier(together, Standard_False, Standard_False);
+  std::vector<TopoDS_Shape> faces;
+  for (TopoDS_Iterator it(copier.Shape()); it.More(); it.Next()) faces.push_back(it.Value());
   TopoDS_Shell shell;
   builder.MakeShell(shell);
-  for (const TopoDS_Shape &f : faces.shapes) builder.Add(shell, f);
+  for (const TopoDS_Shape &f : faces) builder.Add(shell, f);
   ShapeAnalysis_FreeBounds bounds(shell, 1e-7, Standard_False, Standard_False);
   BRepBuilderAPI_Sewing sewing(1e-7);
-  for (const TopoDS_Shape &f : faces.shapes) sewing.Add(f);
+  for (const TopoDS_Shape &f : faces) sewing.Add(f);
   for (TopExp_Explorer it(bounds.GetClosedWires(), TopAbs_WIRE); it.More(); it.Next()) {
     BRepBuilderAPI_MakeFace cap(TopoDS::Wire(it.Current()), Standard_True);
     if (!cap.IsDone()) throw std::runtime_error("face feature: the boundary isn't planar");
