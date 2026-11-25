@@ -577,9 +577,17 @@ fn swept_origins(model: &Model, definition: &Value, made: &[(Shape, BodyType)], 
     // A point is on a shape only if it's in the shape's box, which is far quicker to tell than its distance:
     // engraved text's side faces and edges number in the hundreds, and each is tried against every edge and face
     // of its sketch.
-    let on = |p: Vec3, target: &Shape, near: &Option<Box3>| {
-        near.as_ref().is_none_or(|b| in_box(b, p))
-            && occt::vertex(p).and_then(|v| v.distance(target)).is_ok_and(|d| d.distance < 1e-8)
+    let within = |p: Vec3, near: &Option<Box3>| near.as_ref().is_none_or(|b| in_box(b, p));
+    let touches =
+        |p: Vec3, target: &Shape| occt::vertex(p).and_then(|v| v.distance(target)).is_ok_and(|d| d.distance < 1e-8);
+    // Whether an edge's points, moved `t` along the direction, are all on a shape: all in its box, before any
+    // distance is found, and the middle one first, as a neighbouring edge shares an end with the shape but not its
+    // middle.
+    let all_on = |from: &[Vec3], t: f64, target: &Shape, near: &Option<Box3>| {
+        let moved: Vec<Vec3> = from.iter().map(|p| add(*p, scale(direction, t))).collect();
+        moved.iter().all(|p| within(*p, near))
+            && moved.get(1).is_none_or(|p| touches(*p, target))
+            && moved.iter().enumerate().all(|(i, p)| i == 1 || touches(*p, target))
     };
     let samples = |s: &Shape| -> Vec<Vec3> {
         [0.0, 0.5, 1.0].iter().filter_map(|&t| s.edge_tangent(t, false).ok().map(|a| a.origin)).collect()
@@ -621,7 +629,7 @@ fn swept_origins(model: &Model, definition: &Value, made: &[(Shape, BodyType)], 
                     Place::Edge(from) if !along => {
                         let Some(&smid) = from.get(1) else { continue };
                         let t = dot(sub(mid, smid), direction);
-                        if from.iter().all(|p| on(add(*p, scale(direction, t)), &edge, &near)) {
+                        if all_on(from, t, &edge, &near) {
                             origins.derive(&edge, source, true);
                         }
                     }
@@ -637,14 +645,17 @@ fn swept_origins(model: &Model, definition: &Value, made: &[(Shape, BodyType)], 
                     Place::Edge(from) => {
                         let Some(&smid) = from.get(1) else { continue };
                         let t = dot(sub(p, smid), direction);
-                        if from.iter().all(|q| on(add(*q, scale(direction, t)), &face, &near)) {
+                        if all_on(from, t, &face, &near) {
                             origins.derive(&face, source, false);
                         }
                     }
                     Place::Face(q, source_near) => {
                         let t = dot(sub(p, *q), direction);
-                        if on(add(*q, scale(direction, t)), &face, &near)
-                            && on(sub(p, scale(direction, t)), &source.shape, source_near)
+                        let (up, down) = (add(*q, scale(direction, t)), sub(p, scale(direction, t)));
+                        if within(up, &near)
+                            && within(down, source_near)
+                            && touches(up, &face)
+                            && touches(down, &source.shape)
                         {
                             origins.derive(&face, source, true);
                         }
