@@ -5,7 +5,7 @@
 use crate::model::{EntityType, Model};
 use crate::splines::solve;
 use crate::values::{self, Tags, field, map, norm, sub};
-use crate::{GeomBuiltins, model_mut, occt_error, query, regen_error, tags};
+use crate::{GeomBuiltins, model_ref, occt_error, query, regen_error, tags};
 use fs_interp::Value;
 use fs_interp::builtins::arg;
 use fs_interp::eval::{R, error};
@@ -724,7 +724,7 @@ pub fn register(m: &mut GeomBuiltins) {
         let tolerance = field(&definition, "tolerance").as_number().unwrap_or(1e-6);
         let force_cubic = values::opt_bool(&definition, "forceCubic")?.unwrap_or(false);
         let force_non_rational = values::opt_bool(&definition, "forceNonRational")?.unwrap_or(false);
-        model_mut(&args, "evApproximateBSplineCurve", |model| {
+        model_ref(&args, "evApproximateBSplineCurve", |model| {
             let found = query::evaluate(model, field(&definition, "edge"))?;
             let r = found.first().ok_or_else(|| regen_error("CANNOT_RESOLVE_ENTITIES"))?;
             if r.kind != EntityType::Edge {
@@ -741,7 +741,7 @@ pub fn register(m: &mut GeomBuiltins) {
     m.insert("evMaxPathDeviation", |interp, args| {
         let tags = tags(interp)?;
         let definition = arg(&args, 1, "evMaxPathDeviation")?.clone();
-        model_mut(&args, "evMaxPathDeviation", |model| max_path_deviation(&tags, model, &definition))
+        model_ref(&args, "evMaxPathDeviation", |model| max_path_deviation(&tags, model, &definition))
     });
 }
 

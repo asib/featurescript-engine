@@ -10,7 +10,7 @@
 
 use crate::model::{BodyType, EntityType, FeatureId, Info, Model, NewBody, Origins};
 use crate::values::{self, Tags, field};
-use crate::{GeomBuiltins, model_mut, occt_error, query, regen_error, tags};
+use crate::{GeomBuiltins, model_ref, occt_error, query, regen_error, tags};
 use fs_interp::Value;
 use fs_interp::builtins::arg;
 use fs_interp::eval::{R, error};
@@ -222,13 +222,13 @@ pub fn register(m: &mut GeomBuiltins) {
     m.insert("evMateConnector", |interp, args| {
         let tags = tags(interp)?;
         let definition = arg(&args, 1, "evMateConnector")?.clone();
-        model_mut(&args, "evMateConnector", |model| {
+        model_ref(&args, "evMateConnector", |model| {
             evaluate_connector(&tags, model, field(&definition, "mateConnector"))
         })
     });
     m.insert("evMateConnectorCoordSystem", |interp, args| {
         let tags = tags(interp)?;
         let definition = arg(&args, 1, "evMateConnectorCoordSystem")?.clone();
-        model_mut(&args, "evMateConnectorCoordSystem", |model| tags.coord_system(coord_system_for(model, &definition)?))
+        model_ref(&args, "evMateConnectorCoordSystem", |model| tags.coord_system(coord_system_for(model, &definition)?))
     });
 }

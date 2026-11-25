@@ -4,7 +4,7 @@
 use crate::model::{EntityRef, EntityType, Model};
 use crate::query::tid_string;
 use crate::values::{self, Tags, field, map};
-use crate::{GeomBuiltins, model_mut, query, tags};
+use crate::{GeomBuiltins, model_ref, query, tags};
 use fs_interp::Value;
 use fs_interp::builtins::arg;
 use fs_interp::eval::{R, error};
@@ -85,7 +85,7 @@ pub fn register(m: &mut GeomBuiltins) {
     m.insert("constructPaths", |interp, args| {
         let tags = tags(interp)?;
         let definition = arg(&args, 1, "constructPaths")?.clone();
-        model_mut(&args, "constructPaths", |model| construct_paths(&tags, model, &definition))
+        model_ref(&args, "constructPaths", |model| construct_paths(&tags, model, &definition))
     });
     // Groups of points within `tolerance` of each other (transitively), as arrays of indices.
     m.insert("clusterPoints", |_, args| {
@@ -127,7 +127,7 @@ pub fn register(m: &mut GeomBuiltins) {
     });
     m.insert("lastOperationId", |interp, args| {
         let tags = tags(interp)?;
-        model_mut(&args, "lastOperationId", |model| {
+        model_ref(&args, "lastOperationId", |model| {
             Ok(values::id_value(&tags, model.last_operation.as_deref().unwrap_or(&[])))
         })
     });
@@ -135,7 +135,7 @@ pub fn register(m: &mut GeomBuiltins) {
     m.insert("lastModifyingOperationId", |interp, args| {
         let tags = tags(interp)?;
         let definition = arg(&args, 1, "lastModifyingOperationId")?.clone();
-        model_mut(&args, "lastModifyingOperationId", |model| {
+        model_ref(&args, "lastModifyingOperationId", |model| {
             let found = query::evaluate(model, field(&definition, "entity"))?;
             let r = found.first().ok_or_else(|| crate::regen_error("CANNOT_RESOLVE_ENTITIES"))?;
             Ok(values::id_value(&tags, &model.info(*r).created_by))

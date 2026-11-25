@@ -4,7 +4,7 @@
 
 use crate::model::Model;
 use crate::values::field;
-use crate::{GeomBuiltins, model_mut, query};
+use crate::{GeomBuiltins, model_mut, model_ref, query};
 use fs_interp::Value;
 use fs_interp::builtins::arg;
 use fs_interp::eval::{R, error};
@@ -76,7 +76,7 @@ pub fn register(m: &mut GeomBuiltins) {
         }
         let definition = arg(&args, 1, "getProperty")?.clone();
         let key = key(&definition)?;
-        model_mut(&args, "getProperty", |model| {
+        model_ref(&args, "getProperty", |model| {
             let body = bodies(model, field(&definition, "entity"))?.first().copied();
             let value = body.and_then(|b| model.bodies[b].properties.get(&key).cloned()).unwrap_or(Value::UNDEFINED);
             Ok(if &*key == "MATERIAL" { without_units(&value) } else { value })

@@ -2,7 +2,7 @@
 
 use crate::model::{EntityRef, EntityType, Model};
 use crate::values::{self, Tags, field, map};
-use crate::{GeomBuiltins, model_mut, occt_error, query, regen_error, tags};
+use crate::{GeomBuiltins, model_ref, occt_error, query, regen_error, tags};
 use fs_interp::Value;
 use fs_interp::builtins::arg;
 use fs_interp::eval::{R, error};
@@ -22,7 +22,7 @@ fn measure(
     tags: &Tags,
 ) -> R<Value> {
     let definition = definition(&args, name)?;
-    model_mut(&args, name, |model| {
+    model_ref(&args, name, |model| {
         let found = query::evaluate(model, field(&definition, key))?;
         f(tags, model, found)
     })
@@ -184,7 +184,7 @@ pub fn register(m: &mut GeomBuiltins) {
     m.insert("clusterBodies", |_, args| {
         let definition = definition(&args, "clusterBodies")?;
         let tolerance = field(&definition, "relativeTolerance").as_number().unwrap_or(1e-6);
-        model_mut(&args, "clusterBodies", |model| {
+        model_ref(&args, "clusterBodies", |model| {
             let bodies: Vec<usize> = query::evaluate(model, field(&definition, "bodies"))?
                 .into_iter()
                 .filter(|r| r.kind == EntityType::Body)
@@ -219,7 +219,7 @@ pub fn register(m: &mut GeomBuiltins) {
         let tags = tags(interp)?;
         let definition = definition(&args, "evCollisionDetection")?;
         let clash_type = fs_interp::types::find("ClashType").ok_or_else(|| error("std type ClashType isn't loaded"))?;
-        model_mut(&args, "evCollisionDetection", |model| {
+        model_ref(&args, "evCollisionDetection", |model| {
             let tools = query::evaluate(model, field(&definition, "tools"))?;
             let targets = query::evaluate(model, field(&definition, "targets"))?;
             let shape = |r: EntityRef| {
@@ -599,7 +599,7 @@ pub fn register(m: &mut GeomBuiltins) {
         let parameters = values::numbers(field(&definition, "parameters"), "evEdgeCurvatures parameters")?;
         let arc_length = values::opt_bool(&definition, "arcLengthParameterization")?.unwrap_or(true);
         let face_query = field(&definition, "face").clone();
-        model_mut(&args, "evEdgeCurvatures", |model| {
+        model_ref(&args, "evEdgeCurvatures", |model| {
             let found = query::evaluate(model, field(&definition, "edge"))?;
             let edge = single_edge(model, &found).ok_or_else(|| regen_error("NO_TANGENT_LINE"))?;
             // With a face, the edge runs the way the face's boundary uses it: with the face on its left.
@@ -658,7 +658,7 @@ pub fn register(m: &mut GeomBuiltins) {
         let parameters = values::numbers(field(&definition, "parameters"), "evFaceTangentPlanesAtEdge parameters")?;
         let arc_length = values::opt_bool(&definition, "arcLengthParameterization")?.unwrap_or(true);
         let face_orientation = values::opt_bool(&definition, "usingFaceOrientation")?.unwrap_or(false);
-        model_mut(&args, "evFaceTangentPlanesAtEdge", |model| {
+        model_ref(&args, "evFaceTangentPlanesAtEdge", |model| {
             let edges = query::evaluate(model, field(&definition, "edge"))?;
             let edge = single_edge(model, &edges).ok_or_else(|| regen_error("NO_TANGENT_PLANE"))?;
             let faces = query::evaluate(model, field(&definition, "face"))?;
@@ -690,7 +690,7 @@ pub fn register(m: &mut GeomBuiltins) {
     // in `side1`, side0 being the faces that join the body's first paired face across shared edges.
     m.insert("evOffsetDetection", |_, args| {
         let definition = definition(&args, "evOffsetDetection")?;
-        model_mut(&args, "evOffsetDetection", |model| {
+        model_ref(&args, "evOffsetDetection", |model| {
             let bodies: Vec<usize> =
                 query::evaluate(model, field(&definition, "bodies"))?.iter().map(|r| r.body).collect();
             let mut groups = Vec::new();
@@ -706,14 +706,14 @@ pub fn register(m: &mut GeomBuiltins) {
         let tags = tags(interp)?;
         let definition = definition(&args, "evDistance")?;
         let arc_length = values::opt_bool(&definition, "arcLengthParameterization")?.unwrap_or(true);
-        model_mut(&args, "evDistance", |model| distance(&tags, model, &definition, arc_length))
+        model_ref(&args, "evDistance", |model| distance(&tags, model, &definition, arc_length))
     });
     // Whether a face wraps round its surface each way (`trimmed`, the default) or its surface does (batch 072
     // c001: a tube swept along an arc, periodic round the tube).
     m.insert("evFacePeriodicity", |_, args| {
         let definition = definition(&args, "evFacePeriodicity")?;
         let trimmed = values::opt_bool(&definition, "trimmed")?.unwrap_or(true);
-        model_mut(&args, "evFacePeriodicity", |model| {
+        model_ref(&args, "evFacePeriodicity", |model| {
             let r = query::evaluate(model, field(&definition, "face"))?
                 .into_iter()
                 .find(|r| r.kind == EntityType::Face)

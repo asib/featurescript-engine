@@ -5,7 +5,7 @@ use std::rc::Rc;
 
 use crate::model::{Attributes, EntityRef, Model, same_type};
 use crate::values::field;
-use crate::{GeomBuiltins, model_mut, query};
+use crate::{GeomBuiltins, model_mut, model_ref, query};
 use fs_interp::Value;
 use fs_interp::builtins::arg;
 use fs_interp::eval::error;
@@ -62,7 +62,7 @@ pub fn filter(model: &Model, found: Vec<EntityRef>, wanted: &Wanted) -> Vec<Enti
 
 /// The distinct attributes matching `wanted` on what the definition's `entities` find.
 fn get_attributes(args: &[Value], name: &str, definition: &Value, wanted: &Wanted) -> fs_interp::eval::R<Value> {
-    model_mut(args, name, |model| {
+    model_ref(args, name, |model| {
         let mut out: Vec<Value> = Vec::new();
         for r in query::evaluate(model, field(definition, "entities"))? {
             for value in wanted.matching(model.attributes(r)) {
@@ -130,14 +130,14 @@ pub fn register(m: &mut GeomBuiltins) {
     m.insert("getAttribute", |_, args| {
         let definition = arg(&args, 1, "getAttribute")?.clone();
         let name = field(&definition, "name").as_str().unwrap_or_default().to_string();
-        model_mut(&args, "getAttribute", |model| {
+        model_ref(&args, "getAttribute", |model| {
             let first = query::evaluate(model, field(&definition, "entity"))?.first().copied();
             Ok(first.and_then(|r| model.attributes(r).named.get(name.as_str()).cloned()).unwrap_or(Value::UNDEFINED))
         })
     });
     m.insert("getAllAttributes", |_, args| {
         let definition = arg(&args, 1, "getAllAttributes")?.clone();
-        model_mut(&args, "getAllAttributes", |model| {
+        model_ref(&args, "getAllAttributes", |model| {
             let first = query::evaluate(model, field(&definition, "entity"))?.first().copied();
             let entries = first
                 .map(|r| model.attributes(r).named.iter().map(|(k, v)| (Value::string(k.clone()), v.clone())).collect())

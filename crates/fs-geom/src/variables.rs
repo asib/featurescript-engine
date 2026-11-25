@@ -3,7 +3,7 @@
 
 use crate::model::Variable;
 use crate::values::{field, map};
-use crate::{GeomBuiltins, state_mut};
+use crate::{GeomBuiltins, state_mut, state_ref};
 use fs_interp::Value;
 use fs_interp::builtins::arg;
 use fs_interp::eval::{R, error};
@@ -32,14 +32,14 @@ fn get(args: Vec<Value>, builtin: &'static str, query: bool) -> R<Value> {
     let definition = arg(&args, 1, builtin)?.clone();
     let name = name_of(&definition, builtin)?;
     let default = definition.get("defaultValue").cloned();
-    state_mut(&args, builtin, |state| match state.variables.get(&name) {
+    state_ref(&args, builtin, |state| match state.variables.get(&name) {
         Some(v) if v.query == query => Ok(v.value.clone()),
         _ => default.ok_or_else(|| error(format!("Variable \"{name}\" not found"))),
     })
 }
 
 fn all(args: Vec<Value>, builtin: &'static str, descriptions: bool) -> R<Value> {
-    state_mut(&args, builtin, |state| {
+    state_ref(&args, builtin, |state| {
         let entries: ValueMap = state
             .variables
             .iter()

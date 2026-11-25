@@ -23,7 +23,7 @@ pub use revolve::rotation;
 
 use crate::model::{BodyType, EntityType, FeatureId, Info, Model, NewBody, Origins};
 use crate::values::{self, field};
-use crate::{GeomBuiltins, model_mut, occt_error, query, regen_error};
+use crate::{GeomBuiltins, model_mut, model_ref, occt_error, query, regen_error};
 use fs_interp::Value;
 use fs_interp::builtins::{arg, context_arg};
 use fs_interp::eval::{Flow, R, error};
@@ -86,12 +86,12 @@ pub fn register(m: &mut GeomBuiltins) {
     m.insert("evCornerType", |interp, args| {
         let tags = crate::tags(interp)?;
         let definition = fs_interp::builtins::arg(&args, 1, "evCornerType")?.clone();
-        model_mut(&args, "evCornerType", |model| sheet_metal::corner_type(&tags, model, &definition))
+        model_ref(&args, "evCornerType", |model| sheet_metal::corner_type(&tags, model, &definition))
     });
     // The motion taking a sheet metal wall from the model into its flat pattern (batch 070 c010).
     m.insert("evSheetMetalFlatTransformation", |_, args| {
         let definition = fs_interp::builtins::arg(&args, 1, "evSheetMetalFlatTransformation")?.clone();
-        model_mut(&args, "evSheetMetalFlatTransformation", |model| {
+        model_ref(&args, "evSheetMetalFlatTransformation", |model| {
             let found = query::evaluate(model, field(&definition, "face"))?;
             let r = found.first().ok_or_else(|| regen_error("CANNOT_RESOLVE_ENTITIES"))?;
             let (linear, t) = sheet_metal::flat_transformation(model, *r).ok_or_else(|| regen_error("INVALID_INPUT"))?;
@@ -105,7 +105,7 @@ pub fn register(m: &mut GeomBuiltins) {
     // Whether a flat pattern's bend centreline bends up, towards the flat face's normal (batch 070 c010).
     m.insert("evSheetMetalBendUp", |_, args| {
         let definition = fs_interp::builtins::arg(&args, 1, "evSheetMetalBendUp")?.clone();
-        model_mut(&args, "evSheetMetalBendUp", |model| {
+        model_ref(&args, "evSheetMetalBendUp", |model| {
             let found = query::evaluate(model, field(&definition, "wireBody"))?;
             let r = found.first().ok_or_else(|| regen_error("CANNOT_RESOLVE_ENTITIES"))?;
             let up = sheet_metal::bend_up(model, r.body).ok_or_else(|| regen_error("INVALID_INPUT"))?;
@@ -117,7 +117,7 @@ pub fn register(m: &mut GeomBuiltins) {
     // where they cut). Forms aren't supported yet.
     m.insert("evSheetMetalHoleToolBodies", |_, args| {
         let definition = fs_interp::builtins::arg(&args, 1, "evSheetMetalHoleToolBodies")?.clone();
-        model_mut(&args, "evSheetMetalHoleToolBodies", |model| {
+        model_ref(&args, "evSheetMetalHoleToolBodies", |model| {
             let found: Vec<crate::model::EntityRef> =
                 query::evaluate(model, field(&definition, "sheetMetalHoleFaces"))?
                     .into_iter()
@@ -168,7 +168,7 @@ pub fn register(m: &mut GeomBuiltins) {
     m.insert("evSheetMetalFormToolBodies", |interp, args| {
         let tags = crate::tags(interp)?;
         let definition = fs_interp::builtins::arg(&args, 1, "evSheetMetalFormToolBodies")?.clone();
-        model_mut(&args, "evSheetMetalFormToolBodies", |model| {
+        model_ref(&args, "evSheetMetalFormToolBodies", |model| {
             let found: Vec<crate::model::EntityRef> =
                 query::evaluate(model, field(&definition, "sheetMetalFormFaces"))?
                     .into_iter()
@@ -224,7 +224,7 @@ pub fn register(m: &mut GeomBuiltins) {
     m.insert("evTessellatedLoftMatches", |interp, args| {
         let tags = crate::tags(interp)?;
         let definition = fs_interp::builtins::arg(&args, 1, "evTessellatedLoftMatches")?.clone();
-        model_mut(&args, "evTessellatedLoftMatches", |model| tessellated::matches(&tags, model, &definition))
+        model_ref(&args, "evTessellatedLoftMatches", |model| tessellated::matches(&tags, model, &definition))
     });
     m.insert("opRevolve", |_, args| run_op(&args, "opRevolve", revolve::revolve));
     m.insert("opSphere", |_, args| {

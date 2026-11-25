@@ -3,7 +3,7 @@
 
 use crate::model::{FeatureId, GeomState};
 use crate::values::{self, field};
-use crate::{GeomBuiltins, query, state_mut};
+use crate::{GeomBuiltins, query, state_mut, state_ref};
 use fs_interp::Value;
 use fs_interp::builtins::arg;
 use fs_interp::eval::{R, error};
@@ -90,16 +90,16 @@ pub fn register(m: &mut GeomBuiltins) {
         })
     });
     m.insert("isInFeaturePattern", |_, args| {
-        state_mut(&args, "isInFeaturePattern", |state| Ok(Value::bool(!state.pattern.is_empty())))
+        state_ref(&args, "isInFeaturePattern", |state| Ok(Value::bool(!state.pattern.is_empty())))
     });
     m.insert("getFullPatternTransform", |_, args| {
-        state_mut(&args, "getFullPatternTransform", |state| Ok(to_value(&full(state))))
+        state_ref(&args, "getFullPatternTransform", |state| Ok(to_value(&full(state))))
     });
     // The part of the pattern transform the references haven't had: with S the transforms down to the deepest
     // instance that made any of them, and F all of them, R with R S = F.
     m.insert("getRemainderPatternTransform", |_, args| {
         let definition = arg(&args, 1, "getRemainderPatternTransform")?.clone();
-        state_mut(&args, "getRemainderPatternTransform", |state| {
+        state_ref(&args, "getRemainderPatternTransform", |state| {
             let f = full(state);
             if state.pattern.is_empty() {
                 return Ok(to_value(&f));
@@ -130,7 +130,7 @@ pub fn register(m: &mut GeomBuiltins) {
         let features = arg(&args, 1, "containsSketch")?.clone();
         let entries = features.as_map().ok_or_else(|| error("@containsSketch: expected a map"))?;
         let ids = entries.keys().map(|k| values::feature_id(k, "feature id")).collect::<R<Vec<_>>>()?;
-        state_mut(&args, "containsSketch", |state| {
+        state_ref(&args, "containsSketch", |state| {
             Ok(Value::bool(
                 state
                     .model

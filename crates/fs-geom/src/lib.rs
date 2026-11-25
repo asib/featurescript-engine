@@ -111,14 +111,26 @@ fn with_context_model<T>(context: &fs_interp::builtins::Context, f: impl FnOnce(
     })
 }
 
-/// Runs `f` on the state (model and variables) of the context in argument 1.
+/// Runs `f` on the state (model and variables) of the context in argument 1, which it changes. A call that only
+/// reads uses [`state_ref`].
 pub(crate) fn state_mut<T>(args: &[Value], name: &str, f: impl FnOnce(&mut GeomState) -> R<T>) -> R<T> {
     with_context_state(context_arg(args, 0, name)?, f)
 }
 
-/// Runs `f` on the model of the context in argument 1.
+/// Reads the state of the context in argument 1.
+pub(crate) fn state_ref<T>(args: &[Value], name: &str, f: impl FnOnce(&GeomState) -> R<T>) -> R<T> {
+    with_context_state(context_arg(args, 0, name)?, |state| f(state))
+}
+
+/// Runs `f` on the model of the context in argument 1, which it changes. A call that only reads uses
+/// [`model_ref`].
 pub(crate) fn model_mut<T>(args: &[Value], name: &str, f: impl FnOnce(&mut Model) -> R<T>) -> R<T> {
     with_context_model(context_arg(args, 0, name)?, f)
+}
+
+/// Reads the model of the context in argument 1.
+pub(crate) fn model_ref<T>(args: &[Value], name: &str, f: impl FnOnce(&Model) -> R<T>) -> R<T> {
+    with_context_model(context_arg(args, 0, name)?, |model| f(model))
 }
 
 /// Runs `f` on the model of a context value.

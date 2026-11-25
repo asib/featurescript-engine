@@ -3,7 +3,7 @@
 
 use crate::model::{BodyType, EntityType, Model};
 use crate::values::{self, Tags, field, map};
-use crate::{GeomBuiltins, model_mut, occt_error, query, tags};
+use crate::{GeomBuiltins, model_ref, occt_error, query, tags};
 use fs_interp::Value;
 use fs_interp::builtins::arg;
 use fs_interp::eval::{R, error};
@@ -12,19 +12,19 @@ use occt::{Shape, Vec3};
 pub fn register(m: &mut GeomBuiltins) {
     m.insert("evApproximateMassProperties", |_, args| {
         let definition = arg(&args, 1, "evApproximateMassProperties")?.clone();
-        model_mut(&args, "evApproximateMassProperties", |model| mass_properties(model, &definition))
+        model_ref(&args, "evApproximateMassProperties", |model| mass_properties(model, &definition))
     });
     m.insert("evPointsDeviation", |interp, args| {
         let tags = tags(interp)?;
         let definition = arg(&args, 1, "evPointsDeviation")?.clone();
-        model_mut(&args, "evPointsDeviation", |model| points_deviation(&tags, model, &definition))
+        model_ref(&args, "evPointsDeviation", |model| points_deviation(&tags, model, &definition))
     });
     m.insert("evaluateSpline", |_, args| evaluate_spline(arg(&args, 0, "evaluateSpline")?));
     // A mesh body's points: the engine makes no meshes (Onshape's are imported ones), so bodies and faces that
     // aren't meshes find none, as Onshape's do (batch 105).
     m.insert("evMeshPoints", |_, args| {
         let meshes = arg(&args, 1, "evMeshPoints")?.get("meshes").cloned().unwrap_or(Value::UNDEFINED);
-        model_mut(&args, "evMeshPoints", |model| {
+        model_ref(&args, "evMeshPoints", |model| {
             if crate::query::evaluate(model, &meshes)?.is_empty() {
                 return Err(crate::faulty("CANNOT_RESOLVE_ENTITIES", "meshes"));
             }
@@ -34,11 +34,11 @@ pub fn register(m: &mut GeomBuiltins) {
     m.insert("evApproximateBSplineSurface", |interp, args| {
         let tags = tags(interp)?;
         let definition = arg(&args, 1, "evApproximateBSplineSurface")?.clone();
-        model_mut(&args, "evApproximateBSplineSurface", |model| approximate_surface(&tags, model, &definition))
+        model_ref(&args, "evApproximateBSplineSurface", |model| approximate_surface(&tags, model, &definition))
     });
     m.insert("evFaceCurvatureDerivatives", |_, args| {
         let definition = arg(&args, 1, "evFaceCurvatureDerivatives")?.clone();
-        model_mut(&args, "evFaceCurvatureDerivatives", |model| curvature_derivatives(model, &definition))
+        model_ref(&args, "evFaceCurvatureDerivatives", |model| curvature_derivatives(model, &definition))
     });
 }
 
