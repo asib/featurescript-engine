@@ -238,7 +238,9 @@ pub fn extrude(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
         other => other,
     };
     let start = bound(model, definition, "start", &id)?;
-    let reach = reach(model, &profiles[0]);
+    // Found only for a bound that needs it, as it boxes every part exactly.
+    let far = std::cell::OnceCell::new();
+    let reach = || *far.get_or_init(|| reach(model, &profiles[0]));
 
     // Where the sweep starts and how far it goes before any trimming to a bound. The start is `startDepth` behind
     // the profile, or forward when `isStartBoundOpposite` is false (std's symmetric extrude passes a negative
@@ -253,15 +255,15 @@ pub fn extrude(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
                 *d
             }
         }
-        Some(Bound::ThroughAll) => -reach,
+        Some(Bound::ThroughAll) => -reach(),
         // Up to a plane: swept from far behind, then cut at the plane (a hem's step, batch 021); up to a curved face or
         // bodies, of a solid, the same (batch 164 c004, c005).
-        Some(Bound::Surface(face, _)) if face.face_plane().is_ok() => -reach,
-        Some(Bound::Surface(..) | Bound::Bodies(..)) => -reach,
+        Some(Bound::Surface(face, _)) if face.face_plane().is_ok() => -reach(),
+        Some(Bound::Surface(..) | Bound::Bodies(..)) => -reach(),
     };
     let end_at = match &end {
         Bound::Blind(d) => *d,
-        _ => reach,
+        _ => reach(),
     };
     let length = end_at - start_at;
     if length <= 1e-8 {
@@ -319,7 +321,7 @@ pub fn extrude(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
                     occt::transform(face, &translation(scale(direction, *offset))).map_err(occt_error)?.shape()
                 };
                 let cutter = match face.face_plane() {
-                    Ok(plane) => occt::plane_face(plane, -2.0 * reach, 2.0 * reach, -2.0 * reach, 2.0 * reach)
+                    Ok(plane) => occt::plane_face(plane, -2.0 * reach(), 2.0 * reach(), -2.0 * reach(), 2.0 * reach())
                         .map_err(occt_error)?,
                     Err(_) => face,
                 };
@@ -379,7 +381,7 @@ pub fn extrude(model: &mut Model, id: FeatureId, definition: &Value) -> R<Value>
             Some(Bound::Surface(face, offset)) if face.face_plane().is_ok() => {
                 let mut plane = face.face_plane().map_err(occt_error)?;
                 plane.origin = add(plane.origin, scale(direction, *offset));
-                let cutter = occt::plane_face(plane, -2.0 * reach, 2.0 * reach, -2.0 * reach, 2.0 * reach)
+                let cutter = occt::plane_face(plane, -2.0 * reach(), 2.0 * reach(), -2.0 * reach(), 2.0 * reach())
                     .map_err(occt_error)?;
                 let split =
                     occt::split(&result, std::slice::from_ref(&cutter)).map_err(|_| regen_error("EXTRUDE_FAILED"))?;
