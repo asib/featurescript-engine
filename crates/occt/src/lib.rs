@@ -353,6 +353,7 @@ mod ffi {
 
         fn bounding_box(s: &Shape, precise: bool) -> Result<Box3>;
         fn bounding_box_in(s: &Shape, frame: Frame, precise: bool) -> Result<Box3>;
+        fn quick_box(s: &Shape) -> Result<Box3>;
         fn shape_volume(s: &Shape) -> Result<f64>;
         fn shape_area(s: &Shape) -> Result<f64>;
         fn shape_length(s: &Shape) -> Result<f64>;
@@ -623,6 +624,12 @@ impl Shape {
     /// The box in the coordinates of `frame`.
     pub fn bounding_box_in(&self, frame: Frame, precise: bool) -> Result<Box3> {
         Ok(ffi::bounding_box_in(&self.0, frame, precise)?)
+    }
+
+    /// A box found quickly, for ruling things out: it can be slack, and round a curved face a little short, so
+    /// allow for that before relying on it.
+    pub fn quick_box(&self) -> Result<Box3> {
+        Ok(ffi::quick_box(&self.0)?)
     }
 
     pub fn volume(&self) -> Result<f64> {

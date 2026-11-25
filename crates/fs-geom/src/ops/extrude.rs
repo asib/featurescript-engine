@@ -572,11 +572,34 @@ fn swept_origins(model: &Model, definition: &Value, made: &[(Shape, BodyType)], 
             }
         }
     }
-    let on =
-        |p: Vec3, target: &Shape| occt::vertex(p).and_then(|v| v.distance(target)).is_ok_and(|d| d.distance < 1e-8);
+    // A point is on a shape only if it's in the shape's box, which is far quicker to tell than its distance:
+    // engraved text's side faces and edges number in the hundreds, and each is tried against every edge and face
+    // of its sketch.
+    let on = |p: Vec3, target: &Shape, near: &Option<Box3>| {
+        near.as_ref().is_none_or(|b| in_box(b, p))
+            && occt::vertex(p).and_then(|v| v.distance(target)).is_ok_and(|d| d.distance < 1e-8)
+    };
     let samples = |s: &Shape| -> Vec<Vec3> {
         [0.0, 0.5, 1.0].iter().filter_map(|&t| s.edge_tangent(t, false).ok().map(|a| a.origin)).collect()
     };
+    // Where each source is: a vertex's point, points along an edge, or a point inside a face and the face's box.
+    enum Place {
+        Vertex(Vec3),
+        Edge(Vec<Vec3>),
+        Face(Vec3, Option<Box3>),
+        Unknown,
+    }
+    let places: Vec<Place> = sources
+        .iter()
+        .map(|source| match source.shape.kind() {
+            Some(ShapeKind::Vertex) => source.shape.vertex_point().map_or(Place::Unknown, Place::Vertex),
+            Some(ShapeKind::Edge) => Place::Edge(samples(&source.shape)),
+            Some(ShapeKind::Face) => {
+                source.shape.face_inner_point().map_or(Place::Unknown, |q| Place::Face(q, roomy_box(&source.shape)))
+            }
+            _ => Place::Unknown,
+        })
+        .collect();
     let mut origins = Origins::default();
     for (shape, _) in made {
         for edge in shape.sub_shapes(ShapeKind::Edge) {
@@ -584,20 +607,19 @@ fn swept_origins(model: &Model, definition: &Value, made: &[(Shape, BodyType)], 
                 && edge.edge_tangent(0.5, false).is_ok_and(|a| norm(cross(a.direction, direction)) < 1e-9);
             let points = samples(&edge);
             let Some(&mid) = points.get(1) else { continue };
-            for source in &sources {
-                match source.shape.kind() {
-                    Some(ShapeKind::Vertex) if along => {
-                        let Ok(v) = source.shape.vertex_point() else { continue };
-                        let d = sub(v, mid);
+            let near = if along { None } else { roomy_box(&edge) };
+            for (source, place) in sources.iter().zip(&places) {
+                match place {
+                    Place::Vertex(v) if along => {
+                        let d = sub(*v, mid);
                         if norm(sub(d, scale(direction, dot(d, direction)))) < 1e-9 {
                             origins.derive(&edge, source, false);
                         }
                     }
-                    Some(ShapeKind::Edge) if !along => {
-                        let from = samples(&source.shape);
+                    Place::Edge(from) if !along => {
                         let Some(&smid) = from.get(1) else { continue };
                         let t = dot(sub(mid, smid), direction);
-                        if from.iter().all(|p| on(add(*p, scale(direction, t)), &edge)) {
+                        if from.iter().all(|p| on(add(*p, scale(direction, t)), &edge, &near)) {
                             origins.derive(&edge, source, true);
                         }
                     }
@@ -607,20 +629,21 @@ fn swept_origins(model: &Model, definition: &Value, made: &[(Shape, BodyType)], 
         }
         for face in shape.sub_shapes(ShapeKind::Face) {
             let Ok(p) = face.face_inner_point() else { continue };
-            for source in &sources {
-                match source.shape.kind() {
-                    Some(ShapeKind::Edge) => {
-                        let from = samples(&source.shape);
+            let near = roomy_box(&face);
+            for (source, place) in sources.iter().zip(&places) {
+                match place {
+                    Place::Edge(from) => {
                         let Some(&smid) = from.get(1) else { continue };
                         let t = dot(sub(p, smid), direction);
-                        if from.iter().all(|q| on(add(*q, scale(direction, t)), &face)) {
+                        if from.iter().all(|q| on(add(*q, scale(direction, t)), &face, &near)) {
                             origins.derive(&face, source, false);
                         }
                     }
-                    Some(ShapeKind::Face) => {
-                        let Ok(q) = source.shape.face_inner_point() else { continue };
-                        let t = dot(sub(p, q), direction);
-                        if on(add(q, scale(direction, t)), &face) && on(sub(p, scale(direction, t)), &source.shape) {
+                    Place::Face(q, source_near) => {
+                        let t = dot(sub(p, *q), direction);
+                        if on(add(*q, scale(direction, t)), &face, &near)
+                            && on(sub(p, scale(direction, t)), &source.shape, source_near)
+                        {
                             origins.derive(&face, source, true);
                         }
                     }
@@ -630,6 +653,19 @@ fn swept_origins(model: &Model, definition: &Value, made: &[(Shape, BodyType)], 
         }
     }
     Ok(origins)
+}
+
+/// A box a shape is surely inside: its quick box, which can fall a little short of a curved face, and a quarter of
+/// its size more all round. `None` if it has no box.
+fn roomy_box(shape: &Shape) -> Option<Box3> {
+    let b = shape.quick_box().ok().filter(|b| !b.empty)?;
+    let room = 0.25 * values::norm(sub(b.max, b.min)) + 1e-6;
+    let room = Vec3::new(room, room, room);
+    Some(Box3 { min: sub(b.min, room), max: add(b.max, room), empty: false })
+}
+
+fn in_box(b: &Box3, p: Vec3) -> bool {
+    (b.min.x..=b.max.x).contains(&p.x) && (b.min.y..=b.max.y).contains(&p.y) && (b.min.z..=b.max.z).contains(&p.z)
 }
 
 fn boxes_meet(a: &Box3, b: &Box3) -> bool {

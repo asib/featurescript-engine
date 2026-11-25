@@ -860,6 +860,17 @@ Box3 bounding_box(const Shape &s, bool precise) {
   return Box3{Vec3{lo[0], lo[1], lo[2]}, Vec3{hi[0], hi[1], hi[2]}, false};
 }
 
+// A box found quickly from the geometry: B-splines' poles and samples of other curved faces, which can leave it a
+// little short of them. It includes the shapes' tolerances.
+Box3 quick_box(const Shape &s) {
+  Bnd_Box box;
+  BRepBndLib::Add(s.shape, box, Standard_False);
+  if (box.IsVoid()) return Box3{Vec3{0, 0, 0}, Vec3{0, 0, 0}, true};
+  double lo[3], hi[3];
+  box.Get(lo[0], lo[1], lo[2], hi[0], hi[1], hi[2]);
+  return Box3{Vec3{lo[0], lo[1], lo[2]}, Vec3{hi[0], hi[1], hi[2]}, false};
+}
+
 // The box around a shape in the coordinates of `frame` (origin, z = normal, x).
 Box3 bounding_box_in(const Shape &s, Frame frame, bool precise) {
   gp_Trsf to_local;
